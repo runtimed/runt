@@ -1,0 +1,18 @@
+[package]
+name = "sidecar"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.5.1", features = ["derive"] }
+serde = { version = "1.0.196", features = ["derive"] }
+runtimelib = { path = "../runtimelib" }
+anyhow = "1.0.80"
+querystring = "1.1.0"
+tao = "0.30.3"
+wry = "0.45.0"
+
+
+[[bin]]
+path = "src/main.rs"
+name = "sidecar"
