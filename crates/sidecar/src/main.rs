@@ -1,7 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
-use std::sync::Arc;
-use std::{borrow::Cow, sync::Mutex};
+use std::{
+    borrow::Cow,
+    sync::{Arc, Mutex},
+};
 use tao::{
     dpi::Size,
     event::{Event, WindowEvent},
@@ -36,27 +38,28 @@ fn main() -> Result<()> {
         .build(&event_loop)
         .unwrap();
 
-    let current_query_clone = Arc::clone(&current_query);
     let _webview = WebViewBuilder::new(&window)
         .with_devtools(true)
-        .with_asynchronous_custom_protocol("quak".into(), move |request, responder| {
-            responder.respond(
-                match get_quak_response(
-                    Arc::clone(&pool),
-                    Arc::clone(&current_query_clone),
-                    request,
-                ) {
-                    Ok(r) => r,
-                    Err(e) => Response::builder()
-                        .header("Content-Type", "text/plain")
-                        .status(200)
-                        .body(e.to_string().as_bytes().to_vec())
-                        .unwrap()
-                        .map(Into::into),
-                },
-            )
+        .with_asynchronous_custom_protocol("sidecar".into(), move |request, responder| {
+            let response = get_response(request).map_err(|e| {
+                eprintln!("{:?}", e);
+                e
+            });
+
+            match response {
+                Ok(response) => responder.respond(response),
+                Err(e) => {
+                    eprintln!("{:?}", e);
+                    responder.respond(
+                        Response::builder()
+                            .status(500)
+                            .body("Internal Server Error".as_bytes().to_vec())
+                            .unwrap(),
+                    )
+                }
+            }
         })
-        .with_url("quak://localhost")
+        .with_url("sidecar://localhost")
         .build()?;
 
     event_loop.run(move |event, _, control_flow| {
@@ -101,11 +104,7 @@ impl<T> TryFrom<&Request<T>> for Action {
     }
 }
 
-fn get_quak_response(
-    db: Arc<db::ConnectionPool>,
-    current_query: Arc<Mutex<String>>,
-    request: Request<Vec<u8>>,
-) -> Result<Response<Cow<'static, [u8]>>> {
+fn get_response(request: Request<Vec<u8>>) -> Result<Response<Cow<'static, [u8]>>> {
     match (request.method(), request.uri().path()) {
         (&Method::GET, "/") => Ok(Response::builder()
             .header("Content-Type", "text/html")
@@ -117,30 +116,6 @@ fn get_quak_response(
             .status(200)
             .body(include_bytes!("./static/widget.js").into())
             .unwrap()),
-        (&Method::POST, "/api/query") => {
-            let sql = std::str::from_utf8(request.body())?;
-            match Action::try_from(&request)? {
-                Action::Arrow => Ok(Response::builder()
-                    .header("Content-Type", "application/vnd.apache.arrow.file")
-                    .status(200)
-                    .body(db.get_arrow(sql)?.into())
-                    .unwrap()),
-                Action::Json => Ok(Response::builder()
-                    .header("Content-Type", "application/json")
-                    .status(200)
-                    .body(db.get_json(sql)?.into())
-                    .unwrap()),
-                Action::Exec => {
-                    db.execute(sql)?;
-                    Ok(Response::builder().status(200).body(vec![].into()).unwrap())
-                }
-            }
-        }
-        (&Method::POST, "/api/sql") => {
-            let sql = std::str::from_utf8(request.body())?;
-            *current_query.lock().unwrap() = sql.to_string();
-            Ok(Response::builder().status(200).body(vec![].into()).unwrap())
-        }
         _ => Ok(Response::builder()
             .header("Content-Type", "text/plain")
             .status(404)
