@@ -11,6 +11,8 @@ use wry::{
     WebViewBuilder,
 };
 
+use std::sync::{Arc, Mutex};
+
 #[derive(Parser)]
 #[clap(name = "sidecar", version = "0.1.0", author = "Kyle Kelley")]
 struct Cli {
@@ -26,6 +28,8 @@ fn main() -> Result<()> {
         anyhow::bail!("Invalid file provided");
     }
 
+    let connection_file = args.file;
+
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("kernel sidecar")
@@ -40,7 +44,6 @@ fn main() -> Result<()> {
                 eprintln!("{:?}", e);
                 e
             });
-
             match response {
                 Ok(response) => responder.respond(response),
                 Err(e) => {
@@ -54,7 +57,10 @@ fn main() -> Result<()> {
                 }
             }
         })
-        .with_url("sidecar://localhost")
+        .with_url({
+            let connection_file = connection_file.to_string_lossy();
+            format!("sidecar://{connection_file}")
+        })
         .build()?;
 
     event_loop.run(move |event, _, control_flow| {
