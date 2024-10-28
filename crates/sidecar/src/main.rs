@@ -1,9 +1,5 @@
 use anyhow::Result;
 use clap::Parser;
-use std::{
-    borrow::Cow,
-    sync::{Arc, Mutex},
-};
 use tao::{
     dpi::Size,
     event::{Event, WindowEvent},
@@ -25,7 +21,6 @@ struct Cli {
 fn main() -> Result<()> {
     let args = Cli::parse();
     let (width, height) = (960.0, 550.0);
-    let current_query = Arc::new(Mutex::new(String::new()));
 
     if !args.file.exists() {
         anyhow::bail!("Invalid file provided");
@@ -70,41 +65,12 @@ fn main() -> Result<()> {
             ..
         } = event
         {
-            // let sql = current_query.lock().unwrap();
-            // println!("{}", sql.replace("\"df\"", from.as_ref()));
             *control_flow = ControlFlow::Exit
         }
     });
 }
 
-enum Action {
-    Arrow,
-    Json,
-    Exec,
-}
-
-impl<T> TryFrom<&Request<T>> for Action {
-    type Error = anyhow::Error;
-    fn try_from(value: &Request<T>) -> Result<Self> {
-        let Some(query) = value.uri().query() else {
-            anyhow::bail!("no query string found");
-        };
-        for (k, v) in querystring::querify(query) {
-            if !k.eq("type") {
-                continue;
-            }
-            match v {
-                "arrow" => return Ok(Self::Arrow),
-                "json" => return Ok(Self::Json),
-                "exec" => return Ok(Self::Exec),
-                _ => anyhow::bail!("Invalid action"),
-            };
-        }
-        anyhow::bail!("Invalid action")
-    }
-}
-
-fn get_response(request: Request<Vec<u8>>) -> Result<Response<Cow<'static, [u8]>>> {
+fn get_response(request: Request<Vec<u8>>) -> Result<Response<Vec<u8>>> {
     match (request.method(), request.uri().path()) {
         (&Method::GET, "/") => Ok(Response::builder()
             .header("Content-Type", "text/html")
@@ -119,7 +85,7 @@ fn get_response(request: Request<Vec<u8>>) -> Result<Response<Cow<'static, [u8]>
         _ => Ok(Response::builder()
             .header("Content-Type", "text/plain")
             .status(404)
-            .body("Not Found".as_bytes().to_vec().into())
+            .body("Not Found".as_bytes().to_vec())
             .unwrap()),
     }
 }
