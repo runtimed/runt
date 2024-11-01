@@ -1,41 +1,36 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 use clap::Parser;
+use runtimelib::{dirs::runtime_dir, ConnectionInfo};
 use tao::{
     dpi::Size,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
+    window::{Window, WindowBuilder},
 };
 use wry::{
     http::{Method, Request, Response},
     WebViewBuilder,
 };
 
-use std::sync::{Arc, Mutex};
-
 #[derive(Parser)]
 #[clap(name = "sidecar", version = "0.1.0", author = "Kyle Kelley")]
 struct Cli {
     /// connection file to a jupyter kernel
-    file: std::path::PathBuf,
+    file: PathBuf,
 }
 
-fn main() -> Result<()> {
-    let args = Cli::parse();
-    let (width, height) = (960.0, 550.0);
+async fn run(
+    connection_file_path: &PathBuf,
+    event_loop: EventLoop<()>,
+    window: Window,
+) -> anyhow::Result<()> {
+    let connection_info = ConnectionInfo::from_path(connection_file_path).await?;
 
-    if !args.file.exists() {
-        anyhow::bail!("Invalid file provided");
-    }
-
-    let connection_file = args.file;
-
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title("kernel sidecar")
-        .with_inner_size(Size::Logical((width, height).into()))
-        .build(&event_loop)
-        .unwrap();
+    let iopub = connection_info
+        .create_client_iopub_connection("", "sidecar-session")
+        .await?; // todo: generate session ID
 
     let _webview = WebViewBuilder::new(&window)
         .with_devtools(true)
@@ -58,7 +53,7 @@ fn main() -> Result<()> {
             }
         })
         .with_url({
-            let connection_file = connection_file.to_string_lossy();
+            let connection_file = connection_file_path.to_string_lossy();
             format!("sidecar://{connection_file}")
         })
         .build()?;
@@ -74,6 +69,25 @@ fn main() -> Result<()> {
             *control_flow = ControlFlow::Exit
         }
     });
+}
+
+fn main() -> Result<()> {
+    let args = Cli::parse();
+    let (width, height) = (960.0, 550.0);
+
+    if !args.file.exists() {
+        anyhow::bail!("Invalid file provided");
+    }
+    let connection_file = args.file;
+
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new()
+        .with_title("kernel sidecar")
+        .with_inner_size(Size::Logical((width, height).into()))
+        .build(&event_loop)
+        .unwrap();
+
+    pollster::block_on(run(&connection_file, event_loop, window))
 }
 
 fn get_response(request: Request<Vec<u8>>) -> Result<Response<Vec<u8>>> {
