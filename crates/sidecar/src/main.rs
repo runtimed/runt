@@ -2,13 +2,11 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
-use futures::SinkExt as _;
-use runtimelib::{dirs::runtime_dir, ConnectionInfo, JupyterMessage};
-use smol::stream::StreamExt as _;
+use runtimelib::{ConnectionInfo, JupyterMessage};
 use tao::{
     dpi::Size,
     event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy},
+    event_loop::{ControlFlow, EventLoop, EventLoopBuilder},
     window::{Window, WindowBuilder},
 };
 use wry::{
