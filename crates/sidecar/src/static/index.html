@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>quak</title>
+    <title>sidecar</title>
     <style>
       * {
         font-family: sans-serif;
@@ -17,26 +17,12 @@
         margin-top: 1rem;
         margin-bottom: 1rem;
       }
-      #datatable {
-        margin-bottom: 1rem;
-      }
     </style>
     <script type="module">
-      console.log("hey");
-      // import { embed } from "/widget.js";
-
-      // let cliDt = await embed(datatable);
-
-      // cliDt.sql.subscribe((sql) => {
-      //   let response = fetch("/api/sql", {
-      //     method: "POST",
-      //     headers: { "Content-Type": "text/plain" },
-      //     body: sql,
-      //   });
-      //   console.log(response.status);
-      // });
+      import { onMessage } from "/main.js";
+      globalThis.onMessage = onMessage;
     </script>
   <body>
-    <div id="datatable">Data time</div>
+      <div id="outputArea"></div>
   </body>
 </html>

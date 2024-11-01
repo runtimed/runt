@@ -15,8 +15,7 @@ futures = "0.3"
 querystring = "1.1.0"
 tao = "0.30.3"
 wry = "0.45.0"
-pollster = "0.3.0"
-
+smol = "2"
 
 [[bin]]
 path = "src/main.rs"

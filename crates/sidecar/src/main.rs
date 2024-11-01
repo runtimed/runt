@@ -2,11 +2,13 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
-use runtimelib::{dirs::runtime_dir, ConnectionInfo};
+use futures::SinkExt as _;
+use runtimelib::{dirs::runtime_dir, ConnectionInfo, JupyterMessage};
+use smol::stream::StreamExt as _;
 use tao::{
     dpi::Size,
     event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy},
     window::{Window, WindowBuilder},
 };
 use wry::{
@@ -23,14 +25,23 @@ struct Cli {
 
 async fn run(
     connection_file_path: &PathBuf,
-    event_loop: EventLoop<()>,
+    event_loop: EventLoop<JupyterMessage>,
     window: Window,
 ) -> anyhow::Result<()> {
     let connection_info = ConnectionInfo::from_path(connection_file_path).await?;
 
-    let iopub = connection_info
+    let (mut iopub, mut iosub) = futures::channel::mpsc::channel::<JupyterMessage>(100);
+
+    let mut iopub_connection = connection_info
         .create_client_iopub_connection("", "sidecar-session")
         .await?; // todo: generate session ID
+
+    smol::spawn(async move {
+        while let Ok(message) = iopub_connection.read().await {
+            iopub.send(message).await.unwrap();
+        }
+    })
+    .detach();
 
     let _webview = WebViewBuilder::new(&window)
         .with_devtools(true)
@@ -52,21 +63,41 @@ async fn run(
                 }
             }
         })
-        .with_url({
-            let connection_file = connection_file_path.to_string_lossy();
-            format!("sidecar://{connection_file}")
-        })
+        .with_url("sidecar://localhost")
         .build()?;
+
+    let event_loop_proxy: EventLoopProxy<JupyterMessage> = event_loop.create_proxy();
+
+    smol::spawn(async move {
+        while let Some(message) = iosub.next().await {
+            // let serialized_message = serde_json::to_string(&message).unwrap();
+
+            event_loop_proxy.send_event(message);
+            // tx.send(serialized_message).ok();
+        }
+    })
+    .detach();
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
-        if let Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } = event
-        {
-            *control_flow = ControlFlow::Exit
+        match event {
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => {
+                *control_flow = ControlFlow::Exit;
+            }
+            Event::MainEventsCleared => {
+                //
+            }
+            Event::UserEvent(data) => {
+                let serialized_message = serde_json::to_string(&data).unwrap();
+                _webview
+                    .evaluate_script(&format!(r#"globalThis.onMessage({})"#, serialized_message))
+                    .expect("Failed to evaluate script");
+            }
+            _ => {}
         }
     });
 }
@@ -80,14 +111,15 @@ fn main() -> Result<()> {
     }
     let connection_file = args.file;
 
-    let event_loop = EventLoop::new();
+    let event_loop: EventLoop<JupyterMessage> = EventLoopBuilder::with_user_event().build();
+
     let window = WindowBuilder::new()
         .with_title("kernel sidecar")
         .with_inner_size(Size::Logical((width, height).into()))
         .build(&event_loop)
         .unwrap();
 
-    pollster::block_on(run(&connection_file, event_loop, window))
+    smol::block_on(run(&connection_file, event_loop, window))
 }
 
 fn get_response(request: Request<Vec<u8>>) -> Result<Response<Vec<u8>>> {
@@ -97,10 +129,10 @@ fn get_response(request: Request<Vec<u8>>) -> Result<Response<Vec<u8>>> {
             .status(200)
             .body(include_bytes!("./static/index.html").into())
             .unwrap()),
-        (&Method::GET, "/widget.js") => Ok(Response::builder()
+        (&Method::GET, "/main.js") => Ok(Response::builder()
             .header("Content-Type", "application/javascript")
             .status(200)
-            .body(include_bytes!("./static/widget.js").into())
+            .body(include_bytes!("./static/main.js").into())
             .unwrap()),
         _ => Ok(Response::builder()
             .header("Content-Type", "text/plain")
