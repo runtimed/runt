@@ -82,6 +82,7 @@ async fn run(
             }
             Event::UserEvent(data) => {
                 let serialized_message = serde_json::to_string(&data).unwrap();
+                dbg!(&serialized_message);
                 _webview
                     .evaluate_script(&format!(r#"globalThis.onMessage({})"#, serialized_message))
                     .expect("Failed to evaluate script");
