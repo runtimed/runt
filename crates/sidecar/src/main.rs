@@ -30,18 +30,9 @@ async fn run(
 ) -> anyhow::Result<()> {
     let connection_info = ConnectionInfo::from_path(connection_file_path).await?;
 
-    let (mut iopub, mut iosub) = futures::channel::mpsc::channel::<JupyterMessage>(100);
-
     let mut iopub_connection = connection_info
         .create_client_iopub_connection("", "sidecar-session")
         .await?; // todo: generate session ID
-
-    smol::spawn(async move {
-        while let Ok(message) = iopub_connection.read().await {
-            iopub.send(message).await.unwrap();
-        }
-    })
-    .detach();
 
     let _webview = WebViewBuilder::new(&window)
         .with_devtools(true)
@@ -66,14 +57,17 @@ async fn run(
         .with_url("sidecar://localhost")
         .build()?;
 
-    let event_loop_proxy: EventLoopProxy<JupyterMessage> = event_loop.create_proxy();
+    let event_loop_proxy = event_loop.create_proxy();
 
     smol::spawn(async move {
-        while let Some(message) = iosub.next().await {
-            // let serialized_message = serde_json::to_string(&message).unwrap();
-
-            event_loop_proxy.send_event(message);
-            // tx.send(serialized_message).ok();
+        while let Ok(message) = iopub_connection.read().await {
+            match event_loop_proxy.send_event(message) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("{:?}", e);
+                    break;
+                }
+            };
         }
     })
     .detach();
@@ -87,9 +81,6 @@ async fn run(
                 ..
             } => {
                 *control_flow = ControlFlow::Exit;
-            }
-            Event::MainEventsCleared => {
-                //
             }
             Event::UserEvent(data) => {
                 let serialized_message = serde_json::to_string(&data).unwrap();
