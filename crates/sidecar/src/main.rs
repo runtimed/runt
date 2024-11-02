@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
 use futures::StreamExt;
-use runtimelib::{ConnectionInfo, JupyterMessage};
+use runtimelib::{ConnectionInfo, JupyterMessage, JupyterMessageContent};
 use tao::{
     dpi::Size,
     event::{Event, WindowEvent},

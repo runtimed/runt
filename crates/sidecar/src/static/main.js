@@ -26,6 +26,12 @@ function isDisplayDataOrExecuteResult(msg) {
 
 /** @param {t.JupyterMessage} message */
 export async function onMessage(message) {
+  // buffers are base64 encoded here, so we need to decode them into ArrayBuffers
+  message.buffers = message.buffers.map((b64) =>
+    // @ts-expect-error - Uint8Array is not an ArrayBuffer
+    Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+  );
+
   /** @type {import("npm:@jupyter-widgets/html-manager").HTMLManager} */
   const manager = globalThis.widgetManager;
   assert(manager, "widgetManager not found");

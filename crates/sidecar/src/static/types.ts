@@ -20,6 +20,7 @@ export type DisplayData = {
     data: Mimebundle;
     execution_count: number;
   };
+  buffers: ArrayBuffer[];
 };
 
 export type ExecuteResult = {
@@ -28,6 +29,7 @@ export type ExecuteResult = {
     data: Mimebundle;
     execution_count: number;
   };
+  buffers: ArrayBuffer[];
 };
 
 export type CommOpen = {
@@ -40,6 +42,7 @@ export type CommOpen = {
       state: Record<string, unknown>;
     };
   };
+  buffers: ArrayBuffer[];
 };
 
 export type JupyterMessage = DisplayData | ExecuteResult | CommOpen;
