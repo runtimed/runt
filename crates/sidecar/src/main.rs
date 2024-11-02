@@ -129,6 +129,9 @@ async fn run(
                 match serde_json::from_slice::<WryJupyterMessage>(req.body()) {
                     Ok(wry_message) => {
                         let message: JupyterMessage = wry_message.into();
+
+                        dbg!(&message);
+
                         let mut tx = tx.clone();
                         if let Err(e) = tx.try_send(message) {
                             eprintln!("Failed to send message: {}", e);

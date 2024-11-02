@@ -20,8 +20,10 @@ function createOutputCell(executionCount) {
  * @returns {msg is t.DisplayData | t.ExecuteResult}
  */
 function isDisplayDataOrExecuteResult(msg) {
-  return msg.header.msg_type === "display_data" ||
-    msg.header.msg_type === "execute_result";
+  return (
+    msg.header.msg_type === "display_data" ||
+    msg.header.msg_type === "execute_result"
+  );
 }
 
 /** @param {t.JupyterMessage} message */
@@ -29,7 +31,7 @@ export async function onMessage(message) {
   // buffers are base64 encoded here, so we need to decode them into ArrayBuffers
   message.buffers = message.buffers.map((b64) =>
     // @ts-expect-error - Uint8Array is not an ArrayBuffer
-    Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+    Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)),
   );
 
   /** @type {import("npm:@jupyter-widgets/html-manager").HTMLManager} */
@@ -87,11 +89,9 @@ export async function onMessage(message) {
   }
 
   if (message.header.msg_type === "stream") {
-    console.log("stream");
+    console.log(message.content);
     return;
   }
-
-  console.log(message.header.msg_type, message);
 }
 
 // This class is a striped down version of Comm from @jupyter-widgets/base
@@ -126,20 +126,26 @@ export class Comm {
    * @param {Array<ArrayBuffer>} buffers
    */
   send(data, _callbacks, metadata, buffers) {
+    const msg_id = crypto.randomUUID();
+
     const msg = {
+      parent_header: this.#header,
       content: { comm_id: this.comm_id, data: data },
       metadata: metadata,
       // TODO: need to _encode_ any buffers into base64 (JSON.stringify just drops them)
       buffers: buffers || [],
       // this doesn't seem relevant to the widget?
       header: {
-        ...this.#header,
-        msg_id: "TODO",
+        msg_id,
         msg_type: "comm_msg",
         date: new Date().toISOString(),
+        username: "sidecar",
+        session: "fake-todo",
+        version: "5.0",
       },
     };
 
+    console.log("Sending", msg);
     // await this?
     fetch("/message", { method: "POST", body: JSON.stringify(msg) });
 
