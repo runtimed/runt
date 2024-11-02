@@ -1,10 +1,7 @@
-use std::{
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
-
+use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
+use futures::StreamExt;
 use runtimelib::{ConnectionInfo, JupyterMessage};
 use tao::{
     dpi::Size,
@@ -40,37 +37,26 @@ async fn run(
         .await?;
 
     let (tx, mut rx) = futures::channel::mpsc::channel::<JupyterMessage>(100);
-    let tx = Arc::new(Mutex::new(tx));
 
     smol::spawn(async move {
-        loop {
-            match rx.try_next() {
-                Ok(Some(message)) => {
-                    if let Err(e) = shell.send(message).await {
-                        eprintln!("Failed to send message: {}", e);
-                        break;
-                    }
-                }
-                Ok(None) => {
-                    break;
-                }
-                Err(e) => {
-                    // Handle receiving error and break the loop
-                    eprintln!("Error receiving message: {}", e);
-                    break;
-                }
+        while let Some(message) = rx.next().await {
+            if let Err(e) = shell.send(message).await {
+                eprintln!("Failed to send message: {}", e);
+                break;
             }
         }
     })
     .detach();
 
-    let tx_clone = tx.clone();
     let webview = WebViewBuilder::new(&window)
         .with_devtools(true)
         .with_asynchronous_custom_protocol("sidecar".into(), move |req, responder| {
             if let (&Method::POST, "/message") = (req.method(), req.uri().path()) {
                 let message: JupyterMessage = serde_json::from_slice(req.body()).unwrap();
-                tx_clone.lock().unwrap().try_send(message).unwrap();
+                let mut tx = tx.clone();
+                if let Err(e) = tx.try_send(message) {
+                    eprintln!("Failed to send message: {}", e);
+                }
                 return responder.respond(Response::builder().status(200).body(&[]).unwrap());
             };
             let response = get_response(req).map_err(|e| {
@@ -120,7 +106,6 @@ async fn run(
             }
             Event::UserEvent(data) => {
                 let serialized_message = serde_json::to_string(&data).unwrap();
-                dbg!(&serialized_message);
                 webview
                     .evaluate_script(&format!(r#"globalThis.onMessage({})"#, serialized_message))
                     .expect("Failed to evaluate script");
