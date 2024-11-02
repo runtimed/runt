@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::Result;
 use clap::Parser;
@@ -28,14 +31,49 @@ async fn run(
 ) -> anyhow::Result<()> {
     let connection_info = ConnectionInfo::from_path(connection_file_path).await?;
 
-    let mut iopub_connection = connection_info
-        .create_client_iopub_connection("", "sidecar-session")
-        .await?; // todo: generate session ID
+    let mut iopub = connection_info
+        .create_client_iopub_connection("", &format!("sidecar-{}", uuid::Uuid::new_v4()))
+        .await?;
 
-    let _webview = WebViewBuilder::new(&window)
+    let mut shell = connection_info
+        .create_client_shell_connection(&iopub.session_id)
+        .await?;
+
+    let (tx, mut rx) = futures::channel::mpsc::channel::<JupyterMessage>(100);
+    let tx = Arc::new(Mutex::new(tx));
+
+    smol::spawn(async move {
+        loop {
+            match rx.try_next() {
+                Ok(Some(message)) => {
+                    if let Err(e) = shell.send(message).await {
+                        eprintln!("Failed to send message: {}", e);
+                        break;
+                    }
+                }
+                Ok(None) => {
+                    break;
+                }
+                Err(e) => {
+                    // Handle receiving error and break the loop
+                    eprintln!("Error receiving message: {}", e);
+                    break;
+                }
+            }
+        }
+    })
+    .detach();
+
+    let tx_clone = tx.clone();
+    let webview = WebViewBuilder::new(&window)
         .with_devtools(true)
-        .with_asynchronous_custom_protocol("sidecar".into(), move |request, responder| {
-            let response = get_response(request).map_err(|e| {
+        .with_asynchronous_custom_protocol("sidecar".into(), move |req, responder| {
+            if let (&Method::POST, "/message") = (req.method(), req.uri().path()) {
+                let message: JupyterMessage = serde_json::from_slice(req.body()).unwrap();
+                tx_clone.lock().unwrap().try_send(message).unwrap();
+                return responder.respond(Response::builder().status(200).body(&[]).unwrap());
+            };
+            let response = get_response(req).map_err(|e| {
                 eprintln!("{:?}", e);
                 e
             });
@@ -58,7 +96,7 @@ async fn run(
     let event_loop_proxy = event_loop.create_proxy();
 
     smol::spawn(async move {
-        while let Ok(message) = iopub_connection.read().await {
+        while let Ok(message) = iopub.read().await {
             match event_loop_proxy.send_event(message) {
                 Ok(_) => {}
                 Err(e) => {
@@ -83,7 +121,7 @@ async fn run(
             Event::UserEvent(data) => {
                 let serialized_message = serde_json::to_string(&data).unwrap();
                 dbg!(&serialized_message);
-                _webview
+                webview
                     .evaluate_script(&format!(r#"globalThis.onMessage({})"#, serialized_message))
                     .expect("Failed to evaluate script");
             }
