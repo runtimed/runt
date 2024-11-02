@@ -118,6 +118,8 @@ async fn run(
                 eprintln!("Failed to send message: {}", e);
                 break;
             }
+            let resp = shell.read().await;
+            dbg!(&resp);
         }
     })
     .detach();
@@ -133,6 +135,7 @@ async fn run(
                         dbg!(&message);
 
                         let mut tx = tx.clone();
+
                         if let Err(e) = tx.try_send(message) {
                             eprintln!("Failed to send message: {}", e);
                         }
