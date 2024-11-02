@@ -3,8 +3,9 @@ use base64::prelude::*;
 use bytes::Bytes;
 use clap::Parser;
 use futures::StreamExt;
-use runtimelib::{ConnectionInfo, JupyterMessage, JupyterMessageContent};
-use serde::{Serialize as _, Serializer};
+use runtimelib::{Channel, ConnectionInfo, Header, JupyterMessage, JupyterMessageContent};
+use serde::{Deserialize, Serialize, Serializer};
+use serde_json::Value;
 use std::path::PathBuf;
 use tao::{
     dpi::Size,
@@ -24,6 +25,49 @@ struct Cli {
     file: PathBuf,
 }
 
+#[derive(Serialize, Deserialize)]
+struct WryJupyterMessage {
+    // Note: I skipped zmq_identities, thinking we don't need them for this
+    header: Header,
+    parent_header: Option<Header>,
+    metadata: Value,
+    content: JupyterMessageContent,
+    #[serde(
+        serialize_with = "serialize_base64",
+        deserialize_with = "deserialize_base64"
+    )]
+    buffers: Vec<Bytes>,
+    channel: Option<Channel>,
+}
+
+impl From<JupyterMessage> for WryJupyterMessage {
+    fn from(msg: JupyterMessage) -> Self {
+        WryJupyterMessage {
+            header: msg.header,
+            parent_header: msg.parent_header,
+            metadata: msg.metadata,
+            content: msg.content,
+            buffers: msg.buffers,
+            channel: msg.channel,
+        }
+    }
+}
+
+impl From<WryJupyterMessage> for JupyterMessage {
+    fn from(msg: WryJupyterMessage) -> Self {
+        JupyterMessage {
+            // todo!(): figure out if we need to set this
+            zmq_identities: Vec::new(),
+            header: msg.header,
+            parent_header: msg.parent_header,
+            metadata: msg.metadata,
+            content: msg.content,
+            buffers: msg.buffers,
+            channel: msg.channel,
+        }
+    }
+}
+
 // Custom serializer for Base64 encoding for buffers
 fn serialize_base64<S>(data: &[Bytes], serializer: S) -> Result<S::Ok, S::Error>
 where
@@ -33,6 +77,22 @@ where
         .map(|bytes| BASE64_STANDARD.encode(bytes))
         .collect::<Vec<_>>()
         .serialize(serializer)
+}
+
+fn deserialize_base64<'de, D>(deserializer: D) -> Result<Vec<Bytes>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let encoded: Vec<String> = Vec::deserialize(deserializer)?;
+    encoded
+        .iter()
+        .map(|s| {
+            BASE64_STANDARD
+                .decode(s)
+                .map(Bytes::from)
+                .map_err(serde::de::Error::custom)
+        })
+        .collect()
 }
 
 async fn run(
@@ -66,12 +126,27 @@ async fn run(
         .with_devtools(true)
         .with_asynchronous_custom_protocol("sidecar".into(), move |req, responder| {
             if let (&Method::POST, "/message") = (req.method(), req.uri().path()) {
-                let message: JupyterMessage = serde_json::from_slice(req.body()).unwrap();
-                let mut tx = tx.clone();
-                if let Err(e) = tx.try_send(message) {
-                    eprintln!("Failed to send message: {}", e);
+                match serde_json::from_slice::<WryJupyterMessage>(req.body()) {
+                    Ok(wry_message) => {
+                        let message: JupyterMessage = wry_message.into();
+                        let mut tx = tx.clone();
+                        if let Err(e) = tx.try_send(message) {
+                            eprintln!("Failed to send message: {}", e);
+                        }
+                        responder.respond(Response::builder().status(200).body(&[]).unwrap());
+                        return;
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to deserialize message: {}", e);
+                        responder.respond(
+                            Response::builder()
+                                .status(400)
+                                .body("Bad Request".as_bytes().to_vec())
+                                .unwrap(),
+                        );
+                        return;
+                    }
                 }
-                return responder.respond(Response::builder().status(200).body(&[]).unwrap());
             };
             let response = get_response(req).map_err(|e| {
                 eprintln!("{:?}", e);
@@ -119,10 +194,18 @@ async fn run(
                 *control_flow = ControlFlow::Exit;
             }
             Event::UserEvent(data) => {
-                let serialized_message = serde_json::to_string(&data).unwrap();
-                webview
-                    .evaluate_script(&format!(r#"globalThis.onMessage({})"#, serialized_message))
-                    .expect("Failed to evaluate script");
+                let serialized: WryJupyterMessage = data.into();
+                match serde_json::to_string(&serialized) {
+                    Ok(serialized_message) => {
+                        webview
+                            .evaluate_script(&format!(
+                                r#"globalThis.onMessage({})"#,
+                                serialized_message
+                            ))
+                            .expect("Failed to evaluate script");
+                    }
+                    Err(e) => eprintln!("Failed to serialize message: {}", e),
+                }
             }
             _ => {}
         }
