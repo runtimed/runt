@@ -1,8 +1,11 @@
-use std::path::PathBuf;
 use anyhow::Result;
+use base64::prelude::*;
+use bytes::Bytes;
 use clap::Parser;
 use futures::StreamExt;
 use runtimelib::{ConnectionInfo, JupyterMessage, JupyterMessageContent};
+use serde::{Serialize as _, Serializer};
+use std::path::PathBuf;
 use tao::{
     dpi::Size,
     event::{Event, WindowEvent},
@@ -19,6 +22,17 @@ use wry::{
 struct Cli {
     /// connection file to a jupyter kernel
     file: PathBuf,
+}
+
+// Custom serializer for Base64 encoding for buffers
+fn serialize_base64<S>(data: &[Bytes], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    data.iter()
+        .map(|bytes| BASE64_STANDARD.encode(bytes))
+        .collect::<Vec<_>>()
+        .serialize(serializer)
 }
 
 async fn run(
