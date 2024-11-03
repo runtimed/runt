@@ -114,12 +114,15 @@ async fn run(
 
     smol::spawn(async move {
         while let Some(message) = rx.next().await {
+            dbg!("got message to send");
+            dbg!(&message);
             if let Err(e) = shell.send(message).await {
                 eprintln!("Failed to send message: {}", e);
-                break;
+            } else {
+                dbg!("Sent message");
+                let resp = shell.read().await;
+                dbg!(&resp);
             }
-            let resp = shell.read().await;
-            dbg!(&resp);
         }
     })
     .detach();
