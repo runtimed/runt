@@ -62,7 +62,9 @@ export async function onMessage(message) {
       log("debug", "Displayed view");
     } else if (data["text/html"]) {
       log("debug", "Displaying HTML content");
-      output.innerHTML = data["text/html"];
+      const range = document.createRange();
+      const fragment = range.createContextualFragment(data["text/html"]);
+      output.appendChild(fragment);
     } else if (data["text/plain"]) {
       log("debug", "Displaying plain text content");
       const pre = document.createElement("pre");
