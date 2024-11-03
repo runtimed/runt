@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>sidecar</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                    Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            }
+
+            body {
+                background: #f8f9fa;
+                color: #212529;
+                line-height: 1.5;
+                padding: 2rem;
+            }
+
+            #outputArea {
+                max-width: 900px;
+                margin: 0 auto;
+            }
+
+            .cell {
+                background: white;
+                border: 1px solid #dee2e6;
+                border-radius: 6px;
+                margin-bottom: 1rem;
+                padding: 1rem;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            }
+
+            .cell pre {
+                font-family: "SF Mono", Consolas, Monaco, "Andale Mono",
+                    monospace;
+                background: #f8f9fa;
+                padding: 0.75rem;
+                border-radius: 4px;
+                overflow-x: auto;
+            }
+
+            .cell p {
+                margin-bottom: 0.75rem;
+            }
+
+            .cell p:last-child {
+                margin-bottom: 0;
+            }
+
+            ::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+
+            ::-webkit-scrollbar-track {
+                background: #f1f1f1;
+                border-radius: 4px;
+            }
+
+            ::-webkit-scrollbar-thumb {
+                background: #ccc;
+                border-radius: 4px;
+            }
+
+            ::-webkit-scrollbar-thumb:hover {
+                background: #bbb;
+            }
+        </style>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.7/require.min.js"></script>
+        <script src="https://unpkg.com/@jupyter-widgets/html-manager@0.20.0/dist/libembed-amd.js"></script>
+        <script>
+            require(["@jupyter-widgets/html-manager"], function (j) {
+                class OutputManager extends j.HTMLManager {
+                    // In a soon-to-be-released version of @jupyter-widgets/html-manager,
+                    // display_view()'s first "dummy" argument will be removed... this shim simply
+                    // makes it so that our manager can work with either version
+                    // https://github.com/jupyter-widgets/ipywidgets/commit/159bbe4#diff-45c126b24c3c43d2cee5313364805c025e911c4721d45ff8a68356a215bfb6c8R42-R43
+                    async display_view(view, options) {
+                        const args = super.display_view.length;
+                        if (args === 3) {
+                            return super.display_view({}, view, options);
+                        } else {
+                            // @ts-ignore
+                            return super.display_view(view, options);
+                        }
+                    }
+                }
+                globalThis.widgetManager = new OutputManager({
+                    loader: j.requireLoader,
+                });
+            });
+        </script>
+        <script type="module">
+            import { onMessage } from "/main.js";
+            globalThis.onMessage = onMessage;
+        </script>
+    </head>
+    <body>
+        <div id="outputArea"></div>
+    </body>
+</html>

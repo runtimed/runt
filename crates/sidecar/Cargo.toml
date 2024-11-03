@@ -1,0 +1,27 @@
+[package]
+name = "sidecar"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+base64 = "0.22.0"
+bytes = "1.5.0"
+clap = { version = "4.5.1", features = ["derive"] }
+env_logger = "0.11.5"
+log = "0.4.22"
+serde = { version = "1.0.196", features = ["derive"] }
+serde_json = "1.0.113"
+runtimelib = { path = "../runtimelib", features = [
+    "async-dispatcher-runtime",
+], default-features = false }
+anyhow = "1.0.80"
+futures = "0.3"
+querystring = "1.1.0"
+tao = "0.30.3"
+wry = "0.45.0"
+smol = "2"
+uuid = "1.11.0"
+
+[[bin]]
+path = "src/main.rs"
+name = "sidecar"
