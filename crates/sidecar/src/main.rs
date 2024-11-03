@@ -2,7 +2,9 @@ use anyhow::Result;
 use base64::prelude::*;
 use bytes::Bytes;
 use clap::Parser;
+use env_logger;
 use futures::StreamExt;
+use log::{debug, error, info, warn};
 use runtimelib::{Channel, ConnectionInfo, Header, JupyterMessage, JupyterMessageContent};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
@@ -120,8 +122,9 @@ async fn run(
                 eprintln!("Failed to send message: {}", e);
             } else {
                 dbg!("Sent message");
-                let resp = shell.read().await;
-                dbg!(&resp);
+
+                // let resp = shell.read().await;
+                // dbg!(&resp);
             }
         }
     })
@@ -181,10 +184,13 @@ async fn run(
 
     smol::spawn(async move {
         while let Ok(message) = iopub.read().await {
+            debug!("Received message from iopub: {:?}", message);
             match event_loop_proxy.send_event(message) {
-                Ok(_) => {}
+                Ok(_) => {
+                    debug!("Sent message to event loop");
+                }
                 Err(e) => {
-                    eprintln!("{:?}", e);
+                    error!("Failed to send message to event loop: {:?}", e);
                     break;
                 }
             };
@@ -203,17 +209,19 @@ async fn run(
                 *control_flow = ControlFlow::Exit;
             }
             Event::UserEvent(data) => {
+                debug!("Received UserEvent: {:?}", data);
                 let serialized: WryJupyterMessage = data.into();
                 match serde_json::to_string(&serialized) {
                     Ok(serialized_message) => {
+                        debug!("Serialized message: {}", serialized_message);
                         webview
                             .evaluate_script(&format!(
                                 r#"globalThis.onMessage({})"#,
                                 serialized_message
                             ))
-                            .expect("Failed to evaluate script");
+                            .unwrap_or_else(|e| error!("Failed to evaluate script: {:?}", e));
                     }
-                    Err(e) => eprintln!("Failed to serialize message: {}", e),
+                    Err(e) => error!("Failed to serialize message: {}", e),
                 }
             }
             _ => {}
@@ -223,6 +231,8 @@ async fn run(
 
 fn main() -> Result<()> {
     let args = Cli::parse();
+    env_logger::init();
+    info!("Starting sidecar application");
     let (width, height) = (960.0, 550.0);
 
     if !args.file.exists() {

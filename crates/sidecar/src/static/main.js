@@ -1,4 +1,8 @@
 /** @import * as t from "./types.ts" */
+// Helper function for logging
+function log(level, ...args) {
+  console[level](`[${new Date().toISOString()}]`, ...args);
+}
 
 /**
  * @param {number | undefined} executionCount
@@ -28,28 +32,39 @@ function isDisplayDataOrExecuteResult(msg) {
 
 /** @param {t.JupyterMessage} message */
 export async function onMessage(message) {
+  log("info", "Received message:", message);
+
   // buffers are base64 encoded here, so we need to decode them into ArrayBuffers
   message.buffers = message.buffers.map((b64) =>
     // @ts-expect-error - Uint8Array is not an ArrayBuffer
     Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)),
   );
+  log("debug", "Decoded buffers:", message.buffers);
 
   /** @type {import("npm:@jupyter-widgets/html-manager").HTMLManager} */
   const manager = globalThis.widgetManager;
   assert(manager, "widgetManager not found");
+  log("debug", "Widget manager found");
 
   if (isDisplayDataOrExecuteResult(message)) {
+    log("info", "Handling display data or execute result");
     const { data, execution_count } = message.content;
     const output = createOutputCell(execution_count);
     if (data["application/vnd.jupyter.widget-view+json"]) {
+      log("debug", "Creating widget view");
       const { model_id } = data["application/vnd.jupyter.widget-view+json"];
       const model = await manager.get_model(model_id);
+      log("debug", "Got model:", model);
       const view = await manager.create_view(model, {});
+      log("debug", "Created view:", view);
       // @ts-expect-error - @jupyter-widgets/html-manager is incorrectly typed. I hate this package.
       await manager.display_view(view, { el: output });
+      log("debug", "Displayed view");
     } else if (data["text/html"]) {
+      log("debug", "Displaying HTML content");
       output.innerHTML = data["text/html"];
     } else if (data["text/plain"]) {
+      log("debug", "Displaying plain text content");
       const pre = document.createElement("pre");
       pre.textContent = data["text/plain"];
       output.appendChild(pre);
@@ -58,8 +73,10 @@ export async function onMessage(message) {
   }
 
   if (message.header.msg_type === "comm_open") {
+    log("info", "Handling comm_open message");
     const commId = message.content.comm_id;
     const comm = new Comm(commId, message.header);
+    log("debug", "Created new Comm:", comm);
     manager.handle_comm_open(
       comm,
       // I seriously don't get this API.
@@ -67,23 +84,30 @@ export async function onMessage(message) {
       // @ts-expect-error - very strict and we have the right message.
       message,
     );
+    log("debug", "Handled comm_open");
     return;
   }
 
   if (message.header.msg_type === "comm_msg") {
+    log("info", "Handling comm_msg message");
     const commId = message.content.comm_id;
     manager.get_model(commId).then((model) => {
+      log("debug", "Got model for comm_msg:", model);
       // @ts-expect-error we know our comm has this method
       model.comm?.handle_msg(message);
+      log("debug", "Handled comm_msg");
     });
     return;
   }
 
   if (message.header.msg_type === "comm_close") {
+    log("info", "Handling comm_close message");
     const commId = message.content.comm_id;
     manager.get_model(commId).then((model) => {
+      log("debug", "Got model for comm_close:", model);
       // @ts-expect-error we know our comm has this method
       model.comm?.handle_close(message);
+      log("debug", "Handled comm_close");
     });
     return;
   }
@@ -126,6 +150,7 @@ export class Comm {
    * @param {Array<ArrayBuffer>} buffers
    */
   send(data, _callbacks, metadata, buffers) {
+    log("info", "Comm.send called");
     const msg_id = crypto.randomUUID();
 
     const msg = {
@@ -145,9 +170,11 @@ export class Comm {
       },
     };
 
-    console.log("Sending", msg);
+    log("debug", "Sending message:", msg);
     // await this?
-    fetch("/message", { method: "POST", body: JSON.stringify(msg) });
+    fetch("/message", { method: "POST", body: JSON.stringify(msg) })
+      .then(() => log("debug", "Message sent successfully"))
+      .catch((error) => log("error", "Error sending message:", error));
 
     return this.comm_id;
   }
