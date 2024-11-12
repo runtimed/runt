@@ -4,7 +4,7 @@ use bytes::Bytes;
 use clap::Parser;
 use env_logger;
 use futures::StreamExt;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use runtimelib::{Channel, ConnectionInfo, Header, JupyterMessage, JupyterMessageContent};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
