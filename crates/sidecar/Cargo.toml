@@ -2,6 +2,9 @@
 name = "sidecar"
 version = "0.1.0"
 edition = "2021"
+description = "Sidecar jupyter outputs"
+repository = "https://github.com/runtimed/runtimed"
+license = "BSD-3-Clause"
 
 [dependencies]
 base64 = "0.22.0"
@@ -11,7 +14,7 @@ env_logger = "0.11.5"
 log = "0.4.22"
 serde = { version = "1.0.196", features = ["derive"] }
 serde_json = "1.0.113"
-runtimelib = { path = "../runtimelib", features = [
+runtimelib = { path = "../runtimelib", version = "0.16.1", features = [
     "async-dispatcher-runtime",
 ], default-features = false }
 anyhow = "1.0.80"
