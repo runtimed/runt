@@ -7,23 +7,23 @@ repository = "https://github.com/runtimed/runtimed"
 license = "BSD-3-Clause"
 
 [dependencies]
-base64 = "0.22.0"
-bytes = "1.5.0"
+anyhow = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
 clap = { version = "4.5.1", features = ["derive"] }
 env_logger = "0.11.5"
 log = "0.4.22"
-serde = { version = "1.0.196", features = ["derive"] }
-serde_json = "1.0.113"
+serde = { workspace = true }
+serde_json = { workspace = true }
 runtimelib = { path = "../runtimelib", version = "0.16.1", features = [
     "async-dispatcher-runtime",
 ], default-features = false }
-anyhow = "1.0.80"
-futures = "0.3"
+futures = { workspace = true }
 querystring = "1.1.0"
 tao = "0.30.3"
 wry = "0.45.0"
 smol = "2"
-uuid = "1.11.0"
+uuid = { workspace = true }
 
 [[bin]]
 path = "src/main.rs"
