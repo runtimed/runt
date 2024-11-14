@@ -122,15 +122,9 @@ async fn run(
 
     smol::spawn(async move {
         while let Some(message) = rx.next().await {
-            dbg!("got message to send");
-            dbg!(&message);
             if let Err(e) = shell.send(message).await {
-                eprintln!("Failed to send message: {}", e);
+                error!("Failed to send message: {}", e);
             } else {
-                dbg!("Sent message");
-
-                // let resp = shell.read().await;
-                // dbg!(&resp);
             }
         }
     })
@@ -144,18 +138,16 @@ async fn run(
                     Ok(wry_message) => {
                         let message: JupyterMessage = wry_message.into();
 
-                        dbg!(&message);
-
                         let mut tx = tx.clone();
 
                         if let Err(e) = tx.try_send(message) {
-                            eprintln!("Failed to send message: {}", e);
+                            error!("Failed to send message: {}", e);
                         }
                         responder.respond(Response::builder().status(200).body(&[]).unwrap());
                         return;
                     }
                     Err(e) => {
-                        eprintln!("Failed to deserialize message: {}", e);
+                        error!("Failed to deserialize message: {}", e);
                         responder.respond(
                             Response::builder()
                                 .status(400)
@@ -167,13 +159,13 @@ async fn run(
                 }
             };
             let response = get_response(req).map_err(|e| {
-                eprintln!("{:?}", e);
+                error!("{:?}", e);
                 e
             });
             match response {
                 Ok(response) => responder.respond(response),
                 Err(e) => {
-                    eprintln!("{:?}", e);
+                    error!("{:?}", e);
                     responder.respond(
                         Response::builder()
                             .status(500)
