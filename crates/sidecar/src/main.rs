@@ -5,7 +5,9 @@ use clap::Parser;
 use env_logger;
 use futures::StreamExt;
 use log::{debug, error, info};
+
 use runtimelib::{Channel, ConnectionInfo, Header, JupyterMessage, JupyterMessageContent};
+
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 use smol::fs;
@@ -106,13 +108,15 @@ async fn run(
     let content = fs::read_to_string(&connection_file_path).await?;
     let connection_info = serde_json::from_str::<ConnectionInfo>(&content)?;
 
-    let mut iopub = connection_info
-        .create_client_iopub_connection("", &format!("sidecar-{}", uuid::Uuid::new_v4()))
-        .await?;
+    let mut iopub = runtimelib::create_client_iopub_connection(
+        &connection_info,
+        "",
+        &format!("sidecar-{}", uuid::Uuid::new_v4()),
+    )
+    .await?;
 
-    let mut shell = connection_info
-        .create_client_shell_connection(&iopub.session_id)
-        .await?;
+    let mut shell =
+        runtimelib::create_client_shell_connection(&connection_info, &iopub.session_id).await?;
 
     let (tx, mut rx) = futures::channel::mpsc::channel::<JupyterMessage>(100);
 
