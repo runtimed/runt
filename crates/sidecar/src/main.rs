@@ -8,6 +8,7 @@ use log::{debug, error, info};
 use runtimelib::{Channel, ConnectionInfo, Header, JupyterMessage, JupyterMessageContent};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
+use smol::fs;
 use std::path::PathBuf;
 use tao::{
     dpi::Size,
@@ -102,7 +103,8 @@ async fn run(
     event_loop: EventLoop<JupyterMessage>,
     window: Window,
 ) -> anyhow::Result<()> {
-    let connection_info = ConnectionInfo::from_path(connection_file_path).await?;
+    let content = fs::read_to_string(&connection_file_path).await?;
+    let connection_info = serde_json::from_str::<ConnectionInfo>(&content)?;
 
     let mut iopub = connection_info
         .create_client_iopub_connection("", &format!("sidecar-{}", uuid::Uuid::new_v4()))
