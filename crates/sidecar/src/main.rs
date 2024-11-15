@@ -28,6 +28,10 @@ use wry::{
 struct Cli {
     /// connection file to a jupyter kernel
     file: PathBuf,
+
+    /// Suppress output
+    #[clap(short, long)]
+    quiet: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -229,7 +233,9 @@ async fn run(
 
 fn main() -> Result<()> {
     let args = Cli::parse();
-    env_logger::init();
+    if !args.quiet {
+        env_logger::init();
+    }
     info!("Starting sidecar application");
     let (width, height) = (960.0, 550.0);
 
