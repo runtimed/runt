@@ -2,6 +2,8 @@
 
 A lightweight viewer of Jupyter output to run next to your terminal session.
 
+![sidecar view from jupyter console](https://github.com/user-attachments/assets/f34e89b9-950d-40fd-a65a-b89b84776e32)
+
 ## Installation
 
 ```bash
