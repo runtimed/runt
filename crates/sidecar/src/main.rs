@@ -134,9 +134,9 @@ async fn run(
     })
     .detach();
 
-    let webview = WebViewBuilder::new(&window)
+    let webview = WebViewBuilder::new()
         .with_devtools(true)
-        .with_asynchronous_custom_protocol("sidecar".into(), move |req, responder| {
+        .with_asynchronous_custom_protocol("sidecar".into(), move |_webview_id, req, responder| {
             if let (&Method::POST, "/message") = (req.method(), req.uri().path()) {
                 match serde_json::from_slice::<WryJupyterMessage>(req.body()) {
                     Ok(wry_message) => {
@@ -180,7 +180,7 @@ async fn run(
             }
         })
         .with_url("sidecar://localhost")
-        .build()?;
+        .build(&window)?;
 
     let event_loop_proxy = event_loop.create_proxy();
 
