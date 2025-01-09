@@ -2,6 +2,9 @@
 name = "runt"
 version = "0.1.0"
 edition = "2021"
+description = "CLI for Jupyter Runtimes"
+repository = "https://github.com/runtimed/runtimed"
+license = "BSD-3-Clause"
 
 [dependencies]
 anyhow = { workspace = true }
