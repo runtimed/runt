@@ -18,6 +18,7 @@ serde_json = { workspace = true }
 jupyter-protocol = { workspace = true }
 runtimelib = { workspace = true, features = [
     "async-dispatcher-runtime",
+    "ring"
 ], default-features = false }
 futures = { workspace = true }
 querystring = "1.1.0"
