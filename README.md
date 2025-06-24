@@ -28,21 +28,40 @@ packages/
 
 ## Streaming Output
 
-For AI token streaming and real-time output, use the unfiltered methods:
+For AI streaming, there are two approaches depending on output type:
+
+### Stream Output (stdout/stderr)
+
+For token-by-token text streaming, use unfiltered methods:
 
 ```typescript
 // Regular methods filter out empty/whitespace strings
 context.stdout("token"); // ✅ Gets through
 context.stdout(""); // ❌ Filtered out
-context.stdout("   "); // ❌ Filtered out
 
 // Raw methods preserve ALL tokens for streaming
 context.stdoutRaw("token"); // ✅ Gets through
 context.stdoutRaw(""); // ✅ Gets through
-context.stdoutRaw("   "); // ✅ Gets through
 ```
 
-Perfect for AI responses where every token matters for smooth streaming UX.
+### Display Data Streaming
+
+For AI responses using `text/markdown` display data, use replacement updates:
+
+```typescript
+// Create initial display
+context.display({
+  "text/markdown": "# AI Response\n\n_Thinking..._",
+});
+
+// Stream updates by replacing content
+const outputId = "response-123";
+context.displayReplace(outputId, {
+  "text/markdown": "# AI Response\n\nHere's my answer...",
+});
+```
+
+Perfect for building up AI responses incrementally with smooth streaming UX.
 
 ## Notes
 

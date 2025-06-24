@@ -375,6 +375,16 @@ export const events = {
     }),
   }),
 
+  cellOutputReplaced: Events.synced({
+    name: "v1.CellOutputReplaced",
+    schema: Schema.Struct({
+      outputId: Schema.String, // ID of existing output to replace
+      cellId: Schema.String,
+      newData: Schema.Any, // New data to replace with (e.g., updated markdown)
+      metadata: Schema.optional(Schema.Any), // Optional metadata updates
+    }),
+  }),
+
   // SQL events
   sqlConnectionCreated: Events.synced({
     name: "v1.SqlConnectionCreated",
@@ -600,6 +610,12 @@ const materializers = State.SQLite.materializers(events, {
 
   "v1.CellOutputsCleared": ({ cellId }) =>
     tables.outputs.delete().where({ cellId }),
+
+  "v1.CellOutputReplaced": ({ outputId, newData, metadata }) =>
+    tables.outputs.update({
+      data: newData,
+      ...(metadata && { metadata }),
+    }).where({ id: outputId }),
 
   // SQL materializers
   "v1.SqlConnectionCreated": ({

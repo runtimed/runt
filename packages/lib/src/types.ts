@@ -91,6 +91,12 @@ export interface ExecutionContext {
   stdoutRaw: (text: string) => void;
   /** Emit text to stderr stream without filtering empty/whitespace */
   stderrRaw: (text: string) => void;
+  /** Replace display data content for streaming updates */
+  displayReplace: (
+    outputId: string,
+    data: RichOutputData,
+    metadata?: Record<string, unknown>,
+  ) => void;
 }
 
 /**

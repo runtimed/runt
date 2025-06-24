@@ -551,6 +551,19 @@ export class RuntimeAgent {
           position: outputPosition++,
         }));
       },
+
+      displayReplace: (
+        outputId: string,
+        data: RichOutputData,
+        metadata?: Record<string, unknown>,
+      ) => {
+        this.store.commit(events.cellOutputReplaced({
+          outputId,
+          cellId: cell.id,
+          newData: data,
+          metadata,
+        }));
+      },
     };
 
     try {

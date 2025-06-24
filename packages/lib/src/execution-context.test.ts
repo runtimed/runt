@@ -5,7 +5,11 @@ import { assertEquals } from "jsr:@std/assert";
 import { RuntimeAgent } from "./runtime-agent.ts";
 import { RuntimeConfig } from "./config.ts";
 import type { ExecutionContext, KernelCapabilities } from "./types.ts";
-import type { CellData, ExecutionQueueData } from "@runt/schema";
+import type {
+  CellData,
+  ExecutionQueueData,
+  RichOutputData,
+} from "@runt/schema";
 
 // Mock store that captures commits
 interface MockOutputCommit {
@@ -21,8 +25,16 @@ interface MockOutputCommit {
     traceback?: string[];
     [key: string]: unknown;
   };
-  metadata: Record<string, unknown>;
-  position: number;
+  metadata?: Record<string, unknown>;
+  position?: number;
+}
+
+interface MockReplaceCommit {
+  type: "cellOutputReplaced";
+  outputId: string;
+  cellId: string;
+  newData: RichOutputData;
+  metadata?: Record<string, unknown>;
 }
 
 interface MockClearCommit {
@@ -31,7 +43,7 @@ interface MockClearCommit {
   clearedBy: string;
 }
 
-type MockCommit = MockOutputCommit | MockClearCommit;
+type MockCommit = MockOutputCommit | MockClearCommit | MockReplaceCommit;
 
 const createMockStore = () => {
   const commits: MockCommit[] = [];
@@ -210,6 +222,20 @@ Deno.test("ExecutionContext Output Methods", async (t) => {
             data: { name: "stderr", text },
             metadata: {},
             position: outputPosition++,
+          });
+        },
+
+        displayReplace: (
+          outputId: string,
+          data: RichOutputData,
+          metadata?: Record<string, unknown>,
+        ) => {
+          mockStore.commit({
+            type: "cellOutputReplaced",
+            outputId,
+            cellId: cell.id!,
+            newData: data,
+            metadata,
           });
         },
       };
@@ -527,6 +553,83 @@ Deno.test("ExecutionContext Output Methods", async (t) => {
       const commit = mockStore.commits[0] as MockOutputCommit;
       assertEquals(commit.data.ename, "TypeError");
       assertEquals(commit.data.evalue, "Type mismatch");
+    });
+  });
+
+  await t.step("displayReplace method", async (t) => {
+    setup();
+    await t.step("should emit cellOutputReplaced event", () => {
+      const context = createTestContext();
+      const outputId = "test-output-id";
+      const newData = {
+        "text/markdown": "# Updated Content",
+        "text/plain": "Updated Content",
+      };
+
+      context.displayReplace(outputId, newData);
+
+      assertEquals(mockStore.commits.length, 1);
+      const commit = mockStore.commits[0] as MockReplaceCommit;
+      assertEquals(commit.type, "cellOutputReplaced");
+      assertEquals(commit.outputId, outputId);
+      assertEquals(commit.cellId, "test-cell-123");
+      assertEquals(commit.newData, newData);
+    });
+
+    setup();
+    await t.step("should include metadata when provided", () => {
+      const context = createTestContext();
+      const outputId = "test-output-id";
+      const newData = { "text/markdown": "# Updated" };
+      const metadata = { "streaming": true };
+
+      context.displayReplace(outputId, newData, metadata);
+
+      assertEquals(mockStore.commits.length, 1);
+      const commit = mockStore.commits[0] as MockReplaceCommit;
+      assertEquals(commit.metadata, metadata);
+    });
+
+    setup();
+    await t.step("should work without metadata", () => {
+      const context = createTestContext();
+      const outputId = "test-output-id";
+      const newData = { "text/markdown": "# Updated" };
+
+      context.displayReplace(outputId, newData);
+
+      assertEquals(mockStore.commits.length, 1);
+      const commit = mockStore.commits[0] as MockReplaceCommit;
+      assertEquals(commit.type, "cellOutputReplaced");
+      assertEquals(commit.metadata, undefined);
+    });
+
+    setup();
+    await t.step("should handle AI streaming markdown updates", () => {
+      const context = createTestContext();
+      const outputId = "ai-response-output";
+
+      // Simulate streaming markdown updates
+      const updates = [
+        "# AI Response\n\nThis is",
+        "# AI Response\n\nThis is the beginning",
+        "# AI Response\n\nThis is the beginning of a streaming response.",
+      ];
+
+      updates.forEach((content, _index) => {
+        context.displayReplace(outputId, {
+          "text/markdown": content,
+          "text/plain": content.replace(/[#*]/g, ""),
+        });
+      });
+
+      assertEquals(mockStore.commits.length, 3);
+      updates.forEach((expectedContent, index) => {
+        const commit = mockStore.commits[index] as MockReplaceCommit;
+        assertEquals(commit.type, "cellOutputReplaced");
+        assertEquals(commit.outputId, outputId);
+        assertEquals(commit.newData["text/markdown"], expectedContent);
+      });
     });
   });
 
