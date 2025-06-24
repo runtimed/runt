@@ -522,6 +522,18 @@ export class RuntimeAgent {
         }));
         outputPosition = 0;
       },
+
+      clearOutput: (wait = false) => {
+        // Emit clear_output as a proper output type with wait semantics
+        this.store.commit(events.cellOutputAdded({
+          id: crypto.randomUUID(),
+          cellId: cell.id,
+          outputType: "clear_output",
+          data: { wait },
+          metadata: {},
+          position: outputPosition++,
+        }));
+      },
     };
 
     try {

@@ -12,7 +12,12 @@ interface MockOutputCommit {
   type: "cellOutputAdded";
   id: string;
   cellId: string;
-  outputType: "stream" | "display_data" | "execute_result" | "error";
+  outputType:
+    | "stream"
+    | "display_data"
+    | "execute_result"
+    | "error"
+    | "clear_output";
   data: {
     name?: "stdout" | "stderr";
     text?: string;
@@ -187,6 +192,18 @@ Deno.test("ExecutionContext Output Methods", async (t) => {
             clearedBy: `kernel-${config.kernelId}`,
           });
           outputPosition = 0;
+        },
+
+        clearOutput: (wait = false) => {
+          mockStore.commit({
+            type: "cellOutputAdded",
+            id: crypto.randomUUID(),
+            cellId: cell.id!,
+            outputType: "clear_output",
+            data: { wait },
+            metadata: {},
+            position: outputPosition++,
+          });
         },
       };
     })();

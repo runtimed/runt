@@ -146,29 +146,40 @@ pub.clear_output(wait=True)
     async () => {
       await withQuietLogging(() => {
         // Test that the agent correctly processes clear_output messages
-        let clearCalled = false;
+        let clearOutputCalled = false;
+        let clearOutputWait = false;
 
         const mockContext = {
-          clear: () => {
-            clearCalled = true;
+          clearOutput: (wait = false) => {
+            clearOutputCalled = true;
+            clearOutputWait = wait;
           },
         };
 
         // Simulate the handleWorkerMessage logic from pyodide-agent.ts
         const handleStreamOutput = (data: { type: string; data: unknown }) => {
           if (data.type === "clear_output") {
-            mockContext.clear();
+            const wait = (data.data as { wait?: boolean })?.wait || false;
+            mockContext.clearOutput(wait);
           }
         };
 
-        // Test that clear_output message triggers context.clear()
+        // Test that clear_output message triggers context.clearOutput()
         handleStreamOutput({ type: "clear_output", data: { wait: false } });
 
         assertEquals(
-          clearCalled,
+          clearOutputCalled,
           true,
-          "context.clear() should be called when clear_output message is received",
+          "context.clearOutput() should be called when clear_output message is received",
         );
+        assertEquals(clearOutputWait, false, "wait parameter should be false");
+
+        // Test with wait=true
+        clearOutputCalled = false;
+        handleStreamOutput({ type: "clear_output", data: { wait: true } });
+
+        assertEquals(clearOutputCalled, true);
+        assertEquals(clearOutputWait, true, "wait parameter should be true");
       });
     },
   );

@@ -77,6 +77,7 @@ export const tables = {
           "execute_result",
           "stream",
           "error",
+          "clear_output",
         ),
       }),
       data: State.SQLite.json({ schema: Schema.Any }),
@@ -360,6 +361,7 @@ export const events = {
         "execute_result",
         "stream",
         "error",
+        "clear_output",
       ),
       data: Schema.Any,
       metadata: Schema.optional(Schema.Any), // For additional output metadata
