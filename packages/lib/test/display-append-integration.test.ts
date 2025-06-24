@@ -2,6 +2,14 @@
 
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 
+interface MockRawSqlCommit {
+  name: "livestore.RawSql";
+  args: {
+    sql: string;
+    writeTables: Set<string>;
+  };
+}
+
 /**
  * Test that verifies the SQL generation logic used by displayAppend
  * This ensures our rawSqlEvent operations are correctly structured
@@ -9,9 +17,9 @@ import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 Deno.test("DisplayAppend SQL Generation Test", async (t) => {
   await t.step("should generate correct SQL for append operation", () => {
     // Mock store to capture commits
-    const commits: any[] = [];
+    const commits: MockRawSqlCommit[] = [];
     const mockStore = {
-      commit: (event: any) => {
+      commit: (event: MockRawSqlCommit) => {
         commits.push(event);
       },
     };
@@ -22,7 +30,7 @@ Deno.test("DisplayAppend SQL Generation Test", async (t) => {
 
     // This simulates what displayAppend does internally
     const mockRawSqlEvent = {
-      name: "livestore.RawSql",
+      name: "livestore.RawSql" as const,
       args: {
         sql:
           `UPDATE outputs SET data = json_set(data, '$."${contentType}"', COALESCE(json_extract(data, '$."${contentType}"'), '') || '${appendContent}') WHERE id = '${outputId}'`,
@@ -33,20 +41,21 @@ Deno.test("DisplayAppend SQL Generation Test", async (t) => {
     mockStore.commit(mockRawSqlEvent);
 
     assertEquals(commits.length, 1);
-    assertEquals(commits[0].name, "livestore.RawSql");
-    assertStringIncludes(commits[0].args.sql, "UPDATE outputs");
-    assertStringIncludes(commits[0].args.sql, "json_set");
-    assertStringIncludes(commits[0].args.sql, "COALESCE");
-    assertStringIncludes(commits[0].args.sql, contentType);
-    assertStringIncludes(commits[0].args.sql, appendContent);
-    assertStringIncludes(commits[0].args.sql, outputId);
-    assertEquals(commits[0].args.writeTables.has("outputs"), true);
+    const commit = commits[0];
+    assertEquals(commit.name, "livestore.RawSql");
+    assertStringIncludes(commit.args.sql, "UPDATE outputs");
+    assertStringIncludes(commit.args.sql, "json_set");
+    assertStringIncludes(commit.args.sql, "COALESCE");
+    assertStringIncludes(commit.args.sql, contentType);
+    assertStringIncludes(commit.args.sql, appendContent);
+    assertStringIncludes(commit.args.sql, outputId);
+    assertEquals(commit.args.writeTables.has("outputs"), true);
   });
 
   await t.step("should handle multiple content types correctly", () => {
-    const commits: any[] = [];
+    const commits: MockRawSqlCommit[] = [];
     const mockStore = {
-      commit: (event: any) => {
+      commit: (event: MockRawSqlCommit) => {
         commits.push(event);
       },
     };
@@ -58,7 +67,7 @@ Deno.test("DisplayAppend SQL Generation Test", async (t) => {
     // Simulate multiple displayAppend calls
     contentTypes.forEach((contentType, index) => {
       const mockRawSqlEvent = {
-        name: "livestore.RawSql",
+        name: "livestore.RawSql" as const,
         args: {
           sql:
             `UPDATE outputs SET data = json_set(data, '$."${contentType}"', COALESCE(json_extract(data, '$."${contentType}"'), '') || '${
@@ -74,16 +83,17 @@ Deno.test("DisplayAppend SQL Generation Test", async (t) => {
 
     // Verify each commit targets the correct content type
     contentTypes.forEach((contentType, index) => {
-      assertStringIncludes(commits[index].args.sql, contentType);
-      assertStringIncludes(commits[index].args.sql, contents[index]);
-      assertEquals(commits[index].name, "livestore.RawSql");
+      const commit = commits[index];
+      assertStringIncludes(commit.args.sql, contentType);
+      assertStringIncludes(commit.args.sql, contents[index]);
+      assertEquals(commit.name, "livestore.RawSql");
     });
   });
 
   await t.step("should handle empty and whitespace content properly", () => {
-    const commits: any[] = [];
+    const commits: MockRawSqlCommit[] = [];
     const mockStore = {
-      commit: (event: any) => {
+      commit: (event: MockRawSqlCommit) => {
         commits.push(event);
       },
     };
@@ -95,7 +105,7 @@ Deno.test("DisplayAppend SQL Generation Test", async (t) => {
     // Simulate rapid token streaming with various content
     tokens.forEach((token) => {
       const mockRawSqlEvent = {
-        name: "livestore.RawSql",
+        name: "livestore.RawSql" as const,
         args: {
           sql:
             `UPDATE outputs SET data = json_set(data, '$."${contentType}"', COALESCE(json_extract(data, '$."${contentType}"'), '') || '${token}') WHERE id = '${outputId}'`,
@@ -108,18 +118,19 @@ Deno.test("DisplayAppend SQL Generation Test", async (t) => {
     assertEquals(commits.length, tokens.length);
 
     // Verify all tokens (including empty ones) generate valid SQL
-    tokens.forEach((token, index) => {
-      assertStringIncludes(commits[index].args.sql, outputId);
-      assertStringIncludes(commits[index].args.sql, "COALESCE");
-      assertEquals(commits[index].name, "livestore.RawSql");
-      assertEquals(commits[index].args.writeTables.has("outputs"), true);
+    tokens.forEach((_token, index) => {
+      const commit = commits[index];
+      assertStringIncludes(commit.args.sql, outputId);
+      assertStringIncludes(commit.args.sql, "COALESCE");
+      assertEquals(commit.name, "livestore.RawSql");
+      assertEquals(commit.args.writeTables.has("outputs"), true);
     });
   });
 
   await t.step("should generate SQL that handles non-existent fields", () => {
-    const commits: any[] = [];
+    const commits: MockRawSqlCommit[] = [];
     const mockStore = {
-      commit: (event: any) => {
+      commit: (event: MockRawSqlCommit) => {
         commits.push(event);
       },
     };
@@ -129,7 +140,7 @@ Deno.test("DisplayAppend SQL Generation Test", async (t) => {
     const appendContent = "New content";
 
     const mockRawSqlEvent = {
-      name: "livestore.RawSql",
+      name: "livestore.RawSql" as const,
       args: {
         sql:
           `UPDATE outputs SET data = json_set(data, '$."${contentType}"', COALESCE(json_extract(data, '$."${contentType}"'), '') || '${appendContent}') WHERE id = '${outputId}'`,
@@ -141,11 +152,12 @@ Deno.test("DisplayAppend SQL Generation Test", async (t) => {
 
     // Verify COALESCE handles null/missing fields correctly
     assertEquals(commits.length, 1);
+    const commit = commits[0];
     assertStringIncludes(
-      commits[0].args.sql,
+      commit.args.sql,
       "COALESCE(json_extract(data, '$",
     );
-    assertStringIncludes(commits[0].args.sql, "'), '')");
-    assertStringIncludes(commits[0].args.sql, appendContent);
+    assertStringIncludes(commit.args.sql, "'), '')");
+    assertStringIncludes(commit.args.sql, appendContent);
   });
 });
