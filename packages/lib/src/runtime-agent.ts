@@ -528,8 +528,10 @@ export class RuntimeAgent {
           // For wait=true: store a pending clear request
           // Next output will trigger the actual clear
           this.store.commit(events.cellOutputClearPending({
+            id: crypto.randomUUID(),
             cellId: cell.id,
             clearedBy: `kernel-${this.config.kernelId}`,
+            requestedAt: Date.now(),
           }));
         } else {
           // For wait=false: clear immediately like the existing clear() method

@@ -37,8 +37,10 @@ interface MockClearCommit {
 
 interface MockClearPendingCommit {
   type: "cellOutputClearPending";
+  id: string;
   cellId: string;
   clearedBy: string;
+  requestedAt: number;
 }
 
 type MockCommit = MockOutputCommit | MockClearCommit | MockClearPendingCommit;
@@ -204,8 +206,10 @@ Deno.test("ExecutionContext Output Methods", async (t) => {
             // For wait=true: mock a pending clear request
             mockStore.commit({
               type: "cellOutputClearPending",
+              id: crypto.randomUUID(),
               cellId: cell.id!,
               clearedBy: `kernel-${config.kernelId}`,
+              requestedAt: Date.now(),
             });
           } else {
             // For wait=false: clear immediately

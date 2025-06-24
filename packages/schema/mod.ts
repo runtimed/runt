@@ -389,8 +389,10 @@ export const events = {
   cellOutputClearPending: Events.synced({
     name: "v1.CellOutputClearPending",
     schema: Schema.Struct({
+      id: Schema.String,
       cellId: Schema.String,
       clearedBy: Schema.String,
+      requestedAt: Schema.Number,
     }),
   }),
 
@@ -620,12 +622,12 @@ const materializers = State.SQLite.materializers(events, {
   "v1.CellOutputsCleared": ({ cellId }) =>
     tables.outputs.delete().where({ cellId }),
 
-  "v1.CellOutputClearPending": ({ cellId, clearedBy }) =>
+  "v1.CellOutputClearPending": ({ id, cellId, clearedBy, requestedAt }) =>
     tables.pendingClears.insert({
-      id: crypto.randomUUID(),
+      id,
       cellId,
       clearedBy,
-      requestedAt: Date.now(),
+      requestedAt,
     }),
 
   // SQL materializers
