@@ -522,6 +522,35 @@ export class RuntimeAgent {
         }));
         outputPosition = 0;
       },
+
+      // Unfiltered streaming methods for token-by-token output
+      stdoutRaw: (text: string) => {
+        this.store.commit(events.cellOutputAdded({
+          id: crypto.randomUUID(),
+          cellId: cell.id,
+          outputType: "stream",
+          data: {
+            name: "stdout",
+            text,
+          } as StreamOutputData,
+          metadata: {},
+          position: outputPosition++,
+        }));
+      },
+
+      stderrRaw: (text: string) => {
+        this.store.commit(events.cellOutputAdded({
+          id: crypto.randomUUID(),
+          cellId: cell.id,
+          outputType: "stream",
+          data: {
+            name: "stderr",
+            text,
+          } as StreamOutputData,
+          metadata: {},
+          position: outputPosition++,
+        }));
+      },
     };
 
     try {

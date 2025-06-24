@@ -85,6 +85,12 @@ export interface ExecutionContext {
   error: (ename: string, evalue: string, traceback: string[]) => void;
   /** Clear all previous outputs for this cell */
   clear: () => void;
+
+  // Unfiltered streaming methods for token-by-token output
+  /** Emit text to stdout stream without filtering empty/whitespace */
+  stdoutRaw: (text: string) => void;
+  /** Emit text to stderr stream without filtering empty/whitespace */
+  stderrRaw: (text: string) => void;
 }
 
 /**

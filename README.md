@@ -26,6 +26,24 @@ packages/
 └── pyodide-runtime-agent/    # Python runtime
 ```
 
+## Streaming Output
+
+For AI token streaming and real-time output, use the unfiltered methods:
+
+```typescript
+// Regular methods filter out empty/whitespace strings
+context.stdout("token"); // ✅ Gets through
+context.stdout(""); // ❌ Filtered out
+context.stdout("   "); // ❌ Filtered out
+
+// Raw methods preserve ALL tokens for streaming
+context.stdoutRaw("token"); // ✅ Gets through
+context.stdoutRaw(""); // ✅ Gets through
+context.stdoutRaw("   "); // ✅ Gets through
+```
+
+Perfect for AI responses where every token matters for smooth streaming UX.
+
 ## Notes
 
 - LiveStore materializers must be pure functions

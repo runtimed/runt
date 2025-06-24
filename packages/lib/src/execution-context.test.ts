@@ -188,6 +188,30 @@ Deno.test("ExecutionContext Output Methods", async (t) => {
           });
           outputPosition = 0;
         },
+
+        stdoutRaw: (text: string) => {
+          mockStore.commit({
+            type: "cellOutputAdded",
+            id: crypto.randomUUID(),
+            cellId: cell.id!,
+            outputType: "stream",
+            data: { name: "stdout", text },
+            metadata: {},
+            position: outputPosition++,
+          });
+        },
+
+        stderrRaw: (text: string) => {
+          mockStore.commit({
+            type: "cellOutputAdded",
+            id: crypto.randomUUID(),
+            cellId: cell.id!,
+            outputType: "stream",
+            data: { name: "stderr", text },
+            metadata: {},
+            position: outputPosition++,
+          });
+        },
       };
     })();
   };
@@ -288,6 +312,91 @@ Deno.test("ExecutionContext Output Methods", async (t) => {
       assertEquals(mockStore.commits.length, 1);
       const commit = mockStore.commits[0] as MockOutputCommit;
       assertEquals(commit.data.text, "   ");
+    });
+  });
+
+  await t.step("stdoutRaw method", async (t) => {
+    setup();
+    await t.step("should emit stdout stream output without filtering", () => {
+      const context = createTestContext();
+
+      context.stdoutRaw("Hello, stdout!");
+
+      assertEquals(mockStore.commits.length, 1);
+      const commit = mockStore.commits[0] as MockOutputCommit;
+      assertEquals(commit.type, "cellOutputAdded");
+      assertEquals(commit.outputType, "stream");
+      assertEquals(commit.data.name, "stdout");
+      assertEquals(commit.data.text, "Hello, stdout!");
+    });
+
+    setup();
+    await t.step("should NOT filter out empty strings", () => {
+      const context = createTestContext();
+
+      context.stdoutRaw("");
+      context.stdoutRaw("   ");
+      context.stdoutRaw("\n\n");
+
+      assertEquals(mockStore.commits.length, 3);
+      assertEquals((mockStore.commits[0] as MockOutputCommit).data.text, "");
+      assertEquals((mockStore.commits[1] as MockOutputCommit).data.text, "   ");
+      assertEquals(
+        (mockStore.commits[2] as MockOutputCommit).data.text,
+        "\n\n",
+      );
+    });
+
+    setup();
+    await t.step("should emit whitespace-only tokens for AI streaming", () => {
+      const context = createTestContext();
+
+      context.stdoutRaw(" ");
+      context.stdoutRaw("");
+      context.stdoutRaw("token");
+      context.stdoutRaw(" ");
+      context.stdoutRaw("next");
+
+      assertEquals(mockStore.commits.length, 5);
+      assertEquals((mockStore.commits[0] as MockOutputCommit).data.text, " ");
+      assertEquals((mockStore.commits[1] as MockOutputCommit).data.text, "");
+      assertEquals(
+        (mockStore.commits[2] as MockOutputCommit).data.text,
+        "token",
+      );
+      assertEquals((mockStore.commits[3] as MockOutputCommit).data.text, " ");
+      assertEquals(
+        (mockStore.commits[4] as MockOutputCommit).data.text,
+        "next",
+      );
+    });
+  });
+
+  await t.step("stderrRaw method", async (t) => {
+    setup();
+    await t.step("should emit stderr stream output without filtering", () => {
+      const context = createTestContext();
+
+      context.stderrRaw("Error message!");
+
+      assertEquals(mockStore.commits.length, 1);
+      const commit = mockStore.commits[0] as MockOutputCommit;
+      assertEquals(commit.type, "cellOutputAdded");
+      assertEquals(commit.outputType, "stream");
+      assertEquals(commit.data.name, "stderr");
+      assertEquals(commit.data.text, "Error message!");
+    });
+
+    setup();
+    await t.step("should NOT filter out empty strings", () => {
+      const context = createTestContext();
+
+      context.stderrRaw("");
+      context.stderrRaw("   ");
+
+      assertEquals(mockStore.commits.length, 2);
+      assertEquals((mockStore.commits[0] as MockOutputCommit).data.text, "");
+      assertEquals((mockStore.commits[1] as MockOutputCommit).data.text, "   ");
     });
   });
 
