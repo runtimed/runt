@@ -1,7 +1,7 @@
 {
   "name": "@runt/schema",
   "version": "0.2.0",
-  "description": "Anode schema for runtime agents and clients",
+  "description": "This package.json is solely here to make linking possible for npm users",
   "type": "module",
   "main": "./mod.ts",
   "types": "./mod.ts",

@@ -1033,7 +1033,12 @@
       "packages/schema": {
         "dependencies": [
           "npm:@livestore/livestore@~0.3.1"
-        ]
+        ],
+        "packageJson": {
+          "dependencies": [
+            "npm:@livestore/livestore@~0.3.1"
+          ]
+        }
       }
     }
   }
