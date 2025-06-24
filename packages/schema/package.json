@@ -1,0 +1,34 @@
+{
+  "name": "@runt/schema",
+  "version": "0.2.0",
+  "description": "This package.json is solely here to make linking possible for npm users",
+  "type": "module",
+  "main": "./mod.ts",
+  "types": "./mod.ts",
+  "exports": {
+    ".": {
+      "import": "./mod.ts",
+      "types": "./mod.ts"
+    }
+  },
+  "files": [
+    "mod.ts",
+    "README.md"
+  ],
+  "dependencies": {
+    "@livestore/livestore": "^0.3.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/runtimed/runt.git",
+    "directory": "packages/schema"
+  },
+  "license": "BSD-3-Clause",
+  "keywords": [
+    "anode",
+    "schema",
+    "livestore",
+    "event-sourcing",
+    "typescript"
+  ]
+}
