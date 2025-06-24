@@ -83,8 +83,12 @@ class RichDisplayPublisher(DisplayPublisher):
 
     def clear_output(self, wait=False):
         """Clear output signal"""
-        # TODO: Implement clear_output with our schema and protocol
-        print(f"[CLEAR_OUTPUT:{wait}]", flush=True)
+        if self.js_callback:
+            # Send clear signal through JavaScript callback to integrate with runt schema
+            self.js_callback("clear_output", {"wait": wait}, {}, False)
+        else:
+            # Fallback to print for debugging when callback not available
+            print(f"[CLEAR_OUTPUT:{wait}]", flush=True)
 
     def _make_serializable(self, obj):
         """Convert objects to JSON-serializable format"""

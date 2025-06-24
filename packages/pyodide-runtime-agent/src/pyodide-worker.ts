@@ -224,6 +224,26 @@ async function executePython(code: string): Promise<{
         update = false,
       ) => {
         try {
+          // Handle clear_output signal
+          if (data === "clear_output") {
+            self.postMessage({
+              type: "stream_output",
+              data: {
+                type: "clear_output",
+                data: ensureSerializable(metadata),
+              },
+            });
+
+            outputs.push({
+              type: "display",
+              data: {
+                type: "clear_output",
+                data: ensureSerializable(metadata),
+              },
+            });
+            return;
+          }
+
           // Ensure data is serializable
           const serializedData = ensureSerializable(data);
           const serializedMetadata = ensureSerializable(metadata);
