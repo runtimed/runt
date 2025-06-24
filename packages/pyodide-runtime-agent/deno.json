@@ -1,6 +1,6 @@
 {
   "name": "@runt/pyodide-runtime-agent",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Python runtime agent using Pyodide with IPython integration",
   "license": "MIT",
   "repository": {
