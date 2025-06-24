@@ -8,6 +8,7 @@ import {
 } from "npm:@livestore/livestore";
 import { makeCfSync } from "npm:@livestore/sync-cf";
 import { events, schema, tables } from "@runt/schema";
+import { rawSqlEvent, sql } from "npm:@livestore/livestore";
 import { createLogger } from "./logging.ts";
 import type {
   CancellationHandler,
@@ -562,6 +563,25 @@ export class RuntimeAgent {
           cellId: cell.id,
           newData: data,
           metadata,
+        }));
+      },
+
+      displayAppend: (
+        outputId: string,
+        contentType: string,
+        appendContent: string,
+      ) => {
+        this.store.commit(rawSqlEvent({
+          sql: sql`
+            UPDATE outputs
+            SET data = json_set(
+              data,
+              '$."' || ${contentType} || '"',
+              COALESCE(json_extract(data, '$."' || ${contentType} || '"'), '') || ${appendContent}
+            )
+            WHERE id = ${outputId}
+          `,
+          writeTables: new Set(["outputs"]),
         }));
       },
     };

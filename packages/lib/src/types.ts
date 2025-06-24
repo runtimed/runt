@@ -97,6 +97,12 @@ export interface ExecutionContext {
     data: RichOutputData,
     metadata?: Record<string, unknown>,
   ) => void;
+  /** Append content to existing display data for efficient streaming */
+  displayAppend: (
+    outputId: string,
+    contentType: string,
+    appendContent: string,
+  ) => void;
 }
 
 /**

@@ -46,7 +46,9 @@ context.stdoutRaw(""); // ✅ Gets through
 
 ### Display Data Streaming
 
-For AI responses using `text/markdown` display data, use replacement updates:
+For AI responses using `text/markdown` display data, choose your approach:
+
+**Option 1: Replace (Full Content)**
 
 ```typescript
 // Create initial display
@@ -55,14 +57,29 @@ context.display({
   "text/markdown": "# AI Response\n\n_Thinking..._",
 });
 
-// Stream updates by replacing entire content
+// Replace with growing content
 context.displayReplace(outputId, {
-  "text/markdown": "# AI Response\n\nHere's my growing answer...",
+  "text/markdown": "# AI Response\n\nHere's my complete answer...",
 });
 ```
 
-Perfect for AI responses where you build up the complete markdown content and
-replace it each time for smooth streaming UX.
+**Option 2: Append (Efficient Token Streaming)**
+
+```typescript
+// Create initial display
+const outputId = crypto.randomUUID();
+context.display({
+  "text/markdown": "# AI Response\n\n",
+});
+
+// Append each token efficiently
+context.displayAppend(outputId, "text/markdown", "Hello");
+context.displayAppend(outputId, "text/markdown", " ");
+context.displayAppend(outputId, "text/markdown", "world!");
+```
+
+Perfect for AI responses with both full-replacement and efficient token-by-token
+streaming patterns.
 
 ## Notes
 

@@ -37,6 +37,15 @@ interface MockReplaceCommit {
   metadata?: Record<string, unknown>;
 }
 
+interface MockRawSqlCommit {
+  type: "rawSql";
+  name: "livestore.RawSql";
+  args: {
+    sql: string;
+    writeTables: Set<string>;
+  };
+}
+
 interface MockClearCommit {
   type: "cellOutputsCleared";
   cellId: string;
@@ -46,7 +55,8 @@ interface MockClearCommit {
 type MockCommit =
   | MockOutputCommit
   | MockClearCommit
-  | MockReplaceCommit;
+  | MockReplaceCommit
+  | MockRawSqlCommit;
 
 const createMockStore = () => {
   const commits: MockCommit[] = [];
@@ -239,6 +249,22 @@ Deno.test("ExecutionContext Output Methods", async (t) => {
             cellId: cell.id!,
             newData: data,
             metadata,
+          });
+        },
+
+        displayAppend: (
+          outputId: string,
+          contentType: string,
+          appendContent: string,
+        ) => {
+          mockStore.commit({
+            type: "rawSql",
+            name: "livestore.RawSql",
+            args: {
+              sql:
+                `UPDATE outputs SET data = json_set(data, '$."${contentType}"', COALESCE(json_extract(data, '$."${contentType}"'), '') || '${appendContent}') WHERE id = '${outputId}'`,
+              writeTables: new Set(["outputs"]),
+            },
           });
         },
       };
@@ -633,6 +659,91 @@ Deno.test("ExecutionContext Output Methods", async (t) => {
         assertEquals(commit.outputId, outputId);
         assertEquals(commit.newData["text/markdown"], expectedContent);
       });
+    });
+  });
+
+  await t.step("displayAppend method", async (t) => {
+    setup();
+    await t.step("should emit rawSqlEvent for append", () => {
+      const context = createTestContext();
+      const outputId = "test-output-id";
+      const contentType = "text/markdown";
+      const appendContent = " more content";
+
+      context.displayAppend(outputId, contentType, appendContent);
+
+      assertEquals(mockStore.commits.length, 1);
+      const commit = mockStore.commits[0] as MockRawSqlCommit;
+      assertEquals(commit.type, "rawSql");
+      assertEquals(commit.name, "livestore.RawSql");
+      assertEquals(commit.args.writeTables.has("outputs"), true);
+      assertEquals(commit.args.sql.includes(outputId), true);
+      assertEquals(commit.args.sql.includes(contentType), true);
+      assertEquals(commit.args.sql.includes(appendContent), true);
+    });
+
+    setup();
+    await t.step("should handle token-by-token AI streaming", () => {
+      const context = createTestContext();
+      const outputId = "ai-stream-output";
+      const contentType = "text/markdown";
+
+      // Simulate token-by-token streaming
+      const tokens = [
+        "Hello",
+        " ",
+        "world",
+        "!",
+        " ",
+        "How",
+        " ",
+        "are",
+        " ",
+        "you",
+        "?",
+      ];
+
+      tokens.forEach((token) => {
+        context.displayAppend(outputId, contentType, token);
+      });
+
+      assertEquals(mockStore.commits.length, tokens.length);
+      tokens.forEach((expectedToken, index) => {
+        const commit = mockStore.commits[index] as MockRawSqlCommit;
+        assertEquals(commit.type, "rawSql");
+        assertEquals(commit.args.sql.includes(expectedToken), true);
+      });
+    });
+
+    setup();
+    await t.step("should handle different content types", () => {
+      const context = createTestContext();
+      const outputId = "multi-type-output";
+
+      // Test different content types
+      context.displayAppend(outputId, "text/markdown", "# Header");
+      context.displayAppend(outputId, "text/plain", "Plain text");
+      context.displayAppend(outputId, "text/html", "<strong>HTML</strong>");
+
+      assertEquals(mockStore.commits.length, 3);
+      assertEquals(
+        (mockStore.commits[0] as MockRawSqlCommit).args.sql.includes(
+          "text/markdown",
+        ),
+        true,
+      );
+      assertEquals(
+        (mockStore.commits[1] as MockRawSqlCommit).args.sql.includes(
+          "text/plain",
+        ),
+        true,
+      );
+      assertEquals(
+        (mockStore.commits[2] as MockRawSqlCommit).args.sql.includes(
+          "text/html",
+        ),
+        true,
+      );
     });
   });
 
