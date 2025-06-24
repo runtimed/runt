@@ -50,18 +50,19 @@ For AI responses using `text/markdown` display data, use replacement updates:
 
 ```typescript
 // Create initial display
+const outputId = crypto.randomUUID();
 context.display({
   "text/markdown": "# AI Response\n\n_Thinking..._",
 });
 
-// Stream updates by replacing content
-const outputId = "response-123";
+// Stream updates by replacing entire content
 context.displayReplace(outputId, {
-  "text/markdown": "# AI Response\n\nHere's my answer...",
+  "text/markdown": "# AI Response\n\nHere's my growing answer...",
 });
 ```
 
-Perfect for building up AI responses incrementally with smooth streaming UX.
+Perfect for AI responses where you build up the complete markdown content and
+replace it each time for smooth streaming UX.
 
 ## Notes
 

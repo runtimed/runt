@@ -43,7 +43,10 @@ interface MockClearCommit {
   clearedBy: string;
 }
 
-type MockCommit = MockOutputCommit | MockClearCommit | MockReplaceCommit;
+type MockCommit =
+  | MockOutputCommit
+  | MockClearCommit
+  | MockReplaceCommit;
 
 const createMockStore = () => {
   const commits: MockCommit[] = [];
