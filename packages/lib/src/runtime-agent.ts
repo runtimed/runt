@@ -524,15 +524,21 @@ export class RuntimeAgent {
       },
 
       clearOutput: (wait = false) => {
-        // Emit clear_output as a proper output type with wait semantics
-        this.store.commit(events.cellOutputAdded({
-          id: crypto.randomUUID(),
-          cellId: cell.id,
-          outputType: "clear_output",
-          data: { wait },
-          metadata: {},
-          position: outputPosition++,
-        }));
+        if (wait) {
+          // For wait=true: store a pending clear request
+          // Next output will trigger the actual clear
+          this.store.commit(events.cellOutputClearPending({
+            cellId: cell.id,
+            clearedBy: `kernel-${this.config.kernelId}`,
+          }));
+        } else {
+          // For wait=false: clear immediately like the existing clear() method
+          this.store.commit(events.cellOutputsCleared({
+            cellId: cell.id,
+            clearedBy: `kernel-${this.config.kernelId}`,
+          }));
+          outputPosition = 0;
+        }
       },
     };
 

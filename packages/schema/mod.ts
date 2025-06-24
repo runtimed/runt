@@ -77,12 +77,22 @@ export const tables = {
           "execute_result",
           "stream",
           "error",
-          "clear_output",
         ),
       }),
       data: State.SQLite.json({ schema: Schema.Any }),
       metadata: State.SQLite.json({ nullable: true, schema: Schema.Any }), // For additional output metadata
       position: State.SQLite.real(),
+    },
+  }),
+
+  // Pending clear output requests (for wait=true semantics)
+  pendingClears: State.SQLite.table({
+    name: "pending_clears",
+    columns: {
+      id: State.SQLite.text({ primaryKey: true }),
+      cellId: State.SQLite.text(),
+      clearedBy: State.SQLite.text(),
+      requestedAt: State.SQLite.real(), // timestamp
     },
   }),
 
@@ -361,7 +371,6 @@ export const events = {
         "execute_result",
         "stream",
         "error",
-        "clear_output",
       ),
       data: Schema.Any,
       metadata: Schema.optional(Schema.Any), // For additional output metadata
@@ -371,6 +380,14 @@ export const events = {
 
   cellOutputsCleared: Events.synced({
     name: "v1.CellOutputsCleared",
+    schema: Schema.Struct({
+      cellId: Schema.String,
+      clearedBy: Schema.String,
+    }),
+  }),
+
+  cellOutputClearPending: Events.synced({
+    name: "v1.CellOutputClearPending",
     schema: Schema.Struct({
       cellId: Schema.String,
       clearedBy: Schema.String,
@@ -602,6 +619,14 @@ const materializers = State.SQLite.materializers(events, {
 
   "v1.CellOutputsCleared": ({ cellId }) =>
     tables.outputs.delete().where({ cellId }),
+
+  "v1.CellOutputClearPending": ({ cellId, clearedBy }) =>
+    tables.pendingClears.insert({
+      id: crypto.randomUUID(),
+      cellId,
+      clearedBy,
+      requestedAt: Date.now(),
+    }),
 
   // SQL materializers
   "v1.SqlConnectionCreated": ({

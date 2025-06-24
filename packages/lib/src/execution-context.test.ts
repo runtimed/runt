@@ -16,8 +16,7 @@ interface MockOutputCommit {
     | "stream"
     | "display_data"
     | "execute_result"
-    | "error"
-    | "clear_output";
+    | "error";
   data: {
     name?: "stdout" | "stderr";
     text?: string;
@@ -36,7 +35,13 @@ interface MockClearCommit {
   clearedBy: string;
 }
 
-type MockCommit = MockOutputCommit | MockClearCommit;
+interface MockClearPendingCommit {
+  type: "cellOutputClearPending";
+  cellId: string;
+  clearedBy: string;
+}
+
+type MockCommit = MockOutputCommit | MockClearCommit | MockClearPendingCommit;
 
 const createMockStore = () => {
   const commits: MockCommit[] = [];
@@ -195,15 +200,22 @@ Deno.test("ExecutionContext Output Methods", async (t) => {
         },
 
         clearOutput: (wait = false) => {
-          mockStore.commit({
-            type: "cellOutputAdded",
-            id: crypto.randomUUID(),
-            cellId: cell.id!,
-            outputType: "clear_output",
-            data: { wait },
-            metadata: {},
-            position: outputPosition++,
-          });
+          if (wait) {
+            // For wait=true: mock a pending clear request
+            mockStore.commit({
+              type: "cellOutputClearPending",
+              cellId: cell.id!,
+              clearedBy: `kernel-${config.kernelId}`,
+            });
+          } else {
+            // For wait=false: clear immediately
+            mockStore.commit({
+              type: "cellOutputsCleared",
+              cellId: cell.id!,
+              clearedBy: `kernel-${config.kernelId}`,
+            });
+            outputPosition = 0;
+          }
         },
       };
     })();
