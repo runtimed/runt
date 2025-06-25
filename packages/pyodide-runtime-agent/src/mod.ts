@@ -11,6 +11,14 @@ import { createLogger } from "@runt/lib";
 
 // Re-export library components for when used as a module
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
+
+// Export notebook export functionality
+export {
+  exportNotebook,
+  type ExportOptions,
+  NotebookExporter,
+} from "./notebook-exporter.ts";
+
 export {
   getCacheConfig,
   getCacheDir,
