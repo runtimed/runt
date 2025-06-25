@@ -6,6 +6,13 @@
 
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 
+// Export notebook export functionality
+export {
+  exportNotebook,
+  type ExportOptions,
+  NotebookExporter,
+} from "./notebook-exporter.ts";
+
 // Export cache utilities for advanced package management
 export {
   getCacheConfig,

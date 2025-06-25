@@ -1,0 +1,16 @@
+// Project tasks configuration. See https://zed.dev/docs/tasks for documentation.
+//
+// Example:
+[
+  {
+    "label": "Run pyrunt with local .env",
+    "command": "deno run --allow-all --env-file=.env packages/pyodide-runtime-agent/src/mod.ts",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "reveal_target": "dock",
+    "hide": "never",
+    "shell": "system",
+    "tags": []
+  }
+]

@@ -27,6 +27,7 @@ import {
   tables,
 } from "@runt/schema";
 import { OpenAIClient } from "./openai-client.ts";
+import { type ExportOptions, NotebookExporter } from "./notebook-exporter.ts";
 import stripAnsi from "npm:strip-ansi";
 
 /**
@@ -55,6 +56,12 @@ export interface NotebookContextData {
 export interface PyodideAgentOptions {
   /** Custom package list to load (overrides default essential packages) */
   packages?: string[];
+  /** Enable periodic notebook export */
+  enableNotebookExport?: boolean;
+  /** Export interval in milliseconds (default: 30 seconds) */
+  exportIntervalMs?: number;
+  /** Export options */
+  exportOptions?: ExportOptions;
 }
 
 /**
@@ -78,6 +85,8 @@ export class PyodideRuntimeAgent {
   public config: ReturnType<typeof createRuntimeConfig>;
   private options: PyodideAgentOptions;
   private openaiClient: OpenAIClient | null = null;
+  private notebookExporter?: NotebookExporter;
+  private exportTimer: ReturnType<typeof setInterval> | undefined = undefined;
 
   constructor(args: string[] = Deno.args, options: PyodideAgentOptions = {}) {
     try {
@@ -124,12 +133,27 @@ export class PyodideRuntimeAgent {
   async start(): Promise<void> {
     this.logger.info("Starting Pyodide Python runtime agent");
     await this.agent.start();
+
+    // Initialize notebook exporter after agent starts and LiveStore is ready
+    if (this.options.enableNotebookExport !== false) {
+      this.notebookExporter = new NotebookExporter(
+        this.agent.liveStore,
+        this.config.notebookId,
+      );
+    }
+
+    // Start periodic notebook export if enabled
+    if (this.notebookExporter) {
+      this.startPeriodicExport();
+    }
   }
 
   /**
    * Shutdown the runtime agent
    */
   async shutdown(): Promise<void> {
+    // Stop periodic export
+    this.stopPeriodicExport();
     await this.agent.shutdown();
   }
 
@@ -1146,6 +1170,164 @@ Remember: Users want working code in their notebook, not explanations about code
    */
   private stripAnsi(text: string): string {
     return stripAnsi(text);
+  }
+
+  /**
+   * Start periodic notebook export
+   */
+  private startPeriodicExport(): void {
+    if (!this.notebookExporter) return;
+
+    const intervalMs = this.options.exportIntervalMs || 10000; // Default 10 seconds
+
+    this.logger.info("Starting periodic notebook export", {
+      intervalMs,
+      notebookId: this.config.notebookId,
+    });
+
+    // Export immediately on start
+    this.performExport();
+
+    // Set up periodic export
+    this.exportTimer = setInterval(() => {
+      this.performExport();
+    }, intervalMs);
+  }
+
+  /**
+   * Stop periodic notebook export
+   */
+  private stopPeriodicExport(): void {
+    if (this.exportTimer) {
+      clearInterval(this.exportTimer);
+      this.exportTimer = undefined;
+      this.logger.info("Stopped periodic notebook export");
+    }
+  }
+
+  /**
+   * Perform notebook export
+   */
+  private async performExport(): Promise<void> {
+    if (!this.notebookExporter) {
+      this.logger.error("Notebook exporter not initialized");
+      return;
+    }
+
+    try {
+      this.logger.debug("Starting notebook export", {
+        notebookId: this.config.notebookId,
+      });
+
+      // Check if notebook exists before trying to export
+      const notebook = this.store.query(
+        tables.notebook.select().where({ id: this.config.notebookId }),
+      )[0];
+
+      this.logger.debug("Notebook query result", {
+        notebookFound: !!notebook,
+        notebookId: this.config.notebookId,
+        notebookTitle: notebook?.title,
+      });
+
+      if (!notebook) {
+        this.logger.debug("Notebook not initialized yet, skipping export", {
+          notebookId: this.config.notebookId,
+        });
+        return;
+      }
+
+      // Check cells
+      const cells = this.store.query(
+        tables.cells.select().orderBy("position", "asc"),
+      );
+      this.logger.debug("Found cells for export", {
+        cellCount: cells.length,
+        notebookId: this.config.notebookId,
+      });
+
+      let filename: string;
+      try {
+        filename = this.notebookExporter.generateFilename();
+        this.logger.debug("Generated filename", {
+          filename,
+          notebookId: this.config.notebookId,
+        });
+      } catch (error) {
+        this.logger.error("Failed to generate filename, using fallback", {
+          error: error instanceof Error ? error.message : String(error),
+          notebookId: this.config.notebookId,
+        });
+        filename = `${this.config.notebookId}.ipynb`;
+      }
+
+      const exportOptions = this.options.exportOptions || {
+        includeAiCells: true,
+        includeSqlCells: true,
+        transformSources: true,
+      };
+
+      this.logger.debug("Export options", {
+        exportOptions,
+        notebookId: this.config.notebookId,
+      });
+
+      await this.notebookExporter.writeToFile(filename, exportOptions);
+
+      this.logger.info("Notebook exported successfully", {
+        filename,
+        cellCount: cells.length,
+        notebookId: this.config.notebookId,
+      });
+    } catch (error) {
+      this.logger.error("Failed to export notebook", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        errorName: error instanceof Error ? error.name : typeof error,
+        notebookId: this.config.notebookId,
+      });
+
+      // Log the raw error object for debugging
+      console.error("Raw export error:", error);
+    }
+  }
+
+  /**
+   * Manually trigger notebook export
+   */
+  public async exportNotebook(
+    filePath?: string,
+    options?: ExportOptions,
+  ): Promise<string | null> {
+    if (!this.notebookExporter) {
+      this.logger.warn("Notebook exporter not initialized");
+      return null;
+    }
+
+    try {
+      const filename = filePath || this.notebookExporter.generateFilename();
+      const exportOptions = options || this.options.exportOptions || {
+        includeAiCells: true,
+        includeSqlCells: true,
+        transformSources: true,
+      };
+
+      await this.notebookExporter.writeToFile(filename, exportOptions);
+
+      this.logger.info("Manual notebook export completed", {
+        filename,
+        notebookId: this.config.notebookId,
+      });
+
+      return filename;
+    } catch (error) {
+      this.logger.error("Failed to manually export notebook", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        notebookId: this.config.notebookId,
+      });
+      throw error;
+    }
   }
 }
 
