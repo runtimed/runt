@@ -17,6 +17,7 @@
     "npm:@livestore/sync-cf@~0.3.1": "0.3.1",
     "npm:@opentelemetry/api@*": "1.9.0",
     "npm:@opentelemetry/api@^1.9.0": "1.9.0",
+    "npm:effect@3.15.5": "3.15.5",
     "npm:pyodide@*": "0.27.7",
     "npm:pyodide@~0.27.7": "0.27.7",
     "npm:strip-ansi@^7.1.0": "7.1.0"
@@ -1032,7 +1033,8 @@
       },
       "packages/schema": {
         "dependencies": [
-          "npm:@livestore/livestore@~0.3.1"
+          "npm:@livestore/livestore@~0.3.1",
+          "npm:effect@3.15.5"
         ],
         "packageJson": {
           "dependencies": [

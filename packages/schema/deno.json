@@ -18,7 +18,8 @@
     "lib": ["ESNext", "DOM"]
   },
   "imports": {
-    "@livestore/livestore": "npm:@livestore/livestore@^0.3.1"
+    "@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
+    "effect": "npm:effect@3.15.5"
   },
   "lint": {
     "rules": {
