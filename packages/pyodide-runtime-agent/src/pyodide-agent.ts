@@ -1032,7 +1032,7 @@ Remember: Users want working code in their notebook, not explanations about code
     return globalThis.Deno?.env?.get("NODE_ENV") === "test" ||
       globalThis.Deno?.env?.get("TESTING") === "true" ||
       // Check if we're running under deno test
-      (globalThis as any).Deno?.test !== undefined;
+      (globalThis as { Deno?: { test?: unknown } }).Deno?.test !== undefined;
   }
 
   /**
@@ -1297,15 +1297,12 @@ Remember: Users want working code in their notebook, not explanations about code
         // Set up execution completion monitoring with polling
         const executionCompletePromise = new Promise<string>(
           (resolve, reject) => {
-            let timeout: number;
-            let pollInterval: number;
-
             const cleanup = () => {
               if (timeout) clearTimeout(timeout);
               if (pollInterval) clearInterval(pollInterval);
             };
 
-            timeout = setTimeout(() => {
+            const timeout = setTimeout(() => {
               cleanup();
               reject(
                 new Error(
@@ -1315,7 +1312,7 @@ Remember: Users want working code in their notebook, not explanations about code
             }, 30000);
 
             // Poll execution status
-            pollInterval = setInterval(() => {
+            const pollInterval = setInterval(() => {
               const executionEntry = this.store.query(
                 tables.executionQueue.select().where({ id: queueId }),
               )[0];
