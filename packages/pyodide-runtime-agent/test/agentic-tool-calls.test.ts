@@ -1,5 +1,52 @@
-import { assert, assertEquals, assertExists } from "jsr:@std/assert@1.0.13";
+import { assert, assertEquals, assertExists } from "jsr:@std/assert";
 import { RuntOpenAIClient } from "../src/openai-client.ts";
+import type { ExecutionContext } from "@runt/lib";
+import type { CellData, ExecutionQueueData } from "@runt/schema";
+import type { Store } from "npm:@livestore/livestore";
+import { schema } from "@runt/schema";
+
+// Helper function to create mock execution context for testing
+function createMockContext() {
+  const outputs: Array<{
+    type: "display_data" | "error" | "execute_result";
+    data: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
+  }> = [];
+
+  const mockContext: ExecutionContext = {
+    cell: {} as CellData,
+    queueEntry: {} as ExecutionQueueData,
+    store: {} as Store<typeof schema>,
+    sessionId: "test-session",
+    kernelId: "test-kernel",
+    abortSignal: new AbortController().signal,
+    checkCancellation: () => {},
+    stdout: () => {},
+    stderr: () => {},
+    display: (data, metadata) => {
+      outputs.push({
+        type: "display_data",
+        data: data as Record<string, unknown>,
+        metadata: metadata || {},
+      });
+    },
+    result: (data) => {
+      outputs.push({
+        type: "execute_result",
+        data: data as Record<string, unknown>,
+      });
+    },
+    error: (ename, evalue, traceback) => {
+      outputs.push({
+        type: "error",
+        data: { ename, evalue, traceback },
+      });
+    },
+    clear: () => {},
+  };
+
+  return { mockContext, outputs };
+}
 
 Deno.test("OpenAI Client - Agentic Tool Calls", async (t) => {
   // Mock OpenAI API key for testing
@@ -80,8 +127,11 @@ Deno.test("OpenAI Client - Agentic Tool Calls", async (t) => {
       },
     };
 
-    const outputs = await client.generateAgenticResponse(
+    const { mockContext, outputs } = createMockContext();
+
+    await client.generateAgenticResponse(
       "Create a simple Python hello world program",
+      mockContext,
       {
         model: "gpt-4o-mini",
         enableTools: true,
@@ -199,8 +249,11 @@ Deno.test("OpenAI Client - Agentic Tool Calls", async (t) => {
       },
     };
 
-    const outputs = await client.generateAgenticResponse(
+    const { mockContext, outputs } = createMockContext();
+
+    await client.generateAgenticResponse(
       "Keep creating cells",
+      mockContext,
       {
         maxIterations: 2,
         enableTools: true,
@@ -276,8 +329,12 @@ Deno.test("OpenAI Client - Agentic Tool Calls", async (t) => {
       },
     };
 
-    const outputs = await client.generateAgenticResponse(
+    const { mockContext, outputs } = createMockContext();
+    mockContext.abortSignal = abortController.signal;
+
+    await client.generateAgenticResponse(
       "Create multiple cells",
+      mockContext,
       {
         maxIterations: 10,
         enableTools: true,
@@ -341,8 +398,11 @@ Deno.test("OpenAI Client - Agentic Tool Calls", async (t) => {
       },
     };
 
-    const outputs = await client.generateAgenticResponse(
+    const { mockContext, outputs } = createMockContext();
+
+    await client.generateAgenticResponse(
       "Create a cell",
+      mockContext,
       {
         maxIterations: 2,
         enableTools: true,
@@ -433,8 +493,11 @@ Deno.test("OpenAI Client - Agentic Tool Calls", async (t) => {
       },
     };
 
-    const outputs = await client.generateAgenticResponse(
+    const { mockContext, outputs } = createMockContext();
+
+    await client.generateAgenticResponse(
       "Execute the code cell",
+      mockContext,
       {
         maxIterations: 2,
         enableTools: true,

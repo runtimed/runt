@@ -1,5 +1,5 @@
 import OpenAI from "@openai/openai";
-import { createLogger } from "@runt/lib";
+import { createLogger, type ExecutionContext } from "@runt/lib";
 
 // Define message types inline to avoid import issues
 type ChatMessage = {
@@ -694,6 +694,7 @@ Remember: Users want working code in their notebook, not explanations about code
 
   async generateAgenticResponse(
     prompt: string,
+    context: ExecutionContext,
     options: {
       model?: string;
       provider?: string;
@@ -704,11 +705,7 @@ Remember: Users want working code in their notebook, not explanations about code
       currentCellId?: string;
       onToolCall?: (toolCall: ToolCall) => Promise<string>;
     } & AgenticOptions = {},
-  ): Promise<OutputData[]> {
-    if (!this.isReady()) {
-      return this.createConfigHelpOutput();
-    }
-
+  ): Promise<void> {
     const {
       model = "gpt-4o-mini",
       maxTokens = 2000,
@@ -742,12 +739,21 @@ Remember: Users want working code in their notebook, not explanations about code
       interruptSignal,
     } = options;
 
+    if (!this.isReady()) {
+      const configOutputs = this.createConfigHelpOutput();
+      for (const output of configOutputs) {
+        if (output.type === "display_data") {
+          context.display(output.data, output.metadata || {});
+        }
+      }
+      return;
+    }
+
     const conversationMessages: ChatMessage[] = [
       { role: "system", content: systemPrompt },
       { role: "user", content: prompt },
     ];
 
-    const allOutputs: OutputData[] = [];
     let iteration = 0;
 
     try {
@@ -842,7 +848,7 @@ Remember: Users want working code in their notebook, not explanations about code
                   `Tool ${toolCall.function.name} failed: ${errorMessage}`,
                 );
 
-                const errorToolCallData: ToolCallOutput = {
+                const toolCallData: ToolCallOutput = {
                   tool_call_id: toolCall.id,
                   tool_name: toolCall.function.name,
                   arguments: { raw_arguments: toolCall.function.arguments },
@@ -851,10 +857,10 @@ Remember: Users want working code in their notebook, not explanations about code
                   result: errorMessage,
                 };
 
-                allOutputs.push({
+                const errorOutput: OutputData = {
                   type: "display_data",
                   data: {
-                    "application/vnd.anode.aitool+json": errorToolCallData,
+                    "application/vnd.anode.aitool+json": toolCallData,
                     "text/markdown":
                       `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError parsing arguments: ${parseError.message}`,
                     "text/plain":
@@ -866,7 +872,10 @@ Remember: Users want working code in their notebook, not explanations about code
                     "anode/tool_error": true,
                     "anode/iteration": iteration + 1,
                   },
-                });
+                };
+
+                // Emit immediately via execution context
+                context.display(errorOutput.data, errorOutput.metadata);
 
                 // Add tool error to conversation
                 conversationMessages.push({
@@ -906,7 +915,7 @@ Remember: Users want working code in their notebook, not explanations about code
                   result: toolResult,
                 };
 
-                allOutputs.push({
+                const successOutput: OutputData = {
                   type: "display_data",
                   data: {
                     "application/vnd.anode.aitool+json": toolCallData,
@@ -924,7 +933,10 @@ Remember: Users want working code in their notebook, not explanations about code
                     "anode/tool_args": args,
                     "anode/iteration": iteration + 1,
                   },
-                });
+                };
+
+                // Emit immediately via execution context
+                context.display(successOutput.data, successOutput.metadata);
 
                 // Add tool result to conversation
                 conversationMessages.push({
@@ -957,7 +969,7 @@ Remember: Users want working code in their notebook, not explanations about code
                   result: errorMessage,
                 };
 
-                allOutputs.push({
+                const errorOutput: OutputData = {
                   type: "display_data",
                   data: {
                     "application/vnd.anode.aitool+json": errorToolCallData,
@@ -972,7 +984,10 @@ Remember: Users want working code in their notebook, not explanations about code
                     "anode/tool_error": true,
                     "anode/iteration": iteration + 1,
                   },
-                });
+                };
+
+                // Emit immediately via execution context
+                context.display(errorOutput.data, errorOutput.metadata);
 
                 // Add tool error to conversation
                 conversationMessages.push({
@@ -984,21 +999,17 @@ Remember: Users want working code in their notebook, not explanations about code
             }
           }
 
-          // If there's also text content, add it to outputs
+          // If there's also text content, emit it immediately
           if (content) {
-            allOutputs.push({
-              type: "display_data",
-              data: {
-                "text/markdown": content,
-                "text/plain": content,
-              },
-              metadata: {
-                "anode/ai_response": true,
-                "anode/ai_provider": "openai",
-                "anode/ai_model": model,
-                "anode/ai_with_tools": true,
-                "anode/iteration": iteration + 1,
-              },
+            context.display({
+              "text/markdown": content,
+              "text/plain": content,
+            }, {
+              "anode/ai_response": true,
+              "anode/ai_provider": "openai",
+              "anode/ai_model": model,
+              "anode/ai_with_tools": true,
+              "anode/iteration": iteration + 1,
             });
           }
 
@@ -1007,26 +1018,22 @@ Remember: Users want working code in their notebook, not explanations about code
           continue;
         }
 
-        // No tool calls - add final response and break
+        // No tool calls - emit final response and break
         if (content) {
-          allOutputs.push({
-            type: "display_data",
-            data: {
-              "text/markdown": content,
-              "text/plain": content,
+          context.display({
+            "text/markdown": content,
+            "text/plain": content,
+          }, {
+            "anode/ai_response": true,
+            "anode/ai_provider": "openai",
+            "anode/ai_model": model,
+            "anode/ai_usage": {
+              prompt_tokens: response.usage?.prompt_tokens || 0,
+              completion_tokens: response.usage?.completion_tokens || 0,
+              total_tokens: response.usage?.total_tokens || 0,
             },
-            metadata: {
-              "anode/ai_response": true,
-              "anode/ai_provider": "openai",
-              "anode/ai_model": model,
-              "anode/ai_usage": {
-                prompt_tokens: response.usage?.prompt_tokens || 0,
-                completion_tokens: response.usage?.completion_tokens || 0,
-                total_tokens: response.usage?.total_tokens || 0,
-              },
-              "anode/iteration": iteration + 1,
-              "anode/final_response": true,
-            },
+            "anode/iteration": iteration + 1,
+            "anode/final_response": true,
           });
         }
 
@@ -1041,24 +1048,18 @@ Remember: Users want working code in their notebook, not explanations about code
         this.logger.warn(
           `Agentic conversation reached max iterations (${maxIterations})`,
         );
-        allOutputs.push({
-          type: "display_data",
-          data: {
-            "text/markdown":
-              "⚠️ **Reached maximum iterations** - The AI assistant has reached the maximum number of conversation iterations. The conversation may be incomplete.",
-            "text/plain":
-              "Reached maximum iterations - conversation may be incomplete",
-          },
-          metadata: {
-            "anode/ai_response": true,
-            "anode/ai_provider": "openai",
-            "anode/ai_model": model,
-            "anode/max_iterations_reached": true,
-          },
+        context.display({
+          "text/markdown":
+            "⚠️ **Reached maximum iterations** - The AI assistant has reached the maximum number of conversation iterations. The conversation may be incomplete.",
+          "text/plain":
+            "Reached maximum iterations - conversation may be incomplete",
+        }, {
+          "anode/ai_response": true,
+          "anode/ai_provider": "openai",
+          "anode/ai_model": model,
+          "anode/max_iterations_reached": true,
         });
       }
-
-      return allOutputs;
     } catch (error: unknown) {
       this.logger.error("OpenAI API error in agentic conversation", error);
 
@@ -1077,7 +1078,25 @@ Remember: Users want working code in their notebook, not explanations about code
         }
       }
 
-      return this.createErrorOutput(`OpenAI API Error: ${errorMessage}`);
+      const errorOutputs = this.createErrorOutput(
+        `OpenAI API Error: ${errorMessage}`,
+      );
+      for (const output of errorOutputs) {
+        if (output.type === "display_data") {
+          context.display(output.data, output.metadata || {});
+        } else if (output.type === "error" && output.data) {
+          const errorData = output.data as {
+            ename?: string;
+            evalue?: string;
+            traceback?: string[];
+          };
+          context.error(
+            errorData.ename || "OpenAIError",
+            errorData.evalue || "Unknown error",
+            errorData.traceback || ["Unknown error"],
+          );
+        }
+      }
     }
   }
 

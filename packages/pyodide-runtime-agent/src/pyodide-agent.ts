@@ -532,7 +532,7 @@ export class PyodideRuntimeAgent {
     const {
       cell,
       stderr,
-      result,
+      result: _result,
       error,
       abortSignal,
     } = context;
@@ -583,8 +583,9 @@ export class PyodideRuntimeAgent {
           msg.role === "system"
         )?.content || "";
 
-        const outputs = await this.openaiClient.generateAgenticResponse(
+        await this.openaiClient.generateAgenticResponse(
           prompt,
+          context,
           {
             model: cell.aiModel || "gpt-4o-mini",
             provider: cell.aiProvider || "openai",
@@ -621,27 +622,7 @@ export class PyodideRuntimeAgent {
           },
         );
 
-        this.logger.info("Generated AI outputs", { count: outputs.length });
-
-        // Send outputs to execution context
-        outputs.forEach((output) => {
-          if (output.type === "display_data") {
-            context.display(output.data, output.metadata || {});
-          } else if (output.type === "execute_result") {
-            result(output.data);
-          } else if (output.type === "error" && output.data) {
-            const errorData = output.data as {
-              ename?: string;
-              evalue?: string;
-              traceback?: string[];
-            };
-            error(
-              errorData.ename || "AIError",
-              errorData.evalue || "Unknown error",
-              errorData.traceback || ["Unknown error"],
-            );
-          }
-        });
+        this.logger.info("AI conversation completed");
       } else {
         // Show helpful configuration message when AI is not configured
         const configMessage = `# AI Configuration Required
