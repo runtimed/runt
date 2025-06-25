@@ -5,10 +5,10 @@ on:
     branches:
       - main
     paths:
-      - 'packages/*/deno.json'
-      - 'packages/*/mod.ts'
-      - 'packages/*/src/**'
-      - 'packages/*/package.json'
+      - "packages/*/deno.json"
+      - "packages/*/mod.ts"
+      - "packages/*/src/**"
+      - "packages/*/package.json"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -297,7 +297,14 @@ jobs:
   summary:
     name: Summary
     runs-on: ubuntu-latest
-    needs: [changes, validate, publish-schema, publish-lib, publish-pyodide, create-tags]
+    needs: [
+      changes,
+      validate,
+      publish-schema,
+      publish-lib,
+      publish-pyodide,
+      create-tags,
+    ]
     if: always()
     steps:
       - name: Report results
