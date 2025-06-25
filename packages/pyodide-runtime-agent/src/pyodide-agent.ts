@@ -617,29 +617,42 @@ export class PyodideRuntimeAgent {
           }
         });
       } else {
-        // Generate fake AI response for development/testing
-        const outputs = await this.generateFakeAiResponse(cell, context_data);
-        this.logger.info("Generated fake AI outputs", {
-          count: outputs.length,
-        });
+        // Show helpful configuration message when AI is not configured
+        const configMessage = `# AI Configuration Required
 
-        outputs.forEach((output) => {
-          if (
-            output.type === "display_data" || output.type === "execute_result"
-          ) {
-            context.display(output.data, output.metadata || {});
-          } else if (output.type === "error" && output.data) {
-            const errorData = output.data as {
-              ename?: string;
-              evalue?: string;
-              traceback?: string[];
-            };
-            error(
-              errorData.ename || "AIError",
-              errorData.evalue || "Unknown error",
-              errorData.traceback || ["Unknown error"],
-            );
-          }
+AI has not been configured for this runtime yet. To use AI Cells, you need to set an \`OPENAI_API_KEY\` before starting your runtime agent.
+
+## Setup Instructions
+
+Set your API key as an environment variable:
+
+\`\`\`bash
+OPENAI_API_KEY=your-api-key-here deno run --allow-all your-script.ts
+\`\`\`
+
+Or add it to your \`.env\` file:
+
+\`\`\`
+OPENAI_API_KEY=your-api-key-here
+\`\`\`
+
+## Get an API Key
+
+1. Visit [OpenAI's website](https://platform.openai.com/api-keys)
+2. Create an account or sign in
+3. Generate a new API key
+4. Copy the key and use it in your environment
+
+Once configured, your AI cells will work with real OpenAI models!`;
+
+        context.display({
+          "text/markdown": configMessage,
+          "text/plain": configMessage.replace(/[#*`]/g, "").replace(
+            /\n+/g,
+            "\n",
+          ).trim(),
+        }, {
+          "anode/ai_config_help": true,
         });
       }
 
@@ -1126,97 +1139,6 @@ Remember: Users want working code in their notebook, not explanations about code
       default:
         return currentCell.position + 0.1;
     }
-  }
-
-  /**
-   * Generate fake AI response for testing with rich output support
-   */
-  private async generateFakeAiResponse(
-    cell: CellData,
-    context?: {
-      previousCells: Array<{
-        id: string;
-        cellType: string;
-        source: string;
-        position: number;
-        outputs: Array<{
-          outputType: string;
-          data: Record<string, unknown>;
-        }>;
-      }>;
-      totalCells: number;
-      currentCellPosition: number;
-    },
-  ): Promise<
-    Array<{
-      type: string;
-      data: Record<string, unknown>;
-      metadata?: Record<string, unknown>;
-    }>
-  > {
-    const provider = cell.aiProvider || "openai";
-    const model = cell.aiModel || "gpt-4o-mini";
-    const prompt = cell.source || "";
-
-    // Simulate AI thinking time (reduced for better dev experience)
-    await new Promise((resolve) =>
-      setTimeout(resolve, 200 + Math.random() * 500)
-    );
-
-    // Generate context-aware response
-    let contextInfo = "";
-    if (context && context.previousCells.length > 0) {
-      contextInfo = `
-
-## 📚 Notebook Context Analysis
-
-I can see **${context.previousCells.length} previous cells** in this notebook:
-
-`;
-      context.previousCells.forEach((cell, index) => {
-        const preview = cell.source.slice(0, 100);
-        contextInfo += `- **Cell ${index + 1}** (${cell.cellType}): ${preview}${
-          cell.source.length > 100 ? "..." : ""
-        }\n`;
-      });
-    } else if (context) {
-      contextInfo =
-        "\n\n## 📚 Notebook Context\n\nThis appears to be the first cell in your notebook.\n";
-    }
-
-    const response = `I understand you're asking: "${prompt}"
-
-This is a **mock response** from \`${model}\` with notebook context awareness.${contextInfo}
-
-## 🔍 Analysis & Suggestions
-
-Based on your prompt and notebook context:
-- 💡 **Context Understanding**: I can see the progression of your work
-- 📊 **Data Insights**: Previous cells provide valuable context
-- 🚀 **Next Steps**: Building on existing code and variables
-
-\`\`\`python
-# Example based on notebook context
-import pandas as pd
-df = pd.read_csv('data.csv')
-df.head()
-\`\`\`
-
-> **Note**: This is a simulated response. Real AI integration will provide deeper context analysis.`;
-
-    return [{
-      type: "execute_result",
-      data: {
-        "text/markdown": response,
-        "text/plain": response.replace(/[#*`>|\-]/g, "").replace(/\n+/g, "\n")
-          .trim(),
-      },
-      metadata: {
-        "anode/ai_response": true,
-        "anode/ai_provider": provider,
-        "anode/ai_model": model,
-      },
-    }];
   }
 
   /**

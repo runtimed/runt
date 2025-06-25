@@ -177,9 +177,7 @@ export class RuntOpenAIClient {
     } = {},
   ): Promise<OutputData[]> {
     if (!this.isReady()) {
-      return this.createErrorOutput(
-        "OpenAI client not configured. Please set OPENAI_API_KEY environment variable.",
-      );
+      return this.createConfigHelpOutput();
     }
 
     const {
@@ -426,9 +424,7 @@ export class RuntOpenAIClient {
     } = {},
   ): Promise<OutputData[]> {
     if (!this.isReady()) {
-      return this.createErrorOutput(
-        "OpenAI client not configured. Please set OPENAI_API_KEY environment variable.",
-      );
+      return this.createConfigHelpOutput();
     }
 
     const {
@@ -699,9 +695,7 @@ Remember: Users want working code in their notebook, not explanations about code
     } = {},
   ): Promise<OutputData[]> {
     if (!this.isReady()) {
-      return this.createErrorOutput(
-        "OpenAI client not configured. Please set OPENAI_API_KEY environment variable.",
-      );
+      return this.createConfigHelpOutput();
     }
 
     const {
@@ -792,6 +786,47 @@ Remember: Users want working code in their notebook, not explanations about code
         ename: "OpenAIError",
         evalue: message,
         traceback: [message],
+      },
+    }];
+  }
+
+  private createConfigHelpOutput(): OutputData[] {
+    const configMessage = `# AI Configuration Required
+
+AI has not been configured for this runtime yet. To use AI Cells, you need to set an \`OPENAI_API_KEY\` before starting your runtime agent.
+
+## Setup Instructions
+
+Set your API key as an environment variable:
+
+\`\`\`bash
+OPENAI_API_KEY=your-api-key-here deno run --allow-all your-script.ts
+\`\`\`
+
+Or add it to your \`.env\` file:
+
+\`\`\`
+OPENAI_API_KEY=your-api-key-here
+\`\`\`
+
+## Get an API Key
+
+1. Visit [OpenAI's website](https://platform.openai.com/api-keys)
+2. Create an account or sign in
+3. Generate a new API key
+4. Copy the key and use it in your environment
+
+Once configured, your AI cells will work with real OpenAI models!`;
+
+    return [{
+      type: "display_data",
+      data: {
+        "text/markdown": configMessage,
+        "text/plain": configMessage.replace(/[#*`]/g, "").replace(/\n+/g, "\n")
+          .trim(),
+      },
+      metadata: {
+        "anode/ai_config_help": true,
       },
     }];
   }
