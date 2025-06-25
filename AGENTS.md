@@ -9,10 +9,10 @@ Runt is a TypeScript/Deno library for building runtime agents that connect to
 [Anode notebooks](https://github.com/rgbkrk/anode). It uses LiveStore for
 event-sourcing and real-time sync between multiple users.
 
-**Current Status**: Working system with 29 passing tests. Core functionality is
+**Current Status**: Working system with 30 passing tests. Core functionality is
 implemented and published to JSR. The system is a working prototype with Python
-execution via Pyodide, real-time collaboration, and executable installation
-support.
+execution via Pyodide, real-time collaboration, executable installation support,
+and agentic AI behavior with iterative tool calls.
 
 ## Architecture
 
@@ -41,6 +41,8 @@ support.
 - Real-time interrupt support via SharedArrayBuffer
 - JSR publishing for all packages with executable installation
 - Global executable installation as `pyrunt`
+- Agentic AI behavior with iterative tool call responses
+- Interrupt-aware AI conversations with configurable max iterations
 
 ## What Needs Work
 
@@ -83,6 +85,11 @@ When making changes:
   through IPython's displayhook for rich formatting.
 - **Duplicate Outputs**: When displayhook handles a result, don't return data
   from the execution handler to avoid duplicate execute_result outputs.
+- **Agentic Conversations**: The AI can now iterate after tool calls, allowing
+  it to respond to tool results and fix its own mistakes. Use
+  `generateAgenticResponse()` for this behavior. Default max iterations is 10.
+- **Interrupt Support**: AI conversations respect abort signals and can be
+  interrupted during multi-iteration flows.
 
 ## File Structure
 
@@ -181,9 +188,16 @@ not to impress anyone with complexity.
 
 ## Recent Changes
 
+- **Agentic AI Behavior**: Added `generateAgenticResponse()` method that allows
+  AI to iterate after tool calls, responding to results and fixing mistakes
+  (default max iterations: 10)
+- **Interrupt-Aware Conversations**: AI conversations now respect abort signals
+  and can be interrupted during multi-iteration flows
+- **Enhanced Tool Call Handling**: Tool calls now return results that feed back
+  into the AI conversation for more intelligent behavior
 - Published all packages to JSR with proper dependency management
 - Restructured pyodide package for executable installation (`pyrunt`)
-- Cleaned up test suite from 47 to 29 focused test cases
+- Cleaned up test suite and added comprehensive agentic behavior tests
 - Removed marketing fluff from documentation
 - Fixed JSR publishing with proper import constraints
 - Added executable bin configuration for global installation

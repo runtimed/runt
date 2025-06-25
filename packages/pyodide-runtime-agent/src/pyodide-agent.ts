@@ -578,19 +578,45 @@ export class PyodideRuntimeAgent {
           prompt,
         );
 
-        const outputs = await this.openaiClient.generateResponseWithMessages(
-          conversationMessages,
+        // Extract system prompt from conversation messages
+        const systemContext = conversationMessages.find((msg) =>
+          msg.role === "system"
+        )?.content || "";
+
+        const outputs = await this.openaiClient.generateAgenticResponse(
+          prompt,
           {
             model: cell.aiModel || "gpt-4o-mini",
             provider: cell.aiProvider || "openai",
             enableTools: true,
             currentCellId: cell.id,
+            maxIterations: 10,
+            interruptSignal: abortSignal,
+            systemPrompt: systemContext,
             onToolCall: async (toolCall) => {
               this.logger.info("AI requested tool call", {
                 toolName: toolCall.name,
                 cellId: cell.id,
               });
-              await this.handleToolCall(cell, toolCall);
+              return await this.handleToolCallWithResult(cell, toolCall);
+            },
+            onIteration: (iteration, messages) => {
+              // Check if execution was cancelled
+              if (abortSignal.aborted) {
+                this.logger.info("AI conversation interrupted", {
+                  iteration,
+                  cellId: cell.id,
+                });
+                return Promise.resolve(false);
+              }
+
+              this.logger.info("AI conversation iteration", {
+                iteration: iteration + 1,
+                messageCount: messages.length,
+                cellId: cell.id,
+              });
+
+              return Promise.resolve(true);
             },
           },
         );
@@ -965,13 +991,38 @@ Remember: Users want working code in their notebook, not explanations about code
   }
 
   /**
-   * Handle tool calls from AI
+   * Handle tool calls from AI with result return
+   */
+  public async handleToolCallWithResult(currentCell: CellData, toolCall: {
+    id: string;
+    name: string;
+    arguments: Record<string, unknown>;
+  }): Promise<string> {
+    const result = await this.executeToolCall(currentCell, toolCall);
+    return result;
+  }
+
+  /**
+   * Handle tool calls from AI (legacy method)
    */
   public handleToolCall(currentCell: CellData, toolCall: {
     id: string;
     name: string;
     arguments: Record<string, unknown>;
   }): void {
+    this.executeToolCall(currentCell, toolCall).catch((error) => {
+      this.logger.error("Tool call execution failed", { error, toolCall });
+    });
+  }
+
+  /**
+   * Execute tool calls and return result description
+   */
+  private async executeToolCall(currentCell: CellData, toolCall: {
+    id: string;
+    name: string;
+    arguments: Record<string, unknown>;
+  }): Promise<string> {
     const { name, arguments: args } = toolCall;
 
     switch (name) {
@@ -1022,7 +1073,10 @@ Remember: Users want working code in their notebook, not explanations about code
           cellId: newCellId,
           contentPreview: content.slice(0, 100),
         });
-        break;
+
+        return `Created ${cellType} cell with ID ${newCellId}${
+          content ? ` containing ${content.length} characters` : ""
+        }`;
       }
 
       case "modify_cell": {
@@ -1031,7 +1085,7 @@ Remember: Users want working code in their notebook, not explanations about code
 
         if (!cellId) {
           this.logger.error("modify_cell: cellId is required");
-          return;
+          throw new Error("modify_cell: cellId is required");
         }
 
         // Check if cell exists
@@ -1041,7 +1095,7 @@ Remember: Users want working code in their notebook, not explanations about code
 
         if (!existingCell) {
           this.logger.error("modify_cell: Cell not found", { cellId });
-          return;
+          throw new Error(`modify_cell: Cell not found: ${cellId}`);
         }
 
         this.logger.info("Modifying cell via AI tool call", {
@@ -1062,7 +1116,8 @@ Remember: Users want working code in their notebook, not explanations about code
           cellId,
           contentPreview: content.slice(0, 100),
         });
-        break;
+
+        return `Modified cell ${cellId} with ${content.length} characters`;
       }
 
       case "execute_cell": {
@@ -1070,7 +1125,7 @@ Remember: Users want working code in their notebook, not explanations about code
 
         if (!cellId) {
           this.logger.error("execute_cell: cellId is required");
-          return;
+          throw new Error("execute_cell: cellId is required");
         }
 
         // Check if cell exists and is executable
@@ -1080,25 +1135,107 @@ Remember: Users want working code in their notebook, not explanations about code
 
         if (!existingCell) {
           this.logger.error("execute_cell: Cell not found", { cellId });
-          return;
+          throw new Error(`execute_cell: Cell not found: ${cellId}`);
         }
 
         if (existingCell.cellType !== "code") {
-          this.logger.error("execute_cell: Only code cells can be executed", {
-            cellId,
-            cellType: existingCell.cellType,
-          });
-          return;
+          this.logger.error(
+            "execute_cell: Only code cells can be executed",
+            {
+              cellId,
+              cellType: existingCell.cellType,
+            },
+          );
+          throw new Error(
+            `execute_cell: Only code cells can be executed, got ${existingCell.cellType}`,
+          );
         }
 
         this.logger.info("Executing cell via AI tool call", { cellId });
 
+        const queueId = `exec-${Date.now()}-${
+          Math.random().toString(36).slice(2)
+        }`;
+
+        // Set up execution completion monitoring with polling
+        const executionCompletePromise = new Promise<string>(
+          (resolve, reject) => {
+            const timeout = setTimeout(() => {
+              reject(
+                new Error(
+                  `Execution timeout after 30 seconds for cell ${cellId}`,
+                ),
+              );
+            }, 30000);
+
+            // Poll execution status
+            const pollInterval = setInterval(() => {
+              const executionEntry = this.store.query(
+                tables.executionQueue.select().where({ id: queueId }),
+              )[0];
+
+              if (!executionEntry) return;
+
+              if (
+                executionEntry.status === "completed" ||
+                executionEntry.status === "failed"
+              ) {
+                clearTimeout(timeout);
+                clearInterval(pollInterval);
+
+                if (executionEntry.status === "failed") {
+                  reject(new Error(`Execution failed for cell ${cellId}`));
+                  return;
+                }
+
+                // Get cell outputs after execution
+                const outputs = this.store.query(
+                  tables.outputs.select().where({ cellId }).orderBy(
+                    "position",
+                    "asc",
+                  ),
+                );
+
+                // Format outputs for AI consumption
+                let outputSummary = `Cell ${cellId} executed successfully`;
+
+                if (outputs.length > 0) {
+                  const outputTexts: string[] = [];
+
+                  for (const output of outputs) {
+                    if (output.outputType === "stream" && output.data.text) {
+                      outputTexts.push(
+                        `Output: ${String(output.data.text).trim()}`,
+                      );
+                    } else if (
+                      output.outputType === "execute_result" &&
+                      output.data["text/plain"]
+                    ) {
+                      outputTexts.push(
+                        `Result: ${String(output.data["text/plain"]).trim()}`,
+                      );
+                    } else if (output.outputType === "error") {
+                      outputTexts.push(
+                        `Error: ${output.data.ename}: ${output.data.evalue}`,
+                      );
+                    }
+                  }
+
+                  if (outputTexts.length > 0) {
+                    outputSummary += `. ${outputTexts.join(". ")}`;
+                  }
+                }
+
+                resolve(outputSummary);
+              }
+            }, 500); // Poll every 500ms
+          },
+        );
+
         // Request execution for the cell
         this.store.commit(
           events.executionRequested({
-            queueId: `exec-${Date.now()}-${
-              Math.random().toString(36).slice(2)
-            }`,
+            queueId,
             cellId,
             executionCount: (existingCell.executionCount || 0) + 1,
             requestedBy: `ai-assistant-${this.config.sessionId}`,
@@ -1106,12 +1243,18 @@ Remember: Users want working code in their notebook, not explanations about code
           }),
         );
 
-        this.logger.info("Requested execution for cell", { cellId });
-        break;
+        this.logger.info(
+          "Execution requested for cell, waiting for completion",
+          { cellId, queueId },
+        );
+
+        // Wait for execution to complete and return the result
+        return await executionCompletePromise;
       }
 
       default:
         this.logger.warn("Unknown AI tool", { toolName: name });
+        throw new Error(`Unknown tool: ${name}`);
     }
   }
 

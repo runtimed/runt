@@ -42,13 +42,22 @@ interface ToolCallOutput {
   arguments: Record<string, unknown>;
   status: "success" | "error";
   timestamp: string;
-  execution_time_ms?: number;
+  result?: string;
 }
 
 interface OutputData {
-  type: string;
+  type: "display_data" | "execute_result" | "error";
   data: Record<string, unknown>;
   metadata?: Record<string, unknown>;
+}
+
+interface AgenticOptions {
+  maxIterations?: number;
+  onIteration?: (
+    iteration: number,
+    messages: ChatMessage[],
+  ) => Promise<boolean>;
+  interruptSignal?: AbortSignal;
 }
 
 // Define available notebook tools
@@ -663,6 +672,395 @@ Remember: Users want working code in their notebook, not explanations about code
       }];
     } catch (error: unknown) {
       this.logger.error("OpenAI API error", error);
+
+      let errorMessage = "Unknown error occurred";
+      if (error && typeof error === "object") {
+        const err = error as { status?: number; message?: string };
+        if (err.status === 401) {
+          errorMessage =
+            "Invalid API key. Please check your OPENAI_API_KEY environment variable.";
+        } else if (err.status === 429) {
+          errorMessage = "Rate limit exceeded. Please try again later.";
+        } else if (err.status === 500) {
+          errorMessage = "OpenAI server error. Please try again later.";
+        } else if (err.message) {
+          errorMessage = err.message;
+        }
+      }
+
+      return this.createErrorOutput(`OpenAI API Error: ${errorMessage}`);
+    }
+  }
+
+  async generateAgenticResponse(
+    prompt: string,
+    options: {
+      model?: string;
+      provider?: string;
+      maxTokens?: number;
+      temperature?: number;
+      systemPrompt?: string;
+      enableTools?: boolean;
+      currentCellId?: string;
+      onToolCall?: (toolCall: ToolCall) => Promise<string>;
+    } & AgenticOptions = {},
+  ): Promise<OutputData[]> {
+    if (!this.isReady()) {
+      return this.createConfigHelpOutput();
+    }
+
+    const {
+      model = "gpt-4o-mini",
+      maxTokens = 2000,
+      temperature = 0.7,
+      systemPrompt =
+        `You are a helpful AI assistant in a Jupyter-like notebook environment. You can see the context of previous cells and their outputs.
+
+**Your primary functions:**
+
+1. **Create cells immediately** - When users want code, examples, or implementations, use the create_cell tool to add them to the notebook. Don't provide code blocks in markdown - create actual executable cells.
+
+2. **Context awareness** - Reference previous cells and their outputs to provide relevant assistance. You can see what variables exist, what functions were defined, and what the current state is.
+
+3. **Debug and optimize** - Help users debug errors, optimize code, or extend existing functionality based on what you can see in the notebook.
+
+4. **Interpret outputs** - Respond based on execution results, error messages, plots, and data outputs from previous cells.
+
+**Key behaviors:**
+- CREATE cells instead of describing code
+- Reference previous work when relevant
+- Help debug based on actual errors you can see
+- Suggest next steps based on notebook progression
+- Use "after_current" positioning by default
+
+Remember: Users want working code in their notebook, not explanations about code.`,
+      enableTools = true,
+      currentCellId: _currentCellId,
+      onToolCall,
+      maxIterations = 10,
+      onIteration,
+      interruptSignal,
+    } = options;
+
+    const conversationMessages: ChatMessage[] = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: prompt },
+    ];
+
+    const allOutputs: OutputData[] = [];
+    let iteration = 0;
+
+    try {
+      while (iteration < maxIterations) {
+        // Check for interruption
+        if (interruptSignal?.aborted) {
+          this.logger.info("Agentic conversation interrupted");
+          break;
+        }
+
+        // Call iteration callback if provided
+        if (onIteration) {
+          const shouldContinue = await onIteration(
+            iteration,
+            conversationMessages,
+          );
+          if (!shouldContinue) {
+            this.logger.info(
+              "Agentic conversation stopped by iteration callback",
+            );
+            break;
+          }
+        }
+
+        this.logger.info(`Agentic iteration ${iteration + 1}/${maxIterations}`);
+
+        // Prepare tools if enabled
+        const tools = enableTools
+          ? NOTEBOOK_TOOLS.map((tool) => ({
+            type: "function" as const,
+            function: {
+              name: tool.name,
+              description: tool.description,
+              parameters: tool.parameters,
+            },
+          }))
+          : undefined;
+
+        const response = await this.client!.chat.completions.create({
+          model,
+          messages: conversationMessages,
+          max_tokens: maxTokens,
+          temperature,
+          stream: false,
+          ...(tools ? { tools } : {}),
+          ...(enableTools && tools ? { tool_choice: "auto" as const } : {}),
+        });
+
+        const message = response.choices[0]?.message;
+        const content = message?.content;
+        const toolCalls = message?.tool_calls;
+
+        // Add assistant message to conversation
+        conversationMessages.push({
+          role: "assistant",
+          content: content || "",
+        });
+
+        // Handle tool calls if present
+        if (toolCalls && toolCalls.length > 0 && onToolCall) {
+          this.logger.info(
+            `Processing ${toolCalls.length} tool calls in iteration ${
+              iteration + 1
+            }`,
+          );
+
+          let _hasToolErrors = false;
+          const toolResults: string[] = [];
+
+          for (const toolCall of toolCalls) {
+            if (toolCall.type === "function") {
+              let args: Record<string, unknown> = {};
+              let parseError: Error | null = null;
+
+              try {
+                args = JSON.parse(toolCall.function.arguments);
+              } catch (error) {
+                parseError = error instanceof Error
+                  ? error
+                  : new Error(String(error));
+                this.logger.error(
+                  `Error parsing tool arguments for ${toolCall.function.name}`,
+                  error,
+                );
+              }
+
+              if (parseError) {
+                _hasToolErrors = true;
+                const errorMessage =
+                  `Error parsing arguments: ${parseError.message}`;
+                toolResults.push(
+                  `Tool ${toolCall.function.name} failed: ${errorMessage}`,
+                );
+
+                const errorToolCallData: ToolCallOutput = {
+                  tool_call_id: toolCall.id,
+                  tool_name: toolCall.function.name,
+                  arguments: { raw_arguments: toolCall.function.arguments },
+                  status: "error",
+                  timestamp: new Date().toISOString(),
+                  result: errorMessage,
+                };
+
+                allOutputs.push({
+                  type: "display_data",
+                  data: {
+                    "application/vnd.anode.aitool+json": errorToolCallData,
+                    "text/markdown":
+                      `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError parsing arguments: ${parseError.message}`,
+                    "text/plain":
+                      `Tool failed: ${toolCall.function.name} - Error parsing arguments: ${parseError.message}`,
+                  },
+                  metadata: {
+                    "anode/tool_call": true,
+                    "anode/tool_name": toolCall.function.name,
+                    "anode/tool_error": true,
+                    "anode/iteration": iteration + 1,
+                  },
+                });
+
+                // Add tool error to conversation
+                conversationMessages.push({
+                  role: "user",
+                  content:
+                    `Tool call ${toolCall.id} (${toolCall.function.name}) failed: ${errorMessage}`,
+                });
+                continue;
+              }
+
+              try {
+                this.logger.info(`Calling tool: ${toolCall.function.name}`, {
+                  args,
+                  iteration: iteration + 1,
+                });
+
+                // Execute the tool call and get result
+                const toolResult = await onToolCall({
+                  id: toolCall.id,
+                  name: toolCall.function.name,
+                  arguments: args,
+                });
+
+                toolResults.push(
+                  `Tool ${toolCall.function.name} executed successfully${
+                    toolResult ? `: ${toolResult}` : ""
+                  }`,
+                );
+
+                // Add confirmation output with custom media type
+                const toolCallData: ToolCallOutput = {
+                  tool_call_id: toolCall.id,
+                  tool_name: toolCall.function.name,
+                  arguments: args,
+                  status: "success",
+                  timestamp: new Date().toISOString(),
+                  result: toolResult,
+                };
+
+                allOutputs.push({
+                  type: "display_data",
+                  data: {
+                    "application/vnd.anode.aitool+json": toolCallData,
+                    "text/markdown":
+                      `🔧 **Tool executed**: \`${toolCall.function.name}\`\n\n${
+                        this.formatToolCall(toolCall.function.name, args)
+                      }${toolResult ? `\n\n**Result**: ${toolResult}` : ""}`,
+                    "text/plain": `Tool executed: ${toolCall.function.name}${
+                      toolResult ? ` - ${toolResult}` : ""
+                    }`,
+                  },
+                  metadata: {
+                    "anode/tool_call": true,
+                    "anode/tool_name": toolCall.function.name,
+                    "anode/tool_args": args,
+                    "anode/iteration": iteration + 1,
+                  },
+                });
+
+                // Add tool result to conversation
+                conversationMessages.push({
+                  role: "user",
+                  content:
+                    `Tool call ${toolCall.id} (${toolCall.function.name}) completed successfully${
+                      toolResult ? `: ${toolResult}` : ""
+                    }`,
+                });
+              } catch (error) {
+                _hasToolErrors = true;
+                const errorMessage = error instanceof Error
+                  ? error.message
+                  : String(error);
+                toolResults.push(
+                  `Tool ${toolCall.function.name} failed: ${errorMessage}`,
+                );
+
+                this.logger.error(
+                  `Error executing tool ${toolCall.function.name}`,
+                  error,
+                );
+
+                const errorToolCallData: ToolCallOutput = {
+                  tool_call_id: toolCall.id,
+                  tool_name: toolCall.function.name,
+                  arguments: args,
+                  status: "error",
+                  timestamp: new Date().toISOString(),
+                  result: errorMessage,
+                };
+
+                allOutputs.push({
+                  type: "display_data",
+                  data: {
+                    "application/vnd.anode.aitool+json": errorToolCallData,
+                    "text/markdown":
+                      `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError: ${errorMessage}`,
+                    "text/plain":
+                      `Tool failed: ${toolCall.function.name} - ${errorMessage}`,
+                  },
+                  metadata: {
+                    "anode/tool_call": true,
+                    "anode/tool_name": toolCall.function.name,
+                    "anode/tool_error": true,
+                    "anode/iteration": iteration + 1,
+                  },
+                });
+
+                // Add tool error to conversation
+                conversationMessages.push({
+                  role: "user",
+                  content:
+                    `Tool call ${toolCall.id} (${toolCall.function.name}) failed: ${errorMessage}`,
+                });
+              }
+            }
+          }
+
+          // If there's also text content, add it to outputs
+          if (content) {
+            allOutputs.push({
+              type: "display_data",
+              data: {
+                "text/markdown": content,
+                "text/plain": content,
+              },
+              metadata: {
+                "anode/ai_response": true,
+                "anode/ai_provider": "openai",
+                "anode/ai_model": model,
+                "anode/ai_with_tools": true,
+                "anode/iteration": iteration + 1,
+              },
+            });
+          }
+
+          // Continue to next iteration to let AI respond to tool results
+          iteration++;
+          continue;
+        }
+
+        // No tool calls - add final response and break
+        if (content) {
+          allOutputs.push({
+            type: "display_data",
+            data: {
+              "text/markdown": content,
+              "text/plain": content,
+            },
+            metadata: {
+              "anode/ai_response": true,
+              "anode/ai_provider": "openai",
+              "anode/ai_model": model,
+              "anode/ai_usage": {
+                prompt_tokens: response.usage?.prompt_tokens || 0,
+                completion_tokens: response.usage?.completion_tokens || 0,
+                total_tokens: response.usage?.total_tokens || 0,
+              },
+              "anode/iteration": iteration + 1,
+              "anode/final_response": true,
+            },
+          });
+        }
+
+        // No more tool calls, conversation is complete
+        this.logger.info(
+          `Agentic conversation completed after ${iteration + 1} iterations`,
+        );
+        break;
+      }
+
+      if (iteration >= maxIterations) {
+        this.logger.warn(
+          `Agentic conversation reached max iterations (${maxIterations})`,
+        );
+        allOutputs.push({
+          type: "display_data",
+          data: {
+            "text/markdown":
+              "⚠️ **Reached maximum iterations** - The AI assistant has reached the maximum number of conversation iterations. The conversation may be incomplete.",
+            "text/plain":
+              "Reached maximum iterations - conversation may be incomplete",
+          },
+          metadata: {
+            "anode/ai_response": true,
+            "anode/ai_provider": "openai",
+            "anode/ai_model": model,
+            "anode/max_iterations_reached": true,
+          },
+        });
+      }
+
+      return allOutputs;
+    } catch (error: unknown) {
+      this.logger.error("OpenAI API error in agentic conversation", error);
 
       let errorMessage = "Unknown error occurred";
       if (error && typeof error === "object") {
