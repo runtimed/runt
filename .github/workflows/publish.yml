@@ -1,0 +1,334 @@
+name: Publish to JSR
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'packages/*/deno.json'
+      - 'packages/*/mod.ts'
+      - 'packages/*/src/**'
+      - 'packages/*/package.json'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Perform a dry run without actually publishing"
+        required: false
+        type: boolean
+        default: false
+
+env:
+  DENO_VERSION: v2.x
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      schema: ${{ steps.changes.outputs.schema }}
+      lib: ${{ steps.changes.outputs.lib }}
+      pyodide: ${{ steps.changes.outputs.pyodide }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect package changes
+        id: changes
+        run: |
+          # Get the previous commit (or empty tree if first commit)
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            PREVIOUS_COMMIT=$(git rev-parse HEAD~1)
+          else
+            PREVIOUS_COMMIT=$(git hash-object -t tree /dev/null)
+          fi
+
+          # Check for changes in each package
+          if git diff --name-only $PREVIOUS_COMMIT HEAD | grep -E '^packages/schema/' || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "schema=true" >> $GITHUB_OUTPUT
+            echo "Schema package changed"
+          else
+            echo "schema=false" >> $GITHUB_OUTPUT
+          fi
+
+          if git diff --name-only $PREVIOUS_COMMIT HEAD | grep -E '^packages/lib/' || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "lib=true" >> $GITHUB_OUTPUT
+            echo "Lib package changed"
+          else
+            echo "lib=false" >> $GITHUB_OUTPUT
+          fi
+
+          if git diff --name-only $PREVIOUS_COMMIT HEAD | grep -E '^packages/pyodide-runtime-agent/' || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "pyodide=true" >> $GITHUB_OUTPUT
+            echo "Pyodide package changed"
+          else
+            echo "pyodide=false" >> $GITHUB_OUTPUT
+          fi
+
+  validate:
+    name: Validate Packages
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.schema == 'true' || needs.changes.outputs.lib == 'true' || needs.changes.outputs.pyodide == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+          cache: true
+
+      - name: Run CI checks
+        run: deno task ci
+
+      - name: Validate package configs
+        run: |
+          # Check that versions are consistent across workspace
+          SCHEMA_VERSION=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/schema/deno.json')).version)")
+          LIB_VERSION=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/lib/deno.json')).version)")
+          PYODIDE_VERSION=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/pyodide-runtime-agent/deno.json')).version)")
+
+          echo "Package versions:"
+          echo "  Schema: $SCHEMA_VERSION"
+          echo "  Lib: $LIB_VERSION"
+          echo "  Pyodide: $PYODIDE_VERSION"
+
+          # Check that dependencies reference correct versions
+          LIB_SCHEMA_DEP=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/lib/deno.json')).imports['@runt/schema'])")
+          PYODIDE_SCHEMA_DEP=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/pyodide-runtime-agent/deno.json')).imports['@runt/schema'])")
+          PYODIDE_LIB_DEP=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/pyodide-runtime-agent/deno.json')).imports['@runt/lib'])")
+
+          echo "Workspace dependencies:"
+          echo "  Lib -> Schema: $LIB_SCHEMA_DEP"
+          echo "  Pyodide -> Schema: $PYODIDE_SCHEMA_DEP"
+          echo "  Pyodide -> Lib: $PYODIDE_LIB_DEP"
+
+      - name: Dry run publish validation
+        run: |
+          if [ "${{ needs.changes.outputs.schema }}" = "true" ]; then
+            echo "Validating schema package..."
+            cd packages/schema
+            deno publish --dry-run --allow-slow-types
+            cd ../..
+          fi
+
+          if [ "${{ needs.changes.outputs.lib }}" = "true" ]; then
+            echo "Validating lib package..."
+            cd packages/lib
+            deno publish --dry-run --allow-slow-types
+            cd ../..
+          fi
+
+          if [ "${{ needs.changes.outputs.pyodide }}" = "true" ]; then
+            echo "Validating pyodide package..."
+            cd packages/pyodide-runtime-agent
+            deno publish --dry-run --allow-slow-types
+            cd ../..
+          fi
+
+  publish-schema:
+    name: Publish Schema
+    runs-on: ubuntu-latest
+    needs: [changes, validate]
+    if: needs.changes.outputs.schema == 'true' && needs.validate.result == 'success'
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+          cache: true
+
+      - name: Get package version
+        id: version
+        run: |
+          VERSION=$(cd packages/schema && deno eval "console.log(JSON.parse(Deno.readTextFileSync('deno.json')).version)")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing @runt/schema@$VERSION"
+
+      - name: Dry run publish
+        if: github.event.inputs.dry_run == 'true'
+        run: |
+          cd packages/schema
+          echo "Dry run: Would publish @runt/schema@${{ steps.version.outputs.version }}"
+          deno publish --dry-run --allow-slow-types
+
+      - name: Publish to JSR
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          cd packages/schema
+          echo "Publishing @runt/schema@${{ steps.version.outputs.version }}"
+          npx jsr publish --allow-slow-types
+
+  publish-lib:
+    name: Publish Lib
+    runs-on: ubuntu-latest
+    needs: [changes, validate, publish-schema]
+    if: needs.changes.outputs.lib == 'true' && needs.validate.result == 'success' && (needs.publish-schema.result == 'success' || needs.publish-schema.result == 'skipped')
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+          cache: true
+
+      - name: Get package version
+        id: version
+        run: |
+          VERSION=$(cd packages/lib && deno eval "console.log(JSON.parse(Deno.readTextFileSync('deno.json')).version)")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing @runt/lib@$VERSION"
+
+      - name: Wait for schema dependency
+        if: needs.publish-schema.result == 'success' && github.event.inputs.dry_run != 'true'
+        run: |
+          echo "Waiting for @runt/schema to be available on JSR..."
+          sleep 30
+
+      - name: Dry run publish
+        if: github.event.inputs.dry_run == 'true'
+        run: |
+          cd packages/lib
+          echo "Dry run: Would publish @runt/lib@${{ steps.version.outputs.version }}"
+          deno publish --dry-run --allow-slow-types
+
+      - name: Publish to JSR
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          cd packages/lib
+          echo "Publishing @runt/lib@${{ steps.version.outputs.version }}"
+          npx jsr publish --allow-slow-types
+
+  publish-pyodide:
+    name: Publish Pyodide Runtime Agent
+    runs-on: ubuntu-latest
+    needs: [changes, validate, publish-schema, publish-lib]
+    if: needs.changes.outputs.pyodide == 'true' && needs.validate.result == 'success' && (needs.publish-schema.result == 'success' || needs.publish-schema.result == 'skipped') && (needs.publish-lib.result == 'success' || needs.publish-lib.result == 'skipped')
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+          cache: true
+
+      - name: Get package version
+        id: version
+        run: |
+          VERSION=$(cd packages/pyodide-runtime-agent && deno eval "console.log(JSON.parse(Deno.readTextFileSync('deno.json')).version)")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing @runt/pyodide-runtime-agent@$VERSION"
+
+      - name: Wait for dependencies
+        if: (needs.publish-schema.result == 'success' || needs.publish-lib.result == 'success') && github.event.inputs.dry_run != 'true'
+        run: |
+          echo "Waiting for dependencies to be available on JSR..."
+          sleep 45
+
+      - name: Dry run publish
+        if: github.event.inputs.dry_run == 'true'
+        run: |
+          cd packages/pyodide-runtime-agent
+          echo "Dry run: Would publish @runt/pyodide-runtime-agent@${{ steps.version.outputs.version }}"
+          deno publish --dry-run --allow-slow-types
+
+      - name: Publish to JSR
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          cd packages/pyodide-runtime-agent
+          echo "Publishing @runt/pyodide-runtime-agent@${{ steps.version.outputs.version }}"
+          npx jsr publish --allow-slow-types
+
+  create-tags:
+    name: Create Release Tags
+    runs-on: ubuntu-latest
+    needs: [changes, publish-schema, publish-lib, publish-pyodide]
+    if: always() && needs.changes.outputs.schema == 'true' || needs.changes.outputs.lib == 'true' || needs.changes.outputs.pyodide == 'true' && github.event.inputs.dry_run != 'true'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create tags for published packages
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          if [ "${{ needs.publish-schema.result }}" = "success" ]; then
+            SCHEMA_VERSION=$(cd packages/schema && deno eval "console.log(JSON.parse(Deno.readTextFileSync('deno.json')).version)")
+            git tag "v$SCHEMA_VERSION-schema" -m "Release @runt/schema@$SCHEMA_VERSION"
+            echo "Created tag: v$SCHEMA_VERSION-schema"
+          fi
+
+          if [ "${{ needs.publish-lib.result }}" = "success" ]; then
+            LIB_VERSION=$(cd packages/lib && deno eval "console.log(JSON.parse(Deno.readTextFileSync('deno.json')).version)")
+            git tag "v$LIB_VERSION-lib" -m "Release @runt/lib@$LIB_VERSION"
+            echo "Created tag: v$LIB_VERSION-lib"
+          fi
+
+          if [ "${{ needs.publish-pyodide.result }}" = "success" ]; then
+            PYODIDE_VERSION=$(cd packages/pyodide-runtime-agent && deno eval "console.log(JSON.parse(Deno.readTextFileSync('deno.json')).version)")
+            git tag "v$PYODIDE_VERSION-pyodide" -m "Release @runt/pyodide-runtime-agent@$PYODIDE_VERSION"
+            echo "Created tag: v$PYODIDE_VERSION-pyodide"
+          fi
+
+          git push origin --tags
+
+  summary:
+    name: Summary
+    runs-on: ubuntu-latest
+    needs: [changes, validate, publish-schema, publish-lib, publish-pyodide, create-tags]
+    if: always()
+    steps:
+      - name: Report results
+        run: |
+          echo "## Publish Summary"
+          echo ""
+          echo "**Changes detected:**"
+          echo "- Schema: ${{ needs.changes.outputs.schema }}"
+          echo "- Lib: ${{ needs.changes.outputs.lib }}"
+          echo "- Pyodide: ${{ needs.changes.outputs.pyodide }}"
+          echo ""
+          echo "**Results:**"
+          echo "- Validation: ${{ needs.validate.result }}"
+          echo "- Schema publish: ${{ needs.publish-schema.result }}"
+          echo "- Lib publish: ${{ needs.publish-lib.result }}"
+          echo "- Pyodide publish: ${{ needs.publish-pyodide.result }}"
+          echo "- Tags created: ${{ needs.create-tags.result }}"
+          echo ""
+
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            echo "**Dry run completed - no packages were published**"
+          else
+            if [ "${{ needs.publish-schema.result }}" = "success" ] || [ "${{ needs.publish-lib.result }}" = "success" ] || [ "${{ needs.publish-pyodide.result }}" = "success" ]; then
+              echo "✅ **Packages successfully published to JSR**"
+            else
+              echo "❌ **No packages were published (no changes or errors)**"
+            fi
+          fi
+
+      - name: Check for failures
+        if: needs.validate.result == 'failure' || needs.publish-schema.result == 'failure' || needs.publish-lib.result == 'failure' || needs.publish-pyodide.result == 'failure'
+        run: |
+          echo "❌ One or more publish jobs failed"
+          exit 1
