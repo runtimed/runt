@@ -272,6 +272,12 @@ export class PyodideRuntimeAgent {
               data.data.traceback || [String(data.data)],
             );
             break;
+          case "clear_output": {
+            // Extract wait parameter from metadata
+            const wait = (data.data as { wait?: boolean })?.wait || false;
+            this.currentExecutionContext.clearOutput(wait);
+            break;
+          }
         }
       }
       return;

@@ -85,6 +85,17 @@ export const tables = {
     },
   }),
 
+  // Pending clear output requests (for wait=true semantics)
+  pendingClears: State.SQLite.table({
+    name: "pending_clears",
+    columns: {
+      id: State.SQLite.text({ primaryKey: true }),
+      cellId: State.SQLite.text(),
+      clearedBy: State.SQLite.text(),
+      requestedAt: State.SQLite.real(), // timestamp
+    },
+  }),
+
   // Kernel lifecycle management
   // NOTE: Each notebook should have exactly ONE active kernel at a time
   // Multiple entries only exist during kernel transitions/handoffs
@@ -375,6 +386,16 @@ export const events = {
     }),
   }),
 
+  cellOutputClearPending: Events.synced({
+    name: "v1.CellOutputClearPending",
+    schema: Schema.Struct({
+      id: Schema.String,
+      cellId: Schema.String,
+      clearedBy: Schema.String,
+      requestedAt: Schema.Number,
+    }),
+  }),
+
   // SQL events
   sqlConnectionCreated: Events.synced({
     name: "v1.SqlConnectionCreated",
@@ -600,6 +621,14 @@ const materializers = State.SQLite.materializers(events, {
 
   "v1.CellOutputsCleared": ({ cellId }) =>
     tables.outputs.delete().where({ cellId }),
+
+  "v1.CellOutputClearPending": ({ id, cellId, clearedBy, requestedAt }) =>
+    tables.pendingClears.insert({
+      id,
+      cellId,
+      clearedBy,
+      requestedAt,
+    }),
 
   // SQL materializers
   "v1.SqlConnectionCreated": ({
