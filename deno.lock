@@ -1011,7 +1011,7 @@
     "members": {
       "packages/lib": {
         "dependencies": [
-          "jsr:@runt/schema@0.3",
+          "jsr:@runt/schema@0.4",
           "jsr:@std/cli@1",
           "npm:@livestore/adapter-node@~0.3.1",
           "npm:@livestore/livestore@~0.3.1",
@@ -1022,8 +1022,8 @@
       "packages/pyodide-runtime-agent": {
         "dependencies": [
           "jsr:@openai/openai@^4.98.0",
-          "jsr:@runt/lib@0.3",
-          "jsr:@runt/schema@0.3",
+          "jsr:@runt/lib@0.4",
+          "jsr:@runt/schema@0.4",
           "jsr:@std/async@1",
           "npm:@livestore/livestore@~0.3.1",
           "npm:pyodide@~0.27.7",

@@ -23,6 +23,7 @@ interface MockOutputCommit {
   };
   metadata: Record<string, unknown>;
   position: number;
+  displayId?: string;
 }
 
 interface MockClearCommit {
@@ -31,7 +32,14 @@ interface MockClearCommit {
   clearedBy: string;
 }
 
-type MockCommit = MockOutputCommit | MockClearCommit;
+interface MockUpdateCommit {
+  type: "cellOutputUpdated";
+  id: string;
+  data: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+}
+
+type MockCommit = MockOutputCommit | MockClearCommit | MockUpdateCommit;
 
 const createMockStore = () => {
   const commits: MockCommit[] = [];
@@ -141,6 +149,7 @@ Deno.test("ExecutionContext Output Methods", async (t) => {
         display: (
           data: Record<string, unknown>,
           metadata?: Record<string, unknown>,
+          displayId?: string,
         ) => {
           mockStore.commit({
             type: "cellOutputAdded",
@@ -150,6 +159,20 @@ Deno.test("ExecutionContext Output Methods", async (t) => {
             data,
             metadata: metadata || {},
             position: outputPosition++,
+            displayId,
+          });
+        },
+
+        updateDisplay: (
+          displayId: string,
+          data: Record<string, unknown>,
+          metadata?: Record<string, unknown>,
+        ) => {
+          mockStore.commit({
+            type: "cellOutputUpdated",
+            id: displayId,
+            data,
+            metadata: metadata || {},
           });
         },
 
@@ -338,6 +361,88 @@ Deno.test("ExecutionContext Output Methods", async (t) => {
       context.display(richData);
 
       assertEquals((mockStore.commits[0] as MockOutputCommit).data, richData);
+    });
+  });
+
+  await t.step("display method with displayId", async (t) => {
+    await t.step("should use displayId as output ID when provided", () => {
+      setup();
+      const context = createTestContext();
+      const displayId = "custom-display-123";
+      const data = { "text/html": "<p>Custom display ID content</p>" };
+      const metadata = { "custom": "metadata" };
+
+      context.display(data, metadata, displayId);
+
+      assertEquals(mockStore.commits.length, 1);
+      const commit = mockStore.commits[0] as MockOutputCommit;
+      assertEquals(commit.type, "cellOutputAdded");
+      assertEquals(commit.displayId, displayId);
+      assertEquals(commit.data, data);
+      assertEquals(commit.metadata, metadata);
+    });
+
+    await t.step("should generate UUID when displayId not provided", () => {
+      setup();
+      const context = createTestContext();
+      const data = { "text/plain": "No display ID" };
+
+      context.display(data);
+
+      assertEquals(mockStore.commits.length, 1);
+      const commit = mockStore.commits[0] as MockOutputCommit;
+      assertEquals(commit.type, "cellOutputAdded");
+      // Should be a UUID (36 characters with dashes)
+      assertEquals(commit.id.length, 36);
+      assertEquals(commit.id.includes("-"), true);
+      assertEquals(commit.displayId, undefined);
+    });
+  });
+
+  await t.step("updateDisplay method", async (t) => {
+    await t.step("should emit cellOutputUpdated event", () => {
+      setup();
+      const context = createTestContext();
+      const displayId = "test-display-123";
+      const data = { "text/html": "<p>Updated content</p>" };
+      const metadata = { "custom": "metadata" };
+
+      context.updateDisplay(displayId, data, metadata);
+
+      assertEquals(mockStore.commits.length, 1);
+      const commit = mockStore.commits[0] as MockUpdateCommit;
+      assertEquals(commit.type, "cellOutputUpdated");
+      assertEquals(commit.id, displayId);
+      assertEquals(commit.data, data);
+      assertEquals(commit.metadata, metadata);
+    });
+
+    await t.step("should handle metadata", () => {
+      setup();
+      const context = createTestContext();
+      const displayId = "test-display-456";
+      const data = { "text/plain": "Plain text update" };
+
+      context.updateDisplay(displayId, data);
+
+      assertEquals(mockStore.commits.length, 1);
+      const commit = mockStore.commits[0] as MockUpdateCommit;
+      assertEquals(commit.metadata, {});
+    });
+
+    await t.step("should handle various display IDs", () => {
+      setup();
+      const context = createTestContext();
+      const displayIds = ["id1", "widget-123", "plot-abc"];
+      const data = { "text/plain": "test" };
+
+      displayIds.forEach((id, index) => {
+        context.updateDisplay(id, data);
+        const commit = mockStore.commits[index] as MockUpdateCommit;
+        assertEquals(commit.id, id);
+      });
+
+      assertEquals(mockStore.commits.length, 3);
     });
   });
 

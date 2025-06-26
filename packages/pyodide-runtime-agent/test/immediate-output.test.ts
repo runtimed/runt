@@ -39,6 +39,7 @@ Deno.test("OpenAI Client - Immediate Output Emission", async () => {
       result: () => {},
       error: () => {},
       clear: () => {},
+      updateDisplay: () => {},
     };
 
     // Mock client that simulates slow tool execution
@@ -192,6 +193,7 @@ Deno.test("OpenAI Client - Multiple Tool Calls Stream Individually", async () =>
       result: () => {},
       error: () => {},
       clear: () => {},
+      updateDisplay: () => {},
     };
 
     // Mock client that returns multiple tool calls

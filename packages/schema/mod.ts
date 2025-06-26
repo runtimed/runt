@@ -82,6 +82,7 @@ export const tables = {
       data: State.SQLite.json({ schema: Schema.Any }),
       metadata: State.SQLite.json({ nullable: true, schema: Schema.Any }), // For additional output metadata
       position: State.SQLite.real(),
+      displayId: State.SQLite.text({ nullable: true }), // Jupyter display_id for cross-cell updates
     },
   }),
 
@@ -364,6 +365,16 @@ export const events = {
       data: Schema.Any,
       metadata: Schema.optional(Schema.Any), // For additional output metadata
       position: Schema.Number,
+      displayId: Schema.optional(Schema.String), // Jupyter display_id for cross-cell updates
+    }),
+  }),
+
+  cellOutputUpdated: Events.synced({
+    name: "v1.CellOutputUpdated",
+    schema: Schema.Struct({
+      id: Schema.String, // Display ID to update (global across cells)
+      data: Schema.Any,
+      metadata: Schema.optional(Schema.Any),
     }),
   }),
 
@@ -588,6 +599,7 @@ const materializers = State.SQLite.materializers(events, {
     data,
     metadata,
     position,
+    displayId,
   }) =>
     tables.outputs.insert({
       id,
@@ -596,7 +608,11 @@ const materializers = State.SQLite.materializers(events, {
       data,
       metadata,
       position,
+      displayId: displayId || null,
     }),
+
+  "v1.CellOutputUpdated": ({ id, data, metadata }) =>
+    tables.outputs.update({ data, metadata }).where({ displayId: id }),
 
   "v1.CellOutputsCleared": ({ cellId }) =>
     tables.outputs.delete().where({ cellId }),

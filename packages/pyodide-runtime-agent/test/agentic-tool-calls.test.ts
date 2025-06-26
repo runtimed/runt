@@ -43,6 +43,16 @@ function createMockContext() {
       });
     },
     clear: () => {},
+    updateDisplay: (displayId, data, metadata) => {
+      // Find and update existing outputs with matching displayId
+      for (let i = 0; i < outputs.length; i++) {
+        const output = outputs[i];
+        if (output && output.metadata?.display_id === displayId) {
+          output.data = data as Record<string, unknown>;
+          output.metadata = metadata || {};
+        }
+      }
+    },
   };
 
   return { mockContext, outputs };

@@ -289,13 +289,14 @@ async function executePython(code: string): Promise<{
       (
         data: unknown,
         metadata: unknown,
-        _transient: unknown,
+        transient: unknown,
         update = false,
       ) => {
         try {
           // Ensure data is serializable
           const serializedData = ensureSerializable(data);
           const serializedMetadata = ensureSerializable(metadata);
+          const serializedTransient = ensureSerializable(transient);
 
           const outputType = update ? "update_display_data" : "display_data";
 
@@ -305,6 +306,7 @@ async function executePython(code: string): Promise<{
               type: outputType,
               data: serializedData,
               metadata: serializedMetadata,
+              transient: serializedTransient,
             },
           });
 
@@ -313,6 +315,7 @@ async function executePython(code: string): Promise<{
             data: {
               data: serializedData,
               metadata: serializedMetadata,
+              transient: serializedTransient,
               update,
             },
           });

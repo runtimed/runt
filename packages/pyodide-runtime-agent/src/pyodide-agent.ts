@@ -248,21 +248,32 @@ export class PyodideRuntimeAgent {
             break;
           case "display_data":
             if (data.data !== null && data.data !== undefined) {
+              // Extract display_id from transient data if present
+              const displayId = data.transient?.display_id;
               this.currentExecutionContext.display(
                 this.formatRichOutput(data.data, data.metadata),
                 data.metadata || {},
+                displayId,
               );
             }
             break;
           case "update_display_data":
             if (data.data != null) {
-              // Handle display updates - could extend ExecutionContext to support this
-              this.currentExecutionContext.display(
-                this.formatRichOutput(data.data, data.metadata),
-                data.metadata
-                  ? { ...data.metadata, update: true }
-                  : { update: true },
-              );
+              // Extract display_id from transient data
+              const displayId = data.transient?.display_id;
+              if (displayId) {
+                this.currentExecutionContext.updateDisplay(
+                  displayId,
+                  this.formatRichOutput(data.data, data.metadata),
+                  data.metadata || {},
+                );
+              } else {
+                // Fallback to regular display if no display_id
+                this.currentExecutionContext.display(
+                  this.formatRichOutput(data.data, data.metadata),
+                  data.metadata || {},
+                );
+              }
             }
             break;
           case "error":

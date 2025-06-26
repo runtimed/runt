@@ -307,6 +307,15 @@ export class RuntimeAgent {
 
           if (entries.length > 0) {
             const logger = createLogger(`${this.config.kernelType}-agent`);
+
+            // Log cell count for sync debugging
+            const allCells = this.store.query(tables.cells.select());
+            logger.info("Runtime sync status", {
+              pendingExecutions: entries.length,
+              totalCells: allCells.length,
+              cellIds: allCells.map((c) => c.id),
+            });
+
             logger.debug("Pending executions", {
               count: entries.length,
               executions: entries.map((e) => ({ id: e.id, cellId: e.cellId })),
@@ -475,6 +484,7 @@ export class RuntimeAgent {
       display: (
         data: RichOutputData,
         metadata?: Record<string, unknown>,
+        displayId?: string,
       ) => {
         this.store.commit(events.cellOutputAdded({
           id: crypto.randomUUID(),
@@ -483,6 +493,19 @@ export class RuntimeAgent {
           data,
           metadata: metadata || {},
           position: outputPosition++,
+          displayId,
+        }));
+      },
+
+      updateDisplay: (
+        displayId: string,
+        data: RichOutputData,
+        metadata?: Record<string, unknown>,
+      ) => {
+        this.store.commit(events.cellOutputUpdated({
+          id: displayId,
+          data,
+          metadata: metadata || {},
         }));
       },
 

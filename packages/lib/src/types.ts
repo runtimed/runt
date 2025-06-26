@@ -75,6 +75,13 @@ export interface ExecutionContext {
   display: (
     data: RichOutputData,
     metadata?: Record<string, unknown>,
+    displayId?: string,
+  ) => void;
+  /** Update existing display data by display ID */
+  updateDisplay: (
+    displayId: string,
+    data: RichOutputData,
+    metadata?: Record<string, unknown>,
   ) => void;
   /** Emit execution result (final output) */
   result: (
