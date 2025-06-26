@@ -164,6 +164,11 @@ Deno.test("getBootstrapPackages", () => {
     true,
     "Bootstrap should include ipython",
   );
+  assertEquals(
+    bootstrapPackages.includes("matplotlib"),
+    true,
+    "Bootstrap should include matplotlib",
+  );
 
   // Should be minimal - only essential packages for IPython setup
   assertEquals(

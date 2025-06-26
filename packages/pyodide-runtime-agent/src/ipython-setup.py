@@ -298,6 +298,17 @@ def default_execution_callback(execution_count, data, metadata):
     pass
 
 
+async def bootstrap_micropip_packages():
+    try:
+        import micropip
+
+        await micropip.install("seaborn")
+
+        print("Installed seaborn via micropip")
+    except Exception as e:
+        print(f"Warning: Failed to install seaborn: {e}")
+
+
 # Make callbacks available globally
 js_display_callback = default_display_callback
 js_execution_callback = default_execution_callback

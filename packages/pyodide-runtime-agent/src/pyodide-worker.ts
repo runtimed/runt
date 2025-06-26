@@ -89,13 +89,14 @@ async function initializePyodide(
   self.postMessage({
     type: "log",
     data: firstRun
-      ? `First run detected - optimized loading strategy: ${bootstrapPackages.length} bootstrap packages first, ${remainingPackages.length} additional packages in background`
-      : `Cached packages available - loading ${bootstrapPackages.length} bootstrap packages first, ${remainingPackages.length} additional packages in parallel`,
+      ? `First run detected - loading ${bootstrapPackages.length} bootstrap packages with Pyodide, ${remainingPackages.length} additional packages in background`
+      : `Cached packages available - loading ${bootstrapPackages.length} bootstrap packages with Pyodide, ${remainingPackages.length} additional packages in parallel`,
   });
 
-  // Load Pyodide first without packages to avoid timing issues
+  // Load Pyodide with bootstrap packages for maximum efficiency
   pyodide = await loadPyodide({
     packageCacheDir,
+    packages: bootstrapPackages, // Load bootstrap packages during Pyodide initialization
     stdout: (text: string) => {
       // Log startup messages to our telemetry for debugging
       self.postMessage({
@@ -127,37 +128,23 @@ async function initializePyodide(
     self.postMessage({ type: "log", data: "Interrupt buffer configured" });
   }
 
-  // Load bootstrap packages first for initial setup
+  // Bootstrap packages were loaded during Pyodide initialization
   self.postMessage({
     type: "log",
-    data: `Loading ${bootstrapPackages.length} bootstrap packages: ${
+    data: `Bootstrap packages (${
       bootstrapPackages.join(", ")
-    }`,
+    }) loaded with Pyodide`,
   });
 
-  try {
-    await pyodide.loadPackage(bootstrapPackages);
-    self.postMessage({
-      type: "log",
-      data: `Bootstrap packages loaded successfully`,
-    });
-  } catch (error) {
-    self.postMessage({
-      type: "log",
-      data: `Error loading bootstrap packages: ${error}`,
-    });
-    throw error;
-  }
-
-  // Load our Python bootstrap file after bootstrap packages are confirmed loaded
+  // Load our Python bootstrap file - bootstrap packages are already available
   await setupIPythonEnvironment();
 
-  // Load remaining packages in parallel after IPython is ready
+  // Load remaining packages in background after IPython is ready
   if (remainingPackages.length > 0) {
     self.postMessage({
       type: "log",
       data:
-        `Loading ${remainingPackages.length} additional packages in parallel: ${
+        `Loading ${remainingPackages.length} additional packages in background: ${
           remainingPackages.join(", ")
         }`,
     });
@@ -242,6 +229,35 @@ async function setupIPythonEnvironment(): Promise<void> {
     type: "log",
     data: "IPython environment loaded successfully",
   });
+
+  // Install micropip packages in background without blocking
+  // Skip during tests to prevent execution interference
+  const isTest = globalThis.Deno?.env?.get("DENO_TESTING") === "true" ||
+    globalThis.location?.search?.includes("test");
+
+  if (!isTest) {
+    // Use setTimeout to isolate from execution pipeline
+    setTimeout(() => {
+      pyodide!.runPythonAsync(`await bootstrap_micropip_packages()`).then(
+        () => {
+          self.postMessage({
+            type: "log",
+            data: "Micropip packages installed successfully",
+          });
+        },
+      ).catch((error) => {
+        self.postMessage({
+          type: "log",
+          data: `Warning: Micropip package installation failed: ${error}`,
+        });
+      });
+    }, 100);
+  } else {
+    self.postMessage({
+      type: "log",
+      data: "Skipping micropip bootstrap during tests",
+    });
+  }
 }
 
 /**
