@@ -12,7 +12,7 @@
     "./lib": "./src/lib.ts"
   },
   "bin": {
-    "pyrunt": "--env-file=.env ./src/mod.ts"
+    "pyrunt": "./src/mod.ts"
   },
   "imports": {
     "@runt/lib": "jsr:@runt/lib@^0.3.0",

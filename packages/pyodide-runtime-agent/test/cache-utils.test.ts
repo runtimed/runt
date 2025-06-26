@@ -1,10 +1,12 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import {
+  getBootstrapPackages,
   getCacheConfig,
   getCacheDir,
   getEssentialPackages,
   getOnDemandPackages,
   getPreloadPackages,
+  isFirstRun,
 } from "../src/cache-utils.ts";
 
 Deno.test("getCacheDir", () => {
@@ -136,6 +138,68 @@ Deno.test("getOnDemandPackages", () => {
     uniquePackages.length,
     "Should not have duplicate packages",
   );
+});
+
+Deno.test("getBootstrapPackages", () => {
+  const bootstrapPackages = getBootstrapPackages();
+
+  // Basic structure checks
+  assertEquals(Array.isArray(bootstrapPackages), true);
+  assertEquals(bootstrapPackages.length > 0, true);
+
+  // All entries should be non-empty strings
+  for (const pkg of bootstrapPackages) {
+    assertEquals(typeof pkg, "string");
+    assertEquals(pkg.length > 0, true);
+  }
+
+  // Should include core bootstrap packages
+  assertEquals(
+    bootstrapPackages.includes("micropip"),
+    true,
+    "Bootstrap should include micropip",
+  );
+  assertEquals(
+    bootstrapPackages.includes("ipython"),
+    true,
+    "Bootstrap should include ipython",
+  );
+
+  // Should be minimal - only essential packages for IPython setup
+  assertEquals(
+    bootstrapPackages.length <= 5,
+    true,
+    "Bootstrap should be minimal (≤5 packages)",
+  );
+
+  // Check for no duplicates
+  const uniquePackages = [...new Set(bootstrapPackages)];
+  assertEquals(
+    bootstrapPackages.length,
+    uniquePackages.length,
+    "Should not have duplicate packages",
+  );
+
+  // Bootstrap packages should be subset of essential packages
+  const essentialPackages = getEssentialPackages();
+  for (const pkg of bootstrapPackages) {
+    assertEquals(
+      essentialPackages.includes(pkg),
+      true,
+      `Bootstrap package ${pkg} should be in essential packages`,
+    );
+  }
+});
+
+Deno.test("isFirstRun", () => {
+  const firstRun = isFirstRun();
+
+  // Should return a boolean
+  assertEquals(typeof firstRun, "boolean");
+
+  // On CI or clean environment, this is likely true
+  // But we can't make assumptions about the test environment
+  // Just verify it executes without error
 });
 
 Deno.test("package categorization consistency", () => {

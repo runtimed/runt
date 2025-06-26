@@ -8,7 +8,12 @@
 /// <reference lib="webworker" />
 
 import { loadPyodide, type PyodideInterface } from "npm:pyodide";
-import { getCacheConfig, getEssentialPackages } from "./cache-utils.ts";
+import {
+  getBootstrapPackages,
+  getCacheConfig,
+  getEssentialPackages,
+  isFirstRun,
+} from "./cache-utils.ts";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -66,14 +71,14 @@ async function initializePyodide(
   // Get cache configuration and packages to load
   const { packageCacheDir } = getCacheConfig();
   const basePackages = packagesToLoad || getEssentialPackages();
+  const firstRun = isFirstRun();
 
-  // Always ensure micropip and ipython are included for core functionality
-  const packagesForInit = Array.from(
-    new Set([
-      "micropip",
-      "ipython",
-      ...basePackages,
-    ]),
+  // Bootstrap with minimal packages for initial setup
+  const bootstrapPackages = getBootstrapPackages();
+
+  // Remaining packages to load after bootstrap
+  const remainingPackages = basePackages.filter(
+    (pkg) => !bootstrapPackages.includes(pkg),
   );
 
   self.postMessage({
@@ -81,10 +86,16 @@ async function initializePyodide(
     data: `Using cache directory: ${packageCacheDir}`,
   });
 
-  // Load Pyodide with packages parameter (recommended by Pyodide docs)
+  self.postMessage({
+    type: "log",
+    data: firstRun
+      ? `First run detected - optimized loading strategy: ${bootstrapPackages.length} bootstrap packages first, ${remainingPackages.length} additional packages in background`
+      : `Cached packages available - loading ${bootstrapPackages.length} bootstrap packages first, ${remainingPackages.length} additional packages in parallel`,
+  });
+
+  // Load Pyodide first without packages to avoid timing issues
   pyodide = await loadPyodide({
     packageCacheDir,
-    packages: packagesForInit, // Load packages in parallel with Pyodide initialization
     stdout: (text: string) => {
       // Log startup messages to our telemetry for debugging
       self.postMessage({
@@ -116,14 +127,56 @@ async function initializePyodide(
     self.postMessage({ type: "log", data: "Interrupt buffer configured" });
   }
 
-  // Packages are loaded in parallel during Pyodide initialization
+  // Load bootstrap packages first for initial setup
   self.postMessage({
     type: "log",
-    data: `Packages loaded in parallel: ${packagesForInit.join(", ")}`,
+    data: `Loading ${bootstrapPackages.length} bootstrap packages: ${
+      bootstrapPackages.join(", ")
+    }`,
   });
 
-  // Load our Python bootstrap file
+  try {
+    await pyodide.loadPackage(bootstrapPackages);
+    self.postMessage({
+      type: "log",
+      data: `Bootstrap packages loaded successfully`,
+    });
+  } catch (error) {
+    self.postMessage({
+      type: "log",
+      data: `Error loading bootstrap packages: ${error}`,
+    });
+    throw error;
+  }
+
+  // Load our Python bootstrap file after bootstrap packages are confirmed loaded
   await setupIPythonEnvironment();
+
+  // Load remaining packages in parallel after IPython is ready
+  if (remainingPackages.length > 0) {
+    self.postMessage({
+      type: "log",
+      data:
+        `Loading ${remainingPackages.length} additional packages in parallel: ${
+          remainingPackages.join(", ")
+        }`,
+    });
+
+    // Load remaining packages in background without blocking
+    pyodide.loadPackage(remainingPackages).then(() => {
+      self.postMessage({
+        type: "log",
+        data:
+          `Successfully loaded ${remainingPackages.length} additional packages`,
+      });
+    }).catch((error) => {
+      self.postMessage({
+        type: "log",
+        data: `Warning: Some additional packages failed to load: ${error}`,
+      });
+      // Don't throw - IPython is already working
+    });
+  }
 
   // Switch to raw write handler for stdout to capture all bytes
   pyodide.setStdout({

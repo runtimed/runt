@@ -12,11 +12,13 @@ import { createLogger } from "@runt/lib";
 // Re-export library components for when used as a module
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 export {
+  getBootstrapPackages,
   getCacheConfig,
   getCacheDir,
   getEssentialPackages,
   getOnDemandPackages,
   getPreloadPackages,
+  isFirstRun,
 } from "./cache-utils.ts";
 
 // Export OpenAI client for AI cell support
