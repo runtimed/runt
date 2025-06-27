@@ -161,6 +161,7 @@ All dependencies are pinned in `deno.json` import maps.
 ## Development Guidelines
 
 - **Always work on a branch** - never commit directly to `main`
+- **Releases must use branches** - create release PR, never tag main directly
 - Follow existing code patterns
 - Write tests for new functionality
 - Update documentation when adding features
@@ -169,11 +170,38 @@ All dependencies are pinned in `deno.json` import maps.
 - Keep commits focused and descriptive
 - Squash related commits before merging to keep history clean
 
+## Release Workflow
+
+**NEVER commit releases directly to main. Always use branches:**
+
+1. **Create release branch**: `git checkout -b release/v0.4.1`
+2. **Update versions**: Bump version numbers in all `deno.json` files
+3. **Update dependencies**: Ensure packages reference correct versions
+4. **Test thoroughly**: Run `deno task ci` 
+5. **Create release PR**: Submit for review
+6. **After merge**: GitHub CI automatically tags and publishes to JSR via OIDC
+
+**Example:**
+```bash
+# Wrong - don't do this
+git checkout main
+git commit -m "Release v0.4.1" 
+git tag v0.4.1
+git push --tags
+
+# Right - do this
+git checkout -b release/v0.4.1
+# ... make version changes ...
+gh pr create --title "Release v0.4.1"
+# GitHub CI handles tagging and JSR publishing after merge
+```
+
 ## For AI Assistants
 
 When working on this codebase:
 
 - **Create a branch first** - never work directly on `main`
+- **NEVER release directly to main** - always use release branches and PRs
 - Read the existing code to understand patterns
 - Run tests after making changes
 - Check that CI passes before submitting
@@ -182,6 +210,13 @@ When working on this codebase:
 - Focus on making the code work reliably rather than adding features
 - Be honest about limitations and current state
 - Avoid marketing language - this is a prototype for developers
+
+**Release Protocol:**
+- Ask before cutting releases
+- Create release branch first: `release/vX.Y.Z`
+- Update all version numbers and dependencies
+- Submit release PR for review
+- GitHub CI handles tagging and JSR publishing automatically
 
 The goal is to make this library useful for developers building runtime agents,
 not to impress anyone with complexity.
