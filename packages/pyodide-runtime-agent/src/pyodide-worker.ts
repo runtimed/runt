@@ -265,19 +265,10 @@ async function setupIPythonEnvironment(): Promise<void> {
  */
 async function executePython(code: string): Promise<{
   result: unknown;
-  outputs: Array<{
-    type: "display" | "result" | "error" | "stream";
-    data: unknown;
-  }>;
 }> {
   if (!pyodide) {
     throw new Error("Pyodide not initialized");
   }
-
-  const outputs: Array<{
-    type: "display" | "result" | "error" | "stream";
-    data: unknown;
-  }> = [];
 
   let result = null;
   let executionError = null;
@@ -310,15 +301,8 @@ async function executePython(code: string): Promise<{
             },
           });
 
-          outputs.push({
-            type: "display",
-            data: {
-              data: serializedData,
-              metadata: serializedMetadata,
-              transient: serializedTransient,
-              update,
-            },
-          });
+          // Don't accumulate display events in outputs array to prevent memory leak
+          // Display events are already streamed via postMessage -> ExecutionContext
         } catch (error) {
           self.postMessage({
             type: "log",
@@ -357,14 +341,7 @@ async function executePython(code: string): Promise<{
             },
           });
 
-          outputs.push({
-            type: "result",
-            data: {
-              data: serializedData,
-              metadata: serializedMetadata,
-              execution_count,
-            },
-          });
+          // Don't accumulate in outputs - streaming directly to ExecutionContext
         } catch (error) {
           self.postMessage({
             type: "log",
@@ -431,13 +408,10 @@ if '_pyodide_result' in globals():
       type: "stream_output",
       data: { type: "error", data: executionError },
     });
-
-    outputs.push({ type: "error", data: executionError });
   }
 
   return {
     result: ensureSerializable(result),
-    outputs,
   };
 }
 
