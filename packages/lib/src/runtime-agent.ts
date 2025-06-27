@@ -248,9 +248,28 @@ export class RuntimeAgent {
     // Watch for active kernels
     const activeKernelsQuery$ = queryDb(
       tables.kernelSessions.select()
-        .where({ isActive: true }),
+        .where({ isActive: true })
+        .orderBy("lastHeartbeat", "desc"),
       {
         label: "activeKernels",
+      },
+    );
+
+    // Watch for completed executions to clean up processedExecutions
+    const completedExecutionsQuery$ = queryDb(
+      tables.executionQueue.select()
+        .where({ status: "completed" }),
+      {
+        label: "completedExecutions",
+      },
+    );
+
+    // Watch for failed executions to clean up processedExecutions
+    const failedExecutionsQuery$ = queryDb(
+      tables.executionQueue.select()
+        .where({ status: "failed" }),
+      {
+        label: "failedExecutions",
       },
     );
 
@@ -361,8 +380,44 @@ export class RuntimeAgent {
       },
     );
 
+    // Subscribe to completed executions for cleanup
+    const completedExecutionsSub = this.store.subscribe(
+      completedExecutionsQuery$,
+      {
+        onUpdate: (entries: readonly ExecutionQueueData[]) => {
+          if (this.isShuttingDown) return;
+
+          // Clean up processedExecutions Set for completed work
+          for (const entry of entries) {
+            this.processedExecutions.delete(entry.id);
+          }
+        },
+      },
+    );
+
+    // Subscribe to failed executions for cleanup
+    const failedExecutionsSub = this.store.subscribe(
+      failedExecutionsQuery$,
+      {
+        onUpdate: (entries: readonly ExecutionQueueData[]) => {
+          if (this.isShuttingDown) return;
+
+          // Clean up processedExecutions Set for failed work
+          for (const entry of entries) {
+            this.processedExecutions.delete(entry.id);
+          }
+        },
+      },
+    );
+
     // Store subscriptions for cleanup
-    this.subscriptions.push(assignedWorkSub, pendingWorkSub, cancelledWorkSub);
+    this.subscriptions.push(
+      assignedWorkSub,
+      pendingWorkSub,
+      cancelledWorkSub,
+      completedExecutionsSub,
+      failedExecutionsSub,
+    );
   }
 
   /**
