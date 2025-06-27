@@ -2,10 +2,7 @@ import OpenAI from "@openai/openai";
 import { createLogger, type ExecutionContext } from "@runt/lib";
 
 // Define message types inline to avoid import issues
-type ChatMessage = {
-  role: "system" | "user" | "assistant";
-  content: string;
-};
+type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
 interface OpenAIConfig {
   apiKey?: string;
@@ -58,6 +55,18 @@ interface AgenticOptions {
     messages: ChatMessage[],
   ) => Promise<boolean>;
   interruptSignal?: AbortSignal;
+}
+
+interface AnodeCellMetadata {
+  role?: "assistant" | "user" | "function_call" | "tool";
+  ai_provider?: string;
+  ai_model?: string;
+  iteration?: number;
+  tool_call?: boolean;
+  tool_name?: string;
+  tool_args?: Record<string, unknown>;
+  tool_error?: boolean;
+  tool_call_id?: string;
 }
 
 // Define available notebook tools
@@ -693,14 +702,13 @@ Remember: Users want working code in their notebook, not explanations about code
   }
 
   async generateAgenticResponse(
-    prompt: string,
+    messages: ChatMessage[],
     context: ExecutionContext,
     options: {
       model?: string;
       provider?: string;
       maxTokens?: number;
       temperature?: number;
-      systemPrompt?: string;
       enableTools?: boolean;
       currentCellId?: string;
       onToolCall?: (toolCall: ToolCall) => Promise<string>;
@@ -710,27 +718,6 @@ Remember: Users want working code in their notebook, not explanations about code
       model = "gpt-4o-mini",
       maxTokens = 2000,
       temperature = 0.7,
-      systemPrompt =
-        `You are a helpful AI assistant in a Jupyter-like notebook environment. You can see the context of previous cells and their outputs.
-
-**Your primary functions:**
-
-1. **Create cells immediately** - When users want code, examples, or implementations, use the create_cell tool to add them to the notebook. Don't provide code blocks in markdown - create actual executable cells.
-
-2. **Context awareness** - Reference previous cells and their outputs to provide relevant assistance. You can see what variables exist, what functions were defined, and what the current state is.
-
-3. **Debug and optimize** - Help users debug errors, optimize code, or extend existing functionality based on what you can see in the notebook.
-
-4. **Interpret outputs** - Respond based on execution results, error messages, plots, and data outputs from previous cells.
-
-**Key behaviors:**
-- CREATE cells instead of describing code
-- Reference previous work when relevant
-- Help debug based on actual errors you can see
-- Suggest next steps based on notebook progression
-- Use "after_current" positioning by default
-
-Remember: Users want working code in their notebook, not explanations about code.`,
       enableTools = true,
       currentCellId: _currentCellId,
       onToolCall,
@@ -749,10 +736,7 @@ Remember: Users want working code in their notebook, not explanations about code
       return;
     }
 
-    const conversationMessages: ChatMessage[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: prompt },
-    ];
+    const conversationMessages: ChatMessage[] = messages;
 
     let iteration = 0;
 
@@ -806,11 +790,32 @@ Remember: Users want working code in their notebook, not explanations about code
         const content = message?.content;
         const toolCalls = message?.tool_calls;
 
-        // Add assistant message to conversation
-        conversationMessages.push({
+        // Add assistant message to conversation (with tool_calls if present)
+        const assistantMessage: ChatMessage = {
           role: "assistant",
           content: content || "",
-        });
+          ...(toolCalls && toolCalls.length > 0
+            ? { tool_calls: toolCalls }
+            : {}),
+        };
+
+        conversationMessages.push(assistantMessage);
+
+        // Emit assistant response with role metadata
+        if (content) {
+          const metadata: AnodeCellMetadata = {
+            role: "assistant",
+            ai_provider: "openai",
+            ai_model: model,
+            iteration: iteration + 1,
+          };
+          context.display({
+            "text/markdown": content,
+            "text/plain": content,
+          }, {
+            anode: metadata,
+          });
+        }
 
         // Handle tool calls if present
         if (toolCalls && toolCalls.length > 0 && onToolCall) {
@@ -857,6 +862,14 @@ Remember: Users want working code in their notebook, not explanations about code
                   result: errorMessage,
                 };
 
+                const errorMetadata: AnodeCellMetadata = {
+                  role: "function_call",
+                  tool_call: true,
+                  tool_name: toolCall.function.name,
+                  tool_error: true,
+                  iteration: iteration + 1,
+                };
+
                 const errorOutput: OutputData = {
                   type: "display_data",
                   data: {
@@ -867,10 +880,7 @@ Remember: Users want working code in their notebook, not explanations about code
                       `Tool failed: ${toolCall.function.name} - Error parsing arguments: ${parseError.message}`,
                   },
                   metadata: {
-                    "anode/tool_call": true,
-                    "anode/tool_name": toolCall.function.name,
-                    "anode/tool_error": true,
-                    "anode/iteration": iteration + 1,
+                    anode: errorMetadata,
                   },
                 };
 
@@ -879,9 +889,9 @@ Remember: Users want working code in their notebook, not explanations about code
 
                 // Add tool error to conversation
                 conversationMessages.push({
-                  role: "user",
-                  content:
-                    `Tool call ${toolCall.id} (${toolCall.function.name}) failed: ${errorMessage}`,
+                  role: "tool",
+                  content: `Error: ${errorMessage}`,
+                  tool_call_id: toolCall.id,
                 });
                 continue;
               }
@@ -915,6 +925,14 @@ Remember: Users want working code in their notebook, not explanations about code
                   result: toolResult,
                 };
 
+                const successMetadata: AnodeCellMetadata = {
+                  role: "function_call",
+                  tool_call: true,
+                  tool_name: toolCall.function.name,
+                  tool_args: args,
+                  iteration: iteration + 1,
+                };
+
                 const successOutput: OutputData = {
                   type: "display_data",
                   data: {
@@ -928,10 +946,7 @@ Remember: Users want working code in their notebook, not explanations about code
                     }`,
                   },
                   metadata: {
-                    "anode/tool_call": true,
-                    "anode/tool_name": toolCall.function.name,
-                    "anode/tool_args": args,
-                    "anode/iteration": iteration + 1,
+                    anode: successMetadata,
                   },
                 };
 
@@ -940,11 +955,26 @@ Remember: Users want working code in their notebook, not explanations about code
 
                 // Add tool result to conversation
                 conversationMessages.push({
-                  role: "user",
-                  content:
-                    `Tool call ${toolCall.id} (${toolCall.function.name}) completed successfully${
-                      toolResult ? `: ${toolResult}` : ""
-                    }`,
+                  role: "tool",
+                  content: toolResult || "Success",
+                  tool_call_id: toolCall.id,
+                });
+
+                // Emit tool result with role metadata
+                const toolResultMetadata: AnodeCellMetadata = {
+                  role: "tool",
+                  tool_call_id: toolCall.id,
+                  tool_name: toolCall.function.name,
+                  iteration: iteration + 1,
+                };
+                context.display({
+                  "application/vnd.anode.aitool.result+json": {
+                    tool_call_id: toolCall.id,
+                    result: toolResult,
+                    status: "success",
+                  },
+                }, {
+                  anode: toolResultMetadata,
                 });
               } catch (error) {
                 _hasToolErrors = true;
@@ -969,6 +999,14 @@ Remember: Users want working code in their notebook, not explanations about code
                   result: errorMessage,
                 };
 
+                const toolErrorMetadata: AnodeCellMetadata = {
+                  role: "function_call",
+                  tool_call: true,
+                  tool_name: toolCall.function.name,
+                  tool_error: true,
+                  iteration: iteration + 1,
+                };
+
                 const errorOutput: OutputData = {
                   type: "display_data",
                   data: {
@@ -979,10 +1017,7 @@ Remember: Users want working code in their notebook, not explanations about code
                       `Tool failed: ${toolCall.function.name} - ${errorMessage}`,
                   },
                   metadata: {
-                    "anode/tool_call": true,
-                    "anode/tool_name": toolCall.function.name,
-                    "anode/tool_error": true,
-                    "anode/iteration": iteration + 1,
+                    anode: toolErrorMetadata,
                   },
                 };
 
@@ -991,51 +1026,22 @@ Remember: Users want working code in their notebook, not explanations about code
 
                 // Add tool error to conversation
                 conversationMessages.push({
-                  role: "user",
-                  content:
-                    `Tool call ${toolCall.id} (${toolCall.function.name}) failed: ${errorMessage}`,
+                  role: "tool",
+                  content: `Error: ${errorMessage}`,
+                  tool_call_id: toolCall.id,
                 });
               }
             }
           }
 
-          // If there's also text content, emit it immediately
-          if (content) {
-            context.display({
-              "text/markdown": content,
-              "text/plain": content,
-            }, {
-              "anode/ai_response": true,
-              "anode/ai_provider": "openai",
-              "anode/ai_model": model,
-              "anode/ai_with_tools": true,
-              "anode/iteration": iteration + 1,
-            });
-          }
+          // Content was already emitted above with role metadata
 
           // Continue to next iteration to let AI respond to tool results
           iteration++;
           continue;
         }
 
-        // No tool calls - emit final response and break
-        if (content) {
-          context.display({
-            "text/markdown": content,
-            "text/plain": content,
-          }, {
-            "anode/ai_response": true,
-            "anode/ai_provider": "openai",
-            "anode/ai_model": model,
-            "anode/ai_usage": {
-              prompt_tokens: response.usage?.prompt_tokens || 0,
-              completion_tokens: response.usage?.completion_tokens || 0,
-              total_tokens: response.usage?.total_tokens || 0,
-            },
-            "anode/iteration": iteration + 1,
-            "anode/final_response": true,
-          });
-        }
+        // Content was already emitted above with role metadata
 
         // No more tool calls, conversation is complete
         this.logger.info(

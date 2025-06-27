@@ -79,7 +79,10 @@ Deno.test("OpenAI Client - Immediate Output Emission", async () => {
     const toolCallEvents: Array<{ event: string; timestamp: number }> = [];
 
     await client.generateAgenticResponse(
-      "Create a test cell",
+      [
+        { role: "system", content: "You are a helpful AI assistant." },
+        { role: "user", content: "Create a test cell" },
+      ],
       mockContext,
       {
         model: "gpt-4o-mini",
@@ -247,7 +250,10 @@ Deno.test("OpenAI Client - Multiple Tool Calls Stream Individually", async () =>
     const toolExecutionTimes: number[] = [];
 
     await client.generateAgenticResponse(
-      "Create multiple cells",
+      [
+        { role: "system", content: "You are a helpful AI assistant." },
+        { role: "user", content: "Create multiple cells" },
+      ],
       mockContext,
       {
         model: "gpt-4o-mini",

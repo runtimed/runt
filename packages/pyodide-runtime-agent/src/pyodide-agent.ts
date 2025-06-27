@@ -7,6 +7,7 @@
 import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
 import type { ExecutionContext } from "@runt/lib";
 import { createLogger } from "@runt/lib";
+import type OpenAI from "@openai/openai";
 import {
   ensureTextPlainFallback,
   isJsonMimeType,
@@ -40,6 +41,7 @@ export interface CellContextData {
   outputs: Array<{
     outputType: string;
     data: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
   }>;
 }
 
@@ -48,6 +50,22 @@ export interface NotebookContextData {
   totalCells: number;
   currentCellPosition: number;
 }
+
+interface ToolCallData {
+  tool_call_id: string;
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  status: string;
+  timestamp: string;
+}
+
+interface ToolResultData {
+  tool_call_id: string;
+  result?: string;
+  status: string;
+}
+
+type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
 /**
  * Configuration options for PyodideRuntimeAgent
@@ -589,13 +607,8 @@ export class PyodideRuntimeAgent {
           prompt,
         );
 
-        // Extract system prompt from conversation messages
-        const systemContext = conversationMessages.find((msg) =>
-          msg.role === "system"
-        )?.content || "";
-
         await this.openaiClient.generateAgenticResponse(
-          prompt,
+          conversationMessages,
           context,
           {
             model: cell.aiModel || "gpt-4o-mini",
@@ -604,7 +617,6 @@ export class PyodideRuntimeAgent {
             currentCellId: cell.id,
             maxIterations: 10,
             interruptSignal: abortSignal,
-            systemPrompt: systemContext,
             onToolCall: async (toolCall) => {
               this.logger.info("AI requested tool call", {
                 toolName: toolCall.name,
@@ -883,11 +895,8 @@ ${output.data["text/markdown"]}
   public buildConversationMessages(
     context: NotebookContextData,
     userPrompt: string,
-  ): Array<{
-    role: "system" | "user" | "assistant";
-    content: string;
-  }> {
-    const messages = [];
+  ): ChatMessage[] {
+    const messages: ChatMessage[] = [];
 
     // Clean, focused system prompt
     messages.push({
@@ -958,9 +967,98 @@ Remember: Users want working code in their notebook, not explanations about code
           }
           contextMessage += `\n`;
         } else if (cell.cellType === "ai") {
-          // Show previous AI interactions as assistant messages
-          contextMessage +=
-            `**Previous AI response (ID: ${cell.id}):**\n${cell.source}\n\n`;
+          // Reconstruct conversation from AI cell outputs with proper ordering
+          if (cell.outputs && cell.outputs.length > 0) {
+            // Group outputs by iteration to maintain tool call/response order
+            const outputsByIteration = new Map<number, typeof cell.outputs>();
+
+            cell.outputs.forEach((output) => {
+              const metadata = output.metadata as {
+                anode?: { iteration?: number };
+              };
+              const iteration = metadata?.anode?.iteration || 1;
+
+              if (!outputsByIteration.has(iteration)) {
+                outputsByIteration.set(iteration, []);
+              }
+              outputsByIteration.get(iteration)!.push(output);
+            });
+
+            // Process outputs in iteration order
+            const sortedIterations = Array.from(outputsByIteration.keys()).sort(
+              (a, b) => a - b,
+            );
+
+            for (const iteration of sortedIterations) {
+              const iterationOutputs = outputsByIteration.get(iteration)!;
+
+              // Find assistant response and tool calls for this iteration
+              const assistantOutput = iterationOutputs.find((o) => {
+                const metadata = o.metadata as { anode?: { role?: string } };
+                return metadata?.anode?.role === "assistant" &&
+                  o.data["text/markdown"];
+              });
+
+              const toolCallOutputs = iterationOutputs.filter((o) => {
+                const metadata = o.metadata as { anode?: { role?: string } };
+                return metadata?.anode?.role === "function_call";
+              });
+
+              const toolResultOutputs = iterationOutputs.filter((o) => {
+                const metadata = o.metadata as { anode?: { role?: string } };
+                return metadata?.anode?.role === "tool";
+              });
+
+              // Add assistant response (possibly with tool calls)
+              if (assistantOutput || toolCallOutputs.length > 0) {
+                const assistantMessage: ChatMessage = {
+                  role: "assistant" as const,
+                  content: assistantOutput
+                    ? String(assistantOutput.data["text/markdown"])
+                    : "",
+                  ...(toolCallOutputs.length > 0
+                    ? {
+                      tool_calls: toolCallOutputs.map(
+                        (output) => {
+                          const toolData = output
+                            .data[
+                              "application/vnd.anode.aitool+json"
+                            ] as ToolCallData;
+                          return {
+                            id: toolData.tool_call_id,
+                            type: "function" as const,
+                            function: {
+                              name: toolData.tool_name,
+                              arguments: JSON.stringify(toolData.arguments),
+                            },
+                          };
+                        },
+                      ),
+                    }
+                    : {}),
+                };
+
+                messages.push(assistantMessage);
+
+                // Add tool results if present
+                toolResultOutputs.forEach((output) => {
+                  const resultData = output
+                    .data[
+                      "application/vnd.anode.aitool.result+json"
+                    ] as ToolResultData;
+                  messages.push({
+                    role: "tool" as const,
+                    content: resultData.result || "Success",
+                    tool_call_id: resultData.tool_call_id,
+                  });
+                });
+              }
+            }
+          } else {
+            // Fallback to showing AI prompt as context if no outputs
+            contextMessage +=
+              `**Previous AI request (ID: ${cell.id}):**\n${cell.source}\n\n`;
+          }
         } else if (cell.cellType === "markdown") {
           contextMessage +=
             `**Markdown (ID: ${cell.id}):**\n${cell.source}\n\n`;
@@ -1071,7 +1169,7 @@ Remember: Users want working code in their notebook, not explanations about code
           );
         }
 
-        return `Created ${cellType} cell with ID ${newCellId}`;
+        return `Created ${cellType} cell: ${newCellId}`;
       }
 
       case "modify_cell": {
@@ -1203,9 +1301,7 @@ Remember: Users want working code in their notebook, not explanations about code
           contentPreview: content.slice(0, 100),
         });
 
-        return `Created ${cellType} cell with ID ${newCellId}${
-          content ? ` containing ${content.length} characters` : ""
-        }`;
+        return `Created ${cellType} cell: ${newCellId}`;
       }
 
       case "modify_cell": {
