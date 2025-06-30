@@ -328,23 +328,39 @@ class LiveStoreComm:
         self._on_msg_callbacks = []
         self._on_close_callbacks = []
 
+        print(f"🔧 LiveStoreComm created: comm_id={self.comm_id}, target={target_name}")
+        print(f"🔧 LiveStoreComm data: {data}")
+        print(f"🔧 LiveStoreComm metadata: {metadata}")
+
         # Notify the frontend about the new model when created
         if data and "state" in data:
+            print(f"🔧 LiveStoreComm sending anywidgetModelCreated event")
             self._send_to_frontend(
                 {
                     "type": "anywidgetModelCreated",
                     "payload": {"modelId": self.comm_id, "initialState": data["state"]},
                 }
             )
+        else:
+            print(f"🔧 LiveStoreComm: No state in data, not sending creation event")
 
     def send(self, data=None, metadata=None, buffers=None):
         """Override send to intercept state updates from anywidget"""
+        print(f"🔧 LiveStoreComm.send called: comm_id={self.comm_id}")
+        print(f"🔧 LiveStoreComm.send data: {data}")
+        print(f"🔧 LiveStoreComm.send metadata: {metadata}")
+
         if data and "state" in data:
+            print(f"🔧 LiveStoreComm sending anywidgetModelStateChanged event")
             self._send_to_frontend(
                 {
                     "type": "anywidgetModelStateChanged",
                     "payload": {"modelId": self.comm_id, "state": data["state"]},
                 }
+            )
+        else:
+            print(
+                f"🔧 LiveStoreComm.send: No state in data, not sending state change event"
             )
 
     def on_msg(self, callback):
@@ -369,6 +385,7 @@ class LiveStoreComm:
 
     def _send_to_frontend(self, event_data):
         """Send event to frontend via existing js_event_callback mechanism"""
+        print(f"🔧 LiveStoreComm._send_to_frontend: {event_data}")
         js_event_callback(event_data)
 
 
@@ -404,8 +421,25 @@ def setup_anywidget_bridge():
         # Get the shell's comm manager and replace the comm class
         if hasattr(shell, "kernel") and hasattr(shell.kernel, "comm_manager"):
             shell.kernel.comm_manager.comm_class = AnywidgetCommBridge
+            print("🔧 Anywidget comm bridge: Replaced CommManager.comm_class")
+        else:
+            print(
+                "🔧 Anywidget comm bridge: No kernel.comm_manager found, trying alternative approach"
+            )
+            # Try alternative approach for standalone IPython
+            try:
+                from IPython import get_ipython
 
-        print("Anywidget comm bridge initialized successfully")
+                ipython = get_ipython()
+                if ipython and hasattr(ipython, "kernel"):
+                    ipython.kernel.comm_manager.comm_class = AnywidgetCommBridge
+                    print(
+                        "🔧 Anywidget comm bridge: Set via get_ipython().kernel.comm_manager"
+                    )
+            except Exception as e:
+                print(f"🔧 Anywidget comm bridge: Alternative approach failed: {e}")
+
+        print("Anywidget comm bridge setup completed")
 
     except ImportError as e:
         print(

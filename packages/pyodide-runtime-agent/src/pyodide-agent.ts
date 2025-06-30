@@ -329,38 +329,57 @@ export class PyodideRuntimeAgent {
    */
   private handleAnywidgetEvent(eventData: unknown): void {
     try {
+      console.log("🔧 PyodideAgent.handleAnywidgetEvent received:", eventData);
+
       const { type, payload } = eventData as {
         type: string;
         payload: Record<string, unknown>;
       };
+
+      console.log(`🔧 PyodideAgent processing ${type} event:`, payload);
 
       switch (type) {
         case "anywidgetModelCreated":
           this.logger.debug("Anywidget model created", {
             modelId: payload.modelId,
           });
-          this.agent.liveStore.commit(events.anywidgetModelCreated, {
+          console.log(`🔧 Committing anywidgetModelCreated to LiveStore:`, {
             modelId: payload.modelId,
             initialState: payload.initialState,
           });
+          this.agent.liveStore.commit(events.anywidgetModelCreated({
+            modelId: payload.modelId as string,
+            initialState: payload.initialState,
+          }));
+          console.log("🔧 anywidgetModelCreated committed successfully");
           break;
 
         case "anywidgetModelStateChanged":
           this.logger.debug("Anywidget model state changed", {
             modelId: payload.modelId,
           });
-          this.agent.liveStore.commit(events.anywidgetModelStateChanged, {
-            modelId: payload.modelId,
+          console.log(
+            `🔧 Committing anywidgetModelStateChanged to LiveStore:`,
+            {
+              modelId: payload.modelId,
+              state: payload.state,
+            },
+          );
+          this.agent.liveStore.commit(events.anywidgetModelStateChanged({
+            modelId: payload.modelId as string,
             state: payload.state,
             changedBy: "python",
-          });
+          }));
+          console.log("🔧 anywidgetModelStateChanged committed successfully");
           break;
 
         default:
           this.logger.warn("Unknown anywidget event type", { type });
+          console.log("🔧 Unknown anywidget event type:", type);
       }
     } catch (error) {
       this.logger.error("Error handling anywidget event", { error, eventData });
+      console.error("🔧 Error in handleAnywidgetEvent:", error);
     }
   }
 

@@ -367,8 +367,20 @@ async function executePython(code: string): Promise<{
       "js_event_callback",
       (eventData: unknown) => {
         try {
+          self.postMessage({
+            type: "log",
+            data: `🔧 Worker js_event_callback called with: ${
+              JSON.stringify(eventData)
+            }`,
+          });
+
           // Ensure event data is serializable
           const serializedEventData = ensureSerializable(eventData);
+
+          self.postMessage({
+            type: "log",
+            data: `🔧 Worker posting anywidget_event to main thread`,
+          });
 
           self.postMessage({
             type: "anywidget_event",
@@ -377,7 +389,7 @@ async function executePython(code: string): Promise<{
         } catch (error) {
           self.postMessage({
             type: "log",
-            data: `Error in anywidget event callback: ${error}`,
+            data: `🔧 Error in anywidget event callback: ${error}`,
           });
         }
       },
@@ -392,6 +404,17 @@ shell.displayhook.js_callback = js_execution_callback
 # Set up the anywidget event callback globally
 import __main__
 __main__.js_event_callback = js_event_callback
+
+# Debug: Verify callback is set
+print(f"🔧 js_event_callback set: {hasattr(__main__, 'js_event_callback')}")
+print(f"🔧 js_event_callback callable: {callable(getattr(__main__, 'js_event_callback', None))}")
+
+# Test the callback
+try:
+    js_event_callback({"type": "test", "payload": {"message": "callback test"}})
+    print("🔧 js_event_callback test successful")
+except Exception as e:
+    print(f"🔧 js_event_callback test failed: {e}")
 `);
 
     // Execute the code directly with Pyodide (no IPython transformations)
