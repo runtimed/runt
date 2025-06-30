@@ -309,11 +309,15 @@ async def bootstrap_micropip_packages():
     try:
         import micropip
 
-        await micropip.install("seaborn")
+        # Install anywidget first for testing
+        await micropip.install("anywidget")
+        print("🔧 Installed anywidget via micropip")
 
+        # Install other packages
+        await micropip.install("seaborn")
         print("Installed seaborn via micropip")
     except Exception as e:
-        print(f"Warning: Failed to install seaborn: {e}")
+        print(f"Warning: Failed to install packages: {e}")
 
 
 # Anywidget Comm Bridge Implementation
@@ -391,14 +395,28 @@ class LiveStoreComm:
 
 def setup_anywidget_bridge():
     """Set up the anywidget comm bridge by monkey-patching IPython's CommManager"""
+    print("🔧 Setting up anywidget comm bridge...")
     try:
+        # Test if anywidget is available
+        try:
+            import anywidget
+
+            print(f"🔧 Found anywidget version: {anywidget.__version__}")
+        except ImportError:
+            print("🔧 anywidget not available, skipping bridge setup")
+            return
+
         # Import required modules
         from ipykernel.comm import BaseComm
-        from ipykernel.comm.manager import CommManager
 
-        # Create our bridge class that inherits from BaseComm for compatibility
+        print("🔧 BaseComm imported successfully")
+
+        # Create our bridge class
         class AnywidgetCommBridge(BaseComm):
             def __init__(self, *args, **kwargs):
+                print(
+                    f"🔧 AnywidgetCommBridge.__init__ called with args: {args}, kwargs: {kwargs}"
+                )
                 # Initialize our LiveStoreComm
                 self._livestore_comm = LiveStoreComm(*args, **kwargs)
                 # Set attributes expected by BaseComm
@@ -407,6 +425,7 @@ def setup_anywidget_bridge():
                 self.kernel = None  # Will be set by CommManager if needed
 
             def send(self, *args, **kwargs):
+                print(f"🔧 AnywidgetCommBridge.send called")
                 return self._livestore_comm.send(*args, **kwargs)
 
             def on_msg(self, *args, **kwargs):
@@ -418,35 +437,36 @@ def setup_anywidget_bridge():
             def close(self, *args, **kwargs):
                 return self._livestore_comm.close(*args, **kwargs)
 
-        # Get the shell's comm manager and replace the comm class
-        if hasattr(shell, "kernel") and hasattr(shell.kernel, "comm_manager"):
-            shell.kernel.comm_manager.comm_class = AnywidgetCommBridge
-            print("🔧 Anywidget comm bridge: Replaced CommManager.comm_class")
-        else:
-            print(
-                "🔧 Anywidget comm bridge: No kernel.comm_manager found, trying alternative approach"
-            )
-            # Try alternative approach for standalone IPython
-            try:
-                from IPython import get_ipython
+        # Try to replace the comm class
+        try:
+            from IPython import get_ipython
 
-                ipython = get_ipython()
-                if ipython and hasattr(ipython, "kernel"):
-                    ipython.kernel.comm_manager.comm_class = AnywidgetCommBridge
-                    print(
-                        "🔧 Anywidget comm bridge: Set via get_ipython().kernel.comm_manager"
-                    )
-            except Exception as e:
-                print(f"🔧 Anywidget comm bridge: Alternative approach failed: {e}")
+            ipython = get_ipython()
 
-        print("Anywidget comm bridge setup completed")
+            if (
+                ipython
+                and hasattr(ipython, "kernel")
+                and hasattr(ipython.kernel, "comm_manager")
+            ):
+                original_class = ipython.kernel.comm_manager.comm_class
+                ipython.kernel.comm_manager.comm_class = AnywidgetCommBridge
+                print(
+                    f"🔧 Replaced comm_class: {original_class} -> {AnywidgetCommBridge}"
+                )
+            else:
+                print("🔧 No IPython kernel.comm_manager found")
+        except Exception as e:
+            print(f"🔧 Failed to replace comm_class: {e}")
+
+        print("🔧 Anywidget comm bridge setup completed")
 
     except ImportError as e:
-        print(
-            f"Warning: Could not set up anywidget bridge - ipykernel not available: {e}"
-        )
+        print(f"🔧 ImportError setting up anywidget bridge: {e}")
     except Exception as e:
-        print(f"Warning: Error setting up anywidget bridge: {e}")
+        print(f"🔧 Error setting up anywidget bridge: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 # Set up the anywidget bridge
