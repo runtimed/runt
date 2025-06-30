@@ -17,6 +17,7 @@ import os
 import sys
 import io
 import json
+import uuid
 
 from IPython.core.interactiveshell import InteractiveShell
 from IPython.core.displayhook import DisplayHook
@@ -196,6 +197,7 @@ shell = InteractiveShell.instance(
 # Override history manager
 shell.history_manager = LiteHistoryManager(shell=shell, parent=shell)
 
+
 # Enhanced matplotlib show function with SVG capture
 _original_show = plt.show
 
@@ -298,6 +300,11 @@ def default_execution_callback(execution_count, data, metadata):
     pass
 
 
+def default_event_callback(event_data):
+    """Default event callback for LiveStore events - does nothing"""
+    pass
+
+
 async def bootstrap_micropip_packages():
     try:
         import micropip
@@ -309,9 +316,119 @@ async def bootstrap_micropip_packages():
         print(f"Warning: Failed to install seaborn: {e}")
 
 
+# Anywidget Comm Bridge Implementation
+class LiveStoreComm:
+    """Bridge between anywidget's Jupyter Comm protocol and LiveStore events"""
+
+    def __init__(
+        self, comm_id=None, target_name=None, data=None, metadata=None, **kwargs
+    ):
+        self.comm_id = comm_id or str(uuid.uuid4())
+        self.target_name = target_name
+        self._on_msg_callbacks = []
+        self._on_close_callbacks = []
+
+        # Notify the frontend about the new model when created
+        if data and "state" in data:
+            self._send_to_frontend(
+                {
+                    "type": "anywidgetModelCreated",
+                    "payload": {"modelId": self.comm_id, "initialState": data["state"]},
+                }
+            )
+
+    def send(self, data=None, metadata=None, buffers=None):
+        """Override send to intercept state updates from anywidget"""
+        if data and "state" in data:
+            self._send_to_frontend(
+                {
+                    "type": "anywidgetModelStateChanged",
+                    "payload": {"modelId": self.comm_id, "state": data["state"]},
+                }
+            )
+
+    def on_msg(self, callback):
+        """Register callback for messages from frontend"""
+        if callback:
+            self._on_msg_callbacks.append(callback)
+
+    def on_close(self, callback):
+        """Register callback for comm close"""
+        if callback:
+            self._on_close_callbacks.append(callback)
+
+    def close(self, data=None, metadata=None, deleting=None):
+        """Close the comm and notify callbacks"""
+        for callback in self._on_close_callbacks:
+            try:
+                callback()
+            except Exception as e:
+                print(f"Error in comm close callback: {e}")
+        self._on_msg_callbacks.clear()
+        self._on_close_callbacks.clear()
+
+    def _send_to_frontend(self, event_data):
+        """Send event to frontend via existing js_event_callback mechanism"""
+        js_event_callback(event_data)
+
+
+def setup_anywidget_bridge():
+    """Set up the anywidget comm bridge by monkey-patching IPython's CommManager"""
+    try:
+        # Import required modules
+        from ipykernel.comm import BaseComm
+        from ipykernel.comm.manager import CommManager
+
+        # Create our bridge class that inherits from BaseComm for compatibility
+        class AnywidgetCommBridge(BaseComm):
+            def __init__(self, *args, **kwargs):
+                # Initialize our LiveStoreComm
+                self._livestore_comm = LiveStoreComm(*args, **kwargs)
+                # Set attributes expected by BaseComm
+                self.comm_id = self._livestore_comm.comm_id
+                self.target_name = self._livestore_comm.target_name
+                self.kernel = None  # Will be set by CommManager if needed
+
+            def send(self, *args, **kwargs):
+                return self._livestore_comm.send(*args, **kwargs)
+
+            def on_msg(self, *args, **kwargs):
+                return self._livestore_comm.on_msg(*args, **kwargs)
+
+            def on_close(self, *args, **kwargs):
+                return self._livestore_comm.on_close(*args, **kwargs)
+
+            def close(self, *args, **kwargs):
+                return self._livestore_comm.close(*args, **kwargs)
+
+        # Get the shell's comm manager and replace the comm class
+        if hasattr(shell, "kernel") and hasattr(shell.kernel, "comm_manager"):
+            shell.kernel.comm_manager.comm_class = AnywidgetCommBridge
+
+        print("Anywidget comm bridge initialized successfully")
+
+    except ImportError as e:
+        print(
+            f"Warning: Could not set up anywidget bridge - ipykernel not available: {e}"
+        )
+    except Exception as e:
+        print(f"Warning: Error setting up anywidget bridge: {e}")
+
+
+# Set up the anywidget bridge
+setup_anywidget_bridge()
+
+
+# Global event callback - will be overridden by worker
+def default_event_callback(event_data):
+    """Default event callback - does nothing"""
+    pass
+
+
 # Make callbacks available globally
 js_display_callback = default_display_callback
 js_execution_callback = default_execution_callback
+js_event_callback = default_event_callback
 
 # Export the configured shell for use by the worker
-__all__ = ["shell", "js_display_callback", "js_execution_callback"]
+__all__ = ["shell", "js_display_callback", "js_execution_callback", "js_event_callback"]

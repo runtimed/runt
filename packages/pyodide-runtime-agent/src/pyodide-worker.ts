@@ -362,11 +362,36 @@ async function executePython(code: string): Promise<{
       },
     );
 
+    // Set up anywidget event callback for comm bridge
+    pyodide.globals.set(
+      "js_event_callback",
+      (eventData: unknown) => {
+        try {
+          // Ensure event data is serializable
+          const serializedEventData = ensureSerializable(eventData);
+
+          self.postMessage({
+            type: "anywidget_event",
+            data: serializedEventData,
+          });
+        } catch (error) {
+          self.postMessage({
+            type: "log",
+            data: `Error in anywidget event callback: ${error}`,
+          });
+        }
+      },
+    );
+
     // Wire up the callbacks to the shell
     await pyodide.runPythonAsync(`
 # Connect our JavaScript callbacks to the IPython shell
 shell.display_pub.js_callback = js_display_callback
 shell.displayhook.js_callback = js_execution_callback
+
+# Set up the anywidget event callback globally
+import __main__
+__main__.js_event_callback = js_event_callback
 `);
 
     // Execute the code directly with Pyodide (no IPython transformations)

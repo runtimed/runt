@@ -177,6 +177,17 @@ export const tables = {
       value: {},
     },
   }),
+
+  // Anywidget models for collaborative widget state
+  anywidgetModels: State.SQLite.table({
+    name: "anywidgetModels",
+    columns: {
+      id: State.SQLite.text({ primaryKey: true }), // model_id from Jupyter comm
+      state: State.SQLite.json({ schema: Schema.Any }), // Complete widget state
+      createdAt: State.SQLite.datetime(),
+      modifiedAt: State.SQLite.datetime(),
+    },
+  }),
 };
 
 // Events describe notebook and cell changes
@@ -427,6 +438,24 @@ export const events = {
 
   // UI state
   uiStateSet: tables.uiState.set,
+
+  // Anywidget events
+  anywidgetModelCreated: Events.synced({
+    name: "v1.AnywidgetModelCreated",
+    schema: Schema.Struct({
+      modelId: Schema.String,
+      initialState: Schema.Any,
+    }),
+  }),
+
+  anywidgetModelStateChanged: Events.synced({
+    name: "v1.AnywidgetModelStateChanged",
+    schema: Schema.Struct({
+      modelId: Schema.String,
+      state: Schema.Any,
+      changedBy: Schema.optional(Schema.String),
+    }),
+  }),
 };
 
 // Materializers map events to state changes
@@ -654,6 +683,23 @@ const materializers = State.SQLite.materializers(events, {
         aiSettings: settings,
       })
       .where({ id: cellId }),
+
+  // Anywidget materializers
+  "v1.AnywidgetModelCreated": ({ modelId, initialState }) =>
+    tables.anywidgetModels.insert({
+      id: modelId,
+      state: initialState,
+      createdAt: new Date(),
+      modifiedAt: new Date(),
+    }),
+
+  "v1.AnywidgetModelStateChanged": ({ modelId, state }) =>
+    tables.anywidgetModels
+      .update({
+        state: state,
+        modifiedAt: new Date(),
+      })
+      .where({ id: modelId }),
 });
 
 const state = State.SQLite.makeState({ tables, materializers });

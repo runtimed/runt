@@ -246,6 +246,12 @@ export class PyodideRuntimeAgent {
       return;
     }
 
+    if (type === "anywidget_event") {
+      // Handle anywidget events from Python comm bridge
+      this.handleAnywidgetEvent(data);
+      return;
+    }
+
     if (type === "stream_output") {
       // Handle real-time streaming outputs with enhanced formatting
       if (this.currentExecutionContext) {
@@ -315,6 +321,46 @@ export class PyodideRuntimeAgent {
       pending.reject(new Error(error));
     } else {
       pending.resolve(data);
+    }
+  }
+
+  /**
+   * Handle anywidget events from the Python comm bridge
+   */
+  private handleAnywidgetEvent(eventData: unknown): void {
+    try {
+      const { type, payload } = eventData as {
+        type: string;
+        payload: Record<string, unknown>;
+      };
+
+      switch (type) {
+        case "anywidgetModelCreated":
+          this.logger.debug("Anywidget model created", {
+            modelId: payload.modelId,
+          });
+          this.agent.liveStore.commit(events.anywidgetModelCreated, {
+            modelId: payload.modelId,
+            initialState: payload.initialState,
+          });
+          break;
+
+        case "anywidgetModelStateChanged":
+          this.logger.debug("Anywidget model state changed", {
+            modelId: payload.modelId,
+          });
+          this.agent.liveStore.commit(events.anywidgetModelStateChanged, {
+            modelId: payload.modelId,
+            state: payload.state,
+            changedBy: "python",
+          });
+          break;
+
+        default:
+          this.logger.warn("Unknown anywidget event type", { type });
+      }
+    } catch (error) {
+      this.logger.error("Error handling anywidget event", { error, eventData });
     }
   }
 
