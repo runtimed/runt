@@ -309,15 +309,25 @@ async def bootstrap_micropip_packages():
     try:
         import micropip
 
-        # Install anywidget first for testing
+        # Install ipykernel first for comm support
+        await micropip.install("ipykernel")
+        print("🔧 Installed ipykernel via micropip")
+
+        # Install anywidget for testing
         await micropip.install("anywidget")
         print("🔧 Installed anywidget via micropip")
+
+        # Test the setup after installation
+        test_anywidget_setup()
 
         # Install other packages
         await micropip.install("seaborn")
         print("Installed seaborn via micropip")
     except Exception as e:
         print(f"Warning: Failed to install packages: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 # Anywidget Comm Bridge Implementation
@@ -393,6 +403,45 @@ class LiveStoreComm:
         js_event_callback(event_data)
 
 
+def setup_minimal_kernel():
+    """Set up a minimal Jupyter kernel for anywidget support"""
+    print("🔧 Setting up minimal Jupyter kernel for anywidget...")
+    try:
+        from IPython import get_ipython
+        from ipykernel.comm.manager import CommManager
+
+        ipython = get_ipython()
+        if ipython is None:
+            print("🔧 No IPython instance found")
+            return False
+
+        # Create a minimal kernel-like object if it doesn't exist
+        if not hasattr(ipython, "kernel"):
+            print("🔧 Creating minimal kernel object...")
+
+            class MinimalKernel:
+                def __init__(self):
+                    self.comm_manager = CommManager(parent=self)
+                    print(f"🔧 Created CommManager: {self.comm_manager}")
+
+            ipython.kernel = MinimalKernel()
+            print("🔧 Minimal kernel created and attached to IPython")
+            return True
+        else:
+            print("🔧 IPython already has kernel")
+            return True
+
+    except ImportError as e:
+        print(f"🔧 ImportError setting up minimal kernel: {e}")
+        return False
+    except Exception as e:
+        print(f"🔧 Error setting up minimal kernel: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return False
+
+
 def setup_anywidget_bridge():
     """Set up the anywidget comm bridge by monkey-patching IPython's CommManager"""
     print("🔧 Setting up anywidget comm bridge...")
@@ -404,6 +453,11 @@ def setup_anywidget_bridge():
             print(f"🔧 Found anywidget version: {anywidget.__version__}")
         except ImportError:
             print("🔧 anywidget not available, skipping bridge setup")
+            return
+
+        # Ensure we have a kernel with comm_manager
+        if not setup_minimal_kernel():
+            print("🔧 Failed to set up minimal kernel")
             return
 
         # Import required modules
@@ -437,7 +491,7 @@ def setup_anywidget_bridge():
             def close(self, *args, **kwargs):
                 return self._livestore_comm.close(*args, **kwargs)
 
-        # Try to replace the comm class
+        # Replace the comm class
         try:
             from IPython import get_ipython
 
@@ -454,7 +508,7 @@ def setup_anywidget_bridge():
                     f"🔧 Replaced comm_class: {original_class} -> {AnywidgetCommBridge}"
                 )
             else:
-                print("🔧 No IPython kernel.comm_manager found")
+                print("🔧 No IPython kernel.comm_manager found after setup")
         except Exception as e:
             print(f"🔧 Failed to replace comm_class: {e}")
 
@@ -464,6 +518,62 @@ def setup_anywidget_bridge():
         print(f"🔧 ImportError setting up anywidget bridge: {e}")
     except Exception as e:
         print(f"🔧 Error setting up anywidget bridge: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+
+def test_anywidget_setup():
+    """Test that anywidget and comm bridge are working"""
+    print("🔧 Testing anywidget setup...")
+    try:
+        import anywidget
+        import traitlets
+        from IPython import get_ipython
+
+        # Test IPython and kernel setup
+        ipython = get_ipython()
+        print(f"🔧 IPython: {ipython}")
+        print(f"🔧 Has kernel: {hasattr(ipython, 'kernel') if ipython else False}")
+
+        if ipython and hasattr(ipython, "kernel"):
+            kernel = ipython.kernel
+            print(f"🔧 Kernel: {kernel}")
+            print(f"🔧 Has comm_manager: {hasattr(kernel, 'comm_manager')}")
+
+            if hasattr(kernel, "comm_manager"):
+                cm = kernel.comm_manager
+                print(f"🔧 CommManager: {cm}")
+                print(f"🔧 Comm class: {cm.comm_class}")
+                print(f"🔧 Comm class name: {cm.comm_class.__name__}")
+
+        # Test creating a simple widget
+        class TestWidget(anywidget.AnyWidget):
+            _esm = """
+            export default {
+                render({ model, el }) {
+                    el.innerHTML = '<div>Test Widget Working!</div>';
+                }
+            };
+            """
+            value = traitlets.Int(42).tag(sync=True)
+
+        print("🔧 Creating test widget...")
+        widget = TestWidget()
+        print(f"🔧 Test widget created: {widget}")
+
+        # Check if it has comm
+        if hasattr(widget, "comm"):
+            print(f"🔧 Widget has comm: {widget.comm}")
+            if widget.comm:
+                print(f"🔧 Widget comm_id: {widget.comm.comm_id}")
+        else:
+            print("🔧 Widget has no comm attribute")
+
+        print("🔧 Anywidget test completed successfully")
+
+    except Exception as e:
+        print(f"🔧 Error in anywidget test: {e}")
         import traceback
 
         traceback.print_exc()
