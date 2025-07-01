@@ -93,8 +93,6 @@ export interface ExecutionContext {
   error: (ename: string, evalue: string, traceback: string[]) => void;
   /** Clear all previous outputs for this cell */
   clear: () => void;
-
-  logger: Logger;
 }
 
 /**
