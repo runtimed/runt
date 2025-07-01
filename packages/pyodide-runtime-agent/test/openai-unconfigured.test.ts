@@ -1,5 +1,61 @@
 import { assert, assertExists } from "jsr:@std/assert@1.0.13";
 import { RuntOpenAIClient } from "../src/openai-client.ts";
+import { type ExecutionContext } from "@runt/lib";
+import { type CellData, type ExecutionQueueData } from "@runt/schema";
+import { schema } from "@runt/schema";
+import type { Store } from "npm:@livestore/livestore";
+
+function createMockContext() {
+  const outputs: Array<{
+    type: "display_data" | "error" | "execute_result";
+    data: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
+  }> = [];
+
+  const mockContext: ExecutionContext = {
+    cell: {} as CellData,
+    queueEntry: {} as ExecutionQueueData,
+    store: {} as Store<typeof schema>,
+    sessionId: "test-session",
+    kernelId: "test-kernel",
+    abortSignal: new AbortController().signal,
+    checkCancellation: () => {},
+    stdout: () => {},
+    stderr: () => {},
+    display: (data, metadata) => {
+      outputs.push({
+        type: "display_data",
+        data: data as Record<string, unknown>,
+        metadata: metadata || {},
+      });
+    },
+    result: (data) => {
+      outputs.push({
+        type: "execute_result",
+        data: data as Record<string, unknown>,
+      });
+    },
+    error: (ename, evalue, traceback) => {
+      outputs.push({
+        type: "error",
+        data: { ename, evalue, traceback },
+      });
+    },
+    clear: () => {},
+    updateDisplay: (displayId, data, metadata) => {
+      // Find and update existing outputs with matching displayId
+      for (let i = 0; i < outputs.length; i++) {
+        const output = outputs[i];
+        if (output && output.metadata?.display_id === displayId) {
+          output.data = data as Record<string, unknown>;
+          output.metadata = metadata || {};
+        }
+      }
+    },
+  };
+
+  return { mockContext, outputs };
+}
 
 Deno.test("OpenAI Client - Unconfigured Message", async (t) => {
   // Store original API key to restore later
@@ -19,12 +75,14 @@ Deno.test("OpenAI Client - Unconfigured Message", async (t) => {
       client.configure();
 
       // Test generateResponse method
-      const response = await client.generateResponse(
+      const { mockContext, outputs } = createMockContext();
+      await client.generateResponse(
         "What is machine learning?",
+        mockContext,
       );
 
-      assert(response.length > 0, "Should return config help output");
-      const helpOutput = response[0];
+      assert(outputs.length > 0, "Should return config help output");
+      const helpOutput = outputs[0];
       assertExists(helpOutput);
       assert(helpOutput.type === "display_data", "Should be display_data type");
 
@@ -55,10 +113,11 @@ Deno.test("OpenAI Client - Unconfigured Message", async (t) => {
       client.configure(); // No API key
 
       const messages = [{ role: "user" as const, content: "Hello" }];
-      const response = await client.generateResponseWithMessages(messages);
+      const { mockContext, outputs } = createMockContext();
+      await client.generateResponseWithMessages(messages, mockContext);
 
-      assert(response.length > 0, "Should return config help output");
-      const helpOutput = response[0];
+      assert(outputs.length > 0, "Should return config help output");
+      const helpOutput = outputs[0];
       assertExists(helpOutput);
       assert(helpOutput.type === "display_data", "Should be display_data type");
 

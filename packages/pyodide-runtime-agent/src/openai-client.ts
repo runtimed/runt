@@ -184,6 +184,7 @@ export class RuntOpenAIClient {
       role: "system" | "user" | "assistant";
       content: string;
     }>,
+    context: ExecutionContext,
     options: {
       model?: string;
       provider?: string;
@@ -193,9 +194,15 @@ export class RuntOpenAIClient {
       currentCellId?: string;
       onToolCall?: (toolCall: ToolCall) => Promise<void>;
     } = {},
-  ): Promise<OutputData[]> {
+  ): Promise<void> {
     if (!this.isReady()) {
-      return this.createConfigHelpOutput();
+      const configOutputs = this.createConfigHelpOutput();
+      for (const output of configOutputs) {
+        if (output.type === "display_data") {
+          context.display(output.data, output.metadata || {});
+        }
+      }
+      return;
     }
 
     const {
@@ -240,8 +247,6 @@ export class RuntOpenAIClient {
       if (toolCalls && toolCalls.length > 0 && onToolCall) {
         this.logger.info(`Processing ${toolCalls.length} tool calls`);
 
-        const outputs: OutputData[] = [];
-
         for (const toolCall of toolCalls) {
           if (toolCall.type === "function") {
             let args: Record<string, unknown> = {};
@@ -268,20 +273,16 @@ export class RuntOpenAIClient {
                 timestamp: new Date().toISOString(),
               };
 
-              outputs.push({
-                type: "display_data",
-                data: {
-                  "application/vnd.anode.aitool+json": errorToolCallData,
-                  "text/markdown":
-                    `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError parsing arguments: ${parseError.message}`,
-                  "text/plain":
-                    `Tool failed: ${toolCall.function.name} - Error parsing arguments: ${parseError.message}`,
-                },
-                metadata: {
-                  "anode/tool_call": true,
-                  "anode/tool_name": toolCall.function.name,
-                  "anode/tool_error": true,
-                },
+              context.display({
+                "application/vnd.anode.aitool+json": errorToolCallData,
+                "text/markdown":
+                  `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError parsing arguments: ${parseError.message}`,
+                "text/plain":
+                  `Tool failed: ${toolCall.function.name} - Error parsing arguments: ${parseError.message}`,
+              }, {
+                "anode/tool_call": true,
+                "anode/tool_name": toolCall.function.name,
+                "anode/tool_error": true,
               });
               continue;
             }
@@ -307,21 +308,17 @@ export class RuntOpenAIClient {
                 timestamp: new Date().toISOString(),
               };
 
-              outputs.push({
-                type: "display_data",
-                data: {
-                  "application/vnd.anode.aitool+json": toolCallData,
-                  "text/markdown":
-                    `🔧 **Tool executed**: \`${toolCall.function.name}\`\n\n${
-                      this.formatToolCall(toolCall.function.name, args)
-                    }`,
-                  "text/plain": `Tool executed: ${toolCall.function.name}`,
-                },
-                metadata: {
-                  "anode/tool_call": true,
-                  "anode/tool_name": toolCall.function.name,
-                  "anode/tool_args": args,
-                },
+              context.display({
+                "application/vnd.anode.aitool+json": toolCallData,
+                "text/markdown":
+                  `🔧 **Tool executed**: \`${toolCall.function.name}\`\n\n${
+                    this.formatToolCall(toolCall.function.name, args)
+                  }`,
+                "text/plain": `Tool executed: ${toolCall.function.name}`,
+              }, {
+                "anode/tool_call": true,
+                "anode/tool_name": toolCall.function.name,
+                "anode/tool_args": args,
               });
             } catch (error) {
               this.logger.error(
@@ -337,23 +334,19 @@ export class RuntOpenAIClient {
                 timestamp: new Date().toISOString(),
               };
 
-              outputs.push({
-                type: "display_data",
-                data: {
-                  "application/vnd.anode.aitool+json": errorToolCallData,
-                  "text/markdown":
-                    `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError: ${
-                      error instanceof Error ? error.message : String(error)
-                    }`,
-                  "text/plain": `Tool failed: ${toolCall.function.name} - ${
+              context.display({
+                "application/vnd.anode.aitool+json": errorToolCallData,
+                "text/markdown":
+                  `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError: ${
                     error instanceof Error ? error.message : String(error)
                   }`,
-                },
-                metadata: {
-                  "anode/tool_call": true,
-                  "anode/tool_name": toolCall.function.name,
-                  "anode/tool_error": true,
-                },
+                "text/plain": `Tool failed: ${toolCall.function.name} - ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              }, {
+                "anode/tool_call": true,
+                "anode/tool_name": toolCall.function.name,
+                "anode/tool_error": true,
               });
             }
           }
@@ -361,27 +354,42 @@ export class RuntOpenAIClient {
 
         // If there's also text content, add it
         if (content) {
-          outputs.push({
-            type: "display_data",
-            data: {
-              "text/markdown": content,
-              "text/plain": content,
-            },
-            metadata: {
-              "anode/ai_response": true,
-              "anode/ai_provider": "openai",
-              "anode/ai_model": model,
-              "anode/ai_with_tools": true,
-            },
+          context.display({
+            "text/markdown": content,
+            "text/plain": content,
+          }, {
+            "anode/ai_response": true,
+            "anode/ai_provider": "openai",
+            "anode/ai_model": model,
+            "anode/ai_with_tools": true,
           });
         }
 
-        return outputs;
+        return;
       }
 
       // Regular text response
       if (!content) {
-        return this.createErrorOutput("No response received from OpenAI API");
+        const errorOutputs = this.createErrorOutput(
+          "No response received from OpenAI API",
+        );
+        for (const output of errorOutputs) {
+          if (output.type === "display_data") {
+            context.display(output.data, output.metadata || {});
+          } else if (output.type === "error" && output.data) {
+            const errorData = output.data as {
+              ename?: string;
+              evalue?: string;
+              traceback?: string[];
+            };
+            context.error(
+              errorData.ename || "OpenAIError",
+              errorData.evalue || "Unknown error",
+              errorData.traceback || ["Unknown error"],
+            );
+          }
+        }
+        return;
       }
 
       this.logger.info(
@@ -389,23 +397,19 @@ export class RuntOpenAIClient {
       );
 
       // Return the response as markdown output
-      return [{
-        type: "display_data",
-        data: {
-          "text/markdown": content,
-          "text/plain": content,
+      context.display({
+        "text/markdown": content,
+        "text/plain": content,
+      }, {
+        "anode/ai_response": true,
+        "anode/ai_provider": "openai",
+        "anode/ai_model": model,
+        "anode/ai_usage": {
+          prompt_tokens: response.usage?.prompt_tokens || 0,
+          completion_tokens: response.usage?.completion_tokens || 0,
+          total_tokens: response.usage?.total_tokens || 0,
         },
-        metadata: {
-          "anode/ai_response": true,
-          "anode/ai_provider": "openai",
-          "anode/ai_model": model,
-          "anode/ai_usage": {
-            prompt_tokens: response.usage?.prompt_tokens || 0,
-            completion_tokens: response.usage?.completion_tokens || 0,
-            total_tokens: response.usage?.total_tokens || 0,
-          },
-        },
-      }];
+      });
     } catch (error: unknown) {
       this.logger.error("OpenAI API error", error);
 
@@ -424,52 +428,55 @@ export class RuntOpenAIClient {
         }
       }
 
-      return this.createErrorOutput(`OpenAI API Error: ${errorMessage}`);
+      const errorOutputs = this.createErrorOutput(
+        `OpenAI API Error: ${errorMessage}`,
+      );
+      for (const output of errorOutputs) {
+        if (output.type === "display_data") {
+          context.display(output.data, output.metadata || {});
+        } else if (output.type === "error" && output.data) {
+          const errorData = output.data as {
+            ename?: string;
+            evalue?: string;
+            traceback?: string[];
+          };
+          context.error(
+            errorData.ename || "OpenAIError",
+            errorData.evalue || "Unknown error",
+            errorData.traceback || ["Unknown error"],
+          );
+        }
+      }
     }
   }
 
   async generateResponse(
     prompt: string,
+    context: ExecutionContext,
     options: {
       model?: string;
       provider?: string;
       maxTokens?: number;
       temperature?: number;
-      systemPrompt?: string;
       enableTools?: boolean;
       currentCellId?: string;
       onToolCall?: (toolCall: ToolCall) => Promise<void>;
     } = {},
-  ): Promise<OutputData[]> {
+  ): Promise<void> {
     if (!this.isReady()) {
-      return this.createConfigHelpOutput();
+      const configOutputs = this.createConfigHelpOutput();
+      for (const output of configOutputs) {
+        if (output.type === "display_data") {
+          context.display(output.data, output.metadata || {});
+        }
+      }
+      return;
     }
 
     const {
       model = "gpt-4o-mini",
       maxTokens = 2000,
       temperature = 0.7,
-      systemPrompt =
-        `You are a helpful AI assistant in a Jupyter-like notebook environment. You can see the context of previous cells and their outputs.
-
-**Your primary functions:**
-
-1. **Create cells immediately** - When users want code, examples, or implementations, use the create_cell tool to add them to the notebook. Don't provide code blocks in markdown - create actual executable cells.
-
-2. **Context awareness** - Reference previous cells and their outputs to provide relevant assistance. You can see what variables exist, what functions were defined, and what the current state is.
-
-3. **Debug and optimize** - Help users debug errors, optimize code, or extend existing functionality based on what you can see in the notebook.
-
-4. **Interpret outputs** - Respond based on execution results, error messages, plots, and data outputs from previous cells.
-
-**Key behaviors:**
-- CREATE cells instead of describing code
-- Reference previous work when relevant
-- Help debug based on actual errors you can see
-- Suggest next steps based on notebook progression
-- Use "after_current" positioning by default
-
-Remember: Users want working code in their notebook, not explanations about code.`,
       enableTools = true,
       currentCellId: _currentCellId, // Prefix with underscore since it's unused
       onToolCall,
@@ -479,7 +486,6 @@ Remember: Users want working code in their notebook, not explanations about code
       this.logger.info(`Calling OpenAI API with model: ${model}`);
 
       const messages: ChatMessage[] = [
-        { role: "system", content: systemPrompt },
         { role: "user", content: prompt },
       ];
 
@@ -513,8 +519,6 @@ Remember: Users want working code in their notebook, not explanations about code
       if (toolCalls && toolCalls.length > 0 && onToolCall) {
         this.logger.info(`Processing ${toolCalls.length} tool calls`);
 
-        const outputs: OutputData[] = [];
-
         for (const toolCall of toolCalls) {
           if (toolCall.type === "function") {
             let args: Record<string, unknown> = {};
@@ -541,20 +545,16 @@ Remember: Users want working code in their notebook, not explanations about code
                 timestamp: new Date().toISOString(),
               };
 
-              outputs.push({
-                type: "display_data",
-                data: {
-                  "application/vnd.anode.aitool+json": errorToolCallData,
-                  "text/markdown":
-                    `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError parsing arguments: ${parseError.message}`,
-                  "text/plain":
-                    `Tool failed: ${toolCall.function.name} - Error parsing arguments: ${parseError.message}`,
-                },
-                metadata: {
-                  "anode/tool_call": true,
-                  "anode/tool_name": toolCall.function.name,
-                  "anode/tool_error": true,
-                },
+              context.display({
+                "application/vnd.anode.aitool+json": errorToolCallData,
+                "text/markdown":
+                  `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError parsing arguments: ${parseError.message}`,
+                "text/plain":
+                  `Tool failed: ${toolCall.function.name} - Error parsing arguments: ${parseError.message}`,
+              }, {
+                "anode/tool_call": true,
+                "anode/tool_name": toolCall.function.name,
+                "anode/tool_error": true,
               });
               continue;
             }
@@ -580,21 +580,17 @@ Remember: Users want working code in their notebook, not explanations about code
                 timestamp: new Date().toISOString(),
               };
 
-              outputs.push({
-                type: "display_data",
-                data: {
-                  "application/vnd.anode.aitool+json": toolCallData,
-                  "text/markdown":
-                    `🔧 **Tool executed**: \`${toolCall.function.name}\`\n\n${
-                      this.formatToolCall(toolCall.function.name, args)
-                    }`,
-                  "text/plain": `Tool executed: ${toolCall.function.name}`,
-                },
-                metadata: {
-                  "anode/tool_call": true,
-                  "anode/tool_name": toolCall.function.name,
-                  "anode/tool_args": args,
-                },
+              context.display({
+                "application/vnd.anode.aitool+json": toolCallData,
+                "text/markdown":
+                  `🔧 **Tool executed**: \`${toolCall.function.name}\`\n\n${
+                    this.formatToolCall(toolCall.function.name, args)
+                  }`,
+                "text/plain": `Tool executed: ${toolCall.function.name}`,
+              }, {
+                "anode/tool_call": true,
+                "anode/tool_name": toolCall.function.name,
+                "anode/tool_args": args,
               });
             } catch (error) {
               this.logger.error(
@@ -610,23 +606,19 @@ Remember: Users want working code in their notebook, not explanations about code
                 timestamp: new Date().toISOString(),
               };
 
-              outputs.push({
-                type: "display_data",
-                data: {
-                  "application/vnd.anode.aitool+json": errorToolCallData,
-                  "text/markdown":
-                    `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError: ${
-                      error instanceof Error ? error.message : String(error)
-                    }`,
-                  "text/plain": `Tool failed: ${toolCall.function.name} - ${
+              context.display({
+                "application/vnd.anode.aitool+json": errorToolCallData,
+                "text/markdown":
+                  `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError: ${
                     error instanceof Error ? error.message : String(error)
                   }`,
-                },
-                metadata: {
-                  "anode/tool_call": true,
-                  "anode/tool_name": toolCall.function.name,
-                  "anode/tool_error": true,
-                },
+                "text/plain": `Tool failed: ${toolCall.function.name} - ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              }, {
+                "anode/tool_call": true,
+                "anode/tool_name": toolCall.function.name,
+                "anode/tool_error": true,
               });
             }
           }
@@ -634,27 +626,42 @@ Remember: Users want working code in their notebook, not explanations about code
 
         // If there's also text content, add it
         if (content) {
-          outputs.push({
-            type: "display_data",
-            data: {
-              "text/markdown": content,
-              "text/plain": content,
-            },
-            metadata: {
-              "anode/ai_response": true,
-              "anode/ai_provider": "openai",
-              "anode/ai_model": model,
-              "anode/ai_with_tools": true,
-            },
+          context.display({
+            "text/markdown": content,
+            "text/plain": content,
+          }, {
+            "anode/ai_response": true,
+            "anode/ai_provider": "openai",
+            "anode/ai_model": model,
+            "anode/ai_with_tools": true,
           });
         }
 
-        return outputs;
+        return;
       }
 
       // Regular text response
       if (!content) {
-        return this.createErrorOutput("No response received from OpenAI API");
+        const errorOutputs = this.createErrorOutput(
+          "No response received from OpenAI API",
+        );
+        for (const output of errorOutputs) {
+          if (output.type === "display_data") {
+            context.display(output.data, output.metadata || {});
+          } else if (output.type === "error" && output.data) {
+            const errorData = output.data as {
+              ename?: string;
+              evalue?: string;
+              traceback?: string[];
+            };
+            context.error(
+              errorData.ename || "OpenAIError",
+              errorData.evalue || "Unknown error",
+              errorData.traceback || ["Unknown error"],
+            );
+          }
+        }
+        return;
       }
 
       this.logger.info(
@@ -662,23 +669,19 @@ Remember: Users want working code in their notebook, not explanations about code
       );
 
       // Return the response as markdown output
-      return [{
-        type: "display_data",
-        data: {
-          "text/markdown": content,
-          "text/plain": content,
+      context.display({
+        "text/markdown": content,
+        "text/plain": content,
+      }, {
+        "anode/ai_response": true,
+        "anode/ai_provider": "openai",
+        "anode/ai_model": model,
+        "anode/ai_usage": {
+          prompt_tokens: response.usage?.prompt_tokens || 0,
+          completion_tokens: response.usage?.completion_tokens || 0,
+          total_tokens: response.usage?.total_tokens || 0,
         },
-        metadata: {
-          "anode/ai_response": true,
-          "anode/ai_provider": "openai",
-          "anode/ai_model": model,
-          "anode/ai_usage": {
-            prompt_tokens: response.usage?.prompt_tokens || 0,
-            completion_tokens: response.usage?.completion_tokens || 0,
-            total_tokens: response.usage?.total_tokens || 0,
-          },
-        },
-      }];
+      });
     } catch (error: unknown) {
       this.logger.error("OpenAI API error", error);
 
@@ -697,7 +700,25 @@ Remember: Users want working code in their notebook, not explanations about code
         }
       }
 
-      return this.createErrorOutput(`OpenAI API Error: ${errorMessage}`);
+      const errorOutputs = this.createErrorOutput(
+        `OpenAI API Error: ${errorMessage}`,
+      );
+      for (const output of errorOutputs) {
+        if (output.type === "display_data") {
+          context.display(output.data, output.metadata || {});
+        } else if (output.type === "error" && output.data) {
+          const errorData = output.data as {
+            ename?: string;
+            evalue?: string;
+            traceback?: string[];
+          };
+          context.error(
+            errorData.ename || "OpenAIError",
+            errorData.evalue || "Unknown error",
+            errorData.traceback || ["Unknown error"],
+          );
+        }
+      }
     }
   }
 
