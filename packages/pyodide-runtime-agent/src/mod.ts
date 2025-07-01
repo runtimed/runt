@@ -21,15 +21,6 @@ export {
   isFirstRun,
 } from "./cache-utils.ts";
 
-// Re-export useful types from @runt/lib for convenience
-export type {
-  CancellationHandler,
-  ExecutionContext,
-  ExecutionHandler,
-  ExecutionResult,
-  RuntimeAgentEventHandlers,
-} from "@runt/lib";
-
 /**
  * Main function to run the Pyodide runtime agent
  */
