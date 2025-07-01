@@ -7,7 +7,6 @@
 import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
 import type { ExecutionContext } from "@runt/lib";
 import { createLogger } from "@runt/lib";
-import type OpenAI from "@openai/openai";
 import {
   ensureTextPlainFallback,
   isJsonMimeType,
@@ -28,23 +27,11 @@ import {
   tables,
 } from "@runt/schema";
 import { OpenAIClient } from "./openai-client.ts";
-import stripAnsi from "npm:strip-ansi";
 
-interface ToolCallData {
-  tool_call_id: string;
-  tool_name: string;
-  arguments: Record<string, unknown>;
-  status: string;
-  timestamp: string;
-}
+import { buildConversationMessages, NotebookContextData } from "@runt/ai";
 
-interface ToolResultData {
-  tool_call_id: string;
-  result?: string;
-  status: string;
-}
-
-type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
+// TODO: Move to the `@runt/ai` package
+const defaultModel = "mistral-small3.2";
 
 /**
  * Configuration options for PyodideRuntimeAgent
@@ -559,12 +546,12 @@ export class PyodideRuntimeAgent {
       this.logger.info("Executing AI prompt", {
         cellId: cell.id,
         provider: cell.aiProvider || "openai",
-        model: cell.aiModel || "gpt-4o-mini",
+        model: cell.aiModel || defaultModel,
         promptLength: prompt.length,
       });
 
       // Gather notebook context for AI awareness
-      const context_data = await this.gatherNotebookContext(cell);
+      const context_data = this.gatherNotebookContext(cell);
       this.logger.info("Gathered notebook context", {
         previousCells: context_data.previousCells.length,
         totalCells: context_data.totalCells,
@@ -573,7 +560,11 @@ export class PyodideRuntimeAgent {
       // Use real OpenAI API if configured, otherwise fall back to mock
       // Initialize OpenAI client on demand for AI cells only
       if (!this.openaiClient) {
-        this.openaiClient = new OpenAIClient();
+        this.openaiClient = new OpenAIClient({
+          baseURL: "http://localhost:11434/v1/",
+          // required but ignored
+          apiKey: "ollama",
+        });
       }
 
       if (
@@ -581,8 +572,9 @@ export class PyodideRuntimeAgent {
         (cell.aiProvider === "openai" || !cell.aiProvider)
       ) {
         // Use conversation-based approach for better AI interaction
-        const conversationMessages = this.buildConversationMessages(
+        const conversationMessages = buildConversationMessages(
           context_data,
+          "This is a pyodide based notebook environment with assistant and user access to the same kernel. Users see and edit the same notebook as you. When you execute cells, the user sees the output as well",
           prompt,
         );
 
@@ -590,7 +582,7 @@ export class PyodideRuntimeAgent {
           conversationMessages,
           context,
           {
-            model: cell.aiModel || "gpt-4o-mini",
+            model: cell.aiModel || defaultModel,
             provider: cell.aiProvider || "openai",
             enableTools: true,
             currentCellId: cell.id,
@@ -697,7 +689,7 @@ Once configured, your AI cells will work with real OpenAI models!`;
     // Query all cells that come before the current cell AND are visible to AI
     const allCells = this.store.query(
       tables.cells.select().orderBy("position", "asc"),
-    ) as CellData[];
+    );
 
     const previousCells = allCells
       .filter((cell: CellData) =>
@@ -774,289 +766,6 @@ Once configured, your AI cells will work with real OpenAI models!`;
       totalCells: allCells.length,
       currentCellPosition: currentCell.position,
     };
-  }
-
-  /**
-   * Build system prompt with notebook context (legacy method)
-   * @deprecated Use buildConversationMessages for better AI interaction
-   */
-  public buildSystemPromptWithContext(context: NotebookContextData): string {
-    let systemPrompt =
-      `You are a helpful AI assistant in a Jupyter-like notebook environment. You have access to the context of previous cells in the notebook.
-
-**Notebook Context:**
-- Total cells: ${context.totalCells}
-- Current cell position: ${context.currentCellPosition}
-- Previous cells visible to AI: ${context.previousCells.length}
-
-**Previous Cell Contents (only cells marked as visible to AI):**
-`;
-
-    if (context.previousCells.length === 0) {
-      systemPrompt +=
-        "No previous cells are visible to AI in this notebook (either no previous cells exist or they have been hidden from AI context).\n";
-    } else {
-      context.previousCells.forEach((cell, index) => {
-        systemPrompt += `
-Cell ${index + 1} (Position ${cell.position}, Type: ${cell.cellType}):
-\`\`\`${cell.cellType === "code" ? "python" : cell.cellType}
-${cell.source}
-\`\`\`
-`;
-
-        // Include outputs if they exist
-        if (cell.outputs && cell.outputs.length > 0) {
-          systemPrompt += `
-Output:
-`;
-          cell.outputs.forEach((output) => {
-            if (output.outputType === "stream") {
-              // Handle stream outputs (stdout/stderr)
-              if (output.data.text && typeof output.data.text === "string") {
-                systemPrompt += `\`\`\`
-${this.stripAnsi(output.data.text)}
-\`\`\`
-`;
-              }
-            } else if (output.outputType === "error") {
-              // Handle error outputs
-              if (
-                output.data.ename && typeof output.data.ename === "string" &&
-                output.data.evalue && typeof output.data.evalue === "string"
-              ) {
-                systemPrompt += `\`\`\`
-Error: ${this.stripAnsi(output.data.ename)}: ${
-                  this.stripAnsi(output.data.evalue)
-                }
-\`\`\`
-`;
-              }
-            } else if (
-              output.outputType === "execute_result" ||
-              output.outputType === "display_data"
-            ) {
-              // Handle rich outputs
-              if (
-                output.data["text/plain"] &&
-                typeof output.data["text/plain"] === "string"
-              ) {
-                systemPrompt += `\`\`\`
-${this.stripAnsi(output.data["text/plain"])}
-\`\`\`
-`;
-              }
-              if (output.data["text/markdown"]) {
-                systemPrompt += `
-${output.data["text/markdown"]}
-`;
-              }
-            }
-          });
-        }
-      });
-    }
-
-    systemPrompt += `
-**Instructions:**
-- Provide clear, concise responses and include code examples when appropriate
-- Reference previous cells when relevant to provide context-aware assistance
-- If you see variables, functions, or data structures defined in previous cells, you can reference them
-- You can see the outputs from previous code executions to understand the current state
-- Help with debugging, optimization, or extending the existing code
-- Suggest next steps based on the notebook's progression`;
-
-    return systemPrompt;
-  }
-
-  /**
-   * Convert notebook context to conversation messages for more natural AI interaction
-   */
-  public buildConversationMessages(
-    context: NotebookContextData,
-    userPrompt: string,
-  ): ChatMessage[] {
-    const messages: ChatMessage[] = [];
-
-    // Clean, focused system prompt
-    messages.push({
-      role: "system" as const,
-      content:
-        `You are a helpful AI assistant in a Jupyter-like notebook environment. You can see the context of previous cells and their outputs.
-
-**Your primary functions:**
-
-1. **Create cells immediately** - When users want code, examples, or implementations, use the create_cell tool to add them to the notebook. Don't provide code blocks in markdown - create actual executable cells.
-
-2. **Context awareness** - Reference previous cells and their outputs to provide relevant assistance. You can see what variables exist, what functions were defined, and what the current state is.
-
-3. **Debug and optimize** - Help users debug errors, optimize code, or extend existing functionality based on what you can see in the notebook.
-
-4. **Interpret outputs** - Respond based on execution results, error messages, plots, and data outputs from previous cells.
-
-**Key behaviors:**
-- CREATE cells instead of describing code
-- Reference previous work when relevant
-- Help debug based on actual errors you can see
-- Suggest next steps based on notebook progression
-- Use "after_current" positioning by default
-- When using modify_cell or execute_cell tools, use the actual cell ID (shown as "ID: cell-xxx") not position numbers
-
-Remember: Users want working code in their notebook, not explanations about code.`,
-    });
-
-    // Convert notebook history to conversation messages
-    if (context.previousCells.length > 0) {
-      // Add notebook context as a structured user message
-      let contextMessage = `Here's the current state of my notebook:\n\n`;
-
-      context.previousCells.forEach((cell, index) => {
-        if (cell.cellType === "code") {
-          contextMessage += `**Code cell ${
-            index + 1
-          } (ID: ${cell.id}):**\n\`\`\`python\n${cell.source}\n\`\`\`\n`;
-
-          // Add outputs in a natural way
-          if (cell.outputs && cell.outputs.length > 0) {
-            contextMessage += `Output:\n`;
-            cell.outputs.forEach((output) => {
-              if (output.outputType === "stream" && output.data.text) {
-                contextMessage += `\`\`\`\n${
-                  this.stripAnsi(String(output.data.text))
-                }\`\`\`\n`;
-              } else if (
-                output.outputType === "error" && output.data.ename &&
-                output.data.evalue
-              ) {
-                contextMessage += `\`\`\`\nError: ${
-                  this.stripAnsi(String(output.data.ename))
-                }: ${this.stripAnsi(String(output.data.evalue))}\n\`\`\`\n`;
-              } else if (
-                (output.outputType === "execute_result" ||
-                  output.outputType === "display_data") &&
-                output.data["text/plain"]
-              ) {
-                contextMessage += `\`\`\`\n${
-                  this.stripAnsi(String(output.data["text/plain"]))
-                }\n\`\`\`\n`;
-              }
-              if (output.data["text/markdown"]) {
-                contextMessage += `${output.data["text/markdown"]}\n`;
-              }
-            });
-          }
-          contextMessage += `\n`;
-        } else if (cell.cellType === "ai") {
-          // Reconstruct conversation from AI cell outputs with proper ordering
-          if (cell.outputs && cell.outputs.length > 0) {
-            // Group outputs by iteration to maintain tool call/response order
-            const outputsByIteration = new Map<number, typeof cell.outputs>();
-
-            cell.outputs.forEach((output) => {
-              const metadata = output.metadata as {
-                anode?: { iteration?: number };
-              };
-              const iteration = metadata?.anode?.iteration || 1;
-
-              if (!outputsByIteration.has(iteration)) {
-                outputsByIteration.set(iteration, []);
-              }
-              outputsByIteration.get(iteration)!.push(output);
-            });
-
-            // Process outputs in iteration order
-            const sortedIterations = Array.from(outputsByIteration.keys()).sort(
-              (a, b) => a - b,
-            );
-
-            for (const iteration of sortedIterations) {
-              const iterationOutputs = outputsByIteration.get(iteration)!;
-
-              // Find assistant response and tool calls for this iteration
-              const assistantOutput = iterationOutputs.find((o) => {
-                const metadata = o.metadata as { anode?: { role?: string } };
-                return metadata?.anode?.role === "assistant" &&
-                  o.data["text/markdown"];
-              });
-
-              const toolCallOutputs = iterationOutputs.filter((o) => {
-                const metadata = o.metadata as { anode?: { role?: string } };
-                return metadata?.anode?.role === "function_call";
-              });
-
-              const toolResultOutputs = iterationOutputs.filter((o) => {
-                const metadata = o.metadata as { anode?: { role?: string } };
-                return metadata?.anode?.role === "tool";
-              });
-
-              // Add assistant response (possibly with tool calls)
-              if (assistantOutput || toolCallOutputs.length > 0) {
-                const assistantMessage: ChatMessage = {
-                  role: "assistant" as const,
-                  content: assistantOutput
-                    ? String(assistantOutput.data["text/markdown"])
-                    : "",
-                  ...(toolCallOutputs.length > 0
-                    ? {
-                      tool_calls: toolCallOutputs.map(
-                        (output) => {
-                          const toolData = output
-                            .data[
-                              "application/vnd.anode.aitool+json"
-                            ] as ToolCallData;
-                          return {
-                            id: toolData.tool_call_id,
-                            type: "function" as const,
-                            function: {
-                              name: toolData.tool_name,
-                              arguments: JSON.stringify(toolData.arguments),
-                            },
-                          };
-                        },
-                      ),
-                    }
-                    : {}),
-                };
-
-                messages.push(assistantMessage);
-
-                // Add tool results if present
-                toolResultOutputs.forEach((output) => {
-                  const resultData = output
-                    .data[
-                      "application/vnd.anode.aitool.result+json"
-                    ] as ToolResultData;
-                  messages.push({
-                    role: "tool" as const,
-                    content: resultData.result || "Success",
-                    tool_call_id: resultData.tool_call_id,
-                  });
-                });
-              }
-            }
-          } else {
-            // Fallback to showing AI prompt as context if no outputs
-            contextMessage +=
-              `**Previous AI request (ID: ${cell.id}):**\n${cell.source}\n\n`;
-          }
-        } else if (cell.cellType === "markdown") {
-          contextMessage +=
-            `**Markdown (ID: ${cell.id}):**\n${cell.source}\n\n`;
-        }
-      });
-
-      messages.push({
-        role: "user" as const,
-        content: contextMessage,
-      });
-    }
-
-    // Add the current user prompt
-    messages.push({
-      role: "user" as const,
-      content: userPrompt,
-    });
-
-    return messages;
   }
 
   /**
@@ -1341,13 +1050,6 @@ Remember: Users want working code in their notebook, not explanations about code
       default:
         return currentCell.position + 0.1;
     }
-  }
-
-  /**
-   * Strip ANSI escape codes from text for AI consumption
-   */
-  private stripAnsi(text: string): string {
-    return stripAnsi(text);
   }
 }
 

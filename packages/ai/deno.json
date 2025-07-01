@@ -1,0 +1,31 @@
+{
+  "name": "@runt/ai",
+  "version": "0.4.2",
+  "description": "Runtime AI Clients",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/runtimed/anode.git"
+  },
+  "exports": {
+    ".": "./mod.ts"
+  },
+  "imports": {
+    "@runt/lib": "jsr:@runt/lib@^0.4.2",
+    "@runt/schema": "jsr:@runt/schema@^0.4.2",
+    "npm:pyodide": "npm:pyodide@^0.27.7",
+    "@std/async": "jsr:@std/async@^1.0.0",
+    "npm:@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
+    "@openai/openai": "jsr:@openai/openai@^4.98.0",
+    "strip-ansi": "npm:strip-ansi@^7.1.0"
+  },
+  "tasks": {
+    "check": "deno check mod.ts src/*.ts examples/*.ts",
+    "fmt": "deno fmt",
+    "lint": "deno lint"
+  },
+  "publish": {
+    "include": ["mod.ts", "src/", "README.md"],
+    "exclude": ["**/*.test.ts", "**/test_*.ts", "examples/"]
+  }
+}
