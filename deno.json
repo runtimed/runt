@@ -1,10 +1,12 @@
 {
   "workspace": [
+    "./packages/ai",
     "./packages/schema",
     "./packages/lib",
     "./packages/pyodide-runtime-agent"
   ],
   "imports": {
+    "@runt/ai": "./packages/ai/mod.ts",
     "@runt/schema": "./packages/schema/mod.ts",
     "@runt/lib": "./packages/lib/mod.ts",
     "@runt/pyodide-runtime-agent": "./packages/pyodide-runtime-agent/src/mod.ts"
