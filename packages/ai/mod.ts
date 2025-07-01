@@ -1,6 +1,9 @@
 import stripAnsi from "strip-ansi";
 import type OpenAI from "@openai/openai";
 
+// Re-export to match pyodide agent usage for now
+export { OpenAIClient } from "./openai-client.ts";
+
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
 interface ToolResultData {
