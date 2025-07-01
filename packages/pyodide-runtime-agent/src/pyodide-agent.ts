@@ -21,14 +21,11 @@ import { getEssentialPackages } from "./cache-utils.ts";
 import type { Store } from "npm:@livestore/livestore";
 import {
   type CellData,
-  events,
   type OutputData as SchemaOutputData,
   schema,
   tables,
 } from "@runt/schema";
-import { OpenAIClient } from "@runt/ai";
-
-import { NotebookContextData } from "@runt/ai";
+import { executeAI, NotebookContextData } from "@runt/ai";
 
 /**
  * Configuration options for PyodideRuntimeAgent
@@ -58,7 +55,6 @@ export class PyodideRuntimeAgent {
   private logger = createLogger("pyodide-agent");
   public config: ReturnType<typeof createRuntimeConfig>;
   private options: PyodideAgentOptions;
-  private openaiClient: OpenAIClient | null = null;
 
   constructor(args: string[] = Deno.args, options: PyodideAgentOptions = {}) {
     try {
@@ -296,7 +292,15 @@ export class PyodideRuntimeAgent {
 
     // Handle AI cells differently
     if (cell.cellType === "ai") {
-      return this.executeAI(context);
+      const notebookContext = this.gatherNotebookContext(cell);
+
+      return executeAI(
+        context,
+        notebookContext,
+        this.logger,
+        this.store,
+        this.config.sessionId,
+      );
     }
 
     if (!this.isInitialized || !this.worker) {
@@ -601,278 +605,6 @@ export class PyodideRuntimeAgent {
       totalCells: allCells.length,
       currentCellPosition: currentCell.position,
     };
-  }
-
-  /**
-   * Handle tool calls from AI with result return
-   */
-  public async handleToolCallWithResult(currentCell: CellData, toolCall: {
-    id: string;
-    name: string;
-    arguments: Record<string, unknown>;
-  }): Promise<string> {
-    const { name, arguments: args } = toolCall;
-
-    switch (name) {
-      case "create_cell": {
-        const cellType = String(args.cellType || "code");
-        const content = String(args.content || "");
-        const position = String(args.position || "after_current");
-
-        // Calculate position for new cell
-        const newPosition = this.calculateNewCellPosition(
-          currentCell,
-          position,
-        );
-
-        // Generate unique cell ID
-        const newCellId = `cell-${Date.now()}-${
-          Math.random().toString(36).slice(2)
-        }`;
-
-        this.logger.info("Creating cell via AI tool call", {
-          cellType,
-          position: newPosition,
-          contentLength: content.length,
-        });
-
-        // Create the new cell
-        this.store.commit(
-          events.cellCreated({
-            id: newCellId,
-            cellType: cellType as "code" | "markdown" | "raw" | "sql" | "ai",
-            position: newPosition,
-            createdBy: `ai-assistant-${this.config.sessionId}`,
-          }),
-        );
-
-        // Set the cell source if provided
-        if (content.length > 0) {
-          this.store.commit(
-            events.cellSourceChanged({
-              id: newCellId,
-              source: content,
-              modifiedBy: `ai-assistant-${this.config.sessionId}`,
-            }),
-          );
-        }
-
-        this.logger.info("Created cell successfully", {
-          cellId: newCellId,
-          contentPreview: content.slice(0, 100),
-        });
-
-        return `Created ${cellType} cell: ${newCellId}`;
-      }
-
-      case "modify_cell": {
-        const cellId = String(args.cellId || "");
-        const content = String(args.content || "");
-
-        if (!cellId) {
-          this.logger.error("modify_cell: cellId is required");
-          throw new Error("modify_cell: cellId is required");
-        }
-
-        // Check if cell exists
-        const existingCell = this.store.query(
-          tables.cells.select().where({ id: cellId }),
-        )[0];
-
-        if (!existingCell) {
-          this.logger.error("modify_cell: Cell not found", { cellId });
-          throw new Error(`modify_cell: Cell not found: ${cellId}`);
-        }
-
-        this.logger.info("Modifying cell via AI tool call", {
-          cellId,
-          contentLength: content.length,
-        });
-
-        // Update the cell source
-        this.store.commit(
-          events.cellSourceChanged({
-            id: cellId,
-            source: content,
-            modifiedBy: `ai-assistant-${this.config.sessionId}`,
-          }),
-        );
-
-        this.logger.info("Modified cell successfully", {
-          cellId,
-          contentPreview: content.slice(0, 100),
-        });
-
-        return `Modified cell ${cellId} with ${content.length} characters`;
-      }
-
-      case "execute_cell": {
-        const cellId = String(args.cellId || "");
-
-        if (!cellId) {
-          this.logger.error("execute_cell: cellId is required");
-          throw new Error("execute_cell: cellId is required");
-        }
-
-        // Check if cell exists and is executable
-        const existingCell = this.store.query(
-          tables.cells.select().where({ id: cellId }),
-        )[0];
-
-        if (!existingCell) {
-          this.logger.error("execute_cell: Cell not found", { cellId });
-          throw new Error(`execute_cell: Cell not found: ${cellId}`);
-        }
-
-        if (existingCell.cellType !== "code") {
-          this.logger.error(
-            "execute_cell: Only code cells can be executed",
-            {
-              cellId,
-              cellType: existingCell.cellType,
-            },
-          );
-          throw new Error(
-            `execute_cell: Only code cells can be executed, got ${existingCell.cellType}`,
-          );
-        }
-
-        this.logger.info("Executing cell via AI tool call", { cellId });
-
-        const queueId = `exec-${Date.now()}-${
-          Math.random().toString(36).slice(2)
-        }`;
-
-        // Set up execution completion monitoring with polling
-        const executionCompletePromise = new Promise<string>(
-          (resolve, reject) => {
-            const cleanup = () => {
-              if (timeout) clearTimeout(timeout);
-              if (pollInterval) clearInterval(pollInterval);
-            };
-
-            const timeout = setTimeout(() => {
-              cleanup();
-              reject(
-                new Error(
-                  `Execution timeout after 30 seconds for cell ${cellId}`,
-                ),
-              );
-            }, 30000);
-
-            // Poll execution status
-            const pollInterval = setInterval(() => {
-              const executionEntry = this.store.query(
-                tables.executionQueue.select().where({ id: queueId }),
-              )[0];
-
-              if (!executionEntry) return;
-
-              if (
-                executionEntry.status === "completed" ||
-                executionEntry.status === "failed"
-              ) {
-                cleanup();
-
-                if (executionEntry.status === "failed") {
-                  reject(new Error(`Execution failed for cell ${cellId}`));
-                  return;
-                }
-
-                // Get cell outputs after execution
-                const outputs = this.store.query(
-                  tables.outputs.select().where({ cellId }).orderBy(
-                    "position",
-                    "asc",
-                  ),
-                );
-
-                // Format outputs for AI consumption
-                let outputSummary = `Cell ${cellId} executed successfully`;
-
-                if (outputs.length > 0) {
-                  const outputTexts: string[] = [];
-
-                  for (const output of outputs) {
-                    if (output.outputType === "stream" && output.data.text) {
-                      outputTexts.push(
-                        `Output: ${String(output.data.text).trim()}`,
-                      );
-                    } else if (
-                      output.outputType === "execute_result" &&
-                      output.data["text/plain"]
-                    ) {
-                      outputTexts.push(
-                        `Result: ${String(output.data["text/plain"]).trim()}`,
-                      );
-                    } else if (output.outputType === "error") {
-                      outputTexts.push(
-                        `Error: ${output.data.ename}: ${output.data.evalue}`,
-                      );
-                    }
-                  }
-
-                  if (outputTexts.length > 0) {
-                    outputSummary += `. ${outputTexts.join(". ")}`;
-                  }
-                }
-
-                resolve(outputSummary);
-              }
-            }, 500); // Poll every 500ms
-          },
-        );
-
-        // Request execution for the cell
-        this.store.commit(
-          events.executionRequested({
-            queueId,
-            cellId,
-            executionCount: (existingCell.executionCount || 0) + 1,
-            requestedBy: `ai-assistant-${this.config.sessionId}`,
-            priority: 1,
-          }),
-        );
-
-        this.logger.info(
-          "Execution requested for cell, waiting for completion",
-          { cellId, queueId },
-        );
-
-        // Wait for execution to complete and return the result
-        return await executionCompletePromise;
-      }
-
-      default:
-        this.logger.warn("Unknown AI tool", { toolName: name });
-        throw new Error(`Unknown tool: ${name}`);
-    }
-  }
-
-  /**
-   * Calculate new cell position based on placement preference
-   */
-  private calculateNewCellPosition(
-    currentCell: CellData,
-    placement: string,
-  ): number {
-    const allCells = this.store.query(
-      tables.cells.select().orderBy("position", "asc"),
-    ) as CellData[];
-
-    switch (placement) {
-      case "before_current":
-        return currentCell.position - 0.1;
-      case "at_end": {
-        const maxPosition = allCells.length > 0
-          ? Math.max(...allCells.map((c: CellData) => c.position))
-          : 0;
-        return maxPosition + 1;
-      }
-      case "after_current":
-      default:
-        return currentCell.position + 0.1;
-    }
   }
 }
 

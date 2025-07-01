@@ -4,12 +4,9 @@ import {
   Schema,
   SessionIdSymbol,
   State,
+  type Store as LiveStore,
 } from "@livestore/livestore";
 
-// Direct schema definition - no package boundaries, no build step required
-// This can be imported directly by any package in the monorepo
-
-// Tables with full type inference preserved
 export const tables = {
   // Notebook metadata (single row per store)
   notebook: State.SQLite.table({
@@ -659,6 +656,8 @@ const materializers = State.SQLite.materializers(events, {
 const state = State.SQLite.makeState({ tables, materializers });
 
 export const schema = makeSchema({ events, state });
+
+export type Store = LiveStore<typeof schema>;
 
 // Type exports derived from the actual table definitions - full type inference works here!
 export type NotebookData = typeof tables.notebook.Type;
