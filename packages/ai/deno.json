@@ -1,6 +1,6 @@
 {
   "name": "@runt/ai",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Runtime AI Clients",
   "license": "MIT",
   "repository": {
@@ -11,8 +11,8 @@
     ".": "./mod.ts"
   },
   "imports": {
-    "@runt/lib": "jsr:@runt/lib@^0.5.0",
-    "@runt/schema": "jsr:@runt/schema@^0.5.0",
+    "@runt/lib": "jsr:@runt/lib@^0.5.1",
+    "@runt/schema": "jsr:@runt/schema@^0.5.1",
     "npm:pyodide": "npm:pyodide@^0.27.7",
     "@std/async": "jsr:@std/async@^1.0.0",
     "npm:@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
