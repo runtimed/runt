@@ -213,7 +213,7 @@ export function buildConversationMessages(
   return messages;
 }
 
-const defaultModel = "mistral-small3.2";
+const defaultModel = "gpt-4o-mini";
 
 /**
  * Execute AI prompts using OpenAI
@@ -253,11 +253,7 @@ export async function executeAI(
 
     // Use real OpenAI API if configured, otherwise fall back to mock
     // Initialize OpenAI client on demand for AI cells only
-    const openaiClient = new OpenAIClient({
-      baseURL: "http://localhost:11434/v1/",
-      // required but ignored
-      apiKey: "ollama",
-    });
+    const openaiClient = new OpenAIClient();
 
     if (
       openaiClient.isReady() &&
