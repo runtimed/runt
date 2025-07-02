@@ -290,7 +290,7 @@ export class PyodideRuntimeAgent {
     } = context;
     const code = cell.source?.trim() || "";
 
-    // Handle AI cells differently
+    // When an AI cell, hand it off to `@runt/ai` to handle, providing it notebook context
     if (cell.cellType === "ai") {
       const notebookContext = this.gatherNotebookContext(cell);
 
@@ -334,7 +334,6 @@ export class PyodideRuntimeAgent {
         // Set current execution context for real-time streaming
         this.currentExecutionContext = context;
 
-        // Execute Python code in worker - outputs stream in real-time
         const executionResult = await this.sendWorkerMessage("execute", {
           code,
         }) as { result: unknown };
@@ -606,37 +605,4 @@ export class PyodideRuntimeAgent {
       currentCellPosition: currentCell.position,
     };
   }
-}
-
-/**
- * Main function to run the Pyodide runtime agent
- */
-async function main() {
-  const agent = new PyodideRuntimeAgent();
-  const logger = createLogger("pyodide-main");
-
-  try {
-    await agent.start();
-
-    logger.info("Pyodide runtime agent started", {
-      kernelId: agent.config.kernelId,
-      kernelType: agent.config.kernelType,
-      notebookId: agent.config.notebookId,
-      sessionId: agent.config.sessionId,
-      syncUrl: agent.config.syncUrl,
-      heartbeatInterval: agent.config.heartbeatInterval,
-    });
-
-    await agent.keepAlive();
-  } catch (error) {
-    logger.error("Failed to start Pyodide agent", error);
-    Deno.exit(1);
-  } finally {
-    await agent.shutdown();
-  }
-}
-
-// Run as script if this file is executed directly
-if (import.meta.main) {
-  await main();
 }
