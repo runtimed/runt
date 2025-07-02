@@ -12,7 +12,6 @@ import type {
   RichOutputData,
   schema,
 } from "@runt/schema";
-import type { Logger } from "./logging.ts";
 
 /**
  * Configuration options for runtime agents
