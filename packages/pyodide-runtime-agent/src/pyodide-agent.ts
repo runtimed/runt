@@ -280,7 +280,7 @@ export class PyodideRuntimeAgent {
   /**
    * Execute Python code or AI prompts using Pyodide worker or OpenAI
    */
-  private async executeCell(context: ExecutionContext) {
+  public async executeCell(context: ExecutionContext) {
     const {
       cell,
       stderr,

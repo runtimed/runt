@@ -6,6 +6,7 @@ import {
   assertStringIncludes,
 } from "jsr:@std/assert";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
+import { RichOutputData } from "@runt/schema";
 // Tests now use custom package lists instead of getTestPackages
 
 // Mock types for testing
@@ -74,6 +75,11 @@ interface ExecutionContextLike {
   stderr: (text: string) => void;
   result: (data: unknown, metadata?: Record<string, unknown>) => void;
   display: (data: unknown, metadata?: Record<string, unknown>) => void;
+  updateDisplay: (
+    displayId: string,
+    data: RichOutputData,
+    metadata?: Record<string, unknown>,
+  ) => void;
   error: (ename: string, evalue: string, traceback: string[]) => void;
   clear: () => void;
 }
@@ -175,11 +181,7 @@ Deno.test({
     );
 
     // Execute through the agent
-    const result = await (agent as unknown as {
-      executePython: (
-        ctx: ExecutionContextLike,
-      ) => Promise<{ success: boolean }>;
-    }).executePython(context);
+    const result = await agent.executeCell(context as unknown as any);
 
     assertEquals(typeof result, "object");
     assertEquals(result.success, true);
@@ -195,11 +197,7 @@ Deno.test({
   await t.step("test simple arithmetic", async () => {
     const { context, outputs } = createExecutionContext("2 + 2");
 
-    const result = await (agent as unknown as {
-      executePython: (
-        ctx: ExecutionContextLike,
-      ) => Promise<{ success: boolean }>;
-    }).executePython(context);
+    const result = await agent.executeCell(context as unknown as any);
 
     assertEquals(result.success, true);
 
@@ -217,10 +215,10 @@ x + len(y)
     `);
 
     const result = await (agent as unknown as {
-      executePython: (
+      executeCell: (
         ctx: ExecutionContextLike,
       ) => Promise<{ success: boolean }>;
-    }).executePython(context);
+    }).executeCell(context);
     assertEquals(result.success, true);
 
     // Should have both stdout and result
@@ -241,10 +239,10 @@ print('ok')
     `);
 
     const result = await (agent as unknown as {
-      executePython: (
+      executeCell: (
         ctx: ExecutionContextLike,
       ) => Promise<{ success: boolean }>;
-    }).executePython(context);
+    }).executeCell(context);
     assertEquals(result.success, true);
 
     // Should have stdout output
@@ -275,10 +273,10 @@ print('ok')
     );
 
     const result = await (agent as unknown as {
-      executePython: (
+      executeCell: (
         ctx: ExecutionContextLike,
       ) => Promise<{ success: boolean; error?: string }>;
-    }).executePython(context);
+    }).executeCell(context);
 
     // Python errors are captured as error output, execution still "succeeds"
     assertEquals(result.success, true);
@@ -308,10 +306,10 @@ print("Should not reach here")
     abortController.abort();
 
     const result = await (agent as unknown as {
-      executePython: (
+      executeCell: (
         ctx: ExecutionContextLike,
       ) => Promise<{ success: boolean; error?: string }>;
-    }).executePython(context);
+    }).executeCell(context);
 
     // Should fail due to cancellation
     assertEquals(result.success, false);
@@ -325,10 +323,10 @@ print("micropip version:", micropip.__version__)
     `);
 
     const result = await (agent as unknown as {
-      executePython: (
+      executeCell: (
         ctx: ExecutionContextLike,
       ) => Promise<{ success: boolean }>;
-    }).executePython(context);
+    }).executeCell(context);
     assertEquals(result.success, true);
 
     const stdoutOutputs = outputs.filter((o) => o.type === "stdout");
@@ -343,10 +341,10 @@ display(HTML("<b>Bold text from IPython</b>"))
     `);
 
     const result = await (agent as unknown as {
-      executePython: (
+      executeCell: (
         ctx: ExecutionContextLike,
       ) => Promise<{ success: boolean }>;
-    }).executePython(context);
+    }).executeCell(context);
     assertEquals(result.success, true);
 
     // Should have display output with HTML
@@ -389,10 +387,10 @@ print("Sum:", arr.sum())
   `);
 
   const result = await (agent as unknown as {
-    executePython: (
+    executeCell: (
       ctx: ExecutionContextLike,
     ) => Promise<{ success: boolean }>;
-  }).executePython(context);
+  }).executeCell(context);
   assertEquals(result.success, true);
 
   await agent.shutdown();
