@@ -76,7 +76,7 @@ function createTestExecutionContext(code: string): {
       completedAt: null,
       executionDurationMs: null,
     },
-    store: {} as any, // Minimal mock - not used in these tests
+    store: {} as ExecutionContext["store"], // Minimal mock - not used in these tests
     sessionId: "test-session",
     kernelId: "pyodide-test-kernel",
     abortSignal: abortController.signal,
