@@ -1,6 +1,8 @@
 import OpenAI from "@openai/openai";
 import { createLogger, type ExecutionContext } from "@runt/lib";
 
+import { NOTEBOOK_TOOLS } from "./tool-registry.ts";
+
 // Define message types inline to avoid import issues
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
@@ -8,23 +10,6 @@ interface OpenAIConfig {
   apiKey?: string;
   baseURL?: string;
   organization?: string;
-}
-
-interface ToolParameter {
-  type: string;
-  enum?: string[];
-  description?: string;
-  default?: string;
-}
-
-interface NotebookTool {
-  name: string;
-  description: string;
-  parameters: {
-    type: string;
-    properties: Record<string, ToolParameter>;
-    required: string[];
-  };
 }
 
 interface ToolCall {
@@ -68,73 +53,6 @@ interface AnodeCellMetadata {
   tool_error?: boolean;
   tool_call_id?: string;
 }
-
-// Define available notebook tools
-const NOTEBOOK_TOOLS: NotebookTool[] = [
-  {
-    name: "create_cell",
-    description:
-      "Create a new cell in the notebook at a specified position. Use this when you want to add new code, markdown, or other content to help the user.",
-    parameters: {
-      type: "object",
-      properties: {
-        cellType: {
-          type: "string",
-          enum: ["code", "markdown", "ai", "sql"],
-          description: "The type of cell to create",
-        },
-        content: {
-          type: "string",
-          description: "The content/source code for the cell",
-        },
-        position: {
-          type: "string",
-          enum: ["after_current", "before_current", "at_end"],
-          description:
-            'Where to place the new cell. Use "after_current" (default) to place right after the AI cell, "before_current" to place before it, or "at_end" only when specifically requested',
-          default: "after_current",
-        },
-      },
-      required: ["cellType", "content"],
-    },
-  },
-  {
-    name: "modify_cell",
-    description:
-      "Modify the content of an existing cell in the notebook. Use this to fix bugs, improve code, or update content based on user feedback. Use the actual cell ID from the context (shown as 'ID: cell-xxx'), not position numbers.",
-    parameters: {
-      type: "object",
-      properties: {
-        cellId: {
-          type: "string",
-          description:
-            "The actual cell ID from the context (e.g., 'cell-1234567890-abc'), not a position number",
-        },
-        content: {
-          type: "string",
-          description: "The new content/source code for the cell",
-        },
-      },
-      required: ["cellId", "content"],
-    },
-  },
-  {
-    name: "execute_cell",
-    description:
-      "Execute a specific cell in the notebook. Use this to run code after creating or modifying it, or to re-run existing cells. Use the actual cell ID from the context (shown as 'ID: cell-xxx'), not position numbers.",
-    parameters: {
-      type: "object",
-      properties: {
-        cellId: {
-          type: "string",
-          description:
-            "The actual cell ID from the context (e.g., 'cell-1234567890-abc'), not a position number",
-        },
-      },
-      required: ["cellId"],
-    },
-  },
-];
 
 export class RuntOpenAIClient {
   private client: OpenAI | null = null;
