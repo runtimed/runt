@@ -91,7 +91,7 @@ export class PyodideRuntimeAgent {
     });
 
     this.options = options;
-    this.agent.onExecution(this.executePython.bind(this));
+    this.agent.onExecution(this.executeCell.bind(this));
     this.agent.onCancellation(this.handleCancellation.bind(this));
   }
 
@@ -280,7 +280,7 @@ export class PyodideRuntimeAgent {
   /**
    * Execute Python code or AI prompts using Pyodide worker or OpenAI
    */
-  private async executePython(context: ExecutionContext) {
+  private async executeCell(context: ExecutionContext) {
     const {
       cell,
       stderr,
