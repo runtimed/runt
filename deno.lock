@@ -1012,8 +1012,8 @@
       "packages/ai": {
         "dependencies": [
           "jsr:@openai/openai@^4.98.0",
-          "jsr:@runt/lib@~0.5.2",
-          "jsr:@runt/schema@~0.5.2",
+          "jsr:@runt/lib@~0.5.3",
+          "jsr:@runt/schema@~0.5.3",
           "jsr:@std/async@1",
           "npm:@livestore/livestore@~0.3.1",
           "npm:pyodide@~0.27.7",
@@ -1022,7 +1022,7 @@
       },
       "packages/lib": {
         "dependencies": [
-          "jsr:@runt/schema@~0.5.2",
+          "jsr:@runt/schema@~0.5.3",
           "jsr:@std/cli@1",
           "npm:@livestore/adapter-node@~0.3.1",
           "npm:@livestore/livestore@~0.3.1",
@@ -1033,9 +1033,9 @@
       "packages/pyodide-runtime-agent": {
         "dependencies": [
           "jsr:@openai/openai@^4.98.0",
-          "jsr:@runt/ai@~0.5.2",
-          "jsr:@runt/lib@~0.5.2",
-          "jsr:@runt/schema@~0.5.2",
+          "jsr:@runt/ai@~0.5.3",
+          "jsr:@runt/lib@~0.5.3",
+          "jsr:@runt/schema@~0.5.3",
           "jsr:@std/async@1",
           "npm:@livestore/livestore@~0.3.1",
           "npm:pyodide@~0.27.7",
