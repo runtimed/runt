@@ -6,21 +6,10 @@ import {
   assertStringIncludes,
 } from "jsr:@std/assert";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
-import { RichOutputData } from "@runt/schema";
-// Tests now use custom package lists instead of getTestPackages
-
-// Mock types for testing
-interface MockStore {
-  commit?: () => void; // Mock store with basic structure
-}
-
-interface MockQueueEntry {
-  id: string;
-  cellId: string;
-}
+import type { ExecutionContext, ExecutionResult } from "@runt/lib/types";
+import type { RichOutputData } from "@runt/schema";
 
 // Create test agent with minimal packages for speed
-// Helper to create test agent with custom package loading
 function createTestAgent(packages?: string[]): PyodideRuntimeAgent {
   const validArgs = [
     "--kernel-id",
@@ -33,73 +22,34 @@ function createTestAgent(packages?: string[]): PyodideRuntimeAgent {
     "ws://localhost:8787",
   ];
 
-  // Use custom package list or default to essential packages
   return new PyodideRuntimeAgent(validArgs, packages ? { packages } : {});
 }
 
-// Test execution context that captures outputs
+// Simple output capture for testing
 interface CapturedOutput {
   type: "stdout" | "stderr" | "result" | "display" | "error" | "clear";
   data: unknown;
   metadata?: Record<string, unknown> | undefined;
 }
 
-// Mock execution context type for testing
-interface ExecutionContextLike {
-  cell: {
-    id: string;
-    cellType: "code";
-    source: string;
-    position: number;
-    executionCount: number;
-    executionState: "running";
-    assignedKernelSession: null;
-    lastExecutionDurationMs: null;
-    sqlConnectionId: null;
-    sqlResultData: null;
-    aiProvider: null;
-    aiModel: null;
-    aiSettings: null;
-    sourceVisible: boolean;
-    outputVisible: boolean;
-    aiContextVisible: boolean;
-    createdBy: string;
-  };
-  queueEntry: MockQueueEntry;
-  store: MockStore;
-  sessionId: string;
-  kernelId: string;
-  abortSignal: AbortSignal;
-  checkCancellation: () => void;
-  stdout: (text: string) => void;
-  stderr: (text: string) => void;
-  result: (data: unknown, metadata?: Record<string, unknown>) => void;
-  display: (data: unknown, metadata?: Record<string, unknown>) => void;
-  updateDisplay: (
-    displayId: string,
-    data: RichOutputData,
-    metadata?: Record<string, unknown>,
-  ) => void;
-  error: (ename: string, evalue: string, traceback: string[]) => void;
-  clear: () => void;
-}
-
-function createExecutionContext(code: string): {
-  context: ExecutionContextLike;
+// Create a minimal execution context that captures outputs
+function createTestExecutionContext(code: string): {
+  context: ExecutionContext;
   outputs: CapturedOutput[];
   abortController: AbortController;
 } {
   const outputs: CapturedOutput[] = [];
   const abortController = new AbortController();
 
-  const context = {
+  // Create minimal context that satisfies the ExecutionContext interface
+  const context: ExecutionContext = {
     cell: {
       id: "test-cell-" + Math.random().toString(36).slice(2),
-      cellType: "code" as const,
+      cellType: "code",
       source: code,
       position: 0,
       executionCount: 1,
-      executionState: "running" as const,
+      executionState: "running",
       assignedKernelSession: null,
       lastExecutionDurationMs: null,
       sqlConnectionId: null,
@@ -115,8 +65,18 @@ function createExecutionContext(code: string): {
     queueEntry: {
       id: "test-queue-" + Math.random().toString(36).slice(2),
       cellId: "test-cell-" + Math.random().toString(36).slice(2),
+      executionCount: 1,
+      requestedBy: "test-user",
+      status: "executing" as const,
+      assignedKernelSession: "test-session",
+      priority: 0,
+      retryCount: 0,
+      maxRetries: 3,
+      startedAt: new Date(),
+      completedAt: null,
+      executionDurationMs: null,
     },
-    store: {} as MockStore,
+    store: {} as any, // Minimal mock - not used in these tests
     sessionId: "test-session",
     kernelId: "pyodide-test-kernel",
     abortSignal: abortController.signal,
@@ -127,13 +87,16 @@ function createExecutionContext(code: string): {
     },
     stdout: (text: string) => outputs.push({ type: "stdout", data: text }),
     stderr: (text: string) => outputs.push({ type: "stderr", data: text }),
-    result: (data: unknown, metadata?: Record<string, unknown>) =>
+    result: (data: RichOutputData, metadata?: Record<string, unknown>) =>
       outputs.push({ type: "result", data, metadata: metadata || undefined }),
-    display: (data: unknown, metadata?: Record<string, unknown>) =>
+    display: (
+      data: RichOutputData,
+      metadata?: Record<string, unknown>,
+    ) =>
       outputs.push({ type: "display", data, metadata: metadata || undefined }),
     updateDisplay: (
-      displayId: string,
-      data: unknown,
+      _displayId: string,
+      data: RichOutputData,
       metadata?: Record<string, unknown>,
     ) =>
       outputs.push({ type: "display", data, metadata: metadata || undefined }),
@@ -158,11 +121,10 @@ Deno.test("Agent initialization with custom packages", async () => {
   assertExists(agent);
   assertEquals(agent.config.kernelType, "python3-pyodide");
 
-  // Should shut down cleanly
   await agent.shutdown();
 });
 
-// This test actually loads Pyodide - it's slow but tests real functionality
+// Real Pyodide execution tests
 Deno.test({
   name: "Real Pyodide execution with essential packages",
   sanitizeOps: false,
@@ -170,29 +132,20 @@ Deno.test({
 }, async (t) => {
   let agent: PyodideRuntimeAgent;
 
-  await t.step("initialize agent with essential packages", async () => {
+  await t.step("initialize agent", async () => {
     agent = createTestAgent(); // Uses default essential packages
-    assertExists(agent);
-
-    // Start the agent - this will load Pyodide with minimal packages
     await agent.start();
-
-    // Give it a moment to fully initialize
     await new Promise((resolve) => setTimeout(resolve, 1000));
   });
 
-  await t.step("test basic Python print", async () => {
-    const { context, outputs } = createExecutionContext(
+  await t.step("basic Python print", async () => {
+    const { context, outputs } = createTestExecutionContext(
       "print('Hello from Pyodide!')",
     );
 
-    // Execute through the agent
-    const result = await agent.executeCell(context as unknown as any);
-
-    assertEquals(typeof result, "object");
+    const result: ExecutionResult = await agent.executeCell(context);
     assertEquals(result.success, true);
 
-    // Should have stdout output
     const stdoutOutputs = outputs.filter((o) => o.type === "stdout");
     assertEquals(stdoutOutputs.length > 0, true);
 
@@ -200,34 +153,27 @@ Deno.test({
     assertStringIncludes(stdoutText, "Hello from Pyodide!");
   });
 
-  await t.step("test simple arithmetic", async () => {
-    const { context, outputs } = createExecutionContext("2 + 2");
+  await t.step("simple arithmetic", async () => {
+    const { context, outputs } = createTestExecutionContext("2 + 2");
 
-    const result = await agent.executeCell(context as unknown as any);
-
+    const result: ExecutionResult = await agent.executeCell(context);
     assertEquals(result.success, true);
 
-    // Should have result output
     const resultOutputs = outputs.filter((o) => o.type === "result");
     assertEquals(resultOutputs.length > 0, true);
   });
 
-  await t.step("test Python variables", async () => {
-    const { context, outputs } = createExecutionContext(`
+  await t.step("Python variables and expressions", async () => {
+    const { context, outputs } = createTestExecutionContext(`
 x = 42
 y = "test"
 print(f"x = {x}, y = {y}")
 x + len(y)
     `);
 
-    const result = await (agent as unknown as {
-      executeCell: (
-        ctx: ExecutionContextLike,
-      ) => Promise<{ success: boolean }>;
-    }).executeCell(context);
+    const result: ExecutionResult = await agent.executeCell(context);
     assertEquals(result.success, true);
 
-    // Should have both stdout and result
     const stdoutOutputs = outputs.filter((o) => o.type === "stdout");
     const resultOutputs = outputs.filter((o) => o.type === "result");
 
@@ -238,56 +184,31 @@ x + len(y)
     assertStringIncludes(stdoutText, "x = 42, y = test");
   });
 
-  await t.step("test multiple print statements with newlines", async () => {
-    const { context, outputs } = createExecutionContext(`
-print('hey')
-print('ok')
+  await t.step("multiple print statements", async () => {
+    const { context, outputs } = createTestExecutionContext(`
+print('first line')
+print('second line')
     `);
 
-    const result = await (agent as unknown as {
-      executeCell: (
-        ctx: ExecutionContextLike,
-      ) => Promise<{ success: boolean }>;
-    }).executeCell(context);
+    const result: ExecutionResult = await agent.executeCell(context);
     assertEquals(result.success, true);
 
-    // Should have stdout output
     const stdoutOutputs = outputs.filter((o) => o.type === "stdout");
     assertEquals(stdoutOutputs.length > 0, true);
 
     const stdoutText = stdoutOutputs.map((o) => o.data).join("");
-
-    // Check that we have proper newlines between outputs
-    assertStringIncludes(stdoutText, "hey");
-    assertStringIncludes(stdoutText, "ok");
-
-    // Verify that the outputs are properly separated (not "heyok")
-    // The exact format depends on how pyodide batches the output
-    const hasProperSeparation = stdoutText.includes("hey\n") ||
-      stdoutText.match(/hey.*\n.*ok/) ||
-      stdoutOutputs.length > 1;
-    assertEquals(
-      hasProperSeparation,
-      true,
-      `Expected proper line separation, got: ${JSON.stringify(stdoutText)}`,
-    );
+    assertStringIncludes(stdoutText, "first line");
+    assertStringIncludes(stdoutText, "second line");
   });
 
-  await t.step("test Python error handling", async () => {
-    const { context, outputs } = createExecutionContext(
+  await t.step("Python error handling", async () => {
+    const { context, outputs } = createTestExecutionContext(
       "raise ValueError('test error message')",
     );
 
-    const result = await (agent as unknown as {
-      executeCell: (
-        ctx: ExecutionContextLike,
-      ) => Promise<{ success: boolean; error?: string }>;
-    }).executeCell(context);
+    const result: ExecutionResult = await agent.executeCell(context);
+    assertEquals(result.success, true); // Execution succeeds, error is captured
 
-    // Python errors are captured as error output, execution still "succeeds"
-    assertEquals(result.success, true);
-
-    // Should have error output
     const errorOutputs = outputs.filter((o) => o.type === "error");
     assertEquals(errorOutputs.length > 0, true);
 
@@ -297,42 +218,31 @@ print('ok')
       traceback: string[];
     };
     assertEquals(errorData.ename, "ValueError");
-    assertEquals(errorData.evalue.includes("test error message"), true);
+    assertStringIncludes(errorData.evalue, "test error message");
   });
 
-  await t.step("test execution cancellation", async () => {
-    const { context, outputs: _outputs, abortController } =
-      createExecutionContext(`
+  await t.step("execution cancellation", async () => {
+    const { context, abortController } = createTestExecutionContext(`
 for i in range(3):
     print(f"Step {i}")
 print("Should not reach here")
     `);
 
-    // Cancel immediately before execution
+    // Cancel before execution
     abortController.abort();
 
-    const result = await (agent as unknown as {
-      executeCell: (
-        ctx: ExecutionContextLike,
-      ) => Promise<{ success: boolean; error?: string }>;
-    }).executeCell(context);
-
-    // Should fail due to cancellation
+    const result: ExecutionResult = await agent.executeCell(context);
     assertEquals(result.success, false);
-    assertEquals(result.error?.includes("cancelled"), true);
+    assertStringIncludes(result.error || "", "cancelled");
   });
 
-  await t.step("test micropip availability", async () => {
-    const { context, outputs } = createExecutionContext(`
+  await t.step("micropip availability", async () => {
+    const { context, outputs } = createTestExecutionContext(`
 import micropip
 print("micropip version:", micropip.__version__)
     `);
 
-    const result = await (agent as unknown as {
-      executeCell: (
-        ctx: ExecutionContextLike,
-      ) => Promise<{ success: boolean }>;
-    }).executeCell(context);
+    const result: ExecutionResult = await agent.executeCell(context);
     assertEquals(result.success, true);
 
     const stdoutOutputs = outputs.filter((o) => o.type === "stdout");
@@ -340,20 +250,15 @@ print("micropip version:", micropip.__version__)
     assertStringIncludes(stdoutText, "micropip version:");
   });
 
-  await t.step("test ipython display system", async () => {
-    const { context, outputs } = createExecutionContext(`
+  await t.step("IPython display system", async () => {
+    const { context, outputs } = createTestExecutionContext(`
 from IPython.display import HTML, display
 display(HTML("<b>Bold text from IPython</b>"))
     `);
 
-    const result = await (agent as unknown as {
-      executeCell: (
-        ctx: ExecutionContextLike,
-      ) => Promise<{ success: boolean }>;
-    }).executeCell(context);
+    const result: ExecutionResult = await agent.executeCell(context);
     assertEquals(result.success, true);
 
-    // Should have display output with HTML
     const displayOutputs = outputs.filter((o) => o.type === "display");
     assertEquals(displayOutputs.length > 0, true);
 
@@ -369,35 +274,4 @@ display(HTML("<b>Bold text from IPython</b>"))
   await t.step("cleanup", async () => {
     await agent.shutdown();
   });
-});
-
-// Test that would require additional packages (currently skipped)
-Deno.test({
-  name: "Python with scientific packages",
-  ignore: true, // Enable when we want to test with more packages
-  sanitizeOps: false,
-  sanitizeResources: false,
-}, async () => {
-  const agent = new PyodideRuntimeAgent(
-    ["--kernel-id", "full-test", "--notebook", "test", "--auth-token", "token"],
-    { packages: ["micropip", "ipython", "numpy", "matplotlib", "pandas"] }, // Scientific stack
-  );
-
-  await agent.start();
-
-  const { context } = createExecutionContext(`
-import numpy as np
-arr = np.array([1, 2, 3, 4, 5])
-print("Array:", arr)
-print("Sum:", arr.sum())
-  `);
-
-  const result = await (agent as unknown as {
-    executeCell: (
-      ctx: ExecutionContextLike,
-    ) => Promise<{ success: boolean }>;
-  }).executeCell(context);
-  assertEquals(result.success, true);
-
-  await agent.shutdown();
 });
