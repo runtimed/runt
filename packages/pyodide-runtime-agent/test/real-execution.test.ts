@@ -131,6 +131,12 @@ function createExecutionContext(code: string): {
       outputs.push({ type: "result", data, metadata: metadata || undefined }),
     display: (data: unknown, metadata?: Record<string, unknown>) =>
       outputs.push({ type: "display", data, metadata: metadata || undefined }),
+    updateDisplay: (
+      displayId: string,
+      data: unknown,
+      metadata?: Record<string, unknown>,
+    ) =>
+      outputs.push({ type: "display", data, metadata: metadata || undefined }),
     error: (ename: string, evalue: string, traceback: string[]) =>
       outputs.push({ type: "error", data: { ename, evalue, traceback } }),
     clear: () => outputs.push({ type: "clear", data: null }),
