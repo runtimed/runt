@@ -8,8 +8,7 @@
     "url": "https://github.com/runtimed/anode.git"
   },
   "exports": {
-    ".": "./src/mod.ts",
-    "./lib": "./src/lib.ts"
+    ".": "./src/mod.ts"
   },
   "bin": {
     "pyrunt": "./src/mod.ts"
