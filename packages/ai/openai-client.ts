@@ -68,6 +68,7 @@ export class RuntOpenAIClient {
 
   configure(config?: OpenAIConfig) {
     const apiKey = config?.apiKey || Deno.env.get("OPENAI_API_KEY");
+    const baseURL = config?.baseURL || Deno.env.get("OPENAI_BASE_URL");
 
     if (!apiKey) {
       // Don't log warning at startup - only when actually trying to use OpenAI
@@ -78,7 +79,7 @@ export class RuntOpenAIClient {
     try {
       this.client = new OpenAI({
         apiKey,
-        baseURL: config?.baseURL,
+        baseURL: baseURL,
         organization: config?.organization,
       });
       this.isConfigured = true;
