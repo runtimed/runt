@@ -1032,7 +1032,6 @@
       },
       "packages/pyodide-runtime-agent": {
         "dependencies": [
-          "jsr:@openai/openai@^4.98.0",
           "jsr:@runt/ai@~0.5.3",
           "jsr:@runt/lib@~0.5.3",
           "jsr:@runt/schema@~0.5.3",

@@ -55,6 +55,10 @@ export class PyodideRuntimeAgent {
     reject: (error: unknown) => void;
   }> = [];
   private isExecuting = false;
+  private currentAIExecution: {
+    cellId: string;
+    abortController: AbortController;
+  } | null = null;
   private pendingExecutions = new Map<string, {
     resolve: (result: unknown) => void;
     reject: (error: unknown) => void;
@@ -307,13 +311,39 @@ export class PyodideRuntimeAgent {
     if (cell.cellType === "ai") {
       const notebookContext = this.gatherNotebookContext(cell);
 
-      return executeAI(
-        context,
-        notebookContext,
-        this.logger,
-        this.store,
-        this.config.sessionId,
-      );
+      // Track AI execution for cancellation
+      const aiAbortController = new AbortController();
+      this.currentAIExecution = {
+        cellId: cell.id,
+        abortController: aiAbortController,
+      };
+
+      // Connect the AI abort controller to the execution context's abort signal
+      if (context.abortSignal.aborted) {
+        aiAbortController.abort();
+      } else {
+        context.abortSignal.addEventListener("abort", () => {
+          aiAbortController.abort();
+        });
+      }
+
+      // Create a modified context with the AI-specific abort signal
+      const aiContext = {
+        ...context,
+        abortSignal: aiAbortController.signal,
+      };
+
+      try {
+        return await executeAI(
+          aiContext,
+          notebookContext,
+          this.logger,
+          this.store,
+          this.config.sessionId,
+        );
+      } finally {
+        this.currentAIExecution = null;
+      }
     }
 
     if (!this.isInitialized || !this.worker) {
@@ -573,7 +603,20 @@ export class PyodideRuntimeAgent {
       reason,
     });
 
-    // Signal interrupt to Pyodide worker
+    // Check if this is an AI cell being cancelled
+    if (this.currentAIExecution && this.currentAIExecution.cellId === cellId) {
+      this.logger.info("Cancelling AI execution", {
+        cellId,
+      });
+      this.currentAIExecution.abortController.abort();
+      this.currentAIExecution = null;
+
+      // For AI cells, we don't need to signal interrupt to Pyodide worker
+      // or clear the execution queue since AI cells don't use the worker
+      return;
+    }
+
+    // Signal interrupt to Pyodide worker (only for code cells)
     if (this.interruptBuffer) {
       const view = new Int32Array(this.interruptBuffer);
       view[0] = 2; // SIGINT
