@@ -309,9 +309,125 @@ async def bootstrap_micropip_packages():
         print(f"Warning: Failed to install seaborn: {e}")
 
 
+def setup_interrupt_patches():
+    """Patch Python functions to make them interrupt-aware"""
+    import time
+    import builtins
+    import signal
+    import sys
+    import threading
+
+    # Store original functions
+    _original_sleep = time.sleep
+    _original_input = builtins.input if hasattr(builtins, "input") else None
+
+    # Global flag to track if we should check for interrupts
+    _interrupt_check_enabled = True
+
+    # Set up signal handler for proper interrupt handling
+    def signal_handler(signum, frame):
+        """Handle interrupt signals by raising KeyboardInterrupt"""
+        print(
+            f"[INTERRUPT] Signal {signum} received, raising KeyboardInterrupt",
+            flush=True,
+        )
+        raise KeyboardInterrupt("Execution interrupted by signal")
+
+    # Install the signal handler for SIGINT
+    try:
+        signal.signal(signal.SIGINT, signal_handler)
+        print("Signal handler installed for SIGINT", flush=True)
+    except Exception as e:
+        print(f"Warning: Could not install signal handler: {e}", flush=True)
+
+    def check_interrupt():
+        """Check for interrupts using Pyodide's mechanism"""
+        if not _interrupt_check_enabled:
+            return
+
+        try:
+            # This will be available when running in Pyodide
+            if hasattr(__builtins__, "pyodide_check_interrupt"):
+                __builtins__.pyodide_check_interrupt()
+        except KeyboardInterrupt:
+            print(
+                "[INTERRUPT] KeyboardInterrupt detected via pyodide_check_interrupt",
+                flush=True,
+            )
+            raise
+        except Exception as e:
+            # Don't spam errors, just continue
+            pass
+
+    def interrupt_aware_sleep(duration):
+        """Sleep function that checks for interrupts periodically"""
+        if duration <= 0:
+            return
+
+        # Check for interrupts in smaller chunks for better responsiveness
+        chunk_size = 0.05  # 50ms chunks for better responsiveness
+        remaining = float(duration)
+
+        while remaining > 0:
+            # Check for interrupt before each chunk
+            check_interrupt()
+
+            # Sleep for the smaller of chunk_size or remaining time
+            sleep_time = min(chunk_size, remaining)
+
+            try:
+                _original_sleep(sleep_time)
+            except KeyboardInterrupt:
+                print("[INTERRUPT] KeyboardInterrupt during sleep", flush=True)
+                raise
+
+            remaining -= sleep_time
+
+    def interrupt_aware_input(prompt=""):
+        """Input function that can be interrupted"""
+        check_interrupt()
+
+        # Call original input (this will still block, but at least we checked once)
+        if _original_input:
+            try:
+                return _original_input(prompt)
+            except KeyboardInterrupt:
+                print("[INTERRUPT] KeyboardInterrupt during input", flush=True)
+                raise
+        else:
+            # Fallback if input is not available
+            return ""
+
+    # Patch the functions
+    time.sleep = interrupt_aware_sleep
+    if _original_input:
+        builtins.input = interrupt_aware_input
+
+    # Note: range() patching was too invasive and broke micropip
+    # Pure Python loops are already interruptible via bytecode-level checks
+
+    # Add a periodic interrupt checker that can be called from user code
+    def periodic_interrupt_check():
+        """Function users can call in their loops to check for interrupts"""
+        check_interrupt()
+
+    # Make the interrupt checker available globally
+    builtins.check_interrupt = periodic_interrupt_check
+
+    print("Interrupt-aware function patches applied with enhanced signal handling")
+
+
 # Make callbacks available globally
 js_display_callback = default_display_callback
 js_execution_callback = default_execution_callback
 
+# Set up interrupt patches
+setup_interrupt_patches()
+
 # Export the configured shell for use by the worker
-__all__ = ["shell", "js_display_callback", "js_execution_callback"]
+__all__ = [
+    "shell",
+    "js_display_callback",
+    "js_execution_callback",
+    "setup_interrupt_patches",
+]

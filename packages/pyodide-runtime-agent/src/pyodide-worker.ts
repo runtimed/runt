@@ -20,6 +20,33 @@ declare const self: DedicatedWorkerGlobalScope;
 let pyodide: PyodideInterface | null = null;
 let interruptBuffer: SharedArrayBuffer | null = null;
 
+// Global error handler for uncaught worker errors
+self.addEventListener("error", (event) => {
+  self.postMessage({
+    type: "log",
+    data: `Worker uncaught error: ${event.message}`,
+  });
+});
+
+// Global handler for unhandled promise rejections
+self.addEventListener("unhandledrejection", (event) => {
+  // Check if this is a KeyboardInterrupt
+  if (event.reason && typeof event.reason === "object") {
+    const errorStr = event.reason.toString();
+    if (errorStr.includes("KeyboardInterrupt")) {
+      // This is expected during cancellation - prevent default handling
+      // but don't send duplicate error messages since executePython handles it
+      event.preventDefault();
+      return;
+    }
+  }
+
+  self.postMessage({
+    type: "log",
+    data: `Worker unhandled rejection: ${event.reason}`,
+  });
+});
+
 // Handle messages from main thread
 self.addEventListener("message", async (event) => {
   const { id, type, data } = (event as MessageEvent).data;
@@ -273,6 +300,11 @@ async function executePython(code: string): Promise<{
   let result = null;
   let executionError = null;
 
+  self.postMessage({
+    type: "log",
+    data: "Starting Python execution with interrupt support",
+  });
+
   try {
     // Set up JavaScript callbacks with proper serialization
     pyodide.globals.set(
@@ -362,35 +394,128 @@ async function executePython(code: string): Promise<{
       },
     );
 
+    // Set up interrupt checking function for Python
+    pyodide.globals.set(
+      "pyodide_check_interrupt",
+      () => {
+        if (pyodide) {
+          try {
+            pyodide.checkInterrupt();
+          } catch (error) {
+            // Log the interrupt detection and re-throw
+            self.postMessage({
+              type: "log",
+              data: `Interrupt detected via pyodide_check_interrupt: ${error}`,
+            });
+            throw error;
+          }
+        }
+      },
+    );
+
     // Wire up the callbacks to the shell
     await pyodide.runPythonAsync(`
 # Connect our JavaScript callbacks to the IPython shell
 shell.display_pub.js_callback = js_display_callback
 shell.displayhook.js_callback = js_execution_callback
+
+# Make interrupt checking available to Python patches
+import builtins
+builtins.pyodide_check_interrupt = pyodide_check_interrupt
 `);
 
     // Execute the code directly with Pyodide (no IPython transformations)
     try {
-      // Execute the user code directly
-      const rawResult = await pyodide.runPythonAsync(code);
+      // Check for interrupt before execution
+      pyodide.checkInterrupt();
 
-      // If there's a result, format it through IPython's display system
-      if (rawResult !== null && rawResult !== undefined) {
-        // Store the result in Python globals and format it
-        pyodide.globals.set("_pyodide_result", rawResult);
-        await pyodide.runPythonAsync(`
+      self.postMessage({
+        type: "log",
+        data: "Pre-execution interrupt check passed, executing code",
+      });
+
+      try {
+        // Execute the user code directly
+        const rawResult = await pyodide.runPythonAsync(code);
+
+        self.postMessage({
+          type: "log",
+          data: "Code execution completed successfully",
+        });
+
+        // If there's a result, format it through IPython's display system
+        if (rawResult !== null && rawResult !== undefined) {
+          // Store the result in Python globals and format it
+          pyodide.globals.set("_pyodide_result", rawResult);
+          await pyodide.runPythonAsync(`
 # Format the result through IPython's displayhook for rich formatting
 if '_pyodide_result' in globals():
     shell.displayhook(_pyodide_result)
     del _pyodide_result
 `);
-        // Don't return the result since displayhook already handled it
-        result = null;
-      } else {
-        result = rawResult;
+          // Don't return the result since displayhook already handled it
+          result = null;
+        } else {
+          result = rawResult;
+        }
+      } catch (pythonError: unknown) {
+        // Handle KeyboardInterrupt that occurs during async execution
+        if (pythonError && typeof pythonError === "object") {
+          const errorStr = pythonError.toString();
+          if (errorStr.includes("KeyboardInterrupt")) {
+            self.postMessage({
+              type: "log",
+              data: "KeyboardInterrupt detected during execution",
+            });
+            // Handle KeyboardInterrupt as execution error - don't throw
+            executionError = {
+              ename: "ExecutionCancelled",
+              evalue: "Execution was cancelled",
+              traceback: [],
+            };
+          } else {
+            self.postMessage({
+              type: "log",
+              data: `Python error during execution: ${errorStr}`,
+            });
+            executionError = formatPythonError(pythonError);
+          }
+        } else {
+          self.postMessage({
+            type: "log",
+            data: `Unknown error during execution: ${pythonError}`,
+          });
+          executionError = formatPythonError(pythonError);
+        }
       }
-    } catch (pythonError: unknown) {
-      executionError = formatPythonError(pythonError);
+    } catch (preExecutionError: unknown) {
+      // Handle errors from checkInterrupt() or other pre-execution issues
+      if (preExecutionError && typeof preExecutionError === "object") {
+        const errorStr = preExecutionError.toString();
+        if (errorStr.includes("KeyboardInterrupt")) {
+          self.postMessage({
+            type: "log",
+            data: "KeyboardInterrupt detected before execution",
+          });
+          executionError = {
+            ename: "ExecutionCancelled",
+            evalue: "Execution was cancelled",
+            traceback: [],
+          };
+        } else {
+          self.postMessage({
+            type: "log",
+            data: `Pre-execution error: ${errorStr}`,
+          });
+          executionError = formatPythonError(preExecutionError);
+        }
+      } else {
+        self.postMessage({
+          type: "log",
+          data: `Unknown pre-execution error: ${preExecutionError}`,
+        });
+        executionError = formatPythonError(preExecutionError);
+      }
     }
   } catch (err: unknown) {
     executionError = {

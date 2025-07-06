@@ -48,6 +48,13 @@ export class PyodideRuntimeAgent {
   private interruptBuffer?: SharedArrayBuffer;
   private isInitialized = false;
   private currentExecutionContext: ExecutionContext | null = null;
+  private executionQueue: Array<{
+    context: ExecutionContext;
+    code: string;
+    resolve: (result: { success: boolean; error?: string }) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  private isExecuting = false;
   private pendingExecutions = new Map<string, {
     resolve: (result: unknown) => void;
     reject: (error: unknown) => void;
@@ -156,7 +163,12 @@ export class PyodideRuntimeAgent {
         this.handleWorkerMessage.bind(this),
       );
       this.worker.addEventListener("error", (error) => {
-        this.logger.error("Worker error", error);
+        this.logger.error("Worker error", { error });
+        this.handleWorkerCrash("Worker error event");
+      });
+      this.worker.addEventListener("messageerror", (error) => {
+        this.logger.error("Worker message error", { error });
+        this.handleWorkerCrash("Worker message error");
       });
 
       // Initialize enhanced Pyodide in worker
@@ -271,7 +283,12 @@ export class PyodideRuntimeAgent {
     this.pendingExecutions.delete(id);
 
     if (error) {
-      pending.reject(new Error(error));
+      // Handle specific error types
+      if (error.includes("KeyboardInterrupt")) {
+        pending.reject(new Error("Execution cancelled"));
+      } else {
+        pending.reject(new Error(error));
+      }
     } else {
       pending.resolve(data);
     }
@@ -280,14 +297,10 @@ export class PyodideRuntimeAgent {
   /**
    * Execute Python code or AI prompts using Pyodide worker or OpenAI
    */
-  public async executeCell(context: ExecutionContext) {
-    const {
-      cell,
-      stderr,
-      result,
-      error,
-      abortSignal,
-    } = context;
+  public async executeCell(
+    context: ExecutionContext,
+  ): Promise<{ success: boolean; error?: string }> {
+    const { cell } = context;
     const code = cell.source?.trim() || "";
 
     // When an AI cell, hand it off to `@runt/ai` to handle, providing it notebook context
@@ -304,12 +317,68 @@ export class PyodideRuntimeAgent {
     }
 
     if (!this.isInitialized || !this.worker) {
-      throw new Error("Pyodide worker not initialized");
+      // Try to reinitialize worker if it crashed
+      try {
+        await this.initializePyodideWorker();
+      } catch (_initError) {
+        throw new Error(
+          "Pyodide worker not initialized and failed to reinitialize",
+        );
+      }
     }
 
     if (!code) {
       return { success: true };
     }
+
+    // Queue the execution to ensure serialization
+    return new Promise((resolve, reject) => {
+      this.executionQueue.push({
+        context,
+        code,
+        resolve,
+        reject,
+      });
+      this.processExecutionQueue();
+    });
+  }
+
+  /**
+   * Process execution queue to ensure only one execution at a time
+   */
+  private async processExecutionQueue(): Promise<void> {
+    if (this.isExecuting || this.executionQueue.length === 0) {
+      return;
+    }
+
+    this.isExecuting = true;
+    const { context, code, resolve, reject } = this.executionQueue.shift()!;
+
+    try {
+      const result = await this.executeCodeSerialized(context, code);
+      resolve(result);
+    } catch (error) {
+      reject(error);
+    } finally {
+      this.isExecuting = false;
+      // Process next item in queue
+      this.processExecutionQueue();
+    }
+  }
+
+  /**
+   * Execute code with proper context isolation
+   */
+  private async executeCodeSerialized(
+    context: ExecutionContext,
+    code: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    const {
+      stderr,
+      result,
+      error,
+      abortSignal,
+    } = context;
 
     try {
       // Set up abort handling
@@ -324,7 +393,7 @@ export class PyodideRuntimeAgent {
 
       if (abortSignal.aborted) {
         // TODO: Use a special display for this
-        stderr("🛑 Execution was already cancelled\n");
+        stderr("Execution was already cancelled\n");
         return { success: false, error: "Execution cancelled" };
       }
 
@@ -339,7 +408,7 @@ export class PyodideRuntimeAgent {
         }) as { result: unknown };
 
         if (isAborted) {
-          stderr("🛑 Python execution was cancelled\n");
+          stderr("Python execution was cancelled\n");
           return { success: false, error: "Execution cancelled" };
         }
 
@@ -366,9 +435,12 @@ export class PyodideRuntimeAgent {
     } catch (err) {
       if (
         abortSignal.aborted ||
-        (err instanceof Error && err.message.includes("cancelled"))
+        (err instanceof Error &&
+          (err.message.includes("cancelled") ||
+            err.message.includes("KeyboardInterrupt") ||
+            err.message.includes("Worker crashed")))
       ) {
-        stderr("🛑 Python execution was cancelled\n");
+        stderr("Python execution was cancelled\n");
         return { success: false, error: "Execution cancelled" };
       }
 
@@ -506,6 +578,51 @@ export class PyodideRuntimeAgent {
       const view = new Int32Array(this.interruptBuffer);
       view[0] = 2; // SIGINT
     }
+
+    // Cancel ALL queued executions when any cell is interrupted
+    // This prevents subsequent cells from running with incomplete state
+    const initialQueueLength = this.executionQueue.length;
+
+    // Reject all queued executions
+    for (const item of this.executionQueue) {
+      item.reject(new Error("Execution cancelled due to interrupt"));
+    }
+
+    // Clear the entire queue
+    this.executionQueue.length = 0;
+
+    if (initialQueueLength > 0) {
+      this.logger.info("Cancelled all queued executions due to interrupt", {
+        triggeringCellId: cellId,
+        cancelledCount: initialQueueLength,
+      });
+    }
+  }
+
+  /**
+   * Handle worker crash and cleanup
+   */
+  private handleWorkerCrash(reason: string): void {
+    this.logger.error("Uncaught error", { error: "null" });
+
+    // Reject all pending executions
+    for (const [_id, pending] of this.pendingExecutions) {
+      pending.reject(new Error(`Worker crashed: ${reason}`));
+    }
+    this.pendingExecutions.clear();
+
+    // Reject all queued executions
+    for (const { reject } of this.executionQueue) {
+      reject(new Error(`Worker crashed: ${reason}`));
+    }
+    this.executionQueue.length = 0;
+
+    // Mark as uninitialized to trigger restart
+    this.isInitialized = false;
+    this.currentExecutionContext = null;
+
+    // Clean up worker
+    this.cleanupWorker();
   }
 
   /**
