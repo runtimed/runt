@@ -10,6 +10,11 @@ import { crypto } from "jsr:@std/crypto";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 import { events, tables } from "@runt/schema";
 import { queryDb } from "npm:@livestore/livestore";
+import { withQuietConsole } from "../../lib/test/test-config.ts";
+
+// Configure test environment for quiet logging
+Deno.env.set("RUNT_LOG_LEVEL", "ERROR");
+Deno.env.set("RUNT_DISABLE_CONSOLE_LOGS", "true");
 
 Deno.test({
   name: "PyodideRuntimeAgent - Complete Integration",
@@ -20,28 +25,30 @@ Deno.test({
   let agent: PyodideRuntimeAgent | undefined;
 
   try {
-    await t.step("can create agent with test config", () => {
-      const notebookId = `test-${crypto.randomUUID()}`;
-      const kernelId = `kernel-${crypto.randomUUID()}`;
+    await t.step("can create agent with test config", async () => {
+      await withQuietConsole(() => {
+        const notebookId = `test-${crypto.randomUUID()}`;
+        const kernelId = `kernel-${crypto.randomUUID()}`;
 
-      // Use a local-only sync URL - LiveStore works purely in-memory
-      const agentArgs = [
-        "--kernel-id",
-        kernelId,
-        "--notebook",
-        notebookId,
-        "--auth-token",
-        "test-token",
-        "--sync-url",
-        "ws://localhost:9999", // Won't connect, but that's fine
-      ];
+        // Use a local-only sync URL - LiveStore works purely in-memory
+        const agentArgs = [
+          "--kernel-id",
+          kernelId,
+          "--notebook",
+          notebookId,
+          "--auth-token",
+          "test-token",
+          "--sync-url",
+          "ws://localhost:9999", // Won't connect, but that's fine
+        ];
 
-      agent = new PyodideRuntimeAgent(agentArgs);
+        agent = new PyodideRuntimeAgent(agentArgs);
 
-      assertExists(agent);
-      assertEquals(agent.config.notebookId, notebookId);
-      assertEquals(agent.config.kernelId, kernelId);
-      assertEquals(agent.config.authToken, "test-token");
+        assertExists(agent);
+        assertEquals(agent.config.notebookId, notebookId);
+        assertEquals(agent.config.kernelId, kernelId);
+        assertEquals(agent.config.authToken, "test-token");
+      });
     });
 
     await t.step("can start agent", async () => {

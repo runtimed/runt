@@ -1,27 +1,37 @@
 import { assertEquals, assertExists } from "jsr:@std/assert@1.0.13";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 import { events, tables } from "@runt/schema";
+import { withQuietConsole } from "../../lib/test/test-config.ts";
+
+// Configure test environment for quiet logging
+Deno.env.set("RUNT_LOG_LEVEL", "ERROR");
+Deno.env.set("RUNT_DISABLE_CONSOLE_LOGS", "true");
 
 Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
   let agent: PyodideRuntimeAgent | undefined;
 
   await t.step("setup AI cell test environment", async () => {
-    const agentArgs = [
-      "--kernel-id",
-      "ai-test-kernel",
-      "--notebook",
-      "ai-test-notebook",
-      "--auth-token",
-      "ai-test-token",
-      "--sync-url",
-      "ws://localhost:8787",
-    ];
+    await withQuietConsole(async () => {
+      const agentArgs = [
+        "--kernel-id",
+        "ai-test-kernel",
+        "--notebook",
+        "ai-test-notebook",
+        "--auth-token",
+        "ai-test-token",
+        "--sync-url",
+        "ws://localhost:8787",
+      ];
 
-    agent = new PyodideRuntimeAgent(agentArgs);
-    assertExists(agent);
-    assertEquals(agent.config.capabilities.canExecuteAi, true);
+      agent = new PyodideRuntimeAgent(agentArgs);
+      assertExists(agent);
+      assertEquals(agent.config.capabilities.canExecuteAi, true);
 
-    await agent.start();
+      await withQuietConsole(async () => {
+        if (!agent) throw new Error("Agent not initialized");
+        await agent.start();
+      });
+    });
   });
 
   await t.step("can execute AI cell with mock response", async () => {
@@ -110,10 +120,16 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
         true,
         "Should have substantial AI response content",
       );
-      console.log(`✅ AI response received: ${content.slice(0, 100)}...`);
+      // Only show response in verbose mode
+      if (Deno.env.get("RUNT_LOG_LEVEL") === "DEBUG") {
+        console.log(`✅ AI response received: ${content.slice(0, 100)}...`);
+      }
     }
 
-    console.log("✅ AI cell executed successfully with mock response");
+    // Only show success message in verbose mode
+    if (Deno.env.get("RUNT_LOG_LEVEL") === "DEBUG") {
+      console.log("✅ AI cell executed successfully with mock response");
+    }
   });
 
   await t.step("can handle AI cell tool calling (create_cell)", async () => {
@@ -177,7 +193,10 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
       attempts++;
     }
 
-    console.log("✅ AI cell tool calling test completed (mock mode)");
+    // Only show success message in verbose mode
+    if (Deno.env.get("RUNT_LOG_LEVEL") === "DEBUG") {
+      console.log("✅ AI cell tool calling test completed (mock mode)");
+    }
   });
 
   await t.step("can handle mixed AI and Python cells", async () => {
@@ -294,15 +313,24 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
     assertExists(aiOutputs);
     assertEquals(aiOutputs.length > 0, true, "AI cell should have outputs");
 
-    console.log("✅ Mixed AI and Python cell execution successful");
+    // Only show success message in verbose mode
+    if (Deno.env.get("RUNT_LOG_LEVEL") === "DEBUG") {
+      console.log("✅ Mixed AI and Python cell execution successful");
+    }
   });
 
   await t.step("cleanup", async () => {
     if (agent) {
       try {
-        await agent.shutdown();
+        await withQuietConsole(async () => {
+          if (!agent) throw new Error("Agent not initialized");
+          await agent.shutdown();
+        });
         agent = undefined;
-        console.log("✅ AI cell integration test cleanup complete");
+        // Only show cleanup message in verbose mode
+        if (Deno.env.get("RUNT_LOG_LEVEL") === "DEBUG") {
+          console.log("✅ AI cell integration test cleanup complete");
+        }
       } catch (error) {
         console.error("Error during test cleanup:", error);
       }
@@ -314,19 +342,27 @@ Deno.test("PyodideRuntimeAgent - AI Cell Error Handling", async (t) => {
   let agent: PyodideRuntimeAgent | undefined;
 
   await t.step("setup", async () => {
-    const agentArgs = [
-      "--kernel-id",
-      "ai-error-test-kernel",
-      "--notebook",
-      "ai-error-test-notebook",
-      "--auth-token",
-      "ai-error-test-token",
-      "--sync-url",
-      "ws://localhost:8787",
-    ];
+    await withQuietConsole(async () => {
+      const agentArgs = [
+        "--kernel-id",
+        "ai-error-test-kernel",
+        "--notebook",
+        "ai-error-test-notebook",
+        "--auth-token",
+        "ai-error-test-token",
+        "--sync-url",
+        "ws://localhost:8787",
+      ];
 
-    agent = new PyodideRuntimeAgent(agentArgs);
-    await agent.start();
+      agent = new PyodideRuntimeAgent(agentArgs);
+      assertExists(agent);
+      assertEquals(agent.config.capabilities.canExecuteAi, true);
+
+      await withQuietConsole(async () => {
+        if (!agent) throw new Error("Agent not initialized");
+        await agent.start();
+      });
+    });
   });
 
   await t.step("handles empty AI cell gracefully", async () => {
@@ -382,16 +418,22 @@ Deno.test("PyodideRuntimeAgent - AI Cell Error Handling", async (t) => {
       attempts++;
     }
 
-    console.log("✅ Empty AI cell handled gracefully");
+    // Only show success message in verbose mode
+    if (Deno.env.get("RUNT_LOG_LEVEL") === "DEBUG") {
+      console.log("✅ Empty AI cell handled gracefully");
+    }
   });
 
   await t.step("cleanup", async () => {
     if (agent) {
       try {
-        await agent.shutdown();
+        await withQuietConsole(async () => {
+          if (!agent) throw new Error("Agent not initialized");
+          await agent.shutdown();
+        });
         agent = undefined;
       } catch (error) {
-        console.error("Error during error handling test cleanup:", error);
+        console.error("Error during test cleanup:", error);
       }
     }
   });

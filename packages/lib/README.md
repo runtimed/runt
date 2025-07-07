@@ -104,4 +104,8 @@ const logger = createLogger("my-agent");
 
 Environment: `RUNT_LOG_LEVEL`, `RUNT_DISABLE_CONSOLE_LOGS`
 
+The default log level is `ERROR`. Set `RUNT_LOG_LEVEL` to `INFO` or `DEBUG` for
+more verbose output. Continuous integration runs use `RUNT_LOG_LEVEL=INFO` so
+you'll see detailed logs in CI.
+
 Examples in `examples/`.

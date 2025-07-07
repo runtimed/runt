@@ -44,6 +44,8 @@ jobs:
 
       - name: Run tests
         run: deno task test:coverage
+        env:
+          RUNT_LOG_LEVEL: INFO
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
@@ -68,6 +70,8 @@ jobs:
         run: |
           cd packages/lib
           timeout 10s deno run --allow-net --allow-env examples/echo-agent.ts --help || [ $? -eq 124 ]
+        env:
+          RUNT_LOG_LEVEL: INFO
 
   package-check:
     name: Package Validation

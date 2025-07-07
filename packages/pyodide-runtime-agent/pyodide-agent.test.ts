@@ -7,6 +7,11 @@ import {
   getPreloadPackages,
   PyodideRuntimeAgent,
 } from "./src/mod.ts";
+import { withQuietConsole } from "../lib/test/test-config.ts";
+
+// Configure test environment for quiet logging
+Deno.env.set("RUNT_LOG_LEVEL", "ERROR");
+Deno.env.set("RUNT_DISABLE_CONSOLE_LOGS", "true");
 
 Deno.test("PyodideRuntimeAgent exports", () => {
   // Test that main exports are available
@@ -98,7 +103,10 @@ Deno.test("PyodideRuntimeAgent configuration", async (t) => {
       Object.defineProperty(Deno, "args", { value: [], writable: true });
 
       try {
-        new PyodideRuntimeAgent([]);
+        // Wrap configuration error in quiet console to suppress verbose output
+        withQuietConsole(() => {
+          new PyodideRuntimeAgent([]);
+        });
       } catch (error) {
         // Should throw due to our mocked exit
         assertEquals(error instanceof Error, true);

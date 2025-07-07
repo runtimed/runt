@@ -39,7 +39,7 @@ export interface LoggerConfig {
  * Default logger configuration
  */
 const DEFAULT_CONFIG: LoggerConfig = {
-  level: LogLevel.INFO,
+  level: LogLevel.ERROR,
   console: true,
   service: "runt-agent",
 };
@@ -282,7 +282,7 @@ function getLogLevelFromEnv(): LogLevel {
     case "ERROR":
       return LogLevel.ERROR;
     default:
-      return LogLevel.INFO;
+      return LogLevel.ERROR;
   }
 }
 

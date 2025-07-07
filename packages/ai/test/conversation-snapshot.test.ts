@@ -999,34 +999,36 @@ Deno.test("AI conversation rendering - debug UI scenario", () => {
     "Maybe #4",
   );
 
-  // Debug: Print the conversation for analysis
-  console.log("\n=== UI SCENARIO CONVERSATION DEBUG ===");
-  messages.forEach((msg, idx) => {
-    console.log(`\n${idx + 1}. Role: ${msg.role}`);
-    if (msg.content) {
-      console.log(`   Content: ${msg.content.slice(0, 200)}...`);
-    }
-    if ((msg as AssistantMessageWithToolCalls).tool_calls) {
-      console.log(
-        `   Tool calls: ${
-          (msg as AssistantMessageWithToolCalls).tool_calls!.length
-        } call(s)`,
-      );
-      (msg as AssistantMessageWithToolCalls).tool_calls!.forEach(
-        (call, i: number) => {
-          console.log(
-            `     ${i + 1}. ${call.function.name}(${
-              Object.keys(JSON.parse(call.function.arguments)).join(", ")
-            })`,
-          );
-        },
-      );
-    }
-    if ((msg as ToolMessage).tool_call_id) {
-      console.log(`   Tool call ID: ${(msg as ToolMessage).tool_call_id}`);
-    }
-  });
-  console.log("\n=== END CONVERSATION DEBUG ===\n");
+  // Debug: Print the conversation for analysis only in verbose mode
+  if (Deno.env.get("RUNT_LOG_LEVEL") === "DEBUG") {
+    console.log("\n=== UI SCENARIO CONVERSATION DEBUG ===");
+    messages.forEach((msg, idx) => {
+      console.log(`\n${idx + 1}. Role: ${msg.role}`);
+      if (msg.content) {
+        console.log(`   Content: ${msg.content.slice(0, 200)}...`);
+      }
+      if ((msg as AssistantMessageWithToolCalls).tool_calls) {
+        console.log(
+          `   Tool calls: ${
+            (msg as AssistantMessageWithToolCalls).tool_calls!.length
+          } call(s)`,
+        );
+        (msg as AssistantMessageWithToolCalls).tool_calls!.forEach(
+          (call, i: number) => {
+            console.log(
+              `     ${i + 1}. ${call.function.name}(${
+                Object.keys(JSON.parse(call.function.arguments)).join(", ")
+              })`,
+            );
+          },
+        );
+      }
+      if ((msg as ToolMessage).tool_call_id) {
+        console.log(`   Tool call ID: ${(msg as ToolMessage).tool_call_id}`);
+      }
+    });
+    console.log("\n=== END CONVERSATION DEBUG ===\n");
+  }
 
   // Basic verification - the AI should see its previous work
   assertEquals(messages.length >= 8, true); // Should have many messages

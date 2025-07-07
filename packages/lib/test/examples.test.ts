@@ -56,11 +56,14 @@ Deno.test("Example Files", async (t) => {
         }
       }
 
-      console.log(
-        `✅ Validated ${exampleFiles.length} example files: ${
-          exampleFiles.join(", ")
-        }`,
-      );
+      // Only show validation message in verbose mode
+      if (Deno.env.get("RUNT_LOG_LEVEL") === "DEBUG") {
+        console.log(
+          `✅ Validated ${exampleFiles.length} example files: ${
+            exampleFiles.join(", ")
+          }`,
+        );
+      }
     },
   );
 });

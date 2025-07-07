@@ -1,27 +1,37 @@
 import { assertEquals, assertExists } from "jsr:@std/assert@1.0.13";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 import { events, tables } from "@runt/schema";
+import { withQuietConsole } from "../../lib/test/test-config.ts";
+
+// Configure test environment for quiet logging
+Deno.env.set("RUNT_LOG_LEVEL", "ERROR");
+Deno.env.set("RUNT_DISABLE_CONSOLE_LOGS", "true");
 
 Deno.test("PyodideRuntimeAgent - AI Cell Cancellation", async (t) => {
   let agent: PyodideRuntimeAgent | undefined;
 
   await t.step("setup AI cancellation test environment", async () => {
-    const agentArgs = [
-      "--kernel-id",
-      "ai-cancel-test-kernel",
-      "--notebook",
-      "ai-cancel-test-notebook",
-      "--auth-token",
-      "ai-cancel-test-token",
-      "--sync-url",
-      "ws://localhost:8787",
-    ];
+    await withQuietConsole(async () => {
+      const agentArgs = [
+        "--kernel-id",
+        "ai-cancel-test-kernel",
+        "--notebook",
+        "ai-cancel-test-notebook",
+        "--auth-token",
+        "ai-cancel-test-token",
+        "--sync-url",
+        "ws://localhost:8787",
+      ];
 
-    agent = new PyodideRuntimeAgent(agentArgs);
-    assertExists(agent);
-    assertEquals(agent.config.capabilities.canExecuteAi, true);
+      agent = new PyodideRuntimeAgent(agentArgs);
+      assertExists(agent);
+      assertEquals(agent.config.capabilities.canExecuteAi, true);
 
-    await agent.start();
+      await withQuietConsole(async () => {
+        if (!agent) throw new Error("Agent not initialized");
+        await agent.start();
+      });
+    });
   });
 
   await t.step("AI cell cancellation clears execution state", async () => {
@@ -173,7 +183,10 @@ Deno.test("PyodideRuntimeAgent - AI Cell Cancellation", async (t) => {
       );
     }
 
-    console.log("✅ AI cell cancellation test successful");
+    // Only show success message in verbose mode
+    if (Deno.env.get("RUNT_LOG_LEVEL") === "DEBUG") {
+      console.log("✅ AI cell cancellation test successful");
+    }
   });
 
   await t.step("cleanup", async () => {
