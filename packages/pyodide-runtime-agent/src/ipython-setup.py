@@ -83,8 +83,11 @@ class RichDisplayPublisher(DisplayPublisher):
 
     def clear_output(self, wait=False):
         """Clear output signal"""
-        # TODO: Implement clear_output with our schema and protocol
-        print(f"[CLEAR_OUTPUT:{wait}]", flush=True)
+        if hasattr(self, "js_clear_callback") and self.js_clear_callback:
+            self.js_clear_callback(wait)
+        else:
+            # Fallback - send clear signal via stdout
+            print(f"__CLEAR_OUTPUT__:{wait}", flush=True)
 
     def _make_serializable(self, obj):
         """Convert objects to JSON-serializable format"""
@@ -298,6 +301,11 @@ def default_execution_callback(execution_count, data, metadata):
     pass
 
 
+def default_clear_callback(wait=False):
+    """Default clear callback - does nothing"""
+    pass
+
+
 async def bootstrap_micropip_packages():
     try:
         import micropip
@@ -420,6 +428,7 @@ def setup_interrupt_patches():
 # Make callbacks available globally
 js_display_callback = default_display_callback
 js_execution_callback = default_execution_callback
+js_clear_callback = default_clear_callback
 
 # Set up interrupt patches
 setup_interrupt_patches()
@@ -429,5 +438,6 @@ __all__ = [
     "shell",
     "js_display_callback",
     "js_execution_callback",
+    "js_clear_callback",
     "setup_interrupt_patches",
 ]

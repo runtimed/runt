@@ -276,6 +276,9 @@ export class PyodideRuntimeAgent {
               data.data.traceback || [String(data.data)],
             );
             break;
+          case "clear_output":
+            this.currentExecutionContext.clear(data.wait || false);
+            break;
         }
       }
       return;

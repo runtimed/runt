@@ -394,6 +394,26 @@ async function executePython(code: string): Promise<{
       },
     );
 
+    pyodide.globals.set(
+      "js_clear_callback",
+      (wait: boolean = false) => {
+        try {
+          self.postMessage({
+            type: "stream_output",
+            data: {
+              type: "clear_output",
+              wait: wait,
+            },
+          });
+        } catch (error) {
+          self.postMessage({
+            type: "log",
+            data: `Error in clear callback: ${error}`,
+          });
+        }
+      },
+    );
+
     // Set up interrupt checking function for Python
     pyodide.globals.set(
       "pyodide_check_interrupt",
@@ -417,7 +437,11 @@ async function executePython(code: string): Promise<{
     await pyodide.runPythonAsync(`
 # Connect our JavaScript callbacks to the IPython shell
 shell.display_pub.js_callback = js_display_callback
+shell.display_pub.js_clear_callback = js_clear_callback
 shell.displayhook.js_callback = js_execution_callback
+
+# Make clear_output available globally for users
+from IPython.display import clear_output
 
 # Make interrupt checking available to Python patches
 import builtins
