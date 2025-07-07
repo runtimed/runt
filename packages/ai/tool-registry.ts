@@ -315,21 +315,39 @@ export async function handleToolCallWithResult(
                 const outputTexts: string[] = [];
 
                 for (const output of outputs) {
-                  if (output.outputType === "stream" && output.data.text) {
+                  if (output.outputType === "terminal" && output.data) {
                     outputTexts.push(
-                      `Output: ${String(output.data.text).trim()}`,
+                      `Output: ${String(output.data).trim()}`,
                     );
                   } else if (
-                    output.outputType === "execute_result" &&
-                    output.data["text/plain"]
+                    output.outputType === "multimedia_result"
                   ) {
-                    outputTexts.push(
-                      `Result: ${String(output.data["text/plain"]).trim()}`,
-                    );
-                  } else if (output.outputType === "error") {
-                    outputTexts.push(
-                      `Error: ${output.data.ename}: ${output.data.evalue}`,
-                    );
+                    // Try to get text representation from representations or fallback to data
+                    let resultText = "";
+                    if (
+                      output.representations &&
+                      output.representations["text/plain"]
+                    ) {
+                      resultText = String(
+                        output.representations["text/plain"].data || "",
+                      );
+                    } else if (output.data) {
+                      resultText = String(output.data);
+                    }
+                    if (resultText) {
+                      outputTexts.push(`Result: ${resultText.trim()}`);
+                    }
+                  } else if (output.outputType === "error" && output.data) {
+                    try {
+                      const errorData = typeof output.data === "string"
+                        ? JSON.parse(output.data)
+                        : output.data;
+                      outputTexts.push(
+                        `Error: ${errorData.ename}: ${errorData.evalue}`,
+                      );
+                    } catch {
+                      outputTexts.push(`Error: ${String(output.data)}`);
+                    }
                   }
                 }
 
