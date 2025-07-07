@@ -3,7 +3,6 @@ import {
   makeSchema,
   Schema,
   SessionIdSymbol,
-  sql,
   State,
   type Store as LiveStore,
 } from "@livestore/livestore";

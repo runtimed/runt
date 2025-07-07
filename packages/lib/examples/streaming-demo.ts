@@ -6,6 +6,7 @@
 
 import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
 import type { ExecutionContext } from "@runt/lib";
+import { events, tables } from "@runt/schema";
 
 class StreamingDemoAgent {
   private agent: RuntimeAgent;
@@ -36,7 +37,12 @@ class StreamingDemoAgent {
   }
 
   async start() {
-    return await this.agent.start();
+    const result = await this.agent.start();
+
+    // Auto-create help cell if notebook is empty
+    await this.createHelpCellIfEmpty();
+
+    return result;
   }
 
   async shutdown() {
@@ -45,6 +51,47 @@ class StreamingDemoAgent {
 
   async keepAlive() {
     return await this.agent.keepAlive();
+  }
+
+  private async createHelpCellIfEmpty() {
+    try {
+      // Check if there are any existing cells using LiveStore query
+      const cells = this.agent.liveStore.query(
+        tables.cells.select(),
+      );
+
+      if (cells.length === 0) {
+        console.log("📝 Creating initial help cell for empty notebook...");
+
+        // Create a cell with help command
+        const cellId = crypto.randomUUID();
+        this.agent.liveStore.commit(events.cellCreated({
+          id: cellId,
+          cellType: "code",
+          position: 0,
+          createdBy: "streaming-demo-kernel",
+        }));
+
+        // Update the cell with source content
+        this.agent.liveStore.commit(events.cellSourceChanged({
+          id: cellId,
+          source: "help",
+          modifiedBy: "streaming-demo-kernel",
+        }));
+
+        // Queue it for execution
+        const queueId = crypto.randomUUID();
+        this.agent.liveStore.commit(events.executionRequested({
+          queueId: queueId,
+          cellId: cellId,
+          executionCount: 1,
+          requestedBy: "streaming-demo-kernel",
+          priority: 0,
+        }));
+      }
+    } catch (error) {
+      console.warn("Failed to create help cell:", error);
+    }
   }
 
   private async executeCode(context: ExecutionContext) {
@@ -162,25 +209,32 @@ class StreamingDemoAgent {
         }
         appendMarkdown(markdownId, "\n\n");
 
-        // Stream the response content by content using markdown append
-        const responseLines = [
-          "I'll help you understand streaming outputs in the unified system.\n\n",
-          "The new system uses granular events:\n",
-          "- `terminalOutputAdded` for initial output\n",
-          "- `terminalOutputAppended` for streaming content\n",
-          "- `markdownOutputAdded` for rich content\n",
-          "- `markdownOutputAppended` for streaming markdown\n\n",
-          "## Benefits include:\n",
-          "1. **Type Safety**: Each event has a precise schema\n",
-          "2. **Performance**: Better SQL operations with flattened data\n",
-          "3. **Streaming**: Real-time append operations\n",
-          "4. **Grouping**: Consecutive outputs merge naturally\n\n",
-          "This creates a much better user experience! ✨\n",
-        ];
+        // Stream the response content token by token to simulate real AI streaming
+        const fullResponse =
+          `I'll help you understand streaming outputs in the unified system.
 
-        for (const line of responseLines) {
-          appendMarkdown(markdownId, line);
-          await this.delay(300);
+The new system uses granular events:
+- \`terminalOutputAdded\` for initial output
+- \`terminalOutputAppended\` for streaming content
+- \`markdownOutputAdded\` for rich content
+- \`markdownOutputAppended\` for streaming markdown
+
+## Benefits include:
+1. **Type Safety**: Each event has a precise schema
+2. **Performance**: Better SQL operations with flattened data
+3. **Streaming**: Real-time append operations
+4. **Grouping**: Consecutive outputs merge naturally
+
+This creates a much better user experience! ✨`;
+
+        // Split into token-like chunks for realistic streaming
+        const tokens = this.tokenizeText(fullResponse);
+
+        for (const token of tokens) {
+          appendMarkdown(markdownId, token);
+          // Vary the delay to simulate realistic AI token generation
+          const delay = token.includes("\n") ? 150 : Math.random() * 100 + 50;
+          await this.delay(delay);
         }
 
         // Final status message
@@ -304,6 +358,26 @@ Each demo shows different aspects of how the new granular events work!`);
 
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private tokenizeText(text: string): string[] {
+    // Split text into token-like chunks for realistic AI streaming
+    const tokens: string[] = [];
+    const words = text.split(/(\s+)/); // Keep whitespace
+
+    for (const word of words) {
+      if (word.length <= 4) {
+        // Short words/spaces as single tokens
+        tokens.push(word);
+      } else {
+        // Break longer words into smaller chunks
+        for (let i = 0; i < word.length; i += 3) {
+          tokens.push(word.slice(i, i + 3));
+        }
+      }
+    }
+
+    return tokens;
   }
 }
 
