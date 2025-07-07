@@ -3,6 +3,8 @@
   "specifiers": {
     "jsr:@openai/openai@^4.98.0": "4.102.0",
     "jsr:@runt/ai@~0.5.3": "0.5.3",
+    "jsr:@runt/lib@~0.5.3": "0.5.3",
+    "jsr:@runt/schema@~0.5.3": "0.5.3",
     "jsr:@std/assert@*": "1.0.13",
     "jsr:@std/assert@1.0.13": "1.0.13",
     "jsr:@std/async@*": "1.0.13",
@@ -19,6 +21,7 @@
     "npm:@opentelemetry/api@*": "1.9.0",
     "npm:@opentelemetry/api@^1.9.0": "1.9.0",
     "npm:pyodide@*": "0.27.7",
+    "npm:pyodide@0.28": "0.28.0",
     "npm:pyodide@~0.27.7": "0.27.7",
     "npm:strip-ansi@^7.1.0": "7.1.0",
     "npm:zod@3": "3.25.57"
@@ -35,6 +38,22 @@
       "dependencies": [
         "jsr:@openai/openai",
         "npm:strip-ansi"
+      ]
+    },
+    "@runt/lib@0.5.3": {
+      "integrity": "de87df1a7d93e41d93dda7a23ef04bb2d9445cc2e472c13ce64ad597718f712e",
+      "dependencies": [
+        "jsr:@std/cli@1",
+        "npm:@livestore/adapter-node@~0.3.1",
+        "npm:@livestore/livestore@~0.3.1",
+        "npm:@livestore/sync-cf",
+        "npm:@opentelemetry/api@^1.9.0"
+      ]
+    },
+    "@runt/schema@0.5.3": {
+      "integrity": "efaee42f9459ebdd0e3a008a295d33d5cf66a30e01d3a9c244c28e98abd577e7",
+      "dependencies": [
+        "npm:@livestore/livestore@~0.3.1"
       ]
     },
     "@std/assert@1.0.13": {
@@ -898,6 +917,12 @@
         "ws"
       ]
     },
+    "pyodide@0.28.0": {
+      "integrity": "sha512-QML/Gh8eu50q5zZKLNpW6rgS0XUdK+94OSL54AUSKV8eJAxgwZrMebqj+CyM0EbF3EUX8JFJU3ryaxBViHammQ==",
+      "dependencies": [
+        "ws"
+      ]
+    },
     "rollup@4.42.0": {
       "integrity": "sha512-LW+Vse3BJPyGJGAJt1j8pWDKPd73QM8cRXYK1IxOBgL2AGLu7Xd2YOW0M2sLUBCkF5MshXXtMApyEAEzMVMsnw==",
       "dependencies": [
@@ -1052,7 +1077,7 @@
           "jsr:@runt/schema@~0.5.3",
           "jsr:@std/async@1",
           "npm:@livestore/livestore@~0.3.1",
-          "npm:pyodide@~0.27.7",
+          "npm:pyodide@0.28",
           "npm:strip-ansi@^7.1.0"
         ]
       },
