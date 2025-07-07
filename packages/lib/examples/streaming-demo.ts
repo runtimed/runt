@@ -205,7 +205,7 @@ class StreamingDemoAgent {
         // Simulate typing dots using markdown append
         for (let i = 0; i < 3; i++) {
           appendMarkdown(markdownId, ".");
-          await this.delay(400);
+          await this.delay(100);
         }
         appendMarkdown(markdownId, "\n\n");
 
@@ -233,7 +233,7 @@ This creates a much better user experience! ✨`;
         for (const token of tokens) {
           appendMarkdown(markdownId, token);
           // Vary the delay to simulate realistic AI token generation
-          const delay = token.includes("\n") ? 150 : Math.random() * 100 + 50;
+          const delay = token.includes("\n") ? 50 : Math.random() * 30 + 20;
           await this.delay(delay);
         }
 
