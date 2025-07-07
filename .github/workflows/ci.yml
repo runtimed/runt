@@ -185,6 +185,24 @@ jobs:
           console.log('Cross-package imports work');
           "
 
+      - name: Test python-runtime-agent
+        run: |
+          cd packages/python-runtime-agent
+          deno test --allow-all --coverage=cov_profile
+
+      - name: Check python-runtime-agent package exports
+        run: |
+          deno eval "import * as agent from './packages/python-runtime-agent/main.ts'; console.log('python-runtime-agent imports work');"
+
+      - name: Validate python-runtime-agent deno.json
+        run: |
+          deno eval "const config = JSON.parse(Deno.readTextFileSync('./packages/python-runtime-agent/deno.json')); console.log('python-runtime-agent deno.json is valid');"
+
+      - name: Dry run publish python-runtime-agent
+        run: |
+          cd packages/python-runtime-agent
+          deno publish --dry-run
+
   cross-platform:
     name: Cross Platform
     runs-on: ${{ matrix.os }}
