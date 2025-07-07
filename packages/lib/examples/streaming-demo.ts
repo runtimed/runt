@@ -40,7 +40,7 @@ class StreamingDemoAgent {
     const result = await this.agent.start();
 
     // Auto-create help cell if notebook is empty
-    await this.createHelpCellIfEmpty();
+    this.createHelpCellIfEmpty();
 
     return result;
   }
@@ -53,7 +53,7 @@ class StreamingDemoAgent {
     return await this.agent.keepAlive();
   }
 
-  private async createHelpCellIfEmpty() {
+  private createHelpCellIfEmpty() {
     try {
       // Check if there are any existing cells using LiveStore query
       const cells = this.agent.liveStore.query(
