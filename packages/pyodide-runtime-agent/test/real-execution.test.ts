@@ -27,7 +27,16 @@ function createTestAgent(packages?: string[]): PyodideRuntimeAgent {
 
 // Simple output capture for testing
 interface CapturedOutput {
-  type: "stdout" | "stderr" | "result" | "display" | "error" | "clear";
+  type:
+    | "stdout"
+    | "stderr"
+    | "result"
+    | "display"
+    | "error"
+    | "clear"
+    | "appendTerminal"
+    | "markdown"
+    | "appendMarkdown";
   data: unknown;
   metadata?: Record<string, unknown> | undefined;
 }
@@ -103,6 +112,12 @@ function createTestExecutionContext(code: string): {
     error: (ename: string, evalue: string, traceback: string[]) =>
       outputs.push({ type: "error", data: { ename, evalue, traceback } }),
     clear: () => outputs.push({ type: "clear", data: null }),
+    appendTerminal: (outputId: string, text: string) =>
+      outputs.push({ type: "appendTerminal", data: { outputId, text } }),
+    markdown: (content: string, metadata?: Record<string, unknown>) =>
+      outputs.push({ type: "markdown", data: { content, metadata } }),
+    appendMarkdown: (outputId: string, content: string) =>
+      outputs.push({ type: "appendMarkdown", data: { outputId, content } }),
   };
 
   return { context, outputs, abortController };
