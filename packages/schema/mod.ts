@@ -83,54 +83,12 @@ export const tables = {
     },
   }),
 
-  // Enhanced output capture table for unified output system
-  outputCaptures: State.SQLite.table({
-    name: "outputCaptures",
+  // Pending clears table for clear_output(wait=True) support
+  pendingClears: State.SQLite.table({
+    name: "pendingClears",
     columns: {
-      id: State.SQLite.text({ primaryKey: true }),
-      cellId: State.SQLite.text(),
-      outputId: State.SQLite.text(),
-      queueId: State.SQLite.text(),
-      sequence: State.SQLite.integer(),
-      outputType: State.SQLite.text({
-        schema: Schema.Literal(
-          "display_data",
-          "execute_result",
-          "stream",
-          "error",
-        ),
-      }),
-      mediaType: State.SQLite.text({
-        schema: Schema.Literal(
-          "text",
-          "image",
-          "html",
-          "json",
-          "markdown",
-          "ansi",
-          "code",
-        ),
-      }),
-      content: State.SQLite.text(),
-      metadata: State.SQLite.json({ nullable: true, schema: Schema.Any }),
-      capturedAt: State.SQLite.datetime(),
-    },
-  }),
-
-  // Output sessions for tracking execution output lifecycle
-  outputSessions: State.SQLite.table({
-    name: "outputSessions",
-    columns: {
-      outputId: State.SQLite.text({ primaryKey: true }),
-      cellId: State.SQLite.text(),
-      queueId: State.SQLite.text(),
-      status: State.SQLite.text({
-        default: "active",
-        schema: Schema.Literal("active", "completed", "error", "cancelled"),
-      }),
-      totalSequences: State.SQLite.integer({ default: 0 }),
-      startedAt: State.SQLite.datetime(),
-      completedAt: State.SQLite.datetime({ nullable: true }),
+      cellId: State.SQLite.text({ primaryKey: true }),
+      clearedBy: State.SQLite.text(),
     },
   }),
 
@@ -398,91 +356,73 @@ export const events = {
     }),
   }),
 
-  // Enhanced output events for unified output system
-  outputStarted: Events.synced({
-    name: "v1.OutputStarted",
-    schema: Schema.Struct({
-      cellId: Schema.String,
-      outputId: Schema.String,
-      queueId: Schema.String,
-      startedAt: Schema.Date,
-    }),
-  }),
-
-  outputCaptured: Events.synced({
-    name: "v1.OutputCaptured",
-    schema: Schema.Struct({
-      cellId: Schema.String,
-      outputId: Schema.String,
-      queueId: Schema.String,
-      sequence: Schema.Number,
-      outputType: Schema.Literal(
-        "display_data",
-        "execute_result",
-        "stream",
-        "error",
-      ),
-      mediaType: Schema.Literal(
-        "text",
-        "image",
-        "html",
-        "json",
-        "markdown",
-        "ansi",
-        "code",
-      ),
-      content: Schema.String,
-      metadata: Schema.optional(Schema.Any),
-      capturedAt: Schema.Date,
-    }),
-  }),
-
-  outputCleared: Events.synced({
-    name: "v1.OutputCleared",
-    schema: Schema.Struct({
-      cellId: Schema.String,
-      outputId: Schema.String,
-      clearedBy: Schema.String,
-    }),
-  }),
-
-  outputCompleted: Events.synced({
-    name: "v1.OutputCompleted",
-    schema: Schema.Struct({
-      cellId: Schema.String,
-      outputId: Schema.String,
-      queueId: Schema.String,
-      status: Schema.Literal("success", "error", "cancelled"),
-      totalSequences: Schema.Number,
-      completedAt: Schema.Date,
-    }),
-  }),
-
-  // Legacy output events (keeping for backward compatibility)
-  cellOutputAdded: Events.synced({
-    name: "v1.CellOutputAdded",
+  // Unified output system - granular events replacing cellOutputAdded
+  multimediaDisplayOutputAdded: Events.synced({
+    name: "v1.MultimediaDisplayOutputAdded",
     schema: Schema.Struct({
       id: Schema.String,
       cellId: Schema.String,
-      outputType: Schema.Literal(
-        "display_data",
-        "execute_result",
-        "stream",
-        "error",
-      ),
-      data: Schema.Any,
-      metadata: Schema.optional(Schema.Any), // For additional output metadata
       position: Schema.Number,
-      displayId: Schema.optional(Schema.String), // Jupyter display_id for cross-cell updates
+      representations: Schema.Record(Schema.String, MediaRepresentationSchema),
+      displayId: Schema.optional(Schema.String),
     }),
   }),
 
-  cellOutputUpdated: Events.synced({
-    name: "v1.CellOutputUpdated",
+  multimediaResultOutputAdded: Events.synced({
+    name: "v1.MultimediaResultOutputAdded",
     schema: Schema.Struct({
-      id: Schema.String, // Display ID to update (global across cells)
-      data: Schema.Any,
-      metadata: Schema.optional(Schema.Any),
+      id: Schema.String,
+      cellId: Schema.String,
+      position: Schema.Number,
+      representations: Schema.Record(Schema.String, MediaRepresentationSchema),
+      executionCount: Schema.Number,
+    }),
+  }),
+
+  terminalOutputAdded: Events.synced({
+    name: "v1.TerminalOutputAdded",
+    schema: Schema.Struct({
+      id: Schema.String,
+      cellId: Schema.String,
+      position: Schema.Number,
+      content: MediaRepresentationSchema,
+      streamName: Schema.Literal("stdout", "stderr"),
+    }),
+  }),
+
+  terminalOutputAppended: Events.synced({
+    name: "v1.TerminalOutputAppended",
+    schema: Schema.Struct({
+      outputId: Schema.String,
+      content: MediaRepresentationSchema,
+    }),
+  }),
+
+  markdownOutputAdded: Events.synced({
+    name: "v1.MarkdownOutputAdded",
+    schema: Schema.Struct({
+      id: Schema.String,
+      cellId: Schema.String,
+      position: Schema.Number,
+      content: MediaRepresentationSchema,
+    }),
+  }),
+
+  markdownOutputAppended: Events.synced({
+    name: "v1.MarkdownOutputAppended",
+    schema: Schema.Struct({
+      outputId: Schema.String,
+      content: MediaRepresentationSchema,
+    }),
+  }),
+
+  errorOutputAdded: Events.synced({
+    name: "v1.ErrorOutputAdded",
+    schema: Schema.Struct({
+      id: Schema.String,
+      cellId: Schema.String,
+      position: Schema.Number,
+      content: MediaRepresentationSchema,
     }),
   }),
 
@@ -490,6 +430,7 @@ export const events = {
     name: "v1.CellOutputsCleared",
     schema: Schema.Struct({
       cellId: Schema.String,
+      wait: Schema.Boolean,
       clearedBy: Schema.String,
     }),
   }),
@@ -699,83 +640,170 @@ const materializers = State.SQLite.materializers(events, {
       .where({ id: cellId }),
   ],
 
-  // Output materializers
-  "v1.CellOutputAdded": ({
-    id,
-    cellId,
-    outputType,
-    data,
-    metadata,
-    position,
-    displayId,
-  }) =>
-    tables.outputs.insert({
-      id,
-      cellId,
-      outputType,
-      data,
-      metadata,
-      position,
-      displayId: displayId || null,
-    }),
+  // Unified output system materializers with pending clear support
+  "v1.MultimediaDisplayOutputAdded": (
+    { id, cellId, position, representations, displayId },
+    ctx,
+  ) => {
+    const ops = [];
+    // Check for pending clears
+    const pendingClear = ctx.query(
+      tables.pendingClears.select().where({ cellId }).limit(1),
+    )[0];
+    if (pendingClear) {
+      ops.push(tables.outputs.delete().where({ cellId }));
+      ops.push(tables.pendingClears.delete().where({ cellId }));
+    }
+    // Insert new output
+    ops.push(
+      tables.outputs.insert({
+        id,
+        cellId,
+        outputType: "display_data",
+        data: representations,
+        metadata: null,
+        position,
+        displayId: displayId || null,
+      }),
+    );
+    return ops;
+  },
 
-  "v1.CellOutputUpdated": ({ id, data, metadata }) =>
-    tables.outputs.update({ data, metadata }).where({ displayId: id }),
+  "v1.MultimediaResultOutputAdded": (
+    { id, cellId, position, representations, executionCount },
+    ctx,
+  ) => {
+    const ops = [];
+    // Check for pending clears
+    const pendingClear = ctx.query(
+      tables.pendingClears.select().where({ cellId }).limit(1),
+    )[0];
+    if (pendingClear) {
+      ops.push(tables.outputs.delete().where({ cellId }));
+      ops.push(tables.pendingClears.delete().where({ cellId }));
+    }
+    // Insert new output
+    ops.push(
+      tables.outputs.insert({
+        id,
+        cellId,
+        outputType: "execute_result",
+        data: representations,
+        metadata: { executionCount },
+        position,
+        displayId: null,
+      }),
+    );
+    return ops;
+  },
 
-  "v1.CellOutputsCleared": ({ cellId }) =>
-    tables.outputs.delete().where({ cellId }),
+  "v1.TerminalOutputAdded": (
+    { id, cellId, position, content, streamName },
+    ctx,
+  ) => {
+    const ops = [];
+    // Check for pending clears
+    const pendingClear = ctx.query(
+      tables.pendingClears.select().where({ cellId }).limit(1),
+    )[0];
+    if (pendingClear) {
+      ops.push(tables.outputs.delete().where({ cellId }));
+      ops.push(tables.pendingClears.delete().where({ cellId }));
+    }
+    // Insert new output
+    ops.push(
+      tables.outputs.insert({
+        id,
+        cellId,
+        outputType: "stream",
+        data: { name: streamName, text: content.data },
+        metadata: content.metadata || null,
+        position,
+        displayId: null,
+      }),
+    );
+    return ops;
+  },
 
-  // Enhanced output materializers for unified output system
-  "v1.OutputStarted": ({ cellId, outputId, queueId, startedAt }) =>
-    tables.outputSessions.insert({
-      outputId,
-      cellId,
-      queueId,
-      status: "active",
-      startedAt,
-    }),
-
-  "v1.OutputCaptured": (
-    {
-      cellId,
-      outputId,
-      queueId,
-      sequence,
-      outputType,
-      mediaType,
-      content,
-      metadata,
-      capturedAt,
-    },
-  ) =>
-    tables.outputCaptures.insert({
-      id: `${outputId}-${sequence}`,
-      cellId,
-      outputId,
-      queueId,
-      sequence,
-      outputType,
-      mediaType,
-      content,
-      metadata: metadata || null,
-      capturedAt,
-    }),
-
-  "v1.OutputCleared": ({ outputId }) => [
-    tables.outputCaptures.delete().where({ outputId }),
-    tables.outputSessions.delete().where({ outputId }),
-  ],
-
-  "v1.OutputCompleted": (
-    { outputId, status, totalSequences, completedAt },
-  ) =>
-    tables.outputSessions
+  "v1.TerminalOutputAppended": ({ outputId, content }) =>
+    tables.outputs
       .update({
-        status: status === "success" ? "completed" : status,
-        totalSequences,
-        completedAt,
+        data: (prev: any) => ({
+          ...prev,
+          text: (prev.text || "") + content.data,
+        }),
       })
-      .where({ outputId }),
+      .where({ id: outputId }),
+
+  "v1.MarkdownOutputAdded": ({ id, cellId, position, content }, ctx) => {
+    const ops = [];
+    // Check for pending clears
+    const pendingClear = ctx.query(
+      tables.pendingClears.select().where({ cellId }).limit(1),
+    )[0];
+    if (pendingClear) {
+      ops.push(tables.outputs.delete().where({ cellId }));
+      ops.push(tables.pendingClears.delete().where({ cellId }));
+    }
+    // Insert new output
+    ops.push(
+      tables.outputs.insert({
+        id,
+        cellId,
+        outputType: "display_data",
+        data: { "text/markdown": content.data },
+        metadata: content.metadata || null,
+        position,
+        displayId: null,
+      }),
+    );
+    return ops;
+  },
+
+  "v1.MarkdownOutputAppended": ({ outputId, content }) =>
+    tables.outputs
+      .update({
+        data: (prev: any) => ({
+          ...prev,
+          "text/markdown": (prev["text/markdown"] || "") + content.data,
+        }),
+      })
+      .where({ id: outputId }),
+
+  "v1.ErrorOutputAdded": ({ id, cellId, position, content }, ctx) => {
+    const ops = [];
+    // Check for pending clears
+    const pendingClear = ctx.query(
+      tables.pendingClears.select().where({ cellId }).limit(1),
+    )[0];
+    if (pendingClear) {
+      ops.push(tables.outputs.delete().where({ cellId }));
+      ops.push(tables.pendingClears.delete().where({ cellId }));
+    }
+    // Insert new output
+    ops.push(
+      tables.outputs.insert({
+        id,
+        cellId,
+        outputType: "error",
+        data: content.data,
+        metadata: content.metadata || null,
+        position,
+        displayId: null,
+      }),
+    );
+    return ops;
+  },
+
+  "v1.CellOutputsCleared": ({ cellId, wait, clearedBy }) => {
+    if (wait) {
+      // Store pending clear for wait=True
+      return tables.pendingClears.insert({ cellId, clearedBy });
+    } else {
+      // Immediate clear for wait=False
+      return tables.outputs.delete().where({ cellId });
+    }
+  },
 
   // SQL materializers
   "v1.SqlConnectionCreated": ({
@@ -864,37 +892,29 @@ export type QueueStatus =
 // Output types
 export type OutputType = "display_data" | "execute_result" | "stream" | "error";
 
-// Media representation types for unified output system
+// Media representation schema for unified output system
+const MediaRepresentationSchema = Schema.Union(
+  Schema.Struct({
+    type: Schema.Literal("inline"),
+    data: Schema.Any,
+    metadata: Schema.optional(Schema.Any),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("artifact"),
+    artifactId: Schema.String,
+    metadata: Schema.optional(Schema.Any),
+  }),
+);
+
+// TypeScript type derived from schema
 export type MediaRepresentation = {
-  type: "text";
-  content: string;
-  metadata?: { [key: string]: unknown };
+  type: "inline";
+  data: unknown;
+  metadata?: unknown;
 } | {
-  type: "image";
-  format: "png" | "jpeg" | "svg" | "gif" | "webp";
-  content: string; // base64 encoded or SVG string
-  metadata?: { width?: number; height?: number; [key: string]: unknown };
-} | {
-  type: "html";
-  content: string;
-  metadata?: { [key: string]: unknown };
-} | {
-  type: "json";
-  content: unknown;
-  metadata?: { [key: string]: unknown };
-} | {
-  type: "markdown";
-  content: string;
-  metadata?: { [key: string]: unknown };
-} | {
-  type: "ansi";
-  content: string;
-  metadata?: { [key: string]: unknown };
-} | {
-  type: "code";
-  language: string;
-  content: string;
-  metadata?: { [key: string]: unknown };
+  type: "artifact";
+  artifactId: string;
+  metadata?: unknown;
 };
 
 // SQL-specific types
