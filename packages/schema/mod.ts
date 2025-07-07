@@ -897,12 +897,12 @@ const MediaRepresentationSchema = Schema.Union(
   Schema.Struct({
     type: Schema.Literal("inline"),
     data: Schema.Any,
-    metadata: Schema.optional(Schema.Any),
+    metadata: Schema.optional(Schema.Record(Schema.String, Schema.Any)),
   }),
   Schema.Struct({
     type: Schema.Literal("artifact"),
     artifactId: Schema.String,
-    metadata: Schema.optional(Schema.Any),
+    metadata: Schema.optional(Schema.Record(Schema.String, Schema.Any)),
   }),
 );
 
@@ -910,11 +910,24 @@ const MediaRepresentationSchema = Schema.Union(
 export type MediaRepresentation = {
   type: "inline";
   data: unknown;
-  metadata?: unknown;
+  metadata?: Record<string, unknown>;
 } | {
   type: "artifact";
   artifactId: string;
-  metadata?: unknown;
+  metadata?: Record<string, unknown>;
+};
+
+// Error output data structure for unified system
+const ErrorOutputDataSchema = Schema.Struct({
+  ename: Schema.String,
+  evalue: Schema.String,
+  traceback: Schema.Array(Schema.String),
+});
+
+export type ErrorOutputData = {
+  ename: string;
+  evalue: string;
+  traceback: string[];
 };
 
 // SQL-specific types

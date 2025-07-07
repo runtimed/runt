@@ -487,70 +487,8 @@ export class RuntimeAgent {
     }
 
     // Track output position for proper ordering
+    // State tracking for unified output system
     let outputPosition = 0;
-    let outputSequence = 0;
-    let currentOutputId: string | null = null;
-
-    // Helper to start a new output session
-    const startOutput = () => {
-      if (!currentOutputId) {
-        currentOutputId = crypto.randomUUID();
-        this.store.commit(events.outputStarted({
-          cellId: cell.id,
-          outputId: currentOutputId,
-          queueId: queueEntry.id,
-          startedAt: new Date(),
-        }));
-        outputSequence = 0;
-      }
-    };
-
-    // Helper to complete current output session
-    const completeOutput = (
-      status: "success" | "error" | "cancelled" = "success",
-    ) => {
-      if (currentOutputId) {
-        this.store.commit(events.outputCompleted({
-          cellId: cell.id,
-          outputId: currentOutputId,
-          queueId: queueEntry.id,
-          status,
-          totalSequences: outputSequence,
-          completedAt: new Date(),
-        }));
-        currentOutputId = null;
-      }
-    };
-
-    // Helper to emit content with unified output system
-    const emitContent = (
-      outputType: "display_data" | "execute_result" | "stream" | "error",
-      mediaType:
-        | "text"
-        | "image"
-        | "html"
-        | "json"
-        | "markdown"
-        | "ansi"
-        | "code",
-      content: string,
-      metadata?: Record<string, unknown>,
-    ) => {
-      startOutput();
-      if (currentOutputId) {
-        this.store.commit(events.outputCaptured({
-          cellId: cell.id,
-          outputId: currentOutputId,
-          queueId: queueEntry.id,
-          sequence: outputSequence++,
-          outputType,
-          mediaType,
-          content,
-          metadata: metadata || {},
-          capturedAt: new Date(),
-        }));
-      }
-    };
 
     // Create execution context (available in catch block for error handler)
     const context: ExecutionContext = {
@@ -569,40 +507,43 @@ export class RuntimeAgent {
       // Output emission methods for real-time streaming
       stdout: (text: string) => {
         if (text) {
-          // Emit via unified output system
-          emitContent("stream", "ansi", text, { stream: "stdout" });
-
-          // Also emit legacy event for backward compatibility
-          this.store.commit(events.cellOutputAdded({
+          this.store.commit(events.terminalOutputAdded({
             id: crypto.randomUUID(),
             cellId: cell.id,
-            outputType: "stream",
-            data: {
-              name: "stdout",
-              text,
-            } as StreamOutputData,
-            metadata: {},
             position: outputPosition++,
+            content: {
+              type: "inline",
+              data: text,
+            },
+            streamName: "stdout",
+          }));
+        }
+      },
+
+      // Append to existing terminal output (for streaming)
+      appendTerminal: (outputId: string, text: string) => {
+        if (text) {
+          this.store.commit(events.terminalOutputAppended({
+            outputId,
+            content: {
+              type: "inline",
+              data: text,
+            },
           }));
         }
       },
 
       stderr: (text: string) => {
         if (text) {
-          // Emit via unified output system
-          emitContent("stream", "ansi", text, { stream: "stderr" });
-
-          // Also emit legacy event for backward compatibility
-          this.store.commit(events.cellOutputAdded({
+          this.store.commit(events.terminalOutputAdded({
             id: crypto.randomUUID(),
             cellId: cell.id,
-            outputType: "stream",
-            data: {
-              name: "stderr",
-              text,
-            } as StreamOutputData,
-            metadata: {},
             position: outputPosition++,
+            content: {
+              type: "inline",
+              data: text,
+            },
+            streamName: "stderr",
           }));
         }
       },
@@ -612,49 +553,25 @@ export class RuntimeAgent {
         metadata?: Record<string, unknown>,
         displayId?: string,
       ) => {
-        // Determine media type and content from rich data
-        let mediaType:
-          | "text"
-          | "image"
-          | "html"
-          | "json"
-          | "markdown"
-          | "ansi"
-          | "code" = "text";
-        let content = "";
+        // Convert MediaBundle to representations
+        const representations: Record<
+          string,
+          { type: "inline"; data: unknown; metadata?: Record<string, unknown> }
+        > = {};
 
-        if (data["text/html"]) {
-          mediaType = "html";
-          content = String(data["text/html"]);
-        } else if (data["text/markdown"]) {
-          mediaType = "markdown";
-          content = String(data["text/markdown"]);
-        } else if (
-          data["image/svg+xml"] || data["image/png"] || data["image/jpeg"]
-        ) {
-          mediaType = "image";
-          content = String(
-            data["image/svg+xml"] || data["image/png"] || data["image/jpeg"],
-          );
-        } else if (data["application/json"]) {
-          mediaType = "json";
-          content = JSON.stringify(data["application/json"]);
-        } else if (data["text/plain"]) {
-          mediaType = "text";
-          content = String(data["text/plain"]);
+        for (const [mimeType, content] of Object.entries(data)) {
+          representations[mimeType] = {
+            type: "inline",
+            data: content,
+            metadata: metadata?.[mimeType] as Record<string, unknown>,
+          };
         }
 
-        // Emit via unified output system
-        emitContent("display_data", mediaType, content, metadata);
-
-        // Also emit legacy event for backward compatibility
-        this.store.commit(events.cellOutputAdded({
+        this.store.commit(events.multimediaDisplayOutputAdded({
           id: crypto.randomUUID(),
           cellId: cell.id,
-          outputType: "display_data",
-          data,
-          metadata: metadata || {},
           position: outputPosition++,
+          representations,
           displayId,
         }));
       },
@@ -664,108 +581,64 @@ export class RuntimeAgent {
         data: RichOutputData,
         metadata?: Record<string, unknown>,
       ) => {
-        // Legacy update display event (keep for backward compatibility)
-        this.store.commit(events.cellOutputUpdated({
-          id: displayId,
-          data,
-          metadata: metadata || {},
-        }));
+        // For updated displays, we need to find the output and replace it
+        // This is a simplified implementation - could be enhanced
+        this.display(data, metadata, displayId);
       },
 
       result: (
         data: RichOutputData,
         metadata?: Record<string, unknown>,
       ) => {
-        // Determine media type and content from rich data
-        let mediaType:
-          | "text"
-          | "image"
-          | "html"
-          | "json"
-          | "markdown"
-          | "ansi"
-          | "code" = "text";
-        let content = "";
+        // Convert MediaBundle to representations
+        const representations: Record<
+          string,
+          { type: "inline"; data: unknown; metadata?: Record<string, unknown> }
+        > = {};
 
-        if (data["text/html"]) {
-          mediaType = "html";
-          content = String(data["text/html"]);
-        } else if (data["text/markdown"]) {
-          mediaType = "markdown";
-          content = String(data["text/markdown"]);
-        } else if (
-          data["image/svg+xml"] || data["image/png"] || data["image/jpeg"]
-        ) {
-          mediaType = "image";
-          content = String(
-            data["image/svg+xml"] || data["image/png"] || data["image/jpeg"],
-          );
-        } else if (data["application/json"]) {
-          mediaType = "json";
-          content = JSON.stringify(data["application/json"]);
-        } else if (data["text/plain"]) {
-          mediaType = "text";
-          content = String(data["text/plain"]);
+        for (const [mimeType, content] of Object.entries(data)) {
+          representations[mimeType] = {
+            type: "inline",
+            data: content,
+            metadata: metadata?.[mimeType] as Record<string, unknown>,
+          };
         }
 
-        // Emit via unified output system
-        emitContent("execute_result", mediaType, content, metadata);
-
-        // Also emit legacy event for backward compatibility
-        this.store.commit(events.cellOutputAdded({
+        this.store.commit(events.multimediaResultOutputAdded({
           id: crypto.randomUUID(),
           cellId: cell.id,
-          outputType: "execute_result",
-          data,
-          metadata: metadata || {},
           position: outputPosition++,
+          representations,
+          executionCount: queueEntry.executionCount,
         }));
       },
 
       error: (ename: string, evalue: string, traceback: string[]) => {
-        // Format error as text content
-        const errorText = `${ename}: ${evalue}\n${traceback.join("\n")}`;
-
-        // Emit via unified output system
-        emitContent("error", "text", errorText, { ename, evalue, traceback });
-
-        // Also emit legacy event for backward compatibility
-        this.store.commit(events.cellOutputAdded({
+        this.store.commit(events.errorOutputAdded({
           id: crypto.randomUUID(),
           cellId: cell.id,
-          outputType: "error",
-          data: {
-            ename,
-            evalue,
-            traceback,
-          } as ErrorOutputData,
-          metadata: {},
           position: outputPosition++,
+          content: {
+            type: "inline",
+            data: {
+              ename,
+              evalue,
+              traceback,
+            },
+          },
         }));
       },
 
-      clear: () => {
-        // Complete current output session before clearing
-        completeOutput();
-
-        // Clear via unified output system
-        if (currentOutputId) {
-          this.store.commit(events.outputCleared({
-            cellId: cell.id,
-            outputId: currentOutputId,
-            clearedBy: `kernel-${this.config.kernelId}`,
-          }));
-        }
-
-        // Also emit legacy clear event for backward compatibility
+      clear: (wait: boolean = false) => {
         this.store.commit(events.cellOutputsCleared({
           cellId: cell.id,
+          wait,
           clearedBy: `kernel-${this.config.kernelId}`,
         }));
 
-        outputPosition = 0;
-        currentOutputId = null;
-        outputSequence = 0;
+        if (!wait) {
+          outputPosition = 0;
+        }
       },
     };
 
@@ -778,24 +651,14 @@ export class RuntimeAgent {
         startedAt: executionStartTime,
       }));
 
-      // Clear previous outputs
-      context.clear();
+      // Clear previous outputs (immediate clear)
+      context.clear(false);
 
       const result: ExecutionResult = await this.executionHandler(context);
 
-      // Complete output session on successful execution
-      completeOutput("success");
-
       // Add output if execution succeeded
       if (result.success && result.data) {
-        this.store.commit(events.cellOutputAdded({
-          id: crypto.randomUUID(),
-          cellId: cell.id,
-          outputType: result.outputType || "execute_result",
-          data: result.data,
-          metadata: result.metadata || {},
-          position: outputPosition++,
-        }));
+        context.result(result.data, result.metadata);
       }
 
       // Mark execution as completed
