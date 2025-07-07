@@ -83,6 +83,57 @@ export const tables = {
     },
   }),
 
+  // Enhanced output capture table for unified output system
+  outputCaptures: State.SQLite.table({
+    name: "outputCaptures",
+    columns: {
+      id: State.SQLite.text({ primaryKey: true }),
+      cellId: State.SQLite.text(),
+      outputId: State.SQLite.text(),
+      queueId: State.SQLite.text(),
+      sequence: State.SQLite.integer(),
+      outputType: State.SQLite.text({
+        schema: Schema.Literal(
+          "display_data",
+          "execute_result",
+          "stream",
+          "error",
+        ),
+      }),
+      mediaType: State.SQLite.text({
+        schema: Schema.Literal(
+          "text",
+          "image",
+          "html",
+          "json",
+          "markdown",
+          "ansi",
+          "code",
+        ),
+      }),
+      content: State.SQLite.text(),
+      metadata: State.SQLite.json({ nullable: true, schema: Schema.Any }),
+      capturedAt: State.SQLite.datetime(),
+    },
+  }),
+
+  // Output sessions for tracking execution output lifecycle
+  outputSessions: State.SQLite.table({
+    name: "outputSessions",
+    columns: {
+      outputId: State.SQLite.text({ primaryKey: true }),
+      cellId: State.SQLite.text(),
+      queueId: State.SQLite.text(),
+      status: State.SQLite.text({
+        default: "active",
+        schema: Schema.Literal("active", "completed", "error", "cancelled"),
+      }),
+      totalSequences: State.SQLite.integer({ default: 0 }),
+      startedAt: State.SQLite.datetime(),
+      completedAt: State.SQLite.datetime({ nullable: true }),
+    },
+  }),
+
   // Kernel lifecycle management
   // NOTE: Each notebook should have exactly ONE active kernel at a time
   // Multiple entries only exist during kernel transitions/handoffs
@@ -347,7 +398,67 @@ export const events = {
     }),
   }),
 
-  // Output events
+  // Enhanced output events for unified output system
+  outputStarted: Events.synced({
+    name: "v1.OutputStarted",
+    schema: Schema.Struct({
+      cellId: Schema.String,
+      outputId: Schema.String,
+      queueId: Schema.String,
+      startedAt: Schema.Date,
+    }),
+  }),
+
+  outputCaptured: Events.synced({
+    name: "v1.OutputCaptured",
+    schema: Schema.Struct({
+      cellId: Schema.String,
+      outputId: Schema.String,
+      queueId: Schema.String,
+      sequence: Schema.Number,
+      outputType: Schema.Literal(
+        "display_data",
+        "execute_result",
+        "stream",
+        "error",
+      ),
+      mediaType: Schema.Literal(
+        "text",
+        "image",
+        "html",
+        "json",
+        "markdown",
+        "ansi",
+        "code",
+      ),
+      content: Schema.String,
+      metadata: Schema.optional(Schema.Any),
+      capturedAt: Schema.Date,
+    }),
+  }),
+
+  outputCleared: Events.synced({
+    name: "v1.OutputCleared",
+    schema: Schema.Struct({
+      cellId: Schema.String,
+      outputId: Schema.String,
+      clearedBy: Schema.String,
+    }),
+  }),
+
+  outputCompleted: Events.synced({
+    name: "v1.OutputCompleted",
+    schema: Schema.Struct({
+      cellId: Schema.String,
+      outputId: Schema.String,
+      queueId: Schema.String,
+      status: Schema.Literal("success", "error", "cancelled"),
+      totalSequences: Schema.Number,
+      completedAt: Schema.Date,
+    }),
+  }),
+
+  // Legacy output events (keeping for backward compatibility)
   cellOutputAdded: Events.synced({
     name: "v1.CellOutputAdded",
     schema: Schema.Struct({
@@ -614,6 +725,58 @@ const materializers = State.SQLite.materializers(events, {
   "v1.CellOutputsCleared": ({ cellId }) =>
     tables.outputs.delete().where({ cellId }),
 
+  // Enhanced output materializers for unified output system
+  "v1.OutputStarted": ({ cellId, outputId, queueId, startedAt }) =>
+    tables.outputSessions.insert({
+      outputId,
+      cellId,
+      queueId,
+      status: "active",
+      startedAt,
+    }),
+
+  "v1.OutputCaptured": (
+    {
+      cellId,
+      outputId,
+      queueId,
+      sequence,
+      outputType,
+      mediaType,
+      content,
+      metadata,
+      capturedAt,
+    },
+  ) =>
+    tables.outputCaptures.insert({
+      id: `${outputId}-${sequence}`,
+      cellId,
+      outputId,
+      queueId,
+      sequence,
+      outputType,
+      mediaType,
+      content,
+      metadata: metadata || null,
+      capturedAt,
+    }),
+
+  "v1.OutputCleared": ({ outputId }) => [
+    tables.outputCaptures.delete().where({ outputId }),
+    tables.outputSessions.delete().where({ outputId }),
+  ],
+
+  "v1.OutputCompleted": (
+    { outputId, status, totalSequences, completedAt },
+  ) =>
+    tables.outputSessions
+      .update({
+        status: status === "success" ? "completed" : status,
+        totalSequences,
+        completedAt,
+      })
+      .where({ outputId }),
+
   // SQL materializers
   "v1.SqlConnectionCreated": ({
     id,
@@ -663,6 +826,8 @@ export type Store = LiveStore<typeof schema>;
 export type NotebookData = typeof tables.notebook.Type;
 export type CellData = typeof tables.cells.Type;
 export type OutputData = typeof tables.outputs.Type;
+export type OutputCaptureData = typeof tables.outputCaptures.Type;
+export type OutputSessionData = typeof tables.outputSessions.Type;
 export type KernelSessionData = typeof tables.kernelSessions.Type;
 export type ExecutionQueueData = typeof tables.executionQueue.Type;
 export type DataConnectionData = typeof tables.dataConnections.Type;
@@ -698,6 +863,39 @@ export type QueueStatus =
 
 // Output types
 export type OutputType = "display_data" | "execute_result" | "stream" | "error";
+
+// Media representation types for unified output system
+export type MediaRepresentation = {
+  type: "text";
+  content: string;
+  metadata?: { [key: string]: unknown };
+} | {
+  type: "image";
+  format: "png" | "jpeg" | "svg" | "gif" | "webp";
+  content: string; // base64 encoded or SVG string
+  metadata?: { width?: number; height?: number; [key: string]: unknown };
+} | {
+  type: "html";
+  content: string;
+  metadata?: { [key: string]: unknown };
+} | {
+  type: "json";
+  content: unknown;
+  metadata?: { [key: string]: unknown };
+} | {
+  type: "markdown";
+  content: string;
+  metadata?: { [key: string]: unknown };
+} | {
+  type: "ansi";
+  content: string;
+  metadata?: { [key: string]: unknown };
+} | {
+  type: "code";
+  language: string;
+  content: string;
+  metadata?: { [key: string]: unknown };
+};
 
 // SQL-specific types
 export interface SqlResultData {
