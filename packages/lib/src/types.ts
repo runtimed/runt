@@ -91,7 +91,13 @@ export interface ExecutionContext {
   /** Emit error output */
   error: (ename: string, evalue: string, traceback: string[]) => void;
   /** Clear all previous outputs for this cell */
-  clear: () => void;
+  clear: (wait?: boolean) => void;
+  /** Append text to existing terminal output (for streaming) */
+  appendTerminal: (outputId: string, text: string) => void;
+  /** Emit markdown content (for AI responses) */
+  markdown: (content: string, metadata?: Record<string, unknown>) => void;
+  /** Append to existing markdown output (for streaming AI responses) */
+  appendMarkdown: (outputId: string, content: string) => void;
 }
 
 /**

@@ -203,13 +203,54 @@ Deno.test("ExecutionContext Output Methods", async (t) => {
           });
         },
 
-        clear: () => {
+        clear: (wait: boolean = false) => {
           mockStore.commit({
             type: "cellOutputsCleared",
             cellId: cell.id!,
+            wait,
             clearedBy: `kernel-${config.kernelId}`,
           });
-          outputPosition = 0;
+          if (!wait) {
+            outputPosition = 0;
+          }
+        },
+
+        appendTerminal: (outputId: string, text: string) => {
+          if (text) {
+            mockStore.commit({
+              type: "terminalOutputAppended",
+              outputId,
+              content: {
+                type: "inline",
+                data: text,
+              },
+            });
+          }
+        },
+
+        markdown: (content: string, metadata?: Record<string, unknown>) => {
+          mockStore.commit({
+            type: "markdownOutputAdded",
+            id: crypto.randomUUID(),
+            cellId: cell.id!,
+            position: outputPosition++,
+            content: {
+              type: "inline",
+              data: content,
+              metadata,
+            },
+          });
+        },
+
+        appendMarkdown: (outputId: string, content: string) => {
+          mockStore.commit({
+            type: "markdownOutputAppended",
+            outputId,
+            content: {
+              type: "inline",
+              data: content,
+            },
+          });
         },
       };
     })();

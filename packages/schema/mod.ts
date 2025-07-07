@@ -7,6 +7,24 @@ import {
   type Store as LiveStore,
 } from "@livestore/livestore";
 
+// Media representation schema for unified output system - defined first for use in events
+const MediaRepresentationSchema = Schema.Union(
+  Schema.Struct({
+    type: Schema.Literal("inline"),
+    data: Schema.Any,
+    metadata: Schema.optional(
+      Schema.Record({ key: Schema.String, value: Schema.Any }),
+    ),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("artifact"),
+    artifactId: Schema.String,
+    metadata: Schema.optional(
+      Schema.Record({ key: Schema.String, value: Schema.Any }),
+    ),
+  }),
+);
+
 export const tables = {
   // Notebook metadata (single row per store)
   notebook: State.SQLite.table({
@@ -363,7 +381,10 @@ export const events = {
       id: Schema.String,
       cellId: Schema.String,
       position: Schema.Number,
-      representations: Schema.Record(Schema.String, MediaRepresentationSchema),
+      representations: Schema.Record({
+        key: Schema.String,
+        value: MediaRepresentationSchema,
+      }),
       displayId: Schema.optional(Schema.String),
     }),
   }),
@@ -374,7 +395,10 @@ export const events = {
       id: Schema.String,
       cellId: Schema.String,
       position: Schema.Number,
-      representations: Schema.Record(Schema.String, MediaRepresentationSchema),
+      representations: Schema.Record({
+        key: Schema.String,
+        value: MediaRepresentationSchema,
+      }),
       executionCount: Schema.Number,
     }),
   }),
@@ -716,7 +740,10 @@ const materializers = State.SQLite.materializers(events, {
         id,
         cellId,
         outputType: "stream",
-        data: { name: streamName, text: content.data },
+        data: {
+          name: streamName,
+          text: content.type === "inline" ? content.data : content.artifactId,
+        },
         metadata: content.metadata || null,
         position,
         displayId: null,
@@ -730,7 +757,8 @@ const materializers = State.SQLite.materializers(events, {
       .update({
         data: (prev: any) => ({
           ...prev,
-          text: (prev.text || "") + content.data,
+          text: (prev.text || "") +
+            (content.type === "inline" ? content.data : content.artifactId),
         }),
       })
       .where({ id: outputId }),
@@ -751,7 +779,11 @@ const materializers = State.SQLite.materializers(events, {
         id,
         cellId,
         outputType: "display_data",
-        data: { "text/markdown": content.data },
+        data: {
+          "text/markdown": content.type === "inline"
+            ? content.data
+            : content.artifactId,
+        },
         metadata: content.metadata || null,
         position,
         displayId: null,
@@ -765,7 +797,8 @@ const materializers = State.SQLite.materializers(events, {
       .update({
         data: (prev: any) => ({
           ...prev,
-          "text/markdown": (prev["text/markdown"] || "") + content.data,
+          "text/markdown": (prev["text/markdown"] || "") +
+            (content.type === "inline" ? content.data : content.artifactId),
         }),
       })
       .where({ id: outputId }),
@@ -786,7 +819,9 @@ const materializers = State.SQLite.materializers(events, {
         id,
         cellId,
         outputType: "error",
-        data: content.data,
+        data: content.type === "inline"
+          ? content.data
+          : { artifactId: content.artifactId },
         metadata: content.metadata || null,
         position,
         displayId: null,
@@ -892,20 +927,6 @@ export type QueueStatus =
 // Output types
 export type OutputType = "display_data" | "execute_result" | "stream" | "error";
 
-// Media representation schema for unified output system
-const MediaRepresentationSchema = Schema.Union(
-  Schema.Struct({
-    type: Schema.Literal("inline"),
-    data: Schema.Any,
-    metadata: Schema.optional(Schema.Record(Schema.String, Schema.Any)),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("artifact"),
-    artifactId: Schema.String,
-    metadata: Schema.optional(Schema.Record(Schema.String, Schema.Any)),
-  }),
-);
-
 // TypeScript type derived from schema
 export type MediaRepresentation = {
   type: "inline";
@@ -918,12 +939,6 @@ export type MediaRepresentation = {
 };
 
 // Error output data structure for unified system
-const ErrorOutputDataSchema = Schema.Struct({
-  ename: Schema.String,
-  evalue: Schema.String,
-  traceback: Schema.Array(Schema.String),
-});
-
 export type ErrorOutputData = {
   ename: string;
   evalue: string;

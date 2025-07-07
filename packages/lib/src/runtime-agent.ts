@@ -562,7 +562,7 @@ export class RuntimeAgent {
         for (const [mimeType, content] of Object.entries(data)) {
           representations[mimeType] = {
             type: "inline",
-            data: content,
+            data: content, // Keep JSON objects as-is, don't stringify
             metadata: metadata?.[mimeType] as Record<string, unknown>,
           };
         }
@@ -583,7 +583,7 @@ export class RuntimeAgent {
       ) => {
         // For updated displays, we need to find the output and replace it
         // This is a simplified implementation - could be enhanced
-        this.display(data, metadata, displayId);
+        context.display(data, metadata, displayId);
       },
 
       result: (
@@ -599,7 +599,7 @@ export class RuntimeAgent {
         for (const [mimeType, content] of Object.entries(data)) {
           representations[mimeType] = {
             type: "inline",
-            data: content,
+            data: content, // Keep JSON objects as-is for Altair plots, etc.
             metadata: metadata?.[mimeType] as Record<string, unknown>,
           };
         }
@@ -625,6 +625,31 @@ export class RuntimeAgent {
               evalue,
               traceback,
             },
+          },
+        }));
+      },
+
+      // Markdown output methods for AI responses
+      markdown: (content: string, metadata?: Record<string, unknown>) => {
+        this.store.commit(events.markdownOutputAdded({
+          id: crypto.randomUUID(),
+          cellId: cell.id,
+          position: outputPosition++,
+          content: {
+            type: "inline",
+            data: content,
+            metadata,
+          },
+        }));
+      },
+
+      // Append to existing markdown output (for streaming AI responses)
+      appendMarkdown: (outputId: string, content: string) => {
+        this.store.commit(events.markdownOutputAppended({
+          outputId,
+          content: {
+            type: "inline",
+            data: content,
           },
         }));
       },
