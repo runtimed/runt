@@ -3,7 +3,9 @@
 This document provides context for AI assistants working on the runt runtime
 agent library.
 
-**Current Status**: Production-ready runtime with Python execution, real-time collaboration, and streaming output support. The unified output system provides granular, type-safe events for rich display capabilities.
+**Current Status**: Production-ready runtime with Python execution, real-time
+collaboration, and streaming output support. The unified output system provides
+granular, type-safe events for rich display capabilities.
 
 ## Project Overview
 
@@ -11,7 +13,10 @@ Runt is a TypeScript/Deno library for building runtime agents that connect to
 [Anode notebooks](https://github.com/rgbkrk/anode). It uses LiveStore for
 event-sourcing and real-time sync between multiple users.
 
-**Current Status**: Working system with 58 passing tests. Core functionality is implemented and published to JSR. The system includes Python execution via Pyodide, real-time collaboration, executable installation support, and agentic AI behavior with iterative tool calls.
+**Current Status**: Working system with 58 passing tests. Core functionality is
+implemented and published to JSR. The system includes Python execution via
+Pyodide, real-time collaboration, executable installation support, and agentic
+AI behavior with iterative tool calls.
 
 ## Architecture
 
@@ -29,7 +34,8 @@ event-sourcing and real-time sync between multiple users.
 
 - ✅ LiveStore integration with event-sourced state management
 - ✅ Runtime agent lifecycle (start, execute, shutdown)
-- ✅ Python code execution via Pyodide with rich formatting (matplotlib, pandas, HTML)
+- ✅ Python code execution via Pyodide with rich formatting (matplotlib, pandas,
+  HTML)
 - ✅ Real-time collaboration via LiveStore sync
 - ✅ CLI configuration with environment variable fallbacks
 - ✅ Cross-package TypeScript imports with proper typing
@@ -43,10 +49,13 @@ event-sourcing and real-time sync between multiple users.
 
 ## Core Features
 
-- **Streaming Output System**: Granular events for different output types (multimedia, terminal, markdown, error)
-- **Python Execution**: Direct Pyodide integration with IPython rich display support
+- **Streaming Output System**: Granular events for different output types
+  (multimedia, terminal, markdown, error)
+- **Python Execution**: Direct Pyodide integration with IPython rich display
+  support
 - **AI Integration**: Agentic behavior with tool calling and iterative responses
-- **Real-time Collaboration**: LiveStore-based event sourcing for multi-user support
+- **Real-time Collaboration**: LiveStore-based event sourcing for multi-user
+  support
 - **Rich Media Support**: Handle plots, tables, HTML, and custom display formats
 
 ## What Needs Work (Non-blocking)
@@ -76,12 +85,21 @@ When making changes:
 
 ## Key Constraints
 
-- **LiveStore Materializers**: Must be pure functions. Never use `ctx.query()` in materializers - it causes hash mismatches and runtime failures.
-- **Session Management**: Each runtime restart gets a unique `sessionId`. Handle session overlap during restarts.
-- **Pyodide Code Execution**: Use direct `pyodide.runPythonAsync()` instead of IPython's `shell.run_cell()` to avoid code transformations. Process results through IPython's displayhook for rich formatting.
-- **Duplicate Outputs**: When displayhook handles a result, don't return data from the execution handler to avoid duplicate execute_result outputs.
-- **Agentic Conversations**: AI can iterate after tool calls, allowing it to respond to tool results and fix its own mistakes. Use `generateAgenticResponse()` for this behavior. Default max iterations is 10.
-- **Interrupt Support**: AI conversations respect abort signals and can be interrupted during multi-iteration flows.
+- **LiveStore Materializers**: Must be pure functions. Avoid non-deterministic
+  operations (like `Date()` calls) that could produce different results across
+  clients. Using `ctx.query()` for deterministic data access is fine.
+- **Session Management**: Each runtime restart gets a unique `sessionId`. Handle
+  session overlap during restarts.
+- **Pyodide Code Execution**: Use direct `pyodide.runPythonAsync()` instead of
+  IPython's `shell.run_cell()` to avoid code transformations. Process results
+  through IPython's displayhook for rich formatting.
+- **Duplicate Outputs**: When displayhook handles a result, don't return data
+  from the execution handler to avoid duplicate execute_result outputs.
+- **Agentic Conversations**: AI can iterate after tool calls, allowing it to
+  respond to tool results and fix its own mistakes. Use
+  `generateAgenticResponse()` for this behavior. Default max iterations is 10.
+- **Interrupt Support**: AI conversations respect abort signals and can be
+  interrupted during multi-iteration flows.
 
 ## File Structure
 
@@ -191,4 +209,5 @@ When working on this codebase:
 - Focus on making the code work reliably rather than adding features
 - Be honest about limitations and current state
 
-The goal is to make this library useful for developers building runtime agents, not to impress anyone with complexity.
+The goal is to make this library useful for developers building runtime agents,
+not to impress anyone with complexity.
