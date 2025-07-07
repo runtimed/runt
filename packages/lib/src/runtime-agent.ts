@@ -12,7 +12,6 @@ import { createLogger } from "./logging.ts";
 import type {
   CancellationHandler,
   CellData,
-  ErrorOutputData,
   ExecutionContext,
   ExecutionHandler,
   ExecutionQueueData,
@@ -20,7 +19,6 @@ import type {
   KernelCapabilities,
   RichOutputData,
   RuntimeAgentEventHandlers,
-  StreamOutputData,
 } from "./types.ts";
 import type { RuntimeConfig } from "./config.ts";
 

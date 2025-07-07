@@ -1,3 +1,4 @@
+// deno-lint-ignore-file no-explicit-any
 // ExecutionContext output methods tests
 
 import { assertEquals } from "jsr:@std/assert";
@@ -6,8 +7,7 @@ import type { ExecutionContext } from "./types.ts";
 // Simple test that verifies ExecutionContext method signatures exist and work
 Deno.test("ExecutionContext - method signatures", () => {
   // Create a minimal mock context that implements all required methods
-  let outputPosition = 0;
-  const outputs: Array<{ type: string; data: any }> = [];
+  const outputs: Array<{ type: string; data: unknown }> = [];
 
   const context: ExecutionContext = {
     cell: {
@@ -15,12 +15,12 @@ Deno.test("ExecutionContext - method signatures", () => {
       cellType: "code",
       source: "print('test')",
       position: 0,
-    } as any,
+    } as ExecutionContext["cell"],
     queueEntry: {
       id: "test-queue",
       cellId: "test-cell",
-    } as any,
-    store: {} as any,
+    } as ExecutionContext["queueEntry"],
+    store: {} as ExecutionContext["store"],
     sessionId: "test-session",
     kernelId: "test-kernel",
     abortSignal: new AbortController().signal,
@@ -83,45 +83,45 @@ Deno.test("ExecutionContext - method signatures", () => {
   // Test display
   context.display({ "text/plain": "Hello" }, { custom: true }, "display-1");
   assertEquals(outputs[2].type, "display");
-  assertEquals(outputs[2].data.data["text/plain"], "Hello");
-  assertEquals(outputs[2].data.metadata.custom, true);
-  assertEquals(outputs[2].data.displayId, "display-1");
+  assertEquals((outputs[2].data as any).data["text/plain"], "Hello");
+  assertEquals((outputs[2].data as any).metadata.custom, true);
+  assertEquals((outputs[2].data as any).displayId, "display-1");
 
   // Test result
   context.result({ "application/json": { value: 42 } }, { count: 1 });
   assertEquals(outputs[3].type, "result");
-  assertEquals(outputs[3].data.data["application/json"].value, 42);
-  assertEquals(outputs[3].data.metadata.count, 1);
+  assertEquals((outputs[3].data as any).data["application/json"].value, 42);
+  assertEquals((outputs[3].data as any).metadata.count, 1);
 
   // Test error
   context.error("ValueError", "Invalid input", ["Traceback", "Line 1"]);
   assertEquals(outputs[4].type, "error");
-  assertEquals(outputs[4].data.ename, "ValueError");
-  assertEquals(outputs[4].data.evalue, "Invalid input");
-  assertEquals(outputs[4].data.traceback.length, 2);
+  assertEquals((outputs[4].data as any).ename, "ValueError");
+  assertEquals((outputs[4].data as any).evalue, "Invalid input");
+  assertEquals((outputs[4].data as any).traceback.length, 2);
 
   // Test clear
   context.clear(true);
   assertEquals(outputs[5].type, "clear");
-  assertEquals(outputs[5].data.wait, true);
+  assertEquals((outputs[5].data as any).wait, true);
 
   // Test appendTerminal
   context.appendTerminal("output-123", " more text");
   assertEquals(outputs[6].type, "appendTerminal");
-  assertEquals(outputs[6].data.outputId, "output-123");
-  assertEquals(outputs[6].data.text, " more text");
+  assertEquals((outputs[6].data as any).outputId, "output-123");
+  assertEquals((outputs[6].data as any).text, " more text");
 
   // Test markdown
   context.markdown("# Hello World", { source: "ai" });
   assertEquals(outputs[7].type, "markdown");
-  assertEquals(outputs[7].data.content, "# Hello World");
-  assertEquals(outputs[7].data.metadata.source, "ai");
+  assertEquals((outputs[7].data as any).content, "# Hello World");
+  assertEquals((outputs[7].data as any).metadata.source, "ai");
 
   // Test appendMarkdown
   context.appendMarkdown("md-456", "\n\nMore content");
   assertEquals(outputs[8].type, "appendMarkdown");
-  assertEquals(outputs[8].data.outputId, "md-456");
-  assertEquals(outputs[8].data.content, "\n\nMore content");
+  assertEquals((outputs[8].data as any).outputId, "md-456");
+  assertEquals((outputs[8].data as any).content, "\n\nMore content");
 
   assertEquals(outputs.length, 9);
 });
@@ -131,9 +131,9 @@ Deno.test("ExecutionContext - empty string handling", () => {
   const outputs: string[] = [];
 
   const context: ExecutionContext = {
-    cell: { id: "test" } as any,
-    queueEntry: { id: "test" } as any,
-    store: {} as any,
+    cell: { id: "test" } as ExecutionContext["cell"],
+    queueEntry: { id: "test" } as ExecutionContext["queueEntry"],
+    store: {} as ExecutionContext["store"],
     sessionId: "test",
     kernelId: "test",
     abortSignal: new AbortController().signal,
@@ -182,9 +182,9 @@ Deno.test("ExecutionContext - streaming methods", () => {
   let called = false;
 
   const context: ExecutionContext = {
-    cell: { id: "test" } as any,
-    queueEntry: { id: "test" } as any,
-    store: {} as any,
+    cell: { id: "test" } as ExecutionContext["cell"],
+    queueEntry: { id: "test" } as ExecutionContext["queueEntry"],
+    store: {} as ExecutionContext["store"],
     sessionId: "test",
     kernelId: "test",
     abortSignal: new AbortController().signal,
@@ -239,9 +239,9 @@ Deno.test("ExecutionContext - clear with wait parameter", () => {
   const clearCalls: Array<{ wait: boolean }> = [];
 
   const context: ExecutionContext = {
-    cell: { id: "test" } as any,
-    queueEntry: { id: "test" } as any,
-    store: {} as any,
+    cell: { id: "test" } as ExecutionContext["cell"],
+    queueEntry: { id: "test" } as ExecutionContext["queueEntry"],
+    store: {} as ExecutionContext["store"],
     sessionId: "test",
     kernelId: "test",
     abortSignal: new AbortController().signal,

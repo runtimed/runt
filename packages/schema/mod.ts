@@ -755,7 +755,7 @@ const materializers = State.SQLite.materializers(events, {
   "v1.TerminalOutputAppended": ({ outputId, content }) =>
     tables.outputs
       .update({
-        data: (prev: any) => ({
+        data: (prev: { text?: string }) => ({
           ...prev,
           text: (prev.text || "") +
             (content.type === "inline" ? content.data : content.artifactId),
@@ -795,7 +795,7 @@ const materializers = State.SQLite.materializers(events, {
   "v1.MarkdownOutputAppended": ({ outputId, content }) =>
     tables.outputs
       .update({
-        data: (prev: any) => ({
+        data: (prev: { "text/markdown"?: string }) => ({
           ...prev,
           "text/markdown": (prev["text/markdown"] || "") +
             (content.type === "inline" ? content.data : content.artifactId),
