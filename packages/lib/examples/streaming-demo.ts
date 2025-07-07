@@ -138,46 +138,56 @@ class StreamingDemoAgent {
         return { success: true };
       }
 
-      // Demo 4: Simulated AI streaming response
+      // Demo 4: Simulated AI streaming response (using stdout to show streaming effect)
       if (code.includes("demo_ai_stream")) {
         console.log("🚀 Demo: AI-style streaming response...");
 
-        const aiResponse = `# AI Response
+        stdout("🤖 AI Assistant is thinking");
+        await this.delay(300);
 
-I'll help you understand streaming outputs in the unified system.
-
-## How it works
-
-The new system uses granular events:
-- **terminalOutputAdded** for initial output
-- **terminalOutputAppended** for streaming content
-- **markdownOutputAdded** for rich content
-- **markdownOutputAppended** for streaming markdown
-
-## Benefits
-
-1. **Type Safety**: Each event has a precise schema
-2. **Performance**: Better SQL operations with flattened data
-3. **Streaming**: Real-time append operations
-4. **Grouping**: Consecutive outputs merge naturally
-
-This creates a much better user experience!`;
-
-        // Simulate AI streaming by displaying content in chunks
-        const sentences = aiResponse.split("\n");
-        let currentContent = "";
-
-        for (let i = 0; i < sentences.length; i++) {
-          currentContent += sentences[i] + "\n";
-
-          // Display the accumulated content (this simulates markdown streaming)
-          display({
-            "text/markdown": currentContent,
-            "text/plain": currentContent,
-          });
-
-          await this.delay(200);
+        // Simulate typing dots
+        for (let i = 0; i < 3; i++) {
+          stdout(".");
+          await this.delay(400);
         }
+        stdout("\n\n");
+
+        // Stream the response line by line to show streaming effect
+        const responseLines = [
+          "I'll help you understand streaming outputs in the unified system.\n\n",
+          "The new system uses granular events:\n",
+          "- terminalOutputAdded for initial output\n",
+          "- terminalOutputAppended for streaming content\n",
+          "- markdownOutputAdded for rich content\n",
+          "- markdownOutputAppended for streaming markdown\n\n",
+          "Benefits include:\n",
+          "1. Type Safety: Each event has a precise schema\n",
+          "2. Performance: Better SQL operations with flattened data\n",
+          "3. Streaming: Real-time append operations\n",
+          "4. Grouping: Consecutive outputs merge naturally\n\n",
+          "This creates a much better user experience! ✨\n",
+        ];
+
+        for (const line of responseLines) {
+          stdout(line);
+          await this.delay(300);
+        }
+
+        // Final rich result showing the complete formatted response
+        result({
+          "text/markdown": `# AI Response Summary
+
+I've explained the unified output system using **streaming terminal output** to demonstrate how consecutive stdout calls group together naturally.
+
+## Key Points Covered
+- Granular event types
+- Performance benefits
+- Streaming capabilities
+- Natural output grouping
+
+The terminal output above shows how streaming works in practice!`,
+          "text/plain": "AI streaming demonstration complete",
+        });
 
         return { success: true };
       }
