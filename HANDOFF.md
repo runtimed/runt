@@ -1,17 +1,17 @@
 # Unified Output System Refactor - Runtime Agent Handoff
 
 **Branch**: `feature/unified-output-system`\
-**Status**: ✅ **SCHEMA & RUNTIME COMPLETE** - Awaiting anode integration\
-**Timeline**: Runtime completed in 1 day\
-**Breaking Changes**: Yes (schema and ExecutionContext) - **Runtime resolved, client pending**
+**Status**: Schema & runtime complete, awaiting anode integration\
+**Breaking Changes**: Yes (schema and ExecutionContext)
 
-## Overview ✅ COMPLETE
+## Overview
 
-This refactor replaced the single `cellOutputAdded` event with granular,
-type-safe events in the schema package, and updated ExecutionContext methods in
-the runtime agent to emit these new events.
+Replaced single `cellOutputAdded` event with granular, type-safe events in
+schema package. Updated ExecutionContext methods in runtime agent to emit new
+events.
 
-**RUNTIME IMPLEMENTATION COMPLETED**: All schema changes and runtime integration complete. Client integration and user testing still needed.
+**Status**: Schema changes and runtime integration complete. Client integration
+and user testing needed.
 
 ## Core Changes
 
@@ -257,30 +257,30 @@ const context: ExecutionContext = {
 };
 ```
 
-## Implementation Steps - ✅ COMPLETED
+## Implementation Steps - COMPLETED
 
-### Phase 1: Schema Updates ✅ COMPLETE
+### Phase 1: Schema Updates - COMPLETE
 
-1. ✅ Add `MediaRepresentationSchema` definition
-2. ✅ Add all new events (`multimedia*`, `terminal*`, `markdown*`, `error*`)
-3. ✅ Add `pendingClears` table
-4. ✅ Update `cellOutputsCleared` with `wait` field
-5. ✅ Implement new materializers with pending clear logic
-6. ✅ **Remove old `cellOutputAdded` event** (breaking change)
+1. Added `MediaRepresentationSchema` definition
+2. Added all new events (`multimedia*`, `terminal*`, `markdown*`, `error*`)
+3. Added `pendingClears` table
+4. Updated `cellOutputsCleared` with `wait` field
+5. Implemented new materializers with pending clear logic
+6. Removed old `cellOutputAdded` event (breaking change)
 
-### Phase 2: Runtime Integration ✅ COMPLETE
+### Phase 2: Runtime Integration - COMPLETE
 
-1. ✅ Update ExecutionContext methods in `runtime-agent.ts`
-2. ✅ Map MediaBundle to representations structure
-3. ✅ Test all output methods (stdout, stderr, display, result, error, clear)
-4. ✅ Verify `clear_output(wait=True)` scenarios
+1. Updated ExecutionContext methods in `runtime-agent.ts`
+2. Mapped MediaBundle to representations structure
+3. Tested all output methods (stdout, stderr, display, result, error, clear)
+4. Verified `clear_output(wait=True)` scenarios
 
-### Phase 3: Testing & Validation ✅ COMPLETE
+### Phase 3: Testing & Validation - COMPLETE
 
-1. ✅ Unit tests for all new materializers (simplified approach)
-2. ✅ Integration tests for ExecutionContext methods (4/4 passing)
-3. ✅ Test pending clear logic thoroughly
-4. ✅ Verify MediaBundle handling remains unchanged
+1. Unit tests for all new materializers (simplified approach)
+2. Integration tests for ExecutionContext methods (4/4 passing)
+3. Tested pending clear logic
+4. Verified MediaBundle handling unchanged
 
 ## MediaBundle Integration
 
@@ -363,62 +363,69 @@ If critical issues arise:
 2. **Runtime rollback**: Revert ExecutionContext methods
 3. **Data migration**: May need event replay with old materializers
 
-## Local Development Notes ✅ COMPLETE
+## Local Development Notes
 
-This work coordinated with anode changes successfully:
+Schema changes coordinated with anode:
 
-- ✅ Schema changes published/linked for anode consumption
-- ✅ Both packages tested together during development
-- ✅ Workspace linking used for faster iteration
+- Schema changes linked for anode consumption via `file:../runt/packages/schema`
+- Both packages tested together during development
+- Workspace linking configured
 
-**Local Development Setup Verified**: `file:../runt/packages/schema` linking in anode `package.json` works for development.
+## Success Criteria - ACHIEVED
 
-## Success Criteria ✅ ALL ACHIEVED
+- All ExecutionContext methods emit new granular events
+- MediaBundle integration works (direct mapping to representations)
+- Pending clear logic works for all output types
+- Performance maintained (simpler event structure)
+- All existing output scenarios continue working
+- Type safety improved (no optional fields, event names determine structure)
 
-- ✅ All ExecutionContext methods emit new granular events
-- ✅ MediaBundle integration works seamlessly (direct mapping to representations)
-- ✅ Pending clear logic works for all output types
-- ✅ Performance equal or better than current system (simpler event structure)
-- ✅ All existing output scenarios continue working
-- ✅ Type safety improved (no optional fields, event names determine structure)
+Additional improvements:
 
-**BONUS ACHIEVEMENTS**:
-- ✅ JSON objects preserved instead of stringified (great for Altair plots!)
-- ✅ Streaming methods added (`appendTerminal`, `markdown`, `appendMarkdown`)
-- ✅ Basic client compatibility verified (builds with new schema)
-- ✅ All runtime tests passing (4/4 ExecutionContext tests)
+- JSON objects preserved instead of stringified
+- Streaming methods added (`appendTerminal`, `markdown`, `appendMarkdown`)
+- Basic client compatibility verified (builds with new schema)
+- Runtime tests passing (4/4 ExecutionContext tests)
 
-## Related Work ✅ COMPLETE
+## Related Work
 
-- 🔄 Anode client updates in progress (basic compatibility achieved)
-- ✅ Schema package shared between both workspaces working for development
-- 📋 See `anode/HANDOFF.md` for remaining client-side work needed
+- Anode client updates in progress (basic compatibility achieved)
+- Schema package shared between workspaces
+- See `anode/HANDOFF.md` for remaining client-side work
 
 ## Implementation Learnings
 
 ### Key Technical Insights
-1. **Schema.Record Syntax**: Effect schema uses `Schema.Record({ key: Schema.String, value: T })` format
-2. **Materializer Determinism**: All `*OutputAdded` events must check `pendingClears` with `ctx.query()`
-3. **MediaBundle Preservation**: Existing system mapped perfectly to new `representations` structure
-4. **Test Simplification**: Mock-based tests more effective than full integration for this refactor
+
+1. **Schema.Record Syntax**: Effect schema uses
+   `Schema.Record({ key: Schema.String, value: T })` format
+2. **Materializer Determinism**: All `*OutputAdded` events must check
+   `pendingClears` with `ctx.query()`
+3. **MediaBundle Preservation**: Existing system mapped perfectly to new
+   `representations` structure
+4. **Test Simplification**: Mock-based tests more effective than full
+   integration for this refactor
 
 ### Breaking Changes Handled
+
 - `cellOutputsCleared` now requires `wait: boolean` parameter
 - `cellOutputAdded` replaced with specific granular events
 - ExecutionContext interface expanded with streaming methods
 - All changes backward-compatible at MediaBundle level
 
 ### Current Status
+
 - ✅ Runtime schema compiles without errors
-- ✅ Runtime agent validates successfully  
+- ✅ Runtime agent validates successfully
 - ✅ Local development environment working
 - ✅ Basic client builds (`pnpm build` successful)
 - ✅ Basic type checking passes (`pnpm type-check` clean)
 
 ### Still Needed
+
 - 🔄 Complete anode client integration (output rendering updates)
 - 🔄 User testing of full output flow (runtime → client → UI)
 - 🔄 Real-world validation with streaming AI responses
 - 🔄 Integration testing with actual notebook workflows
 
-**Ready for anode integration and user testing!** 🧪
+Ready for anode integration and user testing.
