@@ -3,6 +3,7 @@ import {
   makeSchema,
   Schema,
   SessionIdSymbol,
+  sql,
   State,
   type Store as LiveStore,
 } from "@livestore/livestore";
@@ -88,16 +89,31 @@ export const tables = {
       cellId: State.SQLite.text(),
       outputType: State.SQLite.text({
         schema: Schema.Literal(
-          "display_data",
-          "execute_result",
-          "stream",
+          "multimedia_display",
+          "multimedia_result",
+          "terminal",
+          "markdown",
           "error",
         ),
       }),
-      data: State.SQLite.json({ schema: Schema.Any }),
-      metadata: State.SQLite.json({ nullable: true, schema: Schema.Any }), // For additional output metadata
       position: State.SQLite.real(),
-      displayId: State.SQLite.text({ nullable: true }), // Jupyter display_id for cross-cell updates
+
+      // Type-specific fields
+      streamName: State.SQLite.text({ nullable: true }), // 'stdout', 'stderr' for terminal outputs
+      executionCount: State.SQLite.integer({ nullable: true }), // Only for multimedia_result
+      displayId: State.SQLite.text({ nullable: true }), // Only for multimedia_display
+
+      // Flattened content for SQL operations
+      data: State.SQLite.text({ nullable: true }), // Primary/concatenated content (text)
+      artifactId: State.SQLite.text({ nullable: true }), // Primary artifact reference
+      mimeType: State.SQLite.text({ nullable: true }), // Primary mime type
+      metadata: State.SQLite.json({ nullable: true, schema: Schema.Any }), // Primary metadata
+
+      // Multi-media support
+      representations: State.SQLite.json({
+        nullable: true,
+        schema: Schema.Any,
+      }), // Full representation map for multimedia outputs
     },
   }),
 
@@ -678,16 +694,40 @@ const materializers = State.SQLite.materializers(events, {
       ops.push(tables.outputs.delete().where({ cellId }));
       ops.push(tables.pendingClears.delete().where({ cellId }));
     }
-    // Insert new output
+
+    // Choose primary representation
+    const preferenceOrder = [
+      "text/html",
+      "image/png",
+      "image/jpeg",
+      "image/svg+xml",
+      "application/json",
+      "text/plain",
+    ];
+    let primaryData = "";
+    let primaryMimeType = "text/plain";
+
+    for (const mimeType of preferenceOrder) {
+      if (representations[mimeType]) {
+        const rep = representations[mimeType];
+        primaryData = rep.type === "inline" ? String(rep.data || "") : "";
+        primaryMimeType = mimeType;
+        break;
+      }
+    }
+
     ops.push(
       tables.outputs.insert({
         id,
         cellId,
-        outputType: "display_data",
-        data: representations,
-        metadata: null,
+        outputType: "multimedia_display",
         position,
         displayId: displayId || null,
+        data: primaryData,
+        artifactId: null,
+        mimeType: primaryMimeType,
+        metadata: null,
+        representations,
       }),
     );
     return ops;
@@ -706,16 +746,40 @@ const materializers = State.SQLite.materializers(events, {
       ops.push(tables.outputs.delete().where({ cellId }));
       ops.push(tables.pendingClears.delete().where({ cellId }));
     }
-    // Insert new output
+
+    // Choose primary representation
+    const preferenceOrder = [
+      "text/html",
+      "image/png",
+      "image/jpeg",
+      "image/svg+xml",
+      "application/json",
+      "text/plain",
+    ];
+    let primaryData = "";
+    let primaryMimeType = "text/plain";
+
+    for (const mimeType of preferenceOrder) {
+      if (representations[mimeType]) {
+        const rep = representations[mimeType];
+        primaryData = rep.type === "inline" ? String(rep.data || "") : "";
+        primaryMimeType = mimeType;
+        break;
+      }
+    }
+
     ops.push(
       tables.outputs.insert({
         id,
         cellId,
-        outputType: "execute_result",
-        data: representations,
-        metadata: { executionCount },
+        outputType: "multimedia_result",
         position,
-        displayId: null,
+        executionCount,
+        data: primaryData,
+        artifactId: null,
+        mimeType: primaryMimeType,
+        metadata: null,
+        representations,
       }),
     );
     return ops;
@@ -734,34 +798,33 @@ const materializers = State.SQLite.materializers(events, {
       ops.push(tables.outputs.delete().where({ cellId }));
       ops.push(tables.pendingClears.delete().where({ cellId }));
     }
-    // Insert new output
+
     ops.push(
       tables.outputs.insert({
         id,
         cellId,
-        outputType: "stream",
-        data: {
-          name: streamName,
-          text: content.type === "inline" ? content.data : content.artifactId,
-        },
-        metadata: content.metadata || null,
+        outputType: "terminal",
         position,
-        displayId: null,
+        streamName,
+        data: content.type === "inline" ? String(content.data) : null,
+        artifactId: content.type === "artifact" ? content.artifactId : null,
+        mimeType: "text/plain",
+        metadata: content.metadata || null,
+        representations: null,
       }),
     );
     return ops;
   },
 
-  "v1.TerminalOutputAppended": ({ outputId, content }) =>
+  "v1.TerminalOutputAppended": ({ outputId, content }) => [
     tables.outputs
       .update({
-        data: (prev: { text?: string }) => ({
-          ...prev,
-          text: (prev.text || "") +
-            (content.type === "inline" ? content.data : content.artifactId),
-        }),
+        data: sql`data || ${
+          content.type === "inline" ? String(content.data) : ""
+        }`,
       })
       .where({ id: outputId }),
+  ],
 
   "v1.MarkdownOutputAdded": ({ id, cellId, position, content }, ctx) => {
     const ops = [];
@@ -773,35 +836,32 @@ const materializers = State.SQLite.materializers(events, {
       ops.push(tables.outputs.delete().where({ cellId }));
       ops.push(tables.pendingClears.delete().where({ cellId }));
     }
-    // Insert new output
+
     ops.push(
       tables.outputs.insert({
         id,
         cellId,
-        outputType: "display_data",
-        data: {
-          "text/markdown": content.type === "inline"
-            ? content.data
-            : content.artifactId,
-        },
-        metadata: content.metadata || null,
+        outputType: "markdown",
         position,
-        displayId: null,
+        data: content.type === "inline" ? String(content.data) : null,
+        artifactId: content.type === "artifact" ? content.artifactId : null,
+        mimeType: "text/markdown",
+        metadata: content.metadata || null,
+        representations: null,
       }),
     );
     return ops;
   },
 
-  "v1.MarkdownOutputAppended": ({ outputId, content }) =>
+  "v1.MarkdownOutputAppended": ({ outputId, content }) => [
     tables.outputs
       .update({
-        data: (prev: { "text/markdown"?: string }) => ({
-          ...prev,
-          "text/markdown": (prev["text/markdown"] || "") +
-            (content.type === "inline" ? content.data : content.artifactId),
-        }),
+        data: sql`data || ${
+          content.type === "inline" ? String(content.data) : ""
+        }`,
       })
       .where({ id: outputId }),
+  ],
 
   "v1.ErrorOutputAdded": ({ id, cellId, position, content }, ctx) => {
     const ops = [];
@@ -813,18 +873,18 @@ const materializers = State.SQLite.materializers(events, {
       ops.push(tables.outputs.delete().where({ cellId }));
       ops.push(tables.pendingClears.delete().where({ cellId }));
     }
-    // Insert new output
+
     ops.push(
       tables.outputs.insert({
         id,
         cellId,
         outputType: "error",
-        data: content.type === "inline"
-          ? content.data
-          : { artifactId: content.artifactId },
-        metadata: content.metadata || null,
         position,
-        displayId: null,
+        data: content.type === "inline" ? JSON.stringify(content.data) : null,
+        artifactId: content.type === "artifact" ? content.artifactId : null,
+        mimeType: "application/json",
+        metadata: content.metadata || null,
+        representations: null,
       }),
     );
     return ops;
