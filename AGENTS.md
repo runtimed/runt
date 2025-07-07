@@ -3,9 +3,7 @@
 This document provides context for AI assistants working on the runt runtime
 agent library.
 
-**Current Status**: Unified Output System implementation complete - granular,
-type-safe events successfully replace single `cellOutputAdded` with full
-MediaBundle and ExecutionContext integration.
+**Current Status**: Production-ready runtime with Python execution, real-time collaboration, and streaming output support. The unified output system provides granular, type-safe events for rich display capabilities.
 
 ## Project Overview
 
@@ -13,15 +11,7 @@ Runt is a TypeScript/Deno library for building runtime agents that connect to
 [Anode notebooks](https://github.com/rgbkrk/anode). It uses LiveStore for
 event-sourcing and real-time sync between multiple users.
 
-**Current Status**: Working system with 58 passing tests. Core functionality is
-implemented and published to JSR. The system is a production-ready runtime with
-Python execution via Pyodide, real-time collaboration, executable installation
-support, and agentic AI behavior with iterative tool calls.
-
-**Breaking Change Complete**: Successfully migrated from single
-`cellOutputAdded` event to granular events like `multimediaDisplayOutputAdded`,
-`terminalOutputAdded`, etc. providing better type safety and streaming
-capabilities.
+**Current Status**: Working system with 58 passing tests. Core functionality is implemented and published to JSR. The system includes Python execution via Pyodide, real-time collaboration, executable installation support, and agentic AI behavior with iterative tool calls.
 
 ## Architecture
 
@@ -39,43 +29,25 @@ capabilities.
 
 - ✅ LiveStore integration with event-sourced state management
 - ✅ Runtime agent lifecycle (start, execute, shutdown)
-- ✅ Unified output system with granular, type-safe events
-- ✅ MediaBundle system for multi-format rich outputs with AI conversion
-- ✅ ExecutionContext methods (stdout, stderr, display, result, error, clear)
+- ✅ Python code execution via Pyodide with rich formatting (matplotlib, pandas, HTML)
 - ✅ Real-time collaboration via LiveStore sync
 - ✅ CLI configuration with environment variable fallbacks
 - ✅ Cross-package TypeScript imports with proper typing
 - ✅ CI/CD pipeline with multi-platform testing
-- ✅ Python code execution via Pyodide with rich formatting
-- ✅ Direct Python code execution with IPython rich formatting
-- ✅ HTML rendering, pandas tables, matplotlib SVG plots
-- ✅ Real-time interrupt support via SharedArrayBuffer
 - ✅ JSR publishing for all packages with executable installation
 - ✅ Global executable installation as `pyrunt`
 - ✅ Agentic AI behavior with iterative tool call responses
 - ✅ Interrupt-aware AI conversations with configurable max iterations
-- ✅ Terminal output grouping (consecutive outputs merge naturally)
-- ✅ Error output rendering with proper JSON parsing
-- ✅ clear_output(wait=True/False) functionality working
+- ✅ Streaming output support with granular event types
+- ✅ MediaBundle system for multi-format rich outputs with AI conversion
 
-## Recent Major Completion ✅
+## Core Features
 
-- ✅ **Unified Output System**: Successfully replaced single `cellOutputAdded`
-  with granular events
-  - ✅ `multimediaDisplayOutputAdded` / `multimediaResultOutputAdded` for rich
-    outputs
-  - ✅ `terminalOutputAdded` / `terminalOutputAppended` for streaming shell
-    output
-  - ✅ `markdownOutputAdded` / `markdownOutputAppended` for AI responses
-  - ✅ `errorOutputAdded` for execution errors
-  - ✅ Enhanced `cellOutputsCleared` with `clear_output(wait=True)` support
-- ✅ **ExecutionContext Integration**: All existing methods mapped to new events
-- ✅ **MediaBundle Preservation**: Existing media handling seamlessly uses
-  `representations` field
-- ✅ **Type Safety**: Event names determine exact structure, no optional fields
-  achieved
-- ✅ **clear_output Implementation**: Full IPython.display.clear_output()
-  functionality
+- **Streaming Output System**: Granular events for different output types (multimedia, terminal, markdown, error)
+- **Python Execution**: Direct Pyodide integration with IPython rich display support
+- **AI Integration**: Agentic behavior with tool calling and iterative responses
+- **Real-time Collaboration**: LiveStore-based event sourcing for multi-user support
+- **Rich Media Support**: Handle plots, tables, HTML, and custom display formats
 
 ## What Needs Work (Non-blocking)
 
@@ -96,7 +68,6 @@ deno task dev       # run example echo agent
 When making changes:
 
 - **Create a branch first** - never commit directly to `main`
-- **Current branch**: `feature/unified-output-system` for output system refactor
 - Edit code
 - Run `deno task ci` to check everything
 - Commit changes with focused, descriptive messages
@@ -105,29 +76,12 @@ When making changes:
 
 ## Key Constraints
 
-- **LiveStore Materializers**: Must be pure functions. Never use `ctx.query()`
-  in materializers - it causes hash mismatches and runtime failures.
-- **Event Schema**: Breaking changes are acceptable during current refactor
-  phase. New granular events will replace existing `cellOutputAdded`.
-- **Session Management**: Each runtime restart gets a unique `sessionId`. Handle
-  session overlap during restarts.
-- **Output Methods**: ExecutionContext methods (`stdout`, `stderr`, `display`,
-  `result`, `error`, `clear`) will emit new granular events instead of single
-  `cellOutputAdded`.
-- **MediaBundle Integration**: Existing `MediaBundle` system becomes the
-  `representations` field in multimedia events - no conversion needed.
-- **Pyodide Code Execution**: Use direct `pyodide.runPythonAsync()` instead of
-  IPython's `shell.run_cell()` to avoid code transformations. Process results
-  through IPython's displayhook for rich formatting.
-- **Duplicate Outputs**: When displayhook handles a result, don't return data
-  from the execution handler to avoid duplicate execute_result outputs.
-- **Clear Output Support**: New `clear_output(wait=True)` requires pending clear
-  logic in materializers using `ctx.query(tables.pendingClears)`.
-- **Agentic Conversations**: The AI can now iterate after tool calls, allowing
-  it to respond to tool results and fix its own mistakes. Use
-  `generateAgenticResponse()` for this behavior. Default max iterations is 10.
-- **Interrupt Support**: AI conversations respect abort signals and can be
-  interrupted during multi-iteration flows.
+- **LiveStore Materializers**: Must be pure functions. Never use `ctx.query()` in materializers - it causes hash mismatches and runtime failures.
+- **Session Management**: Each runtime restart gets a unique `sessionId`. Handle session overlap during restarts.
+- **Pyodide Code Execution**: Use direct `pyodide.runPythonAsync()` instead of IPython's `shell.run_cell()` to avoid code transformations. Process results through IPython's displayhook for rich formatting.
+- **Duplicate Outputs**: When displayhook handles a result, don't return data from the execution handler to avoid duplicate execute_result outputs.
+- **Agentic Conversations**: AI can iterate after tool calls, allowing it to respond to tool results and fix its own mistakes. Use `generateAgenticResponse()` for this behavior. Default max iterations is 10.
+- **Interrupt Support**: AI conversations respect abort signals and can be interrupted during multi-iteration flows.
 
 ## File Structure
 
@@ -224,31 +178,17 @@ When working on this codebase:
 The goal is to make this library useful for developers building runtime agents,
 not to impress anyone with complexity.
 
-## Recent Major Completions (January 2025) ✅
+## Notes for AI Assistants
 
-- ✅ **Unified Output System Implementation**: Complete refactor from single
-  `cellOutputAdded` to granular, type-safe events providing better performance
-  and maintainability
-- ✅ **clear_output() Functionality**: Full implementation of IPython's
-  clear_output(wait=True/False) with proper pending clear logic and JavaScript
-  callback integration
-- ✅ **Error Output Rendering**: Fixed JSON error parsing and traceback display
-  for new schema
-- ✅ **Terminal Output Grouping**: Consecutive terminal outputs merge naturally
-  for better UX
-- ✅ **Schema Migration Complete**: All breaking changes implemented with full
-  type safety
-- ✅ **All Tests Updated**: 58/58 tests passing with new output structure
-- ✅ **MediaBundle Integration**: Existing media handling seamlessly preserved
-  as `representations`
-- ✅ **Production Ready**: All components working together in real deployment
-  scenarios
-- ✅ **Agentic AI Behavior**: `generateAgenticResponse()` with iterative tool
-  call responses
-- ✅ **Interrupt-Aware Conversations**: AI conversations respect abort signals
-  during iterations
-- ✅ **Enhanced Tool Call Handling**: Results feed back into AI conversation for
-  intelligence
-- ✅ **JSR Publishing**: All packages published with proper dependency
-  management
-- ✅ **Global Installation**: `pyrunt` executable available via JSR installation
+When working on this codebase:
+
+- **Create a branch first** - never work directly on `main`
+- Read the existing code to understand patterns
+- Run tests after making changes
+- Check that CI passes before submitting
+- Don't make assumptions about complex LiveStore behavior
+- Ask for clarification if event-sourcing concepts are unclear
+- Focus on making the code work reliably rather than adding features
+- Be honest about limitations and current state
+
+The goal is to make this library useful for developers building runtime agents, not to impress anyone with complexity.
