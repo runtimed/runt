@@ -1,4 +1,6 @@
 .env
+.env.*
+.env.production
 runt
 echo-agent
 
@@ -9,6 +11,12 @@ echo-agent
 cov/
 cov.lcov
 *.lcov
+cov_profile/
+cov/
+cov_profile.html/
+cov_profile/lcov.info
+cov_profile/html/
+
 
 # Sometimes created by the python files here
 .ropeproject
@@ -18,6 +26,5 @@ __pycache__/
 *.pyc
 *.pyo
 
-.env
-.env.*
-.env.production
+# System files
+.DS_Store

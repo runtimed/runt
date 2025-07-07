@@ -1,8 +1,51 @@
 {
-  "tasks": {
-    "dev": "deno run --watch main.ts"
+  "name": "@runt/python-runtime-agent",
+  "version": "0.1.0",
+  "description": "Python runtime agent using a regular Python environment via subprocess integration",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/runtimed/anode.git"
+  },
+  "exports": {
+    ".": "./main.ts"
+  },
+  "bin": {
+    "pythonrunt": "./main.ts"
   },
   "imports": {
-    "@std/assert": "jsr:@std/assert@1"
+    "@runt/ai": "jsr:@runt/ai@^0.5.3",
+    "@runt/lib": "jsr:@runt/lib@^0.5.3",
+    "@runt/schema": "jsr:@runt/schema@^0.5.3"
+  },
+  "tasks": {
+    "dev": "deno run --allow-all main.ts",
+    "test": "deno test --allow-all",
+    "check": "deno check main.ts",
+    "fmt": "deno fmt",
+    "lint": "deno lint"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 80,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": false,
+    "proseWrap": "preserve"
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  },
+  "publish": {
+    "include": ["main.ts", "README.md"],
+    "exclude": ["**/*.test.ts", "**/test_*.ts"]
   }
 }
