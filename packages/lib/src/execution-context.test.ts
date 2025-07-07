@@ -1,14 +1,8 @@
 // ExecutionContext output methods tests
 
 import { assertEquals } from "jsr:@std/assert";
-import {
-  Events,
-  LiveStore,
-  makeSchema,
-  Schema,
-  State,
-} from "npm:@livestore/livestore";
-import { NodeAdapter } from "npm:@livestore/adapter-node";
+import { createStorePromise, queryDb } from "npm:@livestore/livestore";
+import { makeAdapter } from "npm:@livestore/adapter-node";
 
 import { RuntimeAgent } from "./runtime-agent.ts";
 import { RuntimeConfig } from "./config.ts";
@@ -17,18 +11,16 @@ import { schema } from "@runt/schema";
 
 // Helper to create a real in-memory store for testing
 async function createTestStore() {
-  const adapter = new NodeAdapter({
+  const adapter = makeAdapter({
     databasePath: ":memory:",
-    syncUrl: null, // No sync for tests
   });
 
-  const store = new LiveStore({
+  const store = await createStorePromise({
     schema,
     adapter,
     storeId: `test-${crypto.randomUUID()}`,
   });
 
-  await store.start();
   return store;
 }
 
@@ -105,10 +97,10 @@ async function createTestContext() {
 
   // Get the cell and queue entry data
   const cells = store.query(
-    schema.state.tables.cells.select().where({ id: cellId }),
+    queryDb(schema.state.tables.cells.select().where({ id: cellId })),
   );
   const queueEntries = store.query(
-    schema.state.tables.executionQueue.select().where({ id: queueId }),
+    queryDb(schema.state.tables.executionQueue.select().where({ id: queueId })),
   );
 
   const cell = cells[0];
@@ -287,7 +279,7 @@ Deno.test("ExecutionContext - stdout output", async () => {
   context.stdout("Hello, world!");
 
   const outputs = store.query(
-    store.schema.state.tables.outputs.select().where({ cellId }),
+    queryDb(schema.state.tables.outputs.select().where({ cellId })),
   );
 
   assertEquals(outputs.length, 1);
@@ -302,7 +294,7 @@ Deno.test("ExecutionContext - stderr output", async () => {
   context.stderr("Error message");
 
   const outputs = store.query(
-    store.schema.state.tables.outputs.select().where({ cellId }),
+    queryDb(schema.state.tables.outputs.select().where({ cellId })),
   );
 
   assertEquals(outputs.length, 1);
@@ -320,7 +312,7 @@ Deno.test("ExecutionContext - display output", async () => {
   });
 
   const outputs = store.query(
-    store.schema.state.tables.outputs.select().where({ cellId }),
+    queryDb(schema.state.tables.outputs.select().where({ cellId })),
   );
 
   assertEquals(outputs.length, 1);
@@ -338,7 +330,7 @@ Deno.test("ExecutionContext - result output", async () => {
   });
 
   const outputs = store.query(
-    store.schema.state.tables.outputs.select().where({ cellId }),
+    queryDb(schema.state.tables.outputs.select().where({ cellId })),
   );
 
   assertEquals(outputs.length, 1);
@@ -356,7 +348,7 @@ Deno.test("ExecutionContext - error output", async () => {
   ]);
 
   const outputs = store.query(
-    store.schema.state.tables.outputs.select().where({ cellId }),
+    queryDb(schema.state.tables.outputs.select().where({ cellId })),
   );
 
   assertEquals(outputs.length, 1);
@@ -374,7 +366,7 @@ Deno.test("ExecutionContext - clear outputs", async () => {
   context.stdout("Output 2");
 
   let outputs = store.query(
-    store.schema.state.tables.outputs.select().where({ cellId }),
+    queryDb(schema.state.tables.outputs.select().where({ cellId })),
   );
   assertEquals(outputs.length, 2);
 
@@ -382,7 +374,7 @@ Deno.test("ExecutionContext - clear outputs", async () => {
   context.clear(false);
 
   outputs = store.query(
-    store.schema.state.tables.outputs.select().where({ cellId }),
+    queryDb(schema.state.tables.outputs.select().where({ cellId })),
   );
   assertEquals(outputs.length, 0);
 });
@@ -393,7 +385,7 @@ Deno.test("ExecutionContext - markdown output", async () => {
   context.markdown("# Hello World\n\nThis is markdown content.");
 
   const outputs = store.query(
-    store.schema.state.tables.outputs.select().where({ cellId }),
+    queryDb(schema.state.tables.outputs.select().where({ cellId })),
   );
 
   assertEquals(outputs.length, 1);
@@ -411,7 +403,7 @@ Deno.test("ExecutionContext - terminal append", async () => {
   context.stdout("Hello");
 
   const outputs = store.query(
-    store.schema.state.tables.outputs.select().where({ cellId }),
+    queryDb(schema.state.tables.outputs.select().where({ cellId })),
   );
   const outputId = outputs[0].id;
 
@@ -419,7 +411,7 @@ Deno.test("ExecutionContext - terminal append", async () => {
   context.appendTerminal(outputId, " World!");
 
   const updatedOutputs = store.query(
-    store.schema.state.tables.outputs.select().where({ cellId }),
+    queryDb(schema.state.tables.outputs.select().where({ cellId })),
   );
 
   assertEquals(updatedOutputs.length, 1);

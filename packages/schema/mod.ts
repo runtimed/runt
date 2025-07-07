@@ -889,8 +889,7 @@ export type Store = LiveStore<typeof schema>;
 export type NotebookData = typeof tables.notebook.Type;
 export type CellData = typeof tables.cells.Type;
 export type OutputData = typeof tables.outputs.Type;
-export type OutputCaptureData = typeof tables.outputCaptures.Type;
-export type OutputSessionData = typeof tables.outputSessions.Type;
+
 export type KernelSessionData = typeof tables.kernelSessions.Type;
 export type ExecutionQueueData = typeof tables.executionQueue.Type;
 export type DataConnectionData = typeof tables.dataConnections.Type;
@@ -938,13 +937,6 @@ export type MediaRepresentation = {
   metadata?: Record<string, unknown>;
 };
 
-// Error output data structure for unified system
-export type ErrorOutputData = {
-  ename: string;
-  evalue: string;
-  traceback: string[];
-};
-
 // SQL-specific types
 export interface SqlResultData {
   columns: string[];
@@ -965,10 +957,11 @@ export interface RichOutputData {
 }
 
 // Error output structure
+// Error output data structure for unified system
 export interface ErrorOutputData {
   ename: string;
   evalue: string;
-  traceback?: string[];
+  traceback: string[];
 }
 
 // Stream output structure
