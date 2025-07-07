@@ -816,15 +816,24 @@ const materializers = State.SQLite.materializers(events, {
     return ops;
   },
 
-  "v1.TerminalOutputAppended": ({ outputId, content }) => [
-    tables.outputs
-      .update({
-        data: sql`data || ${
-          content.type === "inline" ? String(content.data) : ""
-        }`,
-      })
-      .where({ id: outputId }),
-  ],
+  "v1.TerminalOutputAppended": ({ outputId, content }, ctx) => {
+    const existingOutput = ctx.query(
+      tables.outputs.select().where({ id: outputId }).limit(1),
+    )[0];
+
+    if (!existingOutput) {
+      return [];
+    }
+
+    const newContent = content.type === "inline" ? String(content.data) : "";
+    const concatenatedData = (existingOutput.data || "") + newContent;
+
+    return [
+      tables.outputs
+        .update({ data: concatenatedData })
+        .where({ id: outputId }),
+    ];
+  },
 
   "v1.MarkdownOutputAdded": ({ id, cellId, position, content }, ctx) => {
     const ops = [];
@@ -853,15 +862,24 @@ const materializers = State.SQLite.materializers(events, {
     return ops;
   },
 
-  "v1.MarkdownOutputAppended": ({ outputId, content }) => [
-    tables.outputs
-      .update({
-        data: sql`data || ${
-          content.type === "inline" ? String(content.data) : ""
-        }`,
-      })
-      .where({ id: outputId }),
-  ],
+  "v1.MarkdownOutputAppended": ({ outputId, content }, ctx) => {
+    const existingOutput = ctx.query(
+      tables.outputs.select().where({ id: outputId }).limit(1),
+    )[0];
+
+    if (!existingOutput) {
+      return [];
+    }
+
+    const newContent = content.type === "inline" ? String(content.data) : "";
+    const concatenatedData = (existingOutput.data || "") + newContent;
+
+    return [
+      tables.outputs
+        .update({ data: concatenatedData })
+        .where({ id: outputId }),
+    ];
+  },
 
   "v1.ErrorOutputAdded": ({ id, cellId, position, content }, ctx) => {
     const ops = [];

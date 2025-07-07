@@ -63,6 +63,7 @@ Deno.test("ExecutionContext - method signatures", () => {
 
     markdown: (content, metadata) => {
       outputs.push({ type: "markdown", data: { content, metadata } });
+      return "mock-markdown-id";
     },
 
     appendMarkdown: (outputId, content) => {
@@ -153,7 +154,7 @@ Deno.test("ExecutionContext - empty string handling", () => {
     error: () => {},
     clear: () => {},
     appendTerminal: () => {},
-    markdown: () => {},
+    markdown: () => "mock-markdown-id",
     appendMarkdown: () => {},
   };
 
@@ -209,6 +210,7 @@ Deno.test("ExecutionContext - streaming methods", () => {
       assertEquals(content, "# Markdown");
       assertEquals(metadata?.type, "ai");
       called = true;
+      return "mock-markdown-id";
     },
 
     appendMarkdown: (outputId: string, content: string) => {
@@ -254,7 +256,7 @@ Deno.test("ExecutionContext - clear with wait parameter", () => {
     result: () => {},
     error: () => {},
     appendTerminal: () => {},
-    markdown: () => {},
+    markdown: () => "mock-markdown-id",
     appendMarkdown: () => {},
 
     clear: (wait = false) => {

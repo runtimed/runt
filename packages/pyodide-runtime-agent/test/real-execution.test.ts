@@ -114,8 +114,10 @@ function createTestExecutionContext(code: string): {
     clear: () => outputs.push({ type: "clear", data: null }),
     appendTerminal: (outputId: string, text: string) =>
       outputs.push({ type: "appendTerminal", data: { outputId, text } }),
-    markdown: (content: string, metadata?: Record<string, unknown>) =>
-      outputs.push({ type: "markdown", data: { content, metadata } }),
+    markdown: (content: string, metadata?: Record<string, unknown>) => {
+      outputs.push({ type: "markdown", data: { content, metadata } });
+      return "mock-markdown-id";
+    },
     appendMarkdown: (outputId: string, content: string) =>
       outputs.push({ type: "appendMarkdown", data: { outputId, content } }),
   };

@@ -629,8 +629,9 @@ export class RuntimeAgent {
 
       // Markdown output methods for AI responses
       markdown: (content: string, metadata?: Record<string, unknown>) => {
+        const outputId = crypto.randomUUID();
         this.store.commit(events.markdownOutputAdded({
-          id: crypto.randomUUID(),
+          id: outputId,
           cellId: cell.id,
           position: outputPosition++,
           content: {
@@ -639,6 +640,7 @@ export class RuntimeAgent {
             metadata,
           },
         }));
+        return outputId;
       },
 
       // Append to existing markdown output (for streaming AI responses)

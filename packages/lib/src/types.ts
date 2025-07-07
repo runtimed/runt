@@ -95,7 +95,7 @@ export interface ExecutionContext {
   /** Append text to existing terminal output (for streaming) */
   appendTerminal: (outputId: string, text: string) => void;
   /** Emit markdown content (for AI responses) */
-  markdown: (content: string, metadata?: Record<string, unknown>) => void;
+  markdown: (content: string, metadata?: Record<string, unknown>) => string;
   /** Append to existing markdown output (for streaming AI responses) */
   appendMarkdown: (outputId: string, content: string) => void;
 }
