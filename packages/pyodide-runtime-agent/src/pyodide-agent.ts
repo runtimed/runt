@@ -720,33 +720,58 @@ export class PyodideRuntimeAgent {
               };
             }
 
-            // For stream outputs, include the text directly
-            if (outputData.text && outputData.name) {
+            // With new schema, data is flattened - check output type and handle accordingly
+            if (output.outputType === "terminal") {
               return {
                 outputType: output.outputType,
                 data: {
-                  text: outputData.text,
-                  name: outputData.name,
+                  text: output.data || "",
+                  name: output.streamName || "stdout",
                 },
               };
             }
 
-            // For error outputs, include error info
-            if (outputData.ename && outputData.evalue) {
+            // For error outputs, parse JSON data
+            if (output.outputType === "error") {
+              try {
+                const errorData = typeof output.data === "string"
+                  ? JSON.parse(output.data)
+                  : output.data;
+                return {
+                  outputType: output.outputType,
+                  data: {
+                    ename: errorData?.ename || "Error",
+                    evalue: errorData?.evalue || "Unknown error",
+                    traceback: errorData?.traceback || [],
+                  },
+                };
+              } catch {
+                return {
+                  outputType: output.outputType,
+                  data: {
+                    ename: "Error",
+                    evalue: String(output.data || "Unknown error"),
+                    traceback: [],
+                  },
+                };
+              }
+            }
+
+            // For multimedia outputs, use representations if available
+            if (output.representations) {
               return {
                 outputType: output.outputType,
-                data: {
-                  ename: outputData.ename,
-                  evalue: outputData.evalue,
-                  traceback: outputData.traceback || [],
-                },
+                data: output.representations,
               };
             }
           }
 
+          // Fallback to data field
           return {
             outputType: output.outputType,
-            data: outputData as Record<string, unknown>,
+            data: typeof output.data === "string"
+              ? { "text/plain": output.data }
+              : (output.data || {}),
           };
         });
 

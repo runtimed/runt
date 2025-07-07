@@ -140,13 +140,19 @@ Deno.test({
       assertEquals(outputs.length, 1, "Should have one output");
       assertEquals(
         outputs[0]?.outputType,
-        "execute_result",
-        "Should be execute_result",
+        "multimedia_result",
+        "Should be multimedia_result",
       );
 
-      // Verify the arithmetic result
-      const outputData = outputs[0]?.data as { "text/plain": string };
-      assertEquals(outputData?.["text/plain"], "21", "3 * 7 should equal 21");
+      // Verify the arithmetic result - check representations for multimedia output
+      const outputData = outputs[0]?.representations as {
+        "text/plain": { data: string };
+      };
+      assertEquals(
+        outputData?.["text/plain"]?.data,
+        "21",
+        "3 * 7 should equal 21",
+      );
 
       console.log("✅ Complete integration test successful!");
     });
