@@ -2,7 +2,6 @@
   "version": "5",
   "specifiers": {
     "jsr:@openai/openai@^4.98.0": "4.102.0",
-    "jsr:@runt/ai@~0.5.3": "0.5.3",
     "jsr:@std/assert@*": "1.0.13",
     "jsr:@std/assert@1.0.13": "1.0.13",
     "jsr:@std/async@*": "1.0.13",
@@ -28,13 +27,6 @@
       "integrity": "ea5201bc5c8a696d3a5139a9cd2252e3ab9b2b880769a9cd7f05602ea1a02acf",
       "dependencies": [
         "npm:zod"
-      ]
-    },
-    "@runt/ai@0.5.3": {
-      "integrity": "2ac8e1935fbfb7ca269768b368d60c830fc1b7783f5deb15fd20b6cd143807e0",
-      "dependencies": [
-        "jsr:@openai/openai",
-        "npm:strip-ansi"
       ]
     },
     "@std/assert@1.0.13": {
@@ -1027,8 +1019,8 @@
       "packages/ai": {
         "dependencies": [
           "jsr:@openai/openai@^4.98.0",
-          "jsr:@runt/lib@~0.5.3",
-          "jsr:@runt/schema@~0.5.3",
+          "jsr:@runt/lib@0.6",
+          "jsr:@runt/schema@0.6",
           "jsr:@std/async@1",
           "npm:@livestore/livestore@~0.3.1",
           "npm:pyodide@~0.27.7",
@@ -1037,7 +1029,7 @@
       },
       "packages/lib": {
         "dependencies": [
-          "jsr:@runt/schema@~0.5.3",
+          "jsr:@runt/schema@0.6",
           "jsr:@std/cli@1",
           "npm:@livestore/adapter-node@~0.3.1",
           "npm:@livestore/livestore@~0.3.1",
@@ -1047,9 +1039,9 @@
       },
       "packages/pyodide-runtime-agent": {
         "dependencies": [
-          "jsr:@runt/ai@~0.5.3",
-          "jsr:@runt/lib@~0.5.3",
-          "jsr:@runt/schema@~0.5.3",
+          "jsr:@runt/ai@0.6",
+          "jsr:@runt/lib@0.6",
+          "jsr:@runt/schema@0.6",
           "jsr:@std/async@1",
           "npm:@livestore/livestore@~0.3.1",
           "npm:pyodide@~0.27.7",
