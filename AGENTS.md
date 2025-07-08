@@ -3,9 +3,7 @@
 This document provides context for AI assistants working on the runt runtime
 agent library.
 
-**Current Status**: Production-ready runtime with Python execution, real-time
-collaboration, and streaming output support. The unified output system provides
-granular, type-safe events for rich display capabilities.
+**Current Status**: A robust runtime agent library with Python execution, real-time collaboration, and streaming output support. It provides granular, type-safe events for rich display capabilities and is implemented with a focus on stability and extensibility.
 
 ## Project Overview
 
@@ -165,8 +163,7 @@ All dependencies are pinned in `deno.json` import maps.
 - Code examples are better than long explanations
 - Keep documentation concise and consolidate when possible
 - Remove marketing fluff and focus on technical accuracy
-- Don't claim things "need work" without specific evidence
-- Position this as a working prototype, not a production system
+
 
 ## Development Guidelines
 
@@ -192,22 +189,6 @@ When working on this codebase:
 - Focus on making the code work reliably rather than adding features
 - Be honest about limitations and current state
 - Avoid marketing language - this is a prototype for developers
-
-The goal is to make this library useful for developers building runtime agents,
-not to impress anyone with complexity.
-
-## Notes for AI Assistants
-
-When working on this codebase:
-
-- **Create a branch first** - never work directly on `main`
-- Read the existing code to understand patterns
-- Run tests after making changes
-- Check that CI passes before submitting
-- Don't make assumptions about complex LiveStore behavior
-- Ask for clarification if event-sourcing concepts are unclear
-- Focus on making the code work reliably rather than adding features
-- Be honest about limitations and current state
 
 The goal is to make this library useful for developers building runtime agents,
 not to impress anyone with complexity.
