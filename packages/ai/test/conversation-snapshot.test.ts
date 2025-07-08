@@ -995,7 +995,7 @@ Deno.test("AI conversation rendering - debug UI scenario", () => {
 
   const messages = buildConversationMessages(
     context,
-    "This is a pyodide based notebook environment with assistant and user access to the same kernel. Users see and edit the same notebook as you. When you execute cells, the user sees the output as well",
+    "This is a pyodide based notebook environment with assistant and user access to the same runtime. Users see and edit the same notebook as you. When you execute cells, the user sees the output as well",
     "Maybe #4",
   );
 

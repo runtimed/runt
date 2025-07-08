@@ -74,8 +74,8 @@ Deno.test("Specific Example Exports", async (t) => {
     async () => {
       const module = await import("../examples/enhanced-output-example.ts");
 
-      assertExists(module.ExamplePythonKernel);
-      assertEquals(typeof module.ExamplePythonKernel, "function");
+      assertExists(module.ExamplePythonRuntime);
+      assertEquals(typeof module.ExamplePythonRuntime, "function");
 
       assertExists(module.ComparisonExample);
       assertEquals(typeof module.ComparisonExample, "function");

@@ -32,7 +32,7 @@ function createMockExecutionContext(): {
     } as ExecutionContext["queueEntry"],
     store: {} as ExecutionContext["store"],
     sessionId: "test-session",
-    runtimeId: "test-kernel",
+    runtimeId: "test-runtime",
     abortSignal: new AbortController().signal,
     checkCancellation: () => {},
 

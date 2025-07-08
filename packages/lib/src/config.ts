@@ -93,8 +93,8 @@ export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
       "notebook",
       "auth-token",
       "sync-url",
-      "kernel-id",
-      "kernel-type",
+      "runtime-id",
+      "runtime-type",
       "heartbeat-interval",
     ],
     boolean: ["help"],
@@ -102,8 +102,8 @@ export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
       n: "notebook",
       t: "auth-token",
       s: "sync-url",
-      k: "kernel-id",
-      T: "kernel-type",
+      r: "runtime-id",
+      T: "runtime-type",
       h: "help",
     },
   });
@@ -134,7 +134,7 @@ Examples:
   deno run --allow-net --allow-env main.ts --notebook=test --auth-token=abc123
 
 Environment Variables (fallback):
-  NOTEBOOK_ID, AUTH_TOKEN, LIVESTORE_SYNC_URL, KERNEL_ID, KERNEL_TYPE
+  NOTEBOOK_ID, AUTH_TOKEN, LIVESTORE_SYNC_URL, RUNTIME_ID, RUNTIME_TYPE
 
 Logging Configuration:
   RUNT_LOG_LEVEL             Set to DEBUG, INFO, WARN, or ERROR (default: INFO)

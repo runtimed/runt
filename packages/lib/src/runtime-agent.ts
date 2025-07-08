@@ -83,7 +83,7 @@ export class RuntimeAgent {
         },
       });
 
-      // Register kernel session
+      // Register runtime session
       // Displace any existing active sessions for this notebook
       const existingSessions = this.store.query(
         tables.runtimeSessions.select().where({ isActive: true }),
@@ -224,7 +224,7 @@ export class RuntimeAgent {
    * Set up reactive queries for execution management
    */
   private setupSubscriptions(): void {
-    // Watch for work assigned to this specific kernel
+    // Watch for work assigned to this specific runtime
     const assignedWorkQuery$ = queryDb(
       tables.executionQueue.select()
         .where({
@@ -358,7 +358,7 @@ export class RuntimeAgent {
                   runtimeSessionId: this.config.sessionId,
                 }));
               } catch (_error) {
-                // Silently fail - another kernel may have claimed it
+                // Silently fail - another runtime may have claimed it
               }
             }
           }, 0);

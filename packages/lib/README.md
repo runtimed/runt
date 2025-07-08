@@ -9,7 +9,7 @@ processes execution queues, handles outputs.
 import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
 
 const config = createRuntimeConfig(Deno.args, {
-  kernelType: "my-kernel",
+  runtimeType: "my-runtime",
   capabilities: {
     canExecuteCode: true,
     canExecuteSql: false,
@@ -38,11 +38,11 @@ await agent.keepAlive();
 ```bash
 --notebook <id>           # Required
 --auth-token <token>      # Required
---kernel-type <type>      # Optional
+--runtime-type <type>     # Optional
 --sync-url <url>          # Optional
 ```
 
-Environment variables: `NOTEBOOK_ID`, `AUTH_TOKEN`, `KERNEL_TYPE`,
+Environment variables: `NOTEBOOK_ID`, `AUTH_TOKEN`, `RUNTIME_TYPE`,
 `LIVESTORE_SYNC_URL`.
 
 ## Outputs
@@ -76,7 +76,7 @@ agent.onExecution(async (context) => {
 
 What it does:
 
-- LiveStore connection and kernel session management
+- LiveStore connection and runtime session management
 - Execution queue processing
 - Heartbeats and shutdown
 - CLI configuration

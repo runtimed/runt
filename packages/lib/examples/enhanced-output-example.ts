@@ -3,8 +3,8 @@
 import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
 import type { ExecutionContext } from "@runt/lib";
 
-// Python-like kernel with streaming output support
-class ExamplePythonKernel {
+// Python-like runtime with streaming output support
+class ExamplePythonRuntime {
   private agent: RuntimeAgent;
 
   constructor() {
@@ -102,7 +102,7 @@ class ExamplePythonKernel {
           "text/plain": "Plot generated successfully",
         }, {
           "plot_type": "line",
-          "generated_by": "example-kernel",
+          "generated_by": "example-runtime",
         });
 
         return { success: true };
@@ -253,7 +253,7 @@ class ExamplePythonKernel {
     } catch (err) {
       // Handle unexpected errors
       error(
-        "KernelError",
+        "RuntimeError",
         err instanceof Error ? err.message : "Unknown error",
         [err instanceof Error ? err.stack || err.message : String(err)],
       );
@@ -272,13 +272,13 @@ class ExamplePythonKernel {
 
 // Usage example
 async function runExample() {
-  const kernel = new ExamplePythonKernel();
+  const runtime = new ExamplePythonRuntime();
 
   try {
-    console.log("🚀 Starting enhanced output example kernel...");
-    await kernel.start();
+    console.log("🚀 Starting enhanced output example runtime...");
+    await runtime.start();
 
-    console.log("✅ Kernel started successfully!");
+    console.log("✅ Runtime started successfully!");
     console.log("📝 Try executing cells with these code examples:");
     console.log("   - print('Hello, World!')");
     console.log("   - plt.plot([1, 2, 3], [1, 4, 9])");
@@ -288,11 +288,11 @@ async function runExample() {
     console.log("   - mixed_output()");
 
     // Keep running until shutdown
-    await kernel.keepAlive();
+    await runtime.keepAlive();
   } catch (error) {
-    console.error("❌ Failed to start kernel:", error);
+    console.error("❌ Failed to start runtime:", error);
   } finally {
-    await kernel.shutdown();
+    await runtime.shutdown();
   }
 }
 
@@ -337,7 +337,7 @@ class ComparisonExample {
 
 if (import.meta.main) {
   console.log("🎨 Enhanced Output Example");
-  console.log("🚀 Starting Python kernel with rich output support...");
+  console.log("🚀 Starting Python runtime with rich output support...");
   try {
     await runExample();
   } catch (error) {
@@ -349,4 +349,4 @@ if (import.meta.main) {
   }
 }
 
-export { ComparisonExample, ExamplePythonKernel, runExample };
+export { ComparisonExample, ExamplePythonRuntime, runExample };
