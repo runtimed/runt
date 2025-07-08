@@ -457,17 +457,7 @@ export const events = {
     }),
   }),
 
-  // SQL events
-  sqlQueryExecuted: Events.synced({
-    name: "v1.SqlQueryExecuted",
-    schema: Schema.Struct({
-      cellId: Schema.String,
-      connectionId: Schema.String,
-      query: Schema.String,
-      resultVariable: Schema.String,
-      executedBy: Schema.String,
-    }),
-  }),
+  // SQL events - none needed, SQL cells use standard execution flow
 
   // AI events
   aiSettingsChanged: Events.synced({
@@ -886,16 +876,7 @@ const materializers = State.SQLite.materializers(events, {
     }
   },
 
-  // SQL materializers
-  "v1.SqlQueryExecuted": ({ cellId, connectionId, query, resultVariable }) =>
-    tables.cells
-      .update({
-        source: query,
-        sqlConnectionId: connectionId,
-        sqlResultVariable: resultVariable,
-        executionState: "completed",
-      })
-      .where({ id: cellId }),
+  // SQL materializers - none needed, SQL cells use standard execution flow
 
   // AI materializers
   "v1.AiSettingsChanged": ({ cellId, provider, model, settings }) =>
