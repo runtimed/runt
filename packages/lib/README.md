@@ -1,6 +1,8 @@
 # @runt/lib
 
-Base class for runtime agents. This library connects to [Anode's sync](https://github.com/rgbkrk/anode), processes execution queues, and handles outputs.
+Base class for runtime agents. This library connects to
+[Anode's sync](https://github.com/rgbkrk/anode), processes execution queues, and
+handles outputs.
 
 ## Usage
 
@@ -41,7 +43,8 @@ await agent.keepAlive();
 --sync-url <url>          # Optional
 ```
 
-**Environment variables**: `NOTEBOOK_ID`, `AUTH_TOKEN`, `RUNTIME_TYPE`, `LIVESTORE_SYNC_URL`.
+**Environment variables**: `NOTEBOOK_ID`, `AUTH_TOKEN`, `RUNTIME_TYPE`,
+`LIVESTORE_SYNC_URL`.
 
 ## Outputs
 
@@ -102,6 +105,8 @@ const logger = createLogger("my-agent");
 
 **Environment variables**: `RUNT_LOG_LEVEL`, `RUNT_DISABLE_CONSOLE_LOGS`.
 
-The default log level is `ERROR`. Set `RUNT_LOG_LEVEL` to `INFO` or `DEBUG` for more verbose output. Continuous integration runs use `RUNT_LOG_LEVEL=INFO` for detailed CI logs.
+The default log level is `ERROR`. Set `RUNT_LOG_LEVEL` to `INFO` or `DEBUG` for
+more verbose output. Continuous integration runs use `RUNT_LOG_LEVEL=INFO` for
+detailed CI logs.
 
 Examples in `examples/`.

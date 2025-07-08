@@ -3,7 +3,10 @@
 This document provides context for AI assistants working on the runt runtime
 agent library.
 
-**Current Status**: A robust runtime agent library with Python execution, real-time collaboration, and streaming output support. It provides granular, type-safe events for rich display capabilities and is implemented with a focus on stability and extensibility.
+**Current Status**: A robust runtime agent library with Python execution,
+real-time collaboration, and streaming output support. It provides granular,
+type-safe events for rich display capabilities and is implemented with a focus
+on stability and extensibility.
 
 ## Project Overview
 
@@ -163,7 +166,6 @@ All dependencies are pinned in `deno.json` import maps.
 - Code examples are better than long explanations
 - Keep documentation concise and consolidate when possible
 - Remove marketing fluff and focus on technical accuracy
-
 
 ## Development Guidelines
 

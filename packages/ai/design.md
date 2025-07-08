@@ -13,16 +13,22 @@ This section details the current implementation of AI cells.
 
 ### Conversation Building
 
-When an AI cell is executed, the system constructs a sequential conversation flow:
+When an AI cell is executed, the system constructs a sequential conversation
+flow:
 
-1.  **Sequential Conversation**: All notebook cells (code, markdown, AI) are transformed into a sequential conversation.
-2.  **Cell IDs**: Each cell message includes its exact cell ID for precise tool targeting.
-3.  **Tool Call Order**: AI responses, tool calls, and tool results maintain the OpenAI chat format.
-4.  **Continuity**: Subsequent AI calls retain the full context of previous AI tool usage.
+1. **Sequential Conversation**: All notebook cells (code, markdown, AI) are
+   transformed into a sequential conversation.
+2. **Cell IDs**: Each cell message includes its exact cell ID for precise tool
+   targeting.
+3. **Tool Call Order**: AI responses, tool calls, and tool results maintain the
+   OpenAI chat format.
+4. **Continuity**: Subsequent AI calls retain the full context of previous AI
+   tool usage.
 
 ### Sequential Conversation Architecture
 
-**Core Principle**: Each output becomes exactly one conversation message in order.
+**Core Principle**: Each output becomes exactly one conversation message in
+order.
 
 ````typescript
 // Perfect sequential flow:
@@ -124,5 +130,3 @@ AI can target exact cells using IDs from the conversation:
 
 - `execute_cell(cellId: "cell-1")`
 - `modify_cell(cellId: "cell-abc123", content: "updated code")`
-
-
