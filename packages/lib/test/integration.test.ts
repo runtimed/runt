@@ -282,7 +282,7 @@ Deno.test("RuntimeConfig", async (t) => {
   });
 
   await t.step("should allow custom heartbeat interval", () => {
-    const config = new RuntimeConfig({
+    const _config = new RuntimeConfig({
       kernelId: "test-kernel",
       kernelType: "python",
       notebookId: "test-notebook",

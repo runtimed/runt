@@ -108,7 +108,7 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
       "5000",
     ];
 
-    const agent = new PyodideRuntimeAgent(agentArgs);
+    const _agent = new PyodideRuntimeAgent(agentArgs);
   });
 
   await t.step("uses default values", () => {
