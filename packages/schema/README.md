@@ -17,7 +17,7 @@ Events:
 - `cellCreated`, `cellUpdated`, `cellDeleted`, `cellMoved`
 - `executionRequested`, `executionStarted`, `executionCompleted`
 - `cellOutputAdded`, `cellOutputsCleared`
-- `kernelSessionStarted`, `kernelSessionHeartbeat`, `kernelSessionTerminated`
+- `runtimeSessionStarted`, `runtimeSessionHeartbeat`, `runtimeSessionTerminated`
 
 Tables:
 
@@ -25,9 +25,9 @@ Tables:
 - `cells` - content and execution state
 - `outputs` - stdout, plots, errors
 - `executionQueue` - pending/running executions
-- `kernelSessions` - active connections
+- `runtimeSessions` - active connections
 
-Key types: `CellData`, `OutputData`, `KernelSessionData`, `ExecutionQueueData`
+Key types: `CellData`, `OutputData`, `RuntimeSessionData`, `ExecutionQueueData`
 
 ## Notes
 

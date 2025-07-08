@@ -543,8 +543,8 @@ if '_pyodide_result' in globals():
     }
   } catch (err: unknown) {
     executionError = {
-      ename: "KernelError",
-      evalue: err instanceof Error ? err.message : "Kernel execution failed",
+      ename: "RuntimeError",
+      evalue: err instanceof Error ? err.message : "Runtime execution failed",
       traceback: [
         err instanceof Error ? (err.stack || err.message) : String(err),
       ],

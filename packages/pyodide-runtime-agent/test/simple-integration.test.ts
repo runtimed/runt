@@ -14,7 +14,7 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
   await t.step("creates agent with valid configuration", () => {
     const agentArgs = [
       "--runtime-id",
-      "test-kernel",
+      "test-runtime",
       "--notebook",
       "test-notebook",
       "--auth-token",
@@ -25,7 +25,7 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
 
     assertExists(agent);
     assertEquals(agent.config.runtimeType, "python3-pyodide");
-    assertEquals(agent.config.runtimeId, "test-kernel");
+    assertEquals(agent.config.runtimeId, "test-runtime");
     assertEquals(agent.config.notebookId, "test-notebook");
     assertEquals(agent.config.authToken, "test-token");
     assertEquals(agent.config.capabilities.canExecuteCode, true);
@@ -35,8 +35,8 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
 
   await t.step("generates unique session IDs", () => {
     const agentArgs = [
-      "--kernel-id",
-      "test-kernel",
+      "--runtime-id",
+      "test-runtime",
       "--notebook",
       "test-notebook",
       "--auth-token",
@@ -55,8 +55,8 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
 
   await t.step("handles shutdown gracefully", async () => {
     const agentArgs = [
-      "--kernel-id",
-      "test-kernel",
+      "--runtime-id",
+      "test-runtime",
       "--notebook",
       "test-notebook",
       "--auth-token",
@@ -99,7 +99,7 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
   await t.step("accepts heartbeat interval", () => {
     const agentArgs = [
       "--runtime-id",
-      "config-test-kernel",
+      "config-test-runtime",
       "--notebook",
       "config-test-notebook",
       "--auth-token",
@@ -113,8 +113,8 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
 
   await t.step("uses default values", () => {
     const agentArgs = [
-      "--kernel-id",
-      "default-test-kernel",
+      "--runtime-id",
+      "default-test-runtime",
       "--notebook",
       "default-test-notebook",
       "--auth-token",
@@ -127,14 +127,14 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
   });
 
   await t.step("supports environment variables", () => {
-    Deno.env.set("RUNTIME_ID", "env-kernel");
+    Deno.env.set("RUNTIME_ID", "env-runtime");
     Deno.env.set("NOTEBOOK_ID", "env-notebook");
     Deno.env.set("AUTH_TOKEN", "env-token");
 
     try {
       const agent = new PyodideRuntimeAgent([]);
 
-      assertEquals(agent.config.runtimeId, "env-kernel");
+      assertEquals(agent.config.runtimeId, "env-runtime");
       assertEquals(agent.config.notebookId, "env-notebook");
       assertEquals(agent.config.authToken, "env-token");
     } finally {
@@ -151,7 +151,7 @@ Deno.test("PyodideRuntimeAgent - Methods", async (t) => {
   await t.step("setup", () => {
     const agentArgs = [
       "--runtime-id",
-      "method-test-kernel",
+      "method-test-runtime",
       "--notebook",
       "method-test-notebook",
       "--auth-token",

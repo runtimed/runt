@@ -201,7 +201,7 @@ export const tables = {
     schema: Schema.Struct({
       selectedCellId: Schema.optional(Schema.String),
       editingCellId: Schema.optional(Schema.String),
-      kernelStatus: Schema.optional(Schema.String),
+      runtimeStatus: Schema.optional(Schema.String),
     }),
     default: {
       id: SessionIdSymbol,

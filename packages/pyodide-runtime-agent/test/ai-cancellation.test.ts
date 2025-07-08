@@ -16,8 +16,8 @@ Deno.test({
     await t.step("setup AI cancellation test environment", async () => {
       await withQuietConsole(async () => {
         const agentArgs = [
-          "--kernel-id",
-          "ai-cancel-test-kernel",
+          "--runtime-id",
+          "ai-cancel-test-runtime",
           "--notebook",
           "ai-cancel-test-notebook",
           "--auth-token",

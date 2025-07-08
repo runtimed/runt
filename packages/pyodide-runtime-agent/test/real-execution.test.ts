@@ -13,7 +13,7 @@ import type { RichOutputData } from "@runt/schema";
 function createTestAgent(packages?: string[]): PyodideRuntimeAgent {
   const validArgs = [
     "--runtime-id",
-    "test-execution-kernel",
+    "test-execution-runtime",
     "--notebook",
     "test-notebook",
     "--auth-token",
@@ -84,7 +84,7 @@ function createTestExecutionContext(code: string): {
     },
     store: {} as ExecutionContext["store"], // Minimal mock - not used in these tests
     sessionId: "test-session",
-    runtimeId: "pyodide-test-kernel",
+    runtimeId: "pyodide-test-runtime",
     abortSignal: abortController.signal,
     checkCancellation: () => {
       if (abortController.signal.aborted) {
