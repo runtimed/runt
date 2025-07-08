@@ -31,8 +31,8 @@ async function main() {
     await agent.start();
 
     logger.info("PyRunt started", {
-      kernelId: agent.config.kernelId,
-      kernelType: agent.config.kernelType,
+      runtimeId: agent.config.runtimeId,
+      runtimeType: agent.config.runtimeType,
       notebookId: agent.config.notebookId,
       sessionId: agent.config.sessionId,
       syncUrl: agent.config.syncUrl,

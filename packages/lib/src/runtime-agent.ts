@@ -16,9 +16,9 @@ import type {
   ExecutionHandler,
   ExecutionQueueData,
   ExecutionResult,
-  KernelCapabilities,
   RichOutputData,
   RuntimeAgentEventHandlers,
+  RuntimeCapabilities,
 } from "./types.ts";
 import type { RuntimeConfig } from "./config.ts";
 
@@ -37,7 +37,7 @@ export class RuntimeAgent {
 
   constructor(
     private config: RuntimeConfig,
-    private capabilities: KernelCapabilities,
+    private capabilities: RuntimeCapabilities,
     private handlers: RuntimeAgentEventHandlers = {},
   ) {}
 
@@ -48,16 +48,16 @@ export class RuntimeAgent {
     try {
       await this.handlers.onStartup?.();
 
-      const logger = createLogger(`${this.config.kernelType}-agent`, {
+      const logger = createLogger(`${this.config.runtimeType}-agent`, {
         context: {
           notebookId: this.config.notebookId,
-          kernelId: this.config.kernelId,
+          runtimeId: this.config.runtimeId,
           sessionId: this.config.sessionId,
         },
       });
 
       logger.info("Starting runtime agent", {
-        kernelType: this.config.kernelType,
+        runtimeType: this.config.runtimeType,
         notebookId: this.config.notebookId,
       });
 
@@ -77,21 +77,40 @@ export class RuntimeAgent {
         syncPayload: {
           authToken: this.config.authToken,
           kernel: true,
-          kernelId: this.config.kernelId,
+          runtimeId: this.config.runtimeId,
           sessionId: this.config.sessionId,
         },
       });
 
       // Register kernel session
-      this.store.commit(events.kernelSessionStarted({
+      // Displace any existing active sessions for this notebook
+      const existingSessions = this.store.query(
+        tables.runtimeSessions.select().where({ isActive: true }),
+      );
+
+      for (const session of existingSessions) {
+        this.store.commit(events.runtimeSessionTerminated({
+          sessionId: session.sessionId,
+          reason: "displaced",
+        }));
+      }
+
+      // Start session with "starting" status
+      this.store.commit(events.runtimeSessionStarted({
         sessionId: this.config.sessionId,
-        kernelId: this.config.kernelId,
-        kernelType: this.config.kernelType,
+        runtimeId: this.config.runtimeId,
+        runtimeType: this.config.runtimeType,
         capabilities: this.capabilities,
       }));
 
       // Set up reactive queries and subscriptions
       this.setupSubscriptions();
+
+      // Mark session as ready
+      this.store.commit(events.runtimeSessionStatusChanged({
+        sessionId: this.config.sessionId,
+        status: "ready",
+      }));
 
       await this.handlers.onConnected?.();
       logger.info("Runtime agent connected and ready");
@@ -99,7 +118,7 @@ export class RuntimeAgent {
       // Set up shutdown handlers
       this.setupShutdownHandlers();
     } catch (error) {
-      const logger = createLogger(`${this.config.kernelType}-agent`);
+      const logger = createLogger(`${this.config.runtimeType}-agent`);
       logger.error("Failed to start runtime agent", error);
       await this.handlers.onDisconnected?.(error as Error);
       throw error;
@@ -113,9 +132,9 @@ export class RuntimeAgent {
     if (this.isShuttingDown) return;
     this.isShuttingDown = true;
 
-    const shutdownLogger = createLogger(`${this.config.kernelType}-agent`);
+    const shutdownLogger = createLogger(`${this.config.runtimeType}-agent`);
     shutdownLogger.info("Runtime agent shutting down", {
-      kernelId: this.config.kernelId,
+      runtimeId: this.config.runtimeId,
       sessionId: this.config.sessionId,
     });
 
@@ -129,13 +148,14 @@ export class RuntimeAgent {
       // Mark session as terminated
       try {
         if (this.store) {
-          this.store.commit(events.kernelSessionTerminated({
+          // Terminate session on shutdown
+          this.store.commit(events.runtimeSessionTerminated({
             sessionId: this.config.sessionId,
             reason: "shutdown",
           }));
         }
       } catch (error) {
-        const termLogger = createLogger(`${this.config.kernelType}-agent`);
+        const termLogger = createLogger(`${this.config.runtimeType}-agent`);
         if (error instanceof Error) {
           termLogger.error("Failed to mark session as terminated", error);
         } else {
@@ -153,15 +173,15 @@ export class RuntimeAgent {
         await this.store.shutdown?.();
       }
     } catch (error) {
-      const logger = createLogger(`${this.config.kernelType}-agent`);
+      const logger = createLogger(`${this.config.runtimeType}-agent`);
       logger.error("Error during shutdown", error, {
-        kernelId: this.config.kernelId,
+        runtimeId: this.config.runtimeId,
         sessionId: this.config.sessionId,
       });
     }
 
     shutdownLogger.info("Runtime agent shutdown complete", {
-      kernelId: this.config.kernelId,
+      runtimeId: this.config.runtimeId,
       sessionId: this.config.sessionId,
     });
   }
@@ -208,7 +228,7 @@ export class RuntimeAgent {
       tables.executionQueue.select()
         .where({
           status: "assigned",
-          assignedKernelSession: this.config.sessionId,
+          assignedRuntimeSession: this.config.sessionId,
         }),
       {
         label: "assignedWork",
@@ -225,12 +245,12 @@ export class RuntimeAgent {
       },
     );
 
-    // Watch for active kernels
-    const activeKernelsQuery$ = queryDb(
-      tables.kernelSessions.select()
+    // Watch for active runtimes
+    const activeRuntimesQuery$ = queryDb(
+      tables.runtimeSessions.select()
         .where({ isActive: true }),
       {
-        label: "activeKernels",
+        label: "activeRuntimes",
       },
     );
 
@@ -281,7 +301,7 @@ export class RuntimeAgent {
               try {
                 await this.processExecution(queueEntry);
               } catch (error) {
-                const logger = createLogger(`${this.config.kernelType}-agent`);
+                const logger = createLogger(`${this.config.runtimeType}-agent`);
                 logger.error("Error processing execution", error, {
                   executionId: queueEntry.id,
                   cellId: queueEntry.cellId,
@@ -304,7 +324,7 @@ export class RuntimeAgent {
           if (this.isShuttingDown) return;
 
           if (entries.length > 0) {
-            const logger = createLogger(`${this.config.kernelType}-agent`);
+            const logger = createLogger(`${this.config.runtimeType}-agent`);
 
             // Log cell count for sync debugging
             const allCells = this.store.query(tables.cells.select());
@@ -321,12 +341,12 @@ export class RuntimeAgent {
           }
 
           setTimeout(() => {
-            const activeKernels = this.store.query(activeKernelsQuery$);
-            const ourKernel = activeKernels.find((k) =>
-              k.sessionId === this.config.sessionId
+            const activeRuntimes = this.store.query(activeRuntimesQuery$);
+            const ourRuntime = activeRuntimes.find((r: any) =>
+              r.sessionId === this.config.sessionId
             );
 
-            if (!ourKernel) return;
+            if (!ourRuntime) return;
 
             // Try to claim first pending execution
             const firstPending = entries[0];
@@ -334,7 +354,7 @@ export class RuntimeAgent {
               try {
                 this.store.commit(events.executionAssigned({
                   queueId: firstPending.id,
-                  kernelSessionId: this.config.sessionId,
+                  runtimeSessionId: this.config.sessionId,
                 }));
               } catch (_error) {
                 // Silently fail - another kernel may have claimed it
@@ -409,7 +429,7 @@ export class RuntimeAgent {
   ): void {
     const controller = this.activeExecutions.get(queueId);
     if (controller) {
-      const logger = createLogger(`${this.config.kernelType}-agent`);
+      const logger = createLogger(`${this.config.runtimeType}-agent`);
       logger.debug("Cancelling execution", {
         queueId,
         cellId,
@@ -423,7 +443,7 @@ export class RuntimeAgent {
         try {
           handler(queueId, cellId, reason);
         } catch (error) {
-          const cancelLogger = createLogger(`${this.config.kernelType}-agent`);
+          const cancelLogger = createLogger(`${this.config.runtimeType}-agent`);
           if (error instanceof Error) {
             cancelLogger.error("Cancellation handler error", error);
           } else {
@@ -442,7 +462,7 @@ export class RuntimeAgent {
   private async processExecution(
     queueEntry: ExecutionQueueData,
   ): Promise<void> {
-    const logger = createLogger(`${this.config.kernelType}-agent`);
+    const logger = createLogger(`${this.config.runtimeType}-agent`);
     logger.debug("Processing execution", {
       executionId: queueEntry.id,
       cellId: queueEntry.cellId,
@@ -475,7 +495,7 @@ export class RuntimeAgent {
       queueEntry,
       store: this.store,
       sessionId: this.config.sessionId,
-      kernelId: this.config.kernelId,
+      runtimeId: this.config.runtimeId,
       abortSignal: controller.signal,
       checkCancellation: () => {
         if (controller.signal.aborted) {
@@ -639,7 +659,7 @@ export class RuntimeAgent {
         this.store.commit(events.cellOutputsCleared({
           cellId: cell.id,
           wait,
-          clearedBy: `kernel-${this.config.kernelId}`,
+          clearedBy: `runtime-${this.config.runtimeId}`,
         }));
 
         if (!wait) {
@@ -653,7 +673,7 @@ export class RuntimeAgent {
       this.store.commit(events.executionStarted({
         queueId: queueEntry.id,
         cellId: queueEntry.cellId,
-        kernelSessionId: this.config.sessionId,
+        runtimeSessionId: this.config.sessionId,
         startedAt: executionStartTime,
       }));
 
@@ -745,7 +765,7 @@ export class RuntimeAgent {
     Deno.addSignalListener("SIGTERM" as Deno.Signal, shutdown);
 
     globalThis.addEventListener("unhandledrejection", (event) => {
-      const errorLogger = createLogger(`${this.config.kernelType}-agent`);
+      const errorLogger = createLogger(`${this.config.runtimeType}-agent`);
       errorLogger.error(
         "Unhandled rejection",
         event.reason instanceof Error ? event.reason : undefined,
@@ -759,7 +779,7 @@ export class RuntimeAgent {
     });
 
     globalThis.addEventListener("error", (event) => {
-      const errorLogger = createLogger(`${this.config.kernelType}-agent`);
+      const errorLogger = createLogger(`${this.config.runtimeType}-agent`);
       errorLogger.error(
         "Uncaught error",
         event.error instanceof Error ? event.error : undefined,
@@ -780,7 +800,7 @@ export class RuntimeAgent {
         Deno.removeSignalListener(signal as Deno.Signal, handler);
       } catch (error) {
         // Ignore errors during cleanup
-        const cleanupLogger = createLogger(`${this.config.kernelType}-agent`);
+        const cleanupLogger = createLogger(`${this.config.runtimeType}-agent`);
         cleanupLogger.debug("Error removing signal listener", {
           signal,
           error: error instanceof Error ? error.message : String(error),

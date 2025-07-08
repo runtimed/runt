@@ -59,7 +59,7 @@ function createTestExecutionContext(code: string): {
       position: 0,
       executionCount: 1,
       executionState: "running",
-      assignedKernelSession: null,
+      assignedRuntimeSession: null,
       lastExecutionDurationMs: null,
       sqlConnectionId: null,
       sqlResultData: null,
@@ -77,14 +77,14 @@ function createTestExecutionContext(code: string): {
       executionCount: 1,
       requestedBy: "test-user",
       status: "executing" as const,
-      assignedKernelSession: "test-session",
+      assignedRuntimeSession: "test-session",
       startedAt: new Date(),
       completedAt: null,
       executionDurationMs: null,
     },
     store: {} as ExecutionContext["store"], // Minimal mock - not used in these tests
     sessionId: "test-session",
-    kernelId: "pyodide-test-kernel",
+    runtimeId: "pyodide-test-kernel",
     abortSignal: abortController.signal,
     checkCancellation: () => {
       if (abortController.signal.aborted) {
@@ -127,13 +127,13 @@ Deno.test("Custom package configuration", () => {
   const agent = createTestAgent(customPackages);
 
   assertExists(agent);
-  assertEquals(agent.config.kernelType, "python3-pyodide");
+  assertEquals(agent.config.runtimeType, "python3-pyodide");
 });
 
 Deno.test("Agent initialization with custom packages", async () => {
   const agent = createTestAgent(["micropip", "ipython", "matplotlib"]);
   assertExists(agent);
-  assertEquals(agent.config.kernelType, "python3-pyodide");
+  assertEquals(agent.config.runtimeType, "python3-pyodide");
 
   await agent.shutdown();
 });

@@ -12,7 +12,7 @@ class ExamplePythonKernel {
     let config;
     try {
       config = createRuntimeConfig(Deno.args, {
-        kernelType: "enhanced-python",
+        runtimeType: "enhanced-python",
         capabilities: {
           canExecuteCode: true,
           canExecuteSql: false,

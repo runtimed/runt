@@ -46,7 +46,7 @@ Deno.test({
 
         assertExists(agent);
         assertEquals(agent.config.notebookId, notebookId);
-        assertEquals(agent.config.kernelId, kernelId);
+        assertEquals(agent.config.runtimeId, kernelId);
         assertEquals(agent.config.authToken, "test-token");
       });
     });

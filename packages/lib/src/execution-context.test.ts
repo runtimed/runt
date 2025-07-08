@@ -22,7 +22,7 @@ Deno.test("ExecutionContext - method signatures", () => {
     } as ExecutionContext["queueEntry"],
     store: {} as ExecutionContext["store"],
     sessionId: "test-session",
-    kernelId: "test-kernel",
+    runtimeId: "test-runtime",
     abortSignal: new AbortController().signal,
     checkCancellation: () => {},
 
@@ -136,7 +136,7 @@ Deno.test("ExecutionContext - empty string handling", () => {
     queueEntry: { id: "test" } as ExecutionContext["queueEntry"],
     store: {} as ExecutionContext["store"],
     sessionId: "test",
-    kernelId: "test",
+    runtimeId: "test",
     abortSignal: new AbortController().signal,
     checkCancellation: () => {},
 
@@ -187,7 +187,7 @@ Deno.test("ExecutionContext - streaming methods", () => {
     queueEntry: { id: "test" } as ExecutionContext["queueEntry"],
     store: {} as ExecutionContext["store"],
     sessionId: "test",
-    kernelId: "test",
+    runtimeId: "test",
     abortSignal: new AbortController().signal,
     checkCancellation: () => {},
 
@@ -245,7 +245,7 @@ Deno.test("ExecutionContext - clear with wait parameter", () => {
     queueEntry: { id: "test" } as ExecutionContext["queueEntry"],
     store: {} as ExecutionContext["store"],
     sessionId: "test",
-    kernelId: "test",
+    runtimeId: "test",
     abortSignal: new AbortController().signal,
     checkCancellation: () => {},
 

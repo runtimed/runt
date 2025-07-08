@@ -15,7 +15,7 @@ class StreamingDemoAgent {
     let config;
     try {
       config = createRuntimeConfig(Deno.args, {
-        kernelType: "streaming-demo",
+        runtimeType: "streaming-demo",
         capabilities: {
           canExecuteCode: true,
           canExecuteSql: false,

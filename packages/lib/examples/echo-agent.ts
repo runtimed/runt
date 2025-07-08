@@ -10,7 +10,7 @@ const logger = createLogger("echo-agent");
 let config;
 try {
   config = createRuntimeConfig(Deno.args, {
-    kernelType: "echo",
+    runtimeType: "echo",
     capabilities: {
       canExecuteCode: true,
       canExecuteSql: false,
@@ -71,8 +71,8 @@ try {
   await agent.start();
 
   logger.info("Echo agent started", {
-    kernelId: config.kernelId,
-    kernelType: config.kernelType,
+    runtimeId: config.runtimeId,
+    runtimeType: config.runtimeType,
     notebookId: config.notebookId,
     sessionId: config.sessionId,
   });

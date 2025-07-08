@@ -24,8 +24,8 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
     const agent = new PyodideRuntimeAgent(agentArgs);
 
     assertExists(agent);
-    assertEquals(agent.config.kernelType, "python3-pyodide");
-    assertEquals(agent.config.kernelId, "test-kernel");
+    assertEquals(agent.config.runtimeType, "python3-pyodide");
+    assertEquals(agent.config.runtimeId, "test-kernel");
     assertEquals(agent.config.notebookId, "test-notebook");
     assertEquals(agent.config.authToken, "test-token");
     assertEquals(agent.config.capabilities.canExecuteCode, true);
@@ -134,7 +134,7 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
     try {
       const agent = new PyodideRuntimeAgent([]);
 
-      assertEquals(agent.config.kernelId, "env-kernel");
+      assertEquals(agent.config.runtimeId, "env-kernel");
       assertEquals(agent.config.notebookId, "env-notebook");
       assertEquals(agent.config.authToken, "env-token");
     } finally {
@@ -169,8 +169,8 @@ Deno.test("PyodideRuntimeAgent - Methods", async (t) => {
   await t.step("has accessible configuration", () => {
     assertExists(agent.config);
     assertEquals(typeof agent.config, "object");
-    assertExists(agent.config.kernelId);
-    assertExists(agent.config.kernelType);
+    assertExists(agent.config.runtimeId);
+    assertExists(agent.config.runtimeType);
     assertExists(agent.config.notebookId);
     assertExists(agent.config.sessionId);
     assertExists(agent.config.capabilities);

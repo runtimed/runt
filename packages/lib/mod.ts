@@ -21,12 +21,12 @@ export type {
   ExecutionHandler,
   ExecutionQueueData,
   ExecutionResult,
-  KernelCapabilities,
-  KernelSessionData,
   OutputType,
   RichOutputData,
   RuntimeAgentEventHandlers,
   RuntimeAgentOptions,
+  RuntimeCapabilities,
+  RuntimeSessionData,
 } from "./src/types.ts";
 export type { LoggerConfig } from "./src/logging.ts";
 

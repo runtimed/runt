@@ -5,7 +5,7 @@
 
 import { parseArgs } from "@std/cli/parse-args";
 import { createLogger } from "./logging.ts";
-import type { KernelCapabilities, RuntimeAgentOptions } from "./types.ts";
+import type { RuntimeAgentOptions, RuntimeCapabilities } from "./types.ts";
 
 /**
  * Default configuration values
@@ -18,24 +18,24 @@ export const DEFAULT_CONFIG = {
  * Configuration class for runtime agents
  */
 export class RuntimeConfig {
-  public readonly kernelId: string;
-  public readonly kernelType: string;
+  public readonly runtimeId: string;
+  public readonly runtimeType: string;
   public readonly syncUrl: string;
   public readonly authToken: string;
   public readonly notebookId: string;
-  public readonly capabilities: KernelCapabilities;
+  public readonly capabilities: RuntimeCapabilities;
   public readonly sessionId: string;
 
   constructor(options: RuntimeAgentOptions) {
-    this.kernelId = options.kernelId;
-    this.kernelType = options.kernelType;
+    this.runtimeId = options.runtimeId;
+    this.runtimeType = options.runtimeType;
     this.syncUrl = options.syncUrl;
     this.authToken = options.authToken;
     this.notebookId = options.notebookId;
     this.capabilities = options.capabilities;
 
     // Generate unique session ID
-    this.sessionId = `${this.kernelId}-${Date.now()}-${
+    this.sessionId = `${this.runtimeType}-${this.runtimeId}-${Date.now()}-${
       Math.random().toString(36).slice(2)
     }`;
   }
@@ -58,16 +58,16 @@ export class RuntimeConfig {
         suggestion: "--notebook <id> or NOTEBOOK_ID env var",
       });
     }
-    if (!this.kernelId) {
+    if (!this.runtimeId) {
       missing.push({
-        field: "kernelId",
-        suggestion: "--kernel-id <id> or KERNEL_ID env var",
+        field: "runtimeId",
+        suggestion: "--runtime-id <id> or RUNTIME_ID env var",
       });
     }
-    if (!this.kernelType) {
+    if (!this.runtimeType) {
       missing.push({
-        field: "kernelType",
-        suggestion: "--kernel-type <type> or KERNEL_TYPE env var",
+        field: "runtimeType",
+        suggestion: "--runtime-type <type> or RUNTIME_TYPE env var",
       });
     }
 
@@ -123,9 +123,9 @@ Required Options:
 Optional Options:
   --sync-url, -s <url>       WebSocket URL for LiveStore sync
                              (default: ${DEFAULT_CONFIG.syncUrl})
-  --kernel-id, -k <id>       Unique kernel identifier
-                             (default: <kernel-type>-kernel-{pid})
-  --kernel-type, -T <type>   Kernel type identifier
+  --runtime-id, -R <id>      Runtime identifier
+                             (default: <runtime-type>-runtime-{pid})
+  --runtime-type, -T <type>  Runtime type identifier
                              (default: "runtime")
   --help, -h                 Show this help message
 
@@ -154,11 +154,15 @@ Logging Configuration:
   const authToken = parsed["auth-token"] || Deno.env.get("AUTH_TOKEN");
   if (authToken) result.authToken = authToken;
 
-  const kernelId = parsed["kernel-id"] || Deno.env.get("KERNEL_ID");
-  if (kernelId) result.kernelId = kernelId;
+  const runtimeType = parsed["runtime-type"] || Deno.env.get("RUNTIME_TYPE") ||
+    "runtime";
+  if (runtimeType && typeof runtimeType === "string") {
+    result.runtimeType = runtimeType;
+  }
 
-  const kernelType = parsed["kernel-type"] || Deno.env.get("KERNEL_TYPE");
-  if (kernelType) result.kernelType = kernelType;
+  const runtimeId = parsed["runtime-id"] || Deno.env.get("RUNTIME_ID") ||
+    `${runtimeType}-runtime-${Deno.pid}`;
+  if (runtimeId && typeof runtimeId === "string") result.runtimeId = runtimeId;
 
   return result;
 }
@@ -174,7 +178,7 @@ export function createRuntimeConfig(
 
   // Merge CLI config with defaults - CLI args override defaults
   const mergedDefaults = {
-    kernelType: "runtime",
+    runtimeType: "runtime",
     syncUrl: DEFAULT_CONFIG.syncUrl,
     capabilities: {
       canExecuteCode: true,
@@ -192,10 +196,10 @@ export function createRuntimeConfig(
   const config: RuntimeAgentOptions = {
     ...mergedDefaults,
     ...cleanCliConfig,
-    // Generate kernelId after merging to use correct kernelType
-    kernelId: cliConfig.kernelId ||
-      Deno.env.get("KERNEL_ID") ||
-      `${mergedDefaults.kernelType}-kernel-${Deno.pid}`,
+    // Generate runtimeId after merging to use correct runtimeType
+    runtimeId: cliConfig.runtimeId ||
+      Deno.env.get("RUNTIME_ID") ||
+      `${mergedDefaults.runtimeType}-runtime-${Deno.pid}`,
   } as RuntimeAgentOptions;
 
   const runtimeConfig = new RuntimeConfig(config);
@@ -203,8 +207,8 @@ export function createRuntimeConfig(
 
   const logger = createLogger("config");
   logger.debug("Runtime configuration created", {
-    kernelType: runtimeConfig.kernelType,
-    kernelId: runtimeConfig.kernelId,
+    runtimeType: runtimeConfig.runtimeType,
+    runtimeId: runtimeConfig.runtimeId,
     syncUrl: runtimeConfig.syncUrl,
     notebookId: runtimeConfig.notebookId,
     sessionId: runtimeConfig.sessionId,

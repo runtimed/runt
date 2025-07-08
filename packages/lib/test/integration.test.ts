@@ -9,7 +9,7 @@ import { RuntimeAgent } from "../src/runtime-agent.ts";
 import { RuntimeConfig } from "../src/config.ts";
 import type {
   ExecutionContext,
-  KernelCapabilities,
+  RuntimeCapabilities,
   RuntimeAgentEventHandlers,
 } from "../src/types.ts";
 
@@ -31,7 +31,7 @@ const createMockFunction = (): MockFunction => {
 
 Deno.test("RuntimeAgent Integration Tests", async (t) => {
   let config: RuntimeConfig;
-  let capabilities: KernelCapabilities;
+  let capabilities: RuntimeCapabilities;
   let handlers: RuntimeAgentEventHandlers;
 
   // Setup for each step
@@ -51,8 +51,8 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
     };
 
     config = new RuntimeConfig({
-      kernelId: "integration-test-kernel",
-      kernelType: "test",
+      runtimeId: "integration-test-kernel",
+      runtimeType: "test",
       notebookId: "test-notebook-integration",
       syncUrl: "ws://localhost:8787",
       authToken: "test-integration-token",
@@ -140,8 +140,8 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
     setup();
     await t.step("should accept valid configuration", () => {
       const validConfig = new RuntimeConfig({
-        kernelId: "valid-kernel",
-        kernelType: "test",
+        runtimeId: "valid-kernel",
+        runtimeType: "test",
         notebookId: "test-notebook",
         syncUrl: "ws://localhost:8787",
         authToken: "valid-token",
@@ -159,8 +159,8 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 
       try {
         const config = new RuntimeConfig({
-          kernelId: "", // Invalid empty kernel ID
-          kernelType: "test",
+          runtimeId: "", // Invalid empty kernel ID
+          runtimeType: "test",
           notebookId: "test",
           syncUrl: "ws://localhost:8787",
           authToken: "token",
@@ -174,7 +174,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       assertExists(error);
       assertEquals(
         error?.message.includes(
-          "kernelId: --kernel-id <id> or KERNEL_ID env var",
+          "runtimeId: --kernel-id <id> or KERNEL_ID env var",
         ),
         true,
       );
@@ -230,8 +230,8 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 Deno.test("RuntimeConfig", async (t) => {
   await t.step("should create valid config with all required fields", () => {
     const config = new RuntimeConfig({
-      kernelId: "test-kernel",
-      kernelType: "python",
+      runtimeId: "test-kernel",
+      runtimeType: "python",
       notebookId: "test-notebook",
       syncUrl: "ws://localhost:8787",
       authToken: "test-token",
@@ -242,8 +242,8 @@ Deno.test("RuntimeConfig", async (t) => {
       },
     });
 
-    assertEquals(config.kernelId, "test-kernel");
-    assertEquals(config.kernelType, "python");
+    assertEquals(config.runtimeId, "test-kernel");
+    assertEquals(config.runtimeType, "python");
     assertEquals(config.notebookId, "test-notebook");
     assertEquals(config.syncUrl, "ws://localhost:8787");
     assertEquals(config.authToken, "test-token");
@@ -252,8 +252,8 @@ Deno.test("RuntimeConfig", async (t) => {
 
   await t.step("should generate unique session IDs", () => {
     const config1 = new RuntimeConfig({
-      kernelId: "kernel1",
-      kernelType: "python",
+      runtimeId: "kernel1",
+      runtimeType: "python",
       notebookId: "notebook1",
       syncUrl: "ws://localhost:8787",
       authToken: "token1",
@@ -265,8 +265,8 @@ Deno.test("RuntimeConfig", async (t) => {
     });
 
     const config2 = new RuntimeConfig({
-      kernelId: "kernel2",
-      kernelType: "python",
+      runtimeId: "kernel2",
+      runtimeType: "python",
       notebookId: "notebook2",
       syncUrl: "ws://localhost:8787",
       authToken: "token2",
@@ -283,8 +283,8 @@ Deno.test("RuntimeConfig", async (t) => {
 
   await t.step("should allow custom heartbeat interval", () => {
     const _config = new RuntimeConfig({
-      kernelId: "test-kernel",
-      kernelType: "python",
+      runtimeId: "test-kernel",
+      runtimeType: "python",
       notebookId: "test-notebook",
       syncUrl: "ws://localhost:8787",
       authToken: "test-token",

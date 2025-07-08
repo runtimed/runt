@@ -9,7 +9,7 @@ import { RuntimeAgent } from "./runtime-agent.ts";
 import { RuntimeConfig } from "./config.ts";
 import type {
   ExecutionContext,
-  KernelCapabilities,
+  RuntimeCapabilities,
   RuntimeAgentEventHandlers,
 } from "./types.ts";
 
@@ -31,7 +31,7 @@ const createMockFunction = (): MockFunction => {
 
 Deno.test("RuntimeAgent", async (t) => {
   let config: RuntimeConfig;
-  let capabilities: KernelCapabilities;
+  let capabilities: RuntimeCapabilities;
   let handlers: RuntimeAgentEventHandlers;
 
   // Setup for each step
@@ -51,8 +51,8 @@ Deno.test("RuntimeAgent", async (t) => {
     };
 
     config = new RuntimeConfig({
-      kernelId: "test-kernel",
-      kernelType: "test",
+      runtimeId: "test-kernel",
+      runtimeType: "test",
       notebookId: "test-notebook",
       syncUrl: "ws://localhost:8787",
       authToken: "test-token",
@@ -163,8 +163,8 @@ Deno.test("RuntimeAgent", async (t) => {
 Deno.test("RuntimeConfig", async (t) => {
   await t.step("should create valid config with all required fields", () => {
     const config = new RuntimeConfig({
-      kernelId: "test-kernel",
-      kernelType: "python",
+      runtimeId: "test-kernel",
+      runtimeType: "python",
       notebookId: "test-notebook",
       syncUrl: "ws://localhost:8787",
       authToken: "test-token",
@@ -175,8 +175,8 @@ Deno.test("RuntimeConfig", async (t) => {
       },
     });
 
-    assertEquals(config.kernelId, "test-kernel");
-    assertEquals(config.kernelType, "python");
+    assertEquals(config.runtimeId, "test-kernel");
+    assertEquals(config.runtimeType, "python");
     assertEquals(config.notebookId, "test-notebook");
     assertEquals(config.syncUrl, "ws://localhost:8787");
     assertEquals(config.authToken, "test-token");
@@ -185,8 +185,8 @@ Deno.test("RuntimeConfig", async (t) => {
 
   await t.step("should generate unique session IDs", () => {
     const config1 = new RuntimeConfig({
-      kernelId: "kernel1",
-      kernelType: "python",
+      runtimeId: "kernel1",
+      runtimeType: "python",
       notebookId: "notebook1",
       syncUrl: "ws://localhost:8787",
       authToken: "token1",
@@ -198,8 +198,8 @@ Deno.test("RuntimeConfig", async (t) => {
     });
 
     const config2 = new RuntimeConfig({
-      kernelId: "kernel2",
-      kernelType: "python",
+      runtimeId: "kernel2",
+      runtimeType: "python",
       notebookId: "notebook2",
       syncUrl: "ws://localhost:8787",
       authToken: "token2",
@@ -216,8 +216,8 @@ Deno.test("RuntimeConfig", async (t) => {
 
   await t.step("should allow custom heartbeat interval", () => {
     const _config = new RuntimeConfig({
-      kernelId: "test-kernel",
-      kernelType: "python",
+      runtimeId: "test-kernel",
+      runtimeType: "python",
       notebookId: "test-notebook",
       syncUrl: "ws://localhost:8787",
       authToken: "test-token",

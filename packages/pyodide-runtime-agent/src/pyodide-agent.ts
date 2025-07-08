@@ -70,7 +70,7 @@ export class PyodideRuntimeAgent {
   constructor(args: string[] = Deno.args, options: PyodideAgentOptions = {}) {
     try {
       this.config = createRuntimeConfig(args, {
-        kernelType: "python3-pyodide",
+        runtimeType: "python3-pyodide",
         capabilities: {
           canExecuteCode: true,
           canExecuteSql: false,
