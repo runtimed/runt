@@ -1,6 +1,6 @@
 # @runt/lib
 
-Base class for runtime agents. This library connects to [Anode](https://github.com/rgbkrk/anode), processes execution queues, and handles outputs.
+Base class for runtime agents. This library connects to [Anode's sync](https://github.com/rgbkrk/anode), processes execution queues, and handles outputs.
 
 ## Usage
 

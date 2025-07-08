@@ -1,6 +1,6 @@
 # @runt/pyodide-runtime-agent
 
-Python runtime using Pyodide. This is a prototype implementation with IPython integration, extending beyond the initial [Anode](https://github.com/rgbkrk/anode) runtime.
+Python runtime using Pyodide. This is a prototype implementation with IPython integration.
 
 ## Usage
 
@@ -21,8 +21,8 @@ await agent.keepAlive();
 
 **CLI Arguments**:
 
-- `--notebook <id>` (required)
-- `--auth-token <token>` (required)
+- `--notebook <id>` (required unless `NOTEBOOK_ID` set)
+- `--auth-token <token>` (required unless `AUTH_TOKEN` set)
 
 **Environment Variables**:
 
