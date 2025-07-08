@@ -457,8 +457,6 @@ export const events = {
     }),
   }),
 
-  // SQL events - none needed, SQL cells use standard execution flow
-
   // AI events
   aiSettingsChanged: Events.synced({
     name: "v1.AiSettingsChanged",
@@ -471,6 +469,25 @@ export const events = {
         maxTokens: Schema.optional(Schema.Number),
         systemPrompt: Schema.optional(Schema.String),
       }),
+    }),
+  }),
+
+  // SQL events
+  sqlConnectionChanged: Events.synced({
+    name: "v1.SqlConnectionChanged",
+    schema: Schema.Struct({
+      cellId: Schema.String,
+      connectionId: Schema.optional(Schema.String),
+      changedBy: Schema.String,
+    }),
+  }),
+
+  sqlResultVariableChanged: Events.synced({
+    name: "v1.SqlResultVariableChanged",
+    schema: Schema.Struct({
+      cellId: Schema.String,
+      resultVariable: Schema.optional(Schema.String),
+      changedBy: Schema.String,
     }),
   }),
 
@@ -876,8 +893,6 @@ const materializers = State.SQLite.materializers(events, {
     }
   },
 
-  // SQL materializers - none needed, SQL cells use standard execution flow
-
   // AI materializers
   "v1.AiSettingsChanged": ({ cellId, provider, model, settings }) =>
     tables.cells
@@ -885,6 +900,21 @@ const materializers = State.SQLite.materializers(events, {
         aiProvider: provider,
         aiModel: model,
         aiSettings: settings,
+      })
+      .where({ id: cellId }),
+
+  // SQL materializers
+  "v1.SqlConnectionChanged": ({ cellId, connectionId }) =>
+    tables.cells
+      .update({
+        sqlConnectionId: connectionId ?? null,
+      })
+      .where({ id: cellId }),
+
+  "v1.SqlResultVariableChanged": ({ cellId, resultVariable }) =>
+    tables.cells
+      .update({
+        sqlResultVariable: resultVariable ?? null,
       })
       .where({ id: cellId }),
 });
