@@ -192,7 +192,7 @@ jobs:
 
       - name: Check python-runtime-agent package exports
         run: |
-          deno eval "import * as agent from './packages/python-runtime-agent/main.ts'; console.log('python-runtime-agent imports work');"
+          deno eval "import * as agent from './packages/python-runtime-agent/src/mod.ts'; console.log('python-runtime-agent imports work');"
 
       - name: Validate python-runtime-agent deno.json
         run: |

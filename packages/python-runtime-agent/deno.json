@@ -8,10 +8,10 @@
     "url": "https://github.com/runtimed/anode.git"
   },
   "exports": {
-    ".": "./main.ts"
+    ".": "./src/mod.ts"
   },
   "bin": {
-    "pythonrunt": "./main.ts"
+    "pythonrunt": "./src/mod.ts"
   },
   "imports": {
     "@runt/ai": "jsr:@runt/ai@^0.5.3",
@@ -19,9 +19,9 @@
     "@runt/schema": "jsr:@runt/schema@^0.5.3"
   },
   "tasks": {
-    "dev": "deno run --allow-all main.ts",
+    "dev": "deno run --allow-all src/mod.ts",
     "test": "deno test --allow-all",
-    "check": "deno check main.ts",
+    "check": "deno check src/mod.ts",
     "fmt": "deno fmt",
     "lint": "deno lint"
   },
@@ -45,7 +45,7 @@
     }
   },
   "publish": {
-    "include": ["main.ts", "README.md"],
+    "include": ["src/", "README.md"],
     "exclude": ["**/*.test.ts", "**/test_*.ts"]
   }
 }
