@@ -269,7 +269,84 @@ This creates a much better user experience! ✨`;
         return { success: true };
       }
 
-      // Demo 6: Performance test with rapid streaming
+      // Demo 6: AI-style streaming markdown (enhanced version)
+      if (code.includes("demo_ai_markdown")) {
+        console.log("🚀 Demo: Enhanced AI-style streaming markdown...");
+
+        // Start with initial markdown output
+        const markdownId = markdown(
+          "🤖 **AI Assistant** is analyzing your request",
+        );
+        await this.delay(300);
+
+        // Simulate typing dots
+        for (let i = 0; i < 3; i++) {
+          appendMarkdown(markdownId, ".");
+          await this.delay(150);
+        }
+        appendMarkdown(markdownId, "\n\n");
+
+        // Stream realistic AI response content
+        const aiResponse =
+          `Based on your request, I'll help you understand the streaming capabilities.
+
+## Key Features
+
+The **unified output system** provides several streaming mechanisms:
+
+### 1. Terminal Streaming
+- \`stdout\` and \`stderr\` streams group automatically
+- Real-time append with \`appendTerminal\`
+- Separate streams maintain clear boundaries
+
+### 2. Markdown Streaming
+- \`markdown()\` creates initial content
+- \`appendMarkdown()\` streams additional content
+- Perfect for AI responses and documentation
+
+### 3. Rich Media Support
+- Display plots, tables, and interactive content
+- Update existing displays with \`updateDisplay\`
+- Full multimedia capabilities
+
+## Performance Benefits
+
+1. **Granular Events**: Each append is a discrete event
+2. **Type Safety**: Precise schemas for all operations
+3. **Real-time Updates**: Instant user feedback
+4. **Efficient Storage**: Flattened data structure
+
+This creates an **excellent developer experience** for building interactive applications! 🚀
+
+*Would you like me to demonstrate any specific streaming feature?*`;
+
+        // Stream token by token with realistic delays
+        const tokens = this.tokenizeText(aiResponse);
+        for (const token of tokens) {
+          appendMarkdown(markdownId, token);
+
+          // Realistic AI streaming delays
+          let delay = 30; // Base delay
+
+          if (token.includes("\n")) delay = 100; // Pause at line breaks
+          else if (token.includes("*")) delay = 80; // Pause at emphasis
+          else if (token.includes(".")) delay = 200; // Pause at sentences
+          else if (token.includes(",")) delay = 50; // Brief pause at commas
+          else if (Math.random() < 0.1) delay = 80; // Random thinking pauses
+
+          await this.delay(delay);
+        }
+
+        // Final completion indicator
+        appendMarkdown(
+          markdownId,
+          "\n\n---\n*✨ Streaming complete! Try other demos to see more features.*",
+        );
+
+        return { success: true };
+      }
+
+      // Demo 7: Performance test with rapid streaming
       if (code.includes("demo_performance")) {
         console.log("🚀 Demo: Performance test with rapid streaming...");
 
@@ -294,7 +371,7 @@ This creates a much better user experience! ✨`;
         return { success: true };
       }
 
-      // Demo 7: Error handling with streaming
+      // Demo 8: Error handling with streaming
       if (code.includes("demo_error_stream")) {
         console.log("🚀 Demo: Error during streaming...");
 
@@ -330,6 +407,7 @@ Try these demos to see the unified output system in action:
 ## Advanced Features
 - \`demo_long_process\` - Long running task with progress
 - \`demo_ai_stream\` - **AI-style markdown streaming** ✨
+- \`demo_ai_markdown\` - **Enhanced AI markdown streaming** 🚀
 - \`demo_clear_stream\` - Clear output during streaming
 - \`demo_performance\` - Rapid output performance test
 - \`demo_error_stream\` - Error handling during streaming
@@ -395,6 +473,7 @@ async function runStreamingDemo() {
     console.log("   demo_mixed_streams   - stdout/stderr separation");
     console.log("   demo_long_process    - Progress streaming");
     console.log("   demo_ai_stream       - AI-style markdown streaming");
+    console.log("   demo_ai_markdown     - Enhanced AI markdown streaming");
     console.log("   demo_clear_stream    - Clear during streaming");
     console.log("   demo_performance     - Rapid output test");
     console.log("   demo_error_stream    - Error handling");

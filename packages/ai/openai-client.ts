@@ -178,14 +178,72 @@ export class RuntOpenAIClient {
           messages: conversationMessages,
           max_tokens: maxTokens,
           temperature,
-          stream: false,
+          stream: true,
           ...(tools ? { tools } : {}),
           ...(enableTools && tools ? { tool_choice: "auto" as const } : {}),
         });
 
-        const message = response.choices[0]?.message;
-        const content = message?.content;
-        const toolCalls = message?.tool_calls;
+        let content = "";
+        const toolCalls: Array<{
+          id: string;
+          type: "function";
+          function: { name: string; arguments: string };
+        }> = [];
+        let markdownOutputId: string | null = null;
+
+        // Stream the response
+        for await (const chunk of response) {
+          const delta = chunk.choices[0]?.delta;
+
+          if (delta?.content) {
+            // Handle content streaming
+            if (!markdownOutputId) {
+              // Start new markdown output
+              const metadata: AnodeCellMetadata = {
+                role: "assistant",
+                ai_provider: "openai",
+                ai_model: model,
+                iteration: iteration + 1,
+              };
+              markdownOutputId = context.markdown(delta.content, {
+                anode: metadata,
+              });
+            } else {
+              // Append to existing markdown output
+              context.appendMarkdown(markdownOutputId, delta.content);
+            }
+            content += delta.content;
+          }
+
+          if (delta?.tool_calls) {
+            // Handle tool calls
+            for (const toolCallDelta of delta.tool_calls) {
+              const index = toolCallDelta.index ?? 0;
+
+              // Initialize tool call if needed
+              if (!toolCalls[index]) {
+                toolCalls[index] = {
+                  id: "",
+                  type: "function",
+                  function: { name: "", arguments: "" },
+                };
+              }
+
+              if (toolCallDelta.id) {
+                toolCalls[index].id = toolCallDelta.id;
+              }
+
+              if (toolCallDelta.function?.name) {
+                toolCalls[index].function.name = toolCallDelta.function.name;
+              }
+
+              if (toolCallDelta.function?.arguments) {
+                toolCalls[index].function.arguments +=
+                  toolCallDelta.function.arguments;
+              }
+            }
+          }
+        }
 
         // Add assistant message to conversation (with tool_calls if present)
         const assistantMessage: ChatMessage = {
@@ -197,22 +255,6 @@ export class RuntOpenAIClient {
         };
 
         conversationMessages.push(assistantMessage);
-
-        // Emit assistant response with role metadata
-        if (content) {
-          const metadata: AnodeCellMetadata = {
-            role: "assistant",
-            ai_provider: "openai",
-            ai_model: model,
-            iteration: iteration + 1,
-          };
-          context.display({
-            "text/markdown": content,
-            "text/plain": content,
-          }, {
-            anode: metadata,
-          });
-        }
 
         // Handle tool calls if present
         if (toolCalls && toolCalls.length > 0 && onToolCall) {
