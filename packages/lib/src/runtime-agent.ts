@@ -19,6 +19,7 @@ import type {
   RichOutputData,
   RuntimeAgentEventHandlers,
   RuntimeCapabilities,
+  RuntimeSessionData,
 } from "./types.ts";
 import type { RuntimeConfig } from "./config.ts";
 
@@ -342,7 +343,7 @@ export class RuntimeAgent {
 
           setTimeout(() => {
             const activeRuntimes = this.store.query(activeRuntimesQuery$);
-            const ourRuntime = activeRuntimes.find((r: any) =>
+            const ourRuntime = activeRuntimes.find((r: RuntimeSessionData) =>
               r.sessionId === this.config.sessionId
             );
 

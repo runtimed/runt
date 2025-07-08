@@ -154,14 +154,12 @@ Logging Configuration:
   const authToken = parsed["auth-token"] || Deno.env.get("AUTH_TOKEN");
   if (authToken) result.authToken = authToken;
 
-  const runtimeType = parsed["runtime-type"] || Deno.env.get("RUNTIME_TYPE") ||
-    "runtime";
+  const runtimeType = parsed["runtime-type"] || Deno.env.get("RUNTIME_TYPE");
   if (runtimeType && typeof runtimeType === "string") {
     result.runtimeType = runtimeType;
   }
 
-  const runtimeId = parsed["runtime-id"] || Deno.env.get("RUNTIME_ID") ||
-    `${runtimeType}-runtime-${Deno.pid}`;
+  const runtimeId = parsed["runtime-id"] || Deno.env.get("RUNTIME_ID");
   if (runtimeId && typeof runtimeId === "string") result.runtimeId = runtimeId;
 
   return result;
@@ -196,11 +194,14 @@ export function createRuntimeConfig(
   const config: RuntimeAgentOptions = {
     ...mergedDefaults,
     ...cleanCliConfig,
-    // Generate runtimeId after merging to use correct runtimeType
-    runtimeId: cliConfig.runtimeId ||
-      Deno.env.get("RUNTIME_ID") ||
-      `${mergedDefaults.runtimeType}-runtime-${Deno.pid}`,
   } as RuntimeAgentOptions;
+
+  // Generate runtimeId after merging to use correct runtimeType
+  if (!config.runtimeId) {
+    config.runtimeId = cliConfig.runtimeId ||
+      Deno.env.get("RUNTIME_ID") ||
+      `${config.runtimeType}-runtime-${Deno.pid}`;
+  }
 
   const runtimeConfig = new RuntimeConfig(config);
   runtimeConfig.validate();

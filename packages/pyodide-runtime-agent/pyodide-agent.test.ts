@@ -125,7 +125,7 @@ Deno.test("PyodideRuntimeAgent configuration", async (t) => {
 
   await t.step("should create agent with valid configuration", () => {
     const validArgs = [
-      "--kernel-id",
+      "--runtime-id",
       "test-kernel",
       "--notebook",
       "test-notebook",
@@ -148,7 +148,7 @@ Deno.test("PyodideRuntimeAgent configuration", async (t) => {
 
   await t.step("should have correct kernel type and capabilities", () => {
     const validArgs = [
-      "--kernel-id",
+      "--runtime-id",
       "test-kernel",
       "--notebook",
       "test-notebook",
@@ -168,7 +168,7 @@ Deno.test("PyodideRuntimeAgent lifecycle", async (t) => {
   let agent: PyodideRuntimeAgent;
 
   const validArgs = [
-    "--kernel-id",
+    "--runtime-id",
     "test-lifecycle-kernel",
     "--notebook",
     "test-notebook",

@@ -9,8 +9,8 @@ import { RuntimeAgent } from "../src/runtime-agent.ts";
 import { RuntimeConfig } from "../src/config.ts";
 import type {
   ExecutionContext,
-  RuntimeCapabilities,
   RuntimeAgentEventHandlers,
+  RuntimeCapabilities,
 } from "../src/types.ts";
 
 // Simple mock function creator
@@ -174,7 +174,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       assertExists(error);
       assertEquals(
         error?.message.includes(
-          "runtimeId: --kernel-id <id> or KERNEL_ID env var",
+          "runtimeId: --runtime-id <id> or RUNTIME_ID env var",
         ),
         true,
       );

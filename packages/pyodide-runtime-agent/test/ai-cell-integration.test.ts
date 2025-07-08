@@ -13,7 +13,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
   await t.step("setup AI cell test environment", async () => {
     await withQuietConsole(async () => {
       const agentArgs = [
-        "--kernel-id",
+        "--runtime-id",
         "ai-test-kernel",
         "--notebook",
         "ai-test-notebook",
@@ -340,7 +340,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Error Handling", async (t) => {
   await t.step("setup", async () => {
     await withQuietConsole(async () => {
       const agentArgs = [
-        "--kernel-id",
+        "--runtime-id",
         "ai-error-test-kernel",
         "--notebook",
         "ai-error-test-notebook",

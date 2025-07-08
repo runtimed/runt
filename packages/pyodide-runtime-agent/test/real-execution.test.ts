@@ -12,7 +12,7 @@ import type { RichOutputData } from "@runt/schema";
 // Create test agent with minimal packages for speed
 function createTestAgent(packages?: string[]): PyodideRuntimeAgent {
   const validArgs = [
-    "--kernel-id",
+    "--runtime-id",
     "test-execution-kernel",
     "--notebook",
     "test-notebook",

@@ -9,8 +9,8 @@ import { RuntimeAgent } from "./runtime-agent.ts";
 import { RuntimeConfig } from "./config.ts";
 import type {
   ExecutionContext,
-  RuntimeCapabilities,
   RuntimeAgentEventHandlers,
+  RuntimeCapabilities,
 } from "./types.ts";
 
 // Simple mock functions
