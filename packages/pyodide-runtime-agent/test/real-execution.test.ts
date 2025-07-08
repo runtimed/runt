@@ -62,7 +62,7 @@ function createTestExecutionContext(code: string): {
       assignedRuntimeSession: null,
       lastExecutionDurationMs: null,
       sqlConnectionId: null,
-      sqlResultData: null,
+      sqlResultVariable: null,
       aiProvider: null,
       aiModel: null,
       aiSettings: null,
