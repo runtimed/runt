@@ -1,8 +1,6 @@
 # @runt/pyodide-runtime-agent
 
-Python runtime using Pyodide. Prototype implementation with IPython integration.
-
-Goes well beyond the initial [Anode](https://github.com/rgbkrk/anode) runtime implementation (for Python at least...).
+Python runtime using Pyodide. This is a prototype implementation with IPython integration, extending beyond the initial [Anode](https://github.com/rgbkrk/anode) runtime.
 
 ## Usage
 
@@ -13,29 +11,35 @@ await agent.start();
 await agent.keepAlive();
 ```
 
-Works:
+**Features**:
 
-- Python execution via Pyodide
-- Rich outputs (HTML, pandas tables, matplotlib SVG)
-- IPython display system
-- Basic Scientific computing stack pre-loaded
-- Code interruption
+- Python execution via Pyodide.
+- Rich outputs (HTML, pandas tables, matplotlib SVG).
+- IPython display system.
+- Basic scientific computing stack pre-loaded.
+- Code interruption.
 
-CLI: `--notebook <id> --auth-token <token>` (required)
+**CLI Arguments**:
 
-Environment: `NOTEBOOK_ID`, `AUTH_TOKEN`
+- `--notebook <id>` (required)
+- `--auth-token <token>` (required)
 
-Notes:
+**Environment Variables**:
 
-- Package loading is slow on first run
-- Not all Python packages are available in Pyodide
+- `NOTEBOOK_ID`
+- `AUTH_TOKEN`
+
+## Important Considerations
+
+- Package loading can be slow on first run.
+- Not all Python packages are available in Pyodide.
 
 ## Pre-loaded Packages
 
-Data: numpy, pandas, polars, pyarrow, duckdb
-Viz: matplotlib, bokeh, altair
-Science: scipy, sympy, scikit-learn, statsmodels
-Misc: requests, rich, beautifulsoup4, pillow, geopandas, networkx
+- **Data**: `numpy`, `pandas`, `polars`, `pyarrow`, `duckdb`
+- **Viz**: `matplotlib`, `bokeh`, `altair`
+- **Science**: `scipy`, `sympy`, `scikit-learn`, `statsmodels`
+- **Misc**: `requests`, `rich`, `beautifulsoup4`, `pillow`, `geopandas`, `networkx`
 
 ## Example
 

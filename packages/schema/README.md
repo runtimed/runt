@@ -1,6 +1,6 @@
 # @runt/schema
 
-LiveStore schema for anode notebooks. Events, tables, and types.
+LiveStore schema for Anode notebooks, defining events, tables, and types.
 
 ```typescript
 import { events, schema, tables } from "jsr:@runt/schema";
@@ -12,14 +12,14 @@ store.commit(events.cellCreated({ cellId, cellType, source, position }));
 const cells = store.query(tables.cells.select().where({ cellType: "code" }));
 ```
 
-Events:
+**Events**:
 
 - `cellCreated`, `cellUpdated`, `cellDeleted`, `cellMoved`
 - `executionRequested`, `executionStarted`, `executionCompleted`
 - `cellOutputAdded`, `cellOutputsCleared`
 - `runtimeSessionStarted`, `runtimeSessionHeartbeat`, `runtimeSessionTerminated`
 
-Tables:
+**Tables**:
 
 - `notebook` - metadata
 - `cells` - content and execution state
@@ -27,10 +27,12 @@ Tables:
 - `executionQueue` - pending/running executions
 - `runtimeSessions` - active connections
 
-Key types: `CellData`, `OutputData`, `RuntimeSessionData`, `ExecutionQueueData`
+**Key Types**:
 
-## Notes
+- `CellData`, `OutputData`, `RuntimeSessionData`, `ExecutionQueueData`
 
-- Materializers must be pure functions
-- Events are immutable once added
-- Schema changes must be backward compatible
+## Important Considerations
+
+- Materializers must be pure functions.
+- Events are immutable once added.
+- Schema changes must be backward compatible.

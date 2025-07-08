@@ -1,7 +1,6 @@
 # @runt/lib
 
-Runtime agent base class. Connects to [Anode](https://github.com/rgbkrk/anode),
-processes execution queues, handles outputs.
+Base class for runtime agents. This library connects to [Anode](https://github.com/rgbkrk/anode), processes execution queues, and handles outputs.
 
 ## Usage
 
@@ -42,8 +41,7 @@ await agent.keepAlive();
 --sync-url <url>          # Optional
 ```
 
-Environment variables: `NOTEBOOK_ID`, `AUTH_TOKEN`, `RUNTIME_TYPE`,
-`LIVESTORE_SYNC_URL`.
+**Environment variables**: `NOTEBOOK_ID`, `AUTH_TOKEN`, `RUNTIME_TYPE`, `LIVESTORE_SYNC_URL`.
 
 ## Outputs
 
@@ -74,14 +72,14 @@ agent.onExecution(async (context) => {
 });
 ```
 
-What it does:
+**Key functions**:
 
 - LiveStore connection and runtime session management
 - Execution queue processing
 - Heartbeats and shutdown
 - CLI configuration
 
-What you do:
+**Your responsibilities**:
 
 - Implement execution handler
 - Emit outputs via context methods
@@ -102,10 +100,8 @@ import { createLogger } from "@runt/lib";
 const logger = createLogger("my-agent");
 ```
 
-Environment: `RUNT_LOG_LEVEL`, `RUNT_DISABLE_CONSOLE_LOGS`
+**Environment variables**: `RUNT_LOG_LEVEL`, `RUNT_DISABLE_CONSOLE_LOGS`.
 
-The default log level is `ERROR`. Set `RUNT_LOG_LEVEL` to `INFO` or `DEBUG` for
-more verbose output. Continuous integration runs use `RUNT_LOG_LEVEL=INFO` so
-you'll see detailed logs in CI.
+The default log level is `ERROR`. Set `RUNT_LOG_LEVEL` to `INFO` or `DEBUG` for more verbose output. Continuous integration runs use `RUNT_LOG_LEVEL=INFO` for detailed CI logs.
 
 Examples in `examples/`.

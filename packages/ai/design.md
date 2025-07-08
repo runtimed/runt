@@ -9,23 +9,20 @@ are one unified document which keeps conversation continuity**.
 
 ## Current Implementation
 
-### How AI Cells Work Today
+This section details the current implementation of AI cells.
 
-When an AI cell is executed, the system:
+### Conversation Building
 
-1. **Builds Sequential Conversation**: All notebook cells (code, markdown, AI)
-   become part of a sequential conversation flow
-2. **Includes Cell IDs**: Each cell message contains the exact cell ID for tool
-   targeting
-3. **Preserves Tool Call Order**: AI responses, tool calls, and tool results
-   maintain the OpenAI chat format
-4. **Enables Continuity**: Future AI calls see exactly how previous AI used
-   tools
+When an AI cell is executed, the system constructs a sequential conversation flow:
+
+1.  **Sequential Conversation**: All notebook cells (code, markdown, AI) are transformed into a sequential conversation.
+2.  **Cell IDs**: Each cell message includes its exact cell ID for precise tool targeting.
+3.  **Tool Call Order**: AI responses, tool calls, and tool results maintain the OpenAI chat format.
+4.  **Continuity**: Subsequent AI calls retain the full context of previous AI tool usage.
 
 ### Sequential Conversation Architecture
 
-**Core Principle**: Each output becomes exactly one conversation message in
-order.
+**Core Principle**: Each output becomes exactly one conversation message in order.
 
 ````typescript
 // Perfect sequential flow:
@@ -78,9 +75,9 @@ This section covers the methodology.
 
 ### Available Tools
 
-1. **`create_cell`** - Create new cells with specified content and position
-2. **`modify_cell`** - Update existing cell content using exact cell IDs
-3. **`execute_cell`** - Execute code/SQL cells and return results
+1.  **`create_cell`** - Create new cells with specified content and position.
+2.  **`modify_cell`** - Update existing cell content using exact cell IDs.
+3.  **`execute_cell`** - Execute code/SQL cells and return results.
 
 All tools use the cell IDs from the conversation context (e.g., `cell-123`, `cell-abc456`).
 
@@ -128,41 +125,4 @@ AI can target exact cells using IDs from the conversation:
 - `execute_cell(cellId: "cell-1")`
 - `modify_cell(cellId: "cell-abc123", content: "updated code")`
 
-### Multimodal Options
 
-The design right now is to find the richest media type that the model is able to
-read.
-
-#### Plain
-
-```typescript
-// Current: text outputs
-if (output.data["text/plain"]) {
-  cellMessage += `\`\`\`\n${output.data["text/plain"]}\n\`\`\``;
-}
-```
-
-#### Images
-
-Future image outputs TBD.
-
-Likely need to take `image/png` and the other image types, sending them on as
-the specialized image input helper, e.g.:
-
-```
-response = client.responses.create(
-    model="gpt-4.1",
-    input=[
-        {
-            "role": "user",
-            "content": [
-                { "type": "input_text", "text": "what's in this image?" },
-                {
-                    "type": "input_image",
-                    "image_url": f"data:image/jpeg;base64,{base64_image}",
-                },
-            ],
-        }
-    ],
-)
-```
