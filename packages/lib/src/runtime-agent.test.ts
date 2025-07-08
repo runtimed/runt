@@ -56,7 +56,6 @@ Deno.test("RuntimeAgent", async (t) => {
       notebookId: "test-notebook",
       syncUrl: "ws://localhost:8787",
       authToken: "test-token",
-      heartbeatInterval: 1000,
       capabilities,
     });
   };
@@ -182,7 +181,6 @@ Deno.test("RuntimeConfig", async (t) => {
     assertEquals(config.syncUrl, "ws://localhost:8787");
     assertEquals(config.authToken, "test-token");
     assertExists(config.sessionId);
-    assertEquals(config.heartbeatInterval, 15000); // Default value
   });
 
   await t.step("should generate unique session IDs", () => {
@@ -223,15 +221,12 @@ Deno.test("RuntimeConfig", async (t) => {
       notebookId: "test-notebook",
       syncUrl: "ws://localhost:8787",
       authToken: "test-token",
-      heartbeatInterval: 5000,
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
         canExecuteAi: false,
       },
     });
-
-    assertEquals(config.heartbeatInterval, 5000);
   });
 });
 

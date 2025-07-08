@@ -91,7 +91,6 @@ Deno.test({
           cellId: aiCellId,
           executionCount: 1,
           requestedBy: "test",
-          priority: 1,
         }),
       );
 
@@ -120,7 +119,6 @@ Deno.test({
           cellId: codeCellId,
           executionCount: 1,
           requestedBy: "test",
-          priority: 1,
         }),
       );
 

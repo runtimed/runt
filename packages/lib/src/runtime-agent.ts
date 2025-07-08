@@ -29,7 +29,7 @@ export class RuntimeAgent {
   private store!: Store<typeof schema>;
   private isShuttingDown = false;
   private processedExecutions = new Set<string>();
-  private heartbeatInterval: number | null = null;
+
   private subscriptions: (() => void)[] = [];
   private activeExecutions = new Map<string, AbortController>();
   private cancellationHandlers: CancellationHandler[] = [];
@@ -90,18 +90,8 @@ export class RuntimeAgent {
         capabilities: this.capabilities,
       }));
 
-      // Send initial heartbeat
-      this.store.commit(events.kernelSessionHeartbeat({
-        sessionId: this.config.sessionId,
-        status: "ready",
-        timestamp: new Date(),
-      }));
-
       // Set up reactive queries and subscriptions
       this.setupSubscriptions();
-
-      // Start heartbeat timer
-      this.startHeartbeat();
 
       await this.handlers.onConnected?.();
       logger.info("Runtime agent connected and ready");
@@ -131,12 +121,6 @@ export class RuntimeAgent {
 
     try {
       await this.handlers.onShutdown?.();
-
-      // Stop heartbeat
-      if (this.heartbeatInterval) {
-        clearInterval(this.heartbeatInterval);
-        this.heartbeatInterval = null;
-      }
 
       // Unsubscribe from all reactive queries
       this.subscriptions.forEach((unsubscribe) => unsubscribe());
@@ -225,8 +209,7 @@ export class RuntimeAgent {
         .where({
           status: "assigned",
           assignedKernelSession: this.config.sessionId,
-        })
-        .orderBy("priority", "desc"),
+        }),
       {
         label: "assignedWork",
         deps: [this.config.sessionId],
@@ -236,8 +219,7 @@ export class RuntimeAgent {
     // Watch for pending work to claim
     const pendingWorkQuery$ = queryDb(
       tables.executionQueue.select()
-        .where({ status: "pending" })
-        .orderBy("priority", "desc"),
+        .where({ status: "pending" }),
       {
         label: "pendingWork",
       },
@@ -246,8 +228,7 @@ export class RuntimeAgent {
     // Watch for active kernels
     const activeKernelsQuery$ = queryDb(
       tables.kernelSessions.select()
-        .where({ isActive: true })
-        .orderBy("lastHeartbeat", "desc"),
+        .where({ isActive: true }),
       {
         label: "activeKernels",
       },
@@ -748,32 +729,6 @@ export class RuntimeAgent {
       // Clean up active execution tracking
       this.activeExecutions.delete(queueEntry.id);
     }
-  }
-
-  /**
-   * Start heartbeat timer
-   */
-  private startHeartbeat(): void {
-    this.heartbeatInterval = setInterval(() => {
-      if (this.isShuttingDown) return;
-
-      try {
-        this.store.commit(events.kernelSessionHeartbeat({
-          sessionId: this.config.sessionId,
-          status: "ready",
-          timestamp: new Date(),
-        }));
-      } catch (error) {
-        const heartbeatLogger = createLogger(`${this.config.kernelType}-agent`);
-        if (error instanceof Error) {
-          heartbeatLogger.error("Heartbeat failed", error);
-        } else {
-          heartbeatLogger.warn("Heartbeat failed", {
-            error: String(error),
-          });
-        }
-      }
-    }, this.config.heartbeatInterval);
   }
 
   /**

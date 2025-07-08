@@ -29,8 +29,6 @@ export interface RuntimeAgentOptions {
   authToken: string;
   /** Notebook ID to connect to */
   notebookId: string;
-  /** Heartbeat interval in milliseconds (default: 15000) */
-  heartbeatInterval?: number;
 }
 
 /**

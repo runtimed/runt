@@ -36,7 +36,6 @@ async function main() {
       notebookId: agent.config.notebookId,
       sessionId: agent.config.sessionId,
       syncUrl: agent.config.syncUrl,
-      heartbeatInterval: agent.config.heartbeatInterval,
     });
 
     await agent.keepAlive();

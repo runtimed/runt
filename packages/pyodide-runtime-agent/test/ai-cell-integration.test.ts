@@ -69,7 +69,6 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
         cellId: aiCellId,
         executionCount: 1,
         requestedBy: "test",
-        priority: 1,
       }),
     );
 
@@ -167,7 +166,6 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
         cellId: aiCellId,
         executionCount: 1,
         requestedBy: "test",
-        priority: 1,
       }),
     );
 
@@ -232,7 +230,6 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
         cellId: pythonCellId,
         executionCount: 1,
         requestedBy: "test",
-        priority: 1,
       }),
     );
 
@@ -283,7 +280,6 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
         cellId: aiCellId,
         executionCount: 1,
         requestedBy: "test",
-        priority: 1,
       }),
     );
 
@@ -392,7 +388,6 @@ Deno.test("PyodideRuntimeAgent - AI Cell Error Handling", async (t) => {
         cellId: aiCellId,
         executionCount: 1,
         requestedBy: "test",
-        priority: 1,
       }),
     );
 

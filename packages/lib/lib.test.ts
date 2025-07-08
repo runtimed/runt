@@ -19,7 +19,6 @@ Deno.test("DEFAULT_CONFIG has expected values", () => {
     DEFAULT_CONFIG.syncUrl,
     "wss://anode-docworker.rgbkrk.workers.dev",
   );
-  assertEquals(DEFAULT_CONFIG.heartbeatInterval, 15000);
 });
 
 Deno.test("RuntimeConfig validation works", () => {

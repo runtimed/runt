@@ -86,7 +86,6 @@ class StreamingDemoAgent {
           cellId: cellId,
           executionCount: 1,
           requestedBy: "streaming-demo-kernel",
-          priority: 0,
         }));
       }
     } catch (error) {

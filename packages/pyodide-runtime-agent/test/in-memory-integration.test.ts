@@ -105,7 +105,6 @@ Deno.test({
         cellId,
         executionCount: 1,
         requestedBy: "test-user",
-        priority: 1,
       }));
 
       console.log("📊 Waiting for agent to process execution...");

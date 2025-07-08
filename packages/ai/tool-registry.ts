@@ -369,7 +369,6 @@ export async function handleToolCallWithResult(
           cellId,
           executionCount: (existingCell.executionCount || 0) + 1,
           requestedBy: `ai-assistant-${sessionId}`,
-          priority: 1,
         }),
       );
 

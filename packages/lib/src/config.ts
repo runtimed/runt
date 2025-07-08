@@ -12,7 +12,6 @@ import type { KernelCapabilities, RuntimeAgentOptions } from "./types.ts";
  */
 export const DEFAULT_CONFIG = {
   syncUrl: "wss://anode-docworker.rgbkrk.workers.dev",
-  heartbeatInterval: 15000,
 } as const;
 
 /**
@@ -24,7 +23,6 @@ export class RuntimeConfig {
   public readonly syncUrl: string;
   public readonly authToken: string;
   public readonly notebookId: string;
-  public readonly heartbeatInterval: number;
   public readonly capabilities: KernelCapabilities;
   public readonly sessionId: string;
 
@@ -34,8 +32,6 @@ export class RuntimeConfig {
     this.syncUrl = options.syncUrl;
     this.authToken = options.authToken;
     this.notebookId = options.notebookId;
-    this.heartbeatInterval = options.heartbeatInterval ??
-      DEFAULT_CONFIG.heartbeatInterval;
     this.capabilities = options.capabilities;
 
     // Generate unique session ID
@@ -131,8 +127,6 @@ Optional Options:
                              (default: <kernel-type>-kernel-{pid})
   --kernel-type, -T <type>   Kernel type identifier
                              (default: "runtime")
-  --heartbeat-interval <ms>  Heartbeat interval in milliseconds
-                             (default: ${DEFAULT_CONFIG.heartbeatInterval})
   --help, -h                 Show this help message
 
 Examples:
@@ -165,15 +159,6 @@ Logging Configuration:
 
   const kernelType = parsed["kernel-type"] || Deno.env.get("KERNEL_TYPE");
   if (kernelType) result.kernelType = kernelType;
-
-  const heartbeatInterval = parsed["heartbeat-interval"] ||
-    Deno.env.get("HEARTBEAT_INTERVAL");
-  if (heartbeatInterval) {
-    const parsed = parseInt(heartbeatInterval, 10);
-    if (!isNaN(parsed) && parsed > 0) {
-      result.heartbeatInterval = parsed;
-    }
-  }
 
   return result;
 }

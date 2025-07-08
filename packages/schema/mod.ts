@@ -149,9 +149,6 @@ export const tables = {
       canExecuteCode: State.SQLite.boolean({ default: false }),
       canExecuteSql: State.SQLite.boolean({ default: false }),
       canExecuteAi: State.SQLite.boolean({ default: false }),
-
-      // Heartbeat tracking
-      lastHeartbeat: State.SQLite.datetime({ nullable: true }),
     },
   }),
 
@@ -177,11 +174,6 @@ export const tables = {
         ),
       }),
       assignedKernelSession: State.SQLite.text({ nullable: true }),
-
-      // Priority and metadata
-      priority: State.SQLite.integer({ default: 0 }), // Higher = more important
-      retryCount: State.SQLite.integer({ default: 0 }),
-      maxRetries: State.SQLite.integer({ default: 3 }),
 
       // Execution timing
       startedAt: State.SQLite.datetime({ nullable: true }),
@@ -320,15 +312,6 @@ export const events = {
     }),
   }),
 
-  kernelSessionHeartbeat: Events.synced({
-    name: "v1.KernelSessionHeartbeat",
-    schema: Schema.Struct({
-      sessionId: Schema.String,
-      status: Schema.Literal("ready", "busy"),
-      timestamp: Schema.Date,
-    }),
-  }),
-
   kernelSessionTerminated: Events.synced({
     name: "v1.KernelSessionTerminated",
     schema: Schema.Struct({
@@ -345,7 +328,6 @@ export const events = {
       cellId: Schema.String,
       executionCount: Schema.Number,
       requestedBy: Schema.String,
-      priority: Schema.Number,
     }),
   }),
 
@@ -575,14 +557,6 @@ const materializers = State.SQLite.materializers(events, {
       canExecuteAi: capabilities.canExecuteAi,
     }),
 
-  "v1.KernelSessionHeartbeat": ({ sessionId, status, timestamp }) =>
-    tables.kernelSessions
-      .update({
-        status: status === "ready" ? "ready" : "busy",
-        lastHeartbeat: timestamp,
-      })
-      .where({ sessionId }),
-
   "v1.KernelSessionTerminated": ({ sessionId }) =>
     tables.kernelSessions
       .update({
@@ -597,14 +571,12 @@ const materializers = State.SQLite.materializers(events, {
     cellId,
     executionCount,
     requestedBy,
-    priority,
   }) => [
     tables.executionQueue.insert({
       id: queueId,
       cellId,
       executionCount,
       requestedBy,
-      priority,
       status: "pending",
     }),
     // Update cell execution state

@@ -109,8 +109,6 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
     ];
 
     const agent = new PyodideRuntimeAgent(agentArgs);
-
-    assertEquals(agent.config.heartbeatInterval, 5000);
   });
 
   await t.step("uses default values", () => {
@@ -126,7 +124,6 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
     const agent = new PyodideRuntimeAgent(agentArgs);
 
     assertStringIncludes(agent.config.syncUrl, "anode-docworker");
-    assertEquals(agent.config.heartbeatInterval, 15000);
   });
 
   await t.step("supports environment variables", () => {
