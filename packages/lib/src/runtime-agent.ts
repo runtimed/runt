@@ -77,7 +77,7 @@ export class RuntimeAgent {
         storeId: this.config.notebookId,
         syncPayload: {
           authToken: this.config.authToken,
-          kernel: true,
+          runtime: true,
           runtimeId: this.config.runtimeId,
           sessionId: this.config.sessionId,
         },
