@@ -27,7 +27,7 @@ export interface AgenticOptions {
   maxIterations?: number;
   onIteration?: (
     iteration: number,
-    messages: any[],
+    messages: unknown[],
   ) => Promise<boolean>;
   interruptSignal?: AbortSignal;
 }
@@ -48,7 +48,7 @@ export interface AnodeCellMetadata {
  * Helper function to format tool calls consistently across providers
  */
 export function formatToolCall(
-  toolName: string,
+  _toolName: string,
   args: Record<string, unknown>,
 ): string {
   const formattedArgs = Object.entries(args)
