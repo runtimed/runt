@@ -15,12 +15,14 @@ export {
   withQuietLogging,
 } from "./src/logging.ts";
 export type {
+  AiModel,
   CancellationHandler,
   CellData,
   ExecutionContext,
   ExecutionHandler,
   ExecutionQueueData,
   ExecutionResult,
+  ModelCapability,
   OutputType,
   RichOutputData,
   RuntimeAgentEventHandlers,

@@ -149,6 +149,10 @@ export const tables = {
       canExecuteCode: State.SQLite.boolean({ default: false }),
       canExecuteSql: State.SQLite.boolean({ default: false }),
       canExecuteAi: State.SQLite.boolean({ default: false }),
+      availableAiModels: State.SQLite.json({
+        nullable: true,
+        schema: Schema.Any,
+      }),
     },
   }),
 
@@ -295,6 +299,7 @@ export const events = {
         canExecuteCode: Schema.Boolean,
         canExecuteSql: Schema.Boolean,
         canExecuteAi: Schema.Boolean,
+        availableAiModels: Schema.optional(Schema.Any),
       }),
     }),
   }),
@@ -551,6 +556,7 @@ const materializers = State.SQLite.materializers(events, {
       canExecuteCode: capabilities.canExecuteCode,
       canExecuteSql: capabilities.canExecuteSql,
       canExecuteAi: capabilities.canExecuteAi,
+      availableAiModels: capabilities.availableAiModels || null,
     }),
 
   "v1.RuntimeSessionStatusChanged": ({ sessionId, status }) =>

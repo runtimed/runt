@@ -1,5 +1,10 @@
 import OpenAI from "@openai/openai";
-import { createLogger, type ExecutionContext } from "@runt/lib";
+import {
+  type AiModel,
+  createLogger,
+  type ExecutionContext,
+  type ModelCapability,
+} from "@runt/lib";
 
 import { NOTEBOOK_TOOLS } from "./tool-registry.ts";
 
@@ -96,6 +101,105 @@ export class RuntOpenAIClient {
       this.configure();
     }
     return this.isConfigured && this.client !== null;
+  }
+
+  /**
+   * Get hardcoded OpenAI model capabilities
+   * (OpenAI doesn't expose capabilities via API)
+   */
+  private getOpenAIModelCapabilities(modelName: string): ModelCapability[] {
+    const capabilities: ModelCapability[] = ["completion"];
+
+    // Most OpenAI models support tools
+    if (modelName.includes("gpt-4") || modelName.includes("gpt-3.5")) {
+      capabilities.push("tools");
+    }
+
+    // Vision models
+    if (modelName.includes("gpt-4o") || modelName.includes("vision")) {
+      capabilities.push("vision", "multimodal");
+    }
+
+    // Code-optimized models
+    if (modelName.includes("code") || modelName.includes("gpt-4")) {
+      capabilities.push("code");
+    }
+
+    return capabilities;
+  }
+
+  /**
+   * Get available OpenAI models (hardcoded for now)
+   */
+  private getOpenAIModels(): Array<{
+    name: string;
+    displayName: string;
+    contextLength: number;
+    deprecated?: boolean;
+  }> {
+    return [
+      {
+        name: "gpt-4o",
+        displayName: "GPT-4 Omni",
+        contextLength: 128000,
+      },
+      {
+        name: "gpt-4o-mini",
+        displayName: "GPT-4 Omni Mini",
+        contextLength: 128000,
+      },
+      {
+        name: "gpt-4",
+        displayName: "GPT-4",
+        contextLength: 8192,
+        deprecated: true,
+      },
+      {
+        name: "gpt-3.5-turbo",
+        displayName: "GPT-3.5 Turbo",
+        contextLength: 16384,
+      },
+    ];
+  }
+
+  /**
+   * Discover available AI models with their capabilities
+   */
+  discoverAiModels(): Promise<AiModel[]> {
+    if (!this.isReady()) {
+      this.logger.warn("OpenAI client not ready, returning empty models list");
+      return Promise.resolve([]);
+    }
+
+    try {
+      const models = this.getOpenAIModels();
+      const aiModels: AiModel[] = [];
+
+      for (const model of models) {
+        if (model.deprecated) {
+          continue; // Skip deprecated models
+        }
+
+        const capabilities = this.getOpenAIModelCapabilities(model.name);
+
+        aiModels.push({
+          name: model.name,
+          displayName: model.displayName,
+          provider: "openai",
+          capabilities,
+          metadata: {
+            contextLength: model.contextLength,
+            modelType: "transformer",
+            parameterSize: model.name.includes("gpt-4") ? "Unknown" : "Unknown",
+          },
+        });
+      }
+
+      return Promise.resolve(aiModels);
+    } catch (error) {
+      this.logger.error("Failed to discover OpenAI models", error);
+      return Promise.resolve([]);
+    }
   }
 
   async generateAgenticResponse(

@@ -17,3 +17,7 @@ cov.lcov
 __pycache__/
 *.pyc
 *.pyo
+
+.env
+.env.*
+.env.production

@@ -17,6 +17,7 @@
     "@std/async": "jsr:@std/async@^1.0.0",
     "npm:@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
     "@openai/openai": "jsr:@openai/openai@^4.98.0",
+    "npm:ollama": "npm:ollama@^0.5.16",
     "strip-ansi": "npm:strip-ansi@^7.1.0"
   },
   "tasks": {

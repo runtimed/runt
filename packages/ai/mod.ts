@@ -1,12 +1,18 @@
 import stripAnsi from "strip-ansi";
 import type OpenAI from "@openai/openai";
 
-import type { ExecutionContext, Logger } from "@runt/lib";
+import type {
+  AiModel,
+  ExecutionContext,
+  Logger,
+  ModelCapability,
+} from "@runt/lib";
 
 import { handleToolCallWithResult } from "./tool-registry.ts";
 import type { Store } from "@runt/schema";
 
 import { OpenAIClient } from "./openai-client.ts";
+import { RuntOllamaClient } from "./ollama-client.ts";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
@@ -181,11 +187,73 @@ export function buildConversationMessages(
   return messages;
 }
 
-const defaultModel = "gpt-4o-mini";
+const getDefaultModel = (provider: string): string => {
+  return DEFAULT_MODELS[provider as keyof typeof DEFAULT_MODELS] ||
+    DEFAULT_MODELS.openai;
+};
 
 /**
- * Execute AI prompts using OpenAI
+ * Execute AI prompts using OpenAI, Ollama, or other providers
  */
+// Export the AI clients for external use
+export { OpenAIClient, RuntOllamaClient };
+
+/**
+ * Discover available AI models from all configured providers
+ */
+export async function discoverAvailableAiModels(): Promise<AiModel[]> {
+  const allModels: AiModel[] = [];
+
+  // Discover OpenAI models
+  const openaiClient = new OpenAIClient();
+  try {
+    const openaiModels = await openaiClient.discoverAiModels();
+    allModels.push(...openaiModels);
+  } catch (_error) {
+    console.warn(
+      "Failed to discover OpenAI models - API may not be configured",
+    );
+  }
+
+  // Discover Ollama models
+  const ollamaHost = Deno.env.get("OLLAMA_HOST") || "http://localhost:11434";
+  const ollamaClient = new RuntOllamaClient({
+    host: ollamaHost,
+  });
+  try {
+    const ollamaModels = await ollamaClient.discoverAiModels();
+    allModels.push(...ollamaModels);
+  } catch (_error) {
+    console.warn(
+      "Failed to discover Ollama models - server may not be running",
+    );
+  }
+
+  return allModels;
+}
+
+/**
+ * Filter AI models by required capabilities
+ */
+export function filterModelsByCapabilities(
+  models: AiModel[],
+  requiredCapabilities: string[],
+): AiModel[] {
+  return models.filter((model) =>
+    requiredCapabilities.every((capability) =>
+      model.capabilities.includes(capability as ModelCapability)
+    )
+  );
+}
+
+// Default models for each provider
+const DEFAULT_MODELS = {
+  openai: "gpt-4o-mini",
+  ollama: "llama3.1",
+  anthropic: "claude-3-haiku",
+  local: "llama-2",
+} as const;
+
 export async function executeAI(
   context: ExecutionContext,
   notebookContext: NotebookContextData,
@@ -212,20 +280,148 @@ export async function executeAI(
       return { success: false, error: "Execution cancelled" };
     }
 
+    const provider = cell.aiProvider || "openai";
+    const model = cell.aiModel || getDefaultModel(provider);
+
     logger.info("Executing AI prompt", {
       cellId: cell.id,
-      provider: cell.aiProvider || "openai",
-      model: cell.aiModel || defaultModel,
+      provider,
+      model,
       promptLength: prompt.length,
     });
 
-    // Use real OpenAI API if configured, otherwise fall back to mock
-    // Initialize OpenAI client on demand for AI cells only
+    // Initialize AI clients based on provider
     const openaiClient = new OpenAIClient();
 
-    if (
+    // Configure Ollama client with environment-aware host detection
+    const ollamaHost = Deno.env.get("OLLAMA_HOST") || "http://localhost:11434";
+    const ollamaClient = new RuntOllamaClient({
+      host: ollamaHost,
+    });
+
+    if (provider === "ollama") {
+      // Use Ollama client
+      const isOllamaReady = await ollamaClient.isReady();
+
+      if (isOllamaReady) {
+        const openaiMessages = buildConversationMessages(
+          notebookContext,
+          "This is a pyodide based notebook environment with assistant and user access to the same runtime. Users see and edit the same notebook as you. When you execute cells, the user sees the output as well",
+          prompt,
+        );
+
+        // Convert OpenAI message format to Ollama message format
+        const conversationMessages = openaiMessages.map((
+          msg,
+        ): { role: string; content: string } => ({
+          role: msg.role,
+          content: typeof msg.content === "string"
+            ? msg.content
+            : JSON.stringify(msg.content),
+        }));
+
+        logger.debug("Conversation messages for Ollama", {
+          cellId: cell.id,
+          messageCount: conversationMessages.length,
+          provider: "ollama",
+          model,
+        });
+
+        await ollamaClient.generateAgenticResponse(
+          conversationMessages,
+          context,
+          {
+            model,
+            provider: "ollama",
+            enableTools: true,
+            currentCellId: cell.id,
+            maxIterations: 10,
+            interruptSignal: abortSignal,
+            onToolCall: async (toolCall) => {
+              logger.info("AI requested tool call", {
+                toolName: toolCall.name,
+                cellId: cell.id,
+              });
+              return await handleToolCallWithResult(
+                store,
+                logger,
+                sessionId,
+                cell,
+                toolCall,
+              );
+            },
+            onIteration: (iteration, messages) => {
+              // Check if execution was cancelled
+              if (abortSignal.aborted) {
+                logger.info("AI conversation interrupted", {
+                  iteration,
+                  cellId: cell.id,
+                });
+                return Promise.resolve(false);
+              }
+
+              logger.info("AI conversation iteration", {
+                iteration: iteration + 1,
+                messageCount: messages.length,
+                cellId: cell.id,
+              });
+
+              return Promise.resolve(true);
+            },
+          },
+        );
+
+        logger.info("Ollama conversation completed");
+      } else {
+        // Show Ollama configuration help
+        const configMessage = `# Ollama Configuration Required
+
+Ollama is not available at \`${ollamaHost}\`. To use Ollama models, you need to:
+
+## Setup Instructions
+
+1. **Install Ollama**: Visit [ollama.ai](https://ollama.ai/) and follow the installation instructions
+2. **Start Ollama server**: Run \`ollama serve\`
+3. **Pull models**: Download models with \`ollama pull llama3.1\`
+
+## Environment Configuration
+
+Current Ollama host: \`${ollamaHost}\`
+
+To use a different host, set the environment variable:
+\`\`\`bash
+export OLLAMA_HOST=http://your-ollama-host:11434
+\`\`\`
+
+## Available Models
+
+- \`llama3.1\` - General purpose model (8B parameters)
+- \`llama3.1:70b\` - Large general purpose model (70B parameters)
+- \`mistral\` - Fast and efficient (7B parameters)
+- \`codellama\` - Optimized for coding tasks (7B parameters)
+- \`qwen2.5\` - Multilingual model (7B parameters)
+- \`qwen2.5:32b\` - Large multilingual model (32B parameters)
+- \`gemma2\` - Google's Gemma model (9B parameters)
+- \`deepseek-coder\` - Specialized coding model (6.7B parameters)
+- \`phi3\` - Microsoft's compact model (3.8B parameters)
+
+The system will automatically pull models if they're not available locally.`;
+
+        context.display({
+          "text/markdown": configMessage,
+          "text/plain": configMessage.replace(/[#*`]/g, "").replace(
+            /\n+/g,
+            "\n",
+          ).trim(),
+        }, {
+          "anode/ai_config_help": true,
+          "anode/ai_provider": "ollama",
+          "anode/ollama_host": ollamaHost,
+        });
+      }
+    } else if (
       openaiClient.isReady() &&
-      (cell.aiProvider === "openai" || !cell.aiProvider)
+      (provider === "openai" || !provider)
     ) {
       // Use conversation-based approach for better AI interaction
       const conversationMessages = buildConversationMessages(
@@ -253,8 +449,8 @@ export async function executeAI(
         conversationMessages,
         context,
         {
-          model: cell.aiModel || defaultModel,
-          provider: cell.aiProvider || "openai",
+          model,
+          provider,
           enableTools: true,
           currentCellId: cell.id,
           maxIterations: 10,
@@ -293,7 +489,7 @@ export async function executeAI(
         },
       );
 
-      logger.info("AI conversation completed");
+      logger.info("OpenAI conversation completed");
     } else {
       // Show helpful configuration message when AI is not configured
       const configMessage = `# AI Configuration Required

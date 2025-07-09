@@ -25,14 +25,18 @@ import {
   schema,
   tables,
 } from "@runt/schema";
-import { executeAI, NotebookContextData } from "@runt/ai";
+import {
+  discoverAvailableAiModels,
+  executeAI,
+  NotebookContextData,
+} from "@runt/ai";
 
 /**
  * Configuration options for PyodideRuntimeAgent
  */
-export interface PyodideAgentOptions {
-  /** Custom package list to load (overrides default essential packages) */
+interface PyodideAgentOptions {
   packages?: string[];
+  discoverAiModels?: boolean;
 }
 
 /**
@@ -75,6 +79,7 @@ export class PyodideRuntimeAgent {
           canExecuteCode: true,
           canExecuteSql: false,
           canExecuteAi: true,
+          availableAiModels: [], // Will be populated during startup
         },
       });
     } catch (error) {
@@ -111,6 +116,30 @@ export class PyodideRuntimeAgent {
    */
   async start(): Promise<void> {
     this.logger.info("Starting Pyodide Python runtime agent");
+
+    // Discover available AI models if enabled
+    if (this.options.discoverAiModels !== false) {
+      try {
+        this.logger.info("Discovering available AI models...");
+        const models = await discoverAvailableAiModels();
+        this.config.capabilities.availableAiModels = models;
+
+        if (models.length === 0) {
+          this.logger.warn(
+            "No AI models discovered - OpenAI API key or Ollama server may not be available",
+          );
+        } else {
+          this.logger.info(
+            `Discovered ${models.length} AI models from providers`,
+          );
+        }
+      } catch (_error) {
+        this.logger.warn(
+          "AI model discovery failed - AI features will be limited",
+        );
+      }
+    }
+
     await this.agent.start();
   }
 
