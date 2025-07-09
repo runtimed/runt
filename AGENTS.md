@@ -86,25 +86,34 @@ When making changes:
 
 ## Schema Linking for Development
 
-The `@runt/schema` package provides the shared types and events between Anode and Runt. The linking method depends on your development phase:
+The `@runt/schema` package provides the shared types and events between Anode
+and Runt. The linking method depends on your development phase:
 
 ### Production (JSR Package)
+
 ```json
 "@runt/schema": "jsr:^0.6.0"
 ```
+
 Use this for stable releases and production deployments.
 
 ### Testing PR Changes (GitHub Reference)
+
 ```json
 "@runt/schema": "github:runtimed/runt#1d52f9e51b9f28e81e366a7053d1e5fa6164c390&path:/packages/schema"
 ```
-Use this when testing changes from a merged PR in the Runt repository. Replace the commit hash with the specific commit you want to test.
+
+Use this when testing changes from a merged PR in the Runt repository. Replace
+the commit hash with the specific commit you want to test.
 
 ### Local Development (File Link)
+
 ```json
 "@runt/schema": "file:../runt/packages/schema"
 ```
-Use this when developing locally with both Anode and Runt repositories side-by-side.
+
+Use this when developing locally with both Anode and Runt repositories
+side-by-side.
 
 ### Switching Between Modes
 
@@ -112,7 +121,8 @@ Use this when developing locally with both Anode and Runt repositories side-by-s
 2. **Run `pnpm install`** to update dependencies
 3. **Restart your development servers** (both `pnpm dev` and `pnpm dev:sync`)
 
-**Important**: Always ensure both repositories are using compatible schema versions. Type errors usually indicate schema mismatches.
+**Important**: Always ensure both repositories are using compatible schema
+versions. Type errors usually indicate schema mismatches.
 
 ## Key Constraints
 
