@@ -258,7 +258,7 @@ export async function executeAI(
   logger: Logger,
   store: Store,
   sessionId: string,
-) {
+): Promise<{ success: boolean; error?: string }> {
   const {
     cell,
     stderr,

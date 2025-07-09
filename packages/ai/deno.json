@@ -26,7 +26,14 @@
     "lint": "deno lint"
   },
   "publish": {
-    "include": ["mod.ts", "openai-client.ts", "tool-registry.ts", "README.md"],
+    "include": [
+      "mod.ts",
+      "openai-client.ts",
+      "ollama-client.ts",
+      "shared-types.ts",
+      "tool-registry.ts",
+      "README.md"
+    ],
     "exclude": ["**/*.test.ts", "**/test_*.ts", "examples/"]
   }
 }
