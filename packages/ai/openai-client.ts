@@ -136,6 +136,46 @@ export class RuntOpenAIClient {
   }
 
   /**
+   * Check if model uses max_completion_tokens instead of max_tokens
+   */
+  private usesMaxCompletionTokens(modelName: string): boolean {
+    return modelName.includes("o1") ||
+      modelName.includes("o3") ||
+      modelName.includes("o4-mini");
+  }
+
+  /**
+   * Check if model supports system messages
+   */
+  private supportsSystemMessages(modelName: string): boolean {
+    // o1 family models don't support system messages
+    return !modelName.includes("o1");
+  }
+
+  /**
+   * Filter messages based on model capabilities
+   */
+  private filterMessagesForModel(
+    messages: ChatMessage[],
+    modelName: string,
+  ): ChatMessage[] {
+    if (this.supportsSystemMessages(modelName)) {
+      return messages;
+    }
+
+    // For models that don't support system messages, convert system message to user message
+    return messages.map((msg) => {
+      if (msg.role === "system") {
+        return {
+          role: "user" as const,
+          content: `System instructions: ${msg.content}`,
+        };
+      }
+      return msg;
+    });
+  }
+
+  /**
    * Get available OpenAI models (hardcoded for now)
    */
   private getOpenAIModels(): Array<{
@@ -291,15 +331,30 @@ export class RuntOpenAIClient {
           }))
           : undefined;
 
-        const response = await this.client!.chat.completions.create({
+        // Filter messages based on model capabilities
+        const filteredMessages = this.filterMessagesForModel(
+          conversationMessages,
           model,
-          messages: conversationMessages,
-          max_tokens: maxTokens,
+        );
+
+        // Prepare request parameters with model-specific compatibility
+        const baseParams = {
+          model,
+          messages: filteredMessages,
           temperature,
           stream: true,
           ...(tools ? { tools } : {}),
           ...(enableTools && tools ? { tool_choice: "auto" as const } : {}),
-        });
+        };
+
+        // Use appropriate token limit parameter based on model
+        const requestParams = this.usesMaxCompletionTokens(model)
+          ? { ...baseParams, max_completion_tokens: maxTokens }
+          : { ...baseParams, max_tokens: maxTokens };
+
+        const response = await this.client!.chat.completions.create(
+          requestParams,
+        );
 
         let content = "";
         const toolCalls: Array<{
@@ -310,7 +365,11 @@ export class RuntOpenAIClient {
         let markdownOutputId: string | null = null;
 
         // Stream the response
-        for await (const chunk of response) {
+        for await (
+          const chunk of response as AsyncIterable<
+            OpenAI.Chat.Completions.ChatCompletionChunk
+          >
+        ) {
           const delta = chunk.choices[0]?.delta;
 
           if (delta?.content) {
