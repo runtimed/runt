@@ -110,14 +110,26 @@ export class RuntOpenAIClient {
   private getOpenAIModelCapabilities(modelName: string): ModelCapability[] {
     const capabilities: ModelCapability[] = ["completion"];
 
-    // Most OpenAI models support tools
-    if (modelName.includes("gpt-4") || modelName.includes("gpt-3.5")) {
-      capabilities.push("tools");
-    }
+    // All current OpenAI models support tools
+    capabilities.push("tools");
 
     // Vision models
-    if (modelName.includes("gpt-4o") || modelName.includes("vision")) {
+    if (
+      modelName.includes("gpt-4o") ||
+      modelName.includes("gpt-4.1") ||
+      modelName.includes("o3") ||
+      modelName.includes("o4")
+    ) {
       capabilities.push("vision");
+    }
+
+    // Reasoning models
+    if (
+      modelName.includes("o1") ||
+      modelName.includes("o3") ||
+      modelName.includes("o4")
+    ) {
+      capabilities.push("thinking");
     }
 
     return capabilities;
@@ -133,26 +145,42 @@ export class RuntOpenAIClient {
     deprecated?: boolean;
   }> {
     return [
+      // Latest flagship models
+      {
+        name: "o4-mini",
+        displayName: "o4-mini",
+        contextLength: 200000,
+      },
+      {
+        name: "o3",
+        displayName: "o3",
+        contextLength: 200000,
+      },
+      {
+        name: "gpt-4.1",
+        displayName: "GPT-4.1",
+        contextLength: 1047552,
+      },
+      // Current stable models
       {
         name: "gpt-4o",
-        displayName: "GPT-4 Omni",
+        displayName: "GPT-4o",
         contextLength: 128000,
       },
       {
         name: "gpt-4o-mini",
-        displayName: "GPT-4 Omni Mini",
+        displayName: "GPT-4o Mini",
         contextLength: 128000,
       },
       {
-        name: "gpt-4",
-        displayName: "GPT-4",
-        contextLength: 8192,
-        deprecated: true,
+        name: "o1",
+        displayName: "o1",
+        contextLength: 128000,
       },
       {
-        name: "gpt-3.5-turbo",
-        displayName: "GPT-3.5 Turbo",
-        contextLength: 16384,
+        name: "o1-mini",
+        displayName: "o1 Mini",
+        contextLength: 128000,
       },
     ];
   }
@@ -171,10 +199,6 @@ export class RuntOpenAIClient {
       const aiModels: AiModel[] = [];
 
       for (const model of models) {
-        if (model.deprecated) {
-          continue; // Skip deprecated models
-        }
-
         const capabilities = this.getOpenAIModelCapabilities(model.name);
 
         aiModels.push({

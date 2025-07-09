@@ -248,7 +248,7 @@ export function filterModelsByCapabilities(
 
 // Default models for each provider
 const DEFAULT_MODELS = {
-  openai: "gpt-4o-mini",
+  openai: "o4-mini",
   ollama: "llama3.1",
 } as const;
 
