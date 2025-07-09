@@ -250,8 +250,6 @@ export function filterModelsByCapabilities(
 const DEFAULT_MODELS = {
   openai: "gpt-4o-mini",
   ollama: "llama3.1",
-  anthropic: "claude-3-haiku",
-  local: "llama-2",
 } as const;
 
 export async function executeAI(
