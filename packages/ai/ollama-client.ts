@@ -4,6 +4,16 @@ import type { AiModel, ModelCapability } from "@runt/lib";
 import { createLogger, type ExecutionContext } from "@runt/lib";
 
 import { NOTEBOOK_TOOLS } from "./tool-registry.ts";
+import {
+  type AgenticOptions,
+  type AnodeCellMetadata,
+  createConfigHelpOutput,
+  createErrorOutput,
+  formatToolCall,
+  type OutputData,
+  type ToolCall,
+  type ToolCallOutput,
+} from "./shared-types.ts";
 
 // Define message types compatible with Ollama
 type OllamaChatMessage = Message;
@@ -13,48 +23,6 @@ interface OllamaConfig {
   model?: string;
   proxy?: boolean;
   headers?: HeadersInit;
-}
-
-interface ToolCall {
-  id: string;
-  name: string;
-  arguments: Record<string, unknown>;
-}
-
-interface ToolCallOutput {
-  tool_call_id: string;
-  tool_name: string;
-  arguments: Record<string, unknown>;
-  status: "success" | "error";
-  timestamp: string;
-  result?: string;
-}
-
-interface OutputData {
-  type: "display_data" | "execute_result" | "error";
-  data: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
-}
-
-interface AgenticOptions {
-  maxIterations?: number;
-  onIteration?: (
-    iteration: number,
-    messages: OllamaChatMessage[],
-  ) => Promise<boolean>;
-  interruptSignal?: AbortSignal;
-}
-
-interface AnodeCellMetadata {
-  role?: "assistant" | "user" | "function_call" | "tool";
-  ai_provider?: string;
-  ai_model?: string;
-  iteration?: number;
-  tool_call?: boolean;
-  tool_name?: string;
-  tool_args?: Record<string, unknown>;
-  tool_error?: boolean;
-  tool_call_id?: string;
 }
 
 interface ModelInfo {
@@ -204,10 +172,7 @@ export class RuntOllamaClient {
         mappedCapabilities.push("thinking");
       }
 
-      // Infer additional capabilities
-      if (modelName.includes("code") || modelName.includes("coder")) {
-        mappedCapabilities.push("code");
-      }
+      // No additional capabilities to infer for now
 
       return mappedCapabilities;
     } catch (_error) {
@@ -238,12 +203,6 @@ export class RuntOllamaClient {
             displayName,
             provider: "ollama",
             capabilities,
-            metadata: {
-              parameterSize: model.details.parameter_size,
-              modelType: model.details.family,
-              size: model.size,
-              quantization: model.details.quantization_level,
-            },
           });
         } catch (_error) {
           this.logger.warn(
@@ -255,10 +214,6 @@ export class RuntOllamaClient {
             displayName: this.createDisplayName(model.name),
             provider: "ollama",
             capabilities: ["completion"],
-            metadata: {
-              parameterSize: model.details.parameter_size,
-              modelType: model.details.family,
-            },
           });
         }
       }
@@ -325,7 +280,11 @@ export class RuntOllamaClient {
 
     const ready = await this.isReady();
     if (!ready) {
-      const configOutputs = this.createConfigHelpOutput();
+      const configOutputs = createConfigHelpOutput("Ollama", [
+        "- Start Ollama server: `ollama serve`",
+        "- Pull models: `ollama pull llama3.1`",
+        "- Check server status: `curl http://localhost:11434/api/tags`",
+      ]);
       for (const output of configOutputs) {
         if (output.type === "display_data") {
           context.display(output.data, output.metadata || {});
@@ -337,8 +296,9 @@ export class RuntOllamaClient {
     // Ensure model exists
     const modelExists = await this.ensureModelExists(model);
     if (!modelExists) {
-      const errorOutputs = this.createErrorOutput(
+      const errorOutputs = createErrorOutput(
         `Model ${model} is not available and could not be downloaded. Please check the model name or try pulling it manually with: ollama pull ${model}`,
+        "ollama",
       );
       for (const output of errorOutputs) {
         if (output.type === "display_data") {
@@ -533,7 +493,7 @@ export class RuntOllamaClient {
                   "application/vnd.anode.aitool+json": toolCallData,
                   "text/markdown":
                     `🔧 **Tool executed**: \`${toolCall.function.name}\`\n\n${
-                      this.formatToolCall(
+                      formatToolCall(
                         toolCall.function.name,
                         toolCall.function.arguments,
                       )
@@ -670,8 +630,9 @@ export class RuntOllamaClient {
         }
       }
 
-      const errorOutputs = this.createErrorOutput(
+      const errorOutputs = createErrorOutput(
         `Ollama API Error: ${errorMessage}`,
+        "ollama",
       );
       for (const output of errorOutputs) {
         if (output.type === "display_data") {
@@ -688,100 +649,6 @@ export class RuntOllamaClient {
             errorData.traceback || ["Unknown error"],
           );
         }
-      }
-    }
-  }
-
-  private createErrorOutput(message: string): OutputData[] {
-    return [{
-      type: "error",
-      data: {
-        ename: "OllamaError",
-        evalue: message,
-        traceback: [message],
-      },
-    }];
-  }
-
-  private createConfigHelpOutput(): OutputData[] {
-    const configMessage = `# Ollama Configuration
-
-Ollama server is not available. Make sure Ollama is running and accessible.
-
-## Setup Instructions
-
-1. **Install Ollama**: Visit [ollama.ai](https://ollama.ai/) and follow the installation instructions for your platform.
-
-2. **Start Ollama**: Run the Ollama server:
-   \`\`\`bash
-   ollama serve
-   \`\`\`
-
-3. **Pull a model**: Download a model to use:
-   \`\`\`bash
-   ollama pull llama3.1
-   ollama pull mistral
-   ollama pull codellama
-   \`\`\`
-
-4. **Configure host** (optional): Set a custom Ollama host:
-   \`\`\`bash
-   OLLAMA_HOST=http://localhost:11434 deno run --allow-all your-script.ts
-   \`\`\`
-
-## Available Models
-
-Once Ollama is running, you can use models like:
-- \`llama3.1\` - Good general-purpose model
-- \`mistral\` - Fast and efficient
-- \`codellama\` - Optimized for coding tasks
-- \`qwen2\` - Multilingual model
-
-The client will automatically pull models if they're not available locally.`;
-
-    return [{
-      type: "display_data",
-      data: {
-        "text/markdown": configMessage,
-        "text/plain": configMessage.replace(/[#*`]/g, "").replace(/\n+/g, "\n")
-          .trim(),
-      },
-      metadata: {
-        "anode/ai_config_help": true,
-      },
-    }];
-  }
-
-  private formatToolCall(
-    toolName: string,
-    args: Record<string, unknown>,
-  ): string {
-    switch (toolName) {
-      case "create_cell": {
-        const cellType = String(args.cellType || "code");
-        const position = String(args.position || "after_current");
-        const content = String(args.content || "");
-        return `Created **${cellType}** cell at position **${position}**\n\n` +
-          `Content preview:\n\`\`\`${
-            cellType === "code" ? "python" : cellType
-          }\n${content.slice(0, 200)}${
-            content.length > 200 ? "..." : ""
-          }\n\`\`\``;
-      }
-      case "modify_cell": {
-        const cellId = String(args.cellId || "");
-        const content = String(args.content || "");
-        return `Modified cell **${cellId}**\n\n` +
-          `New content preview:\n\`\`\`python\n${content.slice(0, 200)}${
-            content.length > 200 ? "..." : ""
-          }\n\`\`\``;
-      }
-      case "execute_cell": {
-        const cellId = String(args.cellId || "");
-        return `Executed cell **${cellId}**`;
-      }
-      default: {
-        return `Arguments: ${JSON.stringify(args, null, 2)}`;
       }
     }
   }

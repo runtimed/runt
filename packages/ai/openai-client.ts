@@ -117,12 +117,7 @@ export class RuntOpenAIClient {
 
     // Vision models
     if (modelName.includes("gpt-4o") || modelName.includes("vision")) {
-      capabilities.push("vision", "multimodal");
-    }
-
-    // Code-optimized models
-    if (modelName.includes("code") || modelName.includes("gpt-4")) {
-      capabilities.push("code");
+      capabilities.push("vision");
     }
 
     return capabilities;
@@ -187,11 +182,6 @@ export class RuntOpenAIClient {
           displayName: model.displayName,
           provider: "openai",
           capabilities,
-          metadata: {
-            contextLength: model.contextLength,
-            modelType: "transformer",
-            parameterSize: model.name.includes("gpt-4") ? "Unknown" : "Unknown",
-          },
         });
       }
 

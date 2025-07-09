@@ -60,9 +60,6 @@ export interface AiModel {
   capabilities: ModelCapability[];
   /** Model metadata (size, type, etc.) */
   metadata?: {
-    parameterSize?: string;
-    modelType?: string;
-    contextLength?: number;
     [key: string]: unknown;
   };
 }
@@ -74,9 +71,7 @@ export type ModelCapability =
   | "completion" // Basic text completion
   | "tools" // Function/tool calling
   | "vision" // Image understanding
-  | "thinking" // Chain of thought reasoning
-  | "code" // Code generation/understanding
-  | "multimodal"; // Multiple input types
+  | "thinking"; // Chain of thought reasoning
 
 /**
  * Execution context passed to handlers
