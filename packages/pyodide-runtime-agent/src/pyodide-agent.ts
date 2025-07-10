@@ -21,6 +21,7 @@ import { getEssentialPackages } from "./cache-utils.ts";
 import type { Store } from "npm:@livestore/livestore";
 import {
   type CellData,
+  type MediaContainer,
   type OutputData as SchemaOutputData,
   schema,
   tables,
@@ -716,18 +717,19 @@ export class PyodideRuntimeAgent {
    * Gather context from previous cells for AI execution
    */
   public gatherNotebookContext(currentCell: CellData): NotebookContextData {
-    // Query all cells that come before the current cell AND are visible to AI
+    // Query all cells in order
     const allCells = this.store.query(
       tables.cells.select().orderBy("position", "asc"),
     );
 
+    // Build clean intermediate format
     const previousCells = allCells
       .filter((cell: CellData) =>
         cell.position < currentCell.position &&
         cell.aiContextVisible !== false
       )
       .map((cell: CellData) => {
-        // Get outputs for each cell
+        // Query outputs for this cell in order
         const outputs = this.store.query(
           tables.outputs
             .select()
@@ -735,96 +737,87 @@ export class PyodideRuntimeAgent {
             .orderBy("position", "asc"),
         ) as SchemaOutputData[];
 
-        // Convert outputs to AI-friendly formats using type-safe pattern matching
-        const filteredOutputs = outputs.map((output: SchemaOutputData) => {
-          switch (output.outputType) {
-            case "terminal":
-              return {
-                outputType: "terminal" as const,
-                data: {
-                  text: String(output.data || ""),
-                  name: output.streamName || "stdout",
-                },
-              };
+        // Convert each output to simple string representation
+        const outputStrings = outputs.map(
+          (output: SchemaOutputData): string => {
+            switch (output.outputType) {
+              case "terminal":
+                return String(output.data || "");
 
-            case "error":
-              try {
-                const errorData = typeof output.data === "string"
-                  ? JSON.parse(output.data)
-                  : output.data;
-                return {
-                  outputType: "error" as const,
-                  data: {
-                    ename: errorData?.ename || "Error",
-                    evalue: errorData?.evalue || "Unknown error",
-                    traceback: errorData?.traceback || [],
-                  },
-                };
-              } catch {
-                return {
-                  outputType: "error" as const,
-                  data: {
-                    ename: "Error",
-                    evalue: String(output.data || "Unknown error"),
-                    traceback: [],
-                  },
-                };
-              }
+              case "error":
+                try {
+                  const errorData = typeof output.data === "string"
+                    ? JSON.parse(output.data)
+                    : output.data;
+                  const traceback = errorData?.traceback?.join("\n") || "";
+                  return `${errorData?.ename || "Error"}: ${
+                    errorData?.evalue || "Unknown error"
+                  }\n${traceback}`;
+                } catch {
+                  return `Error: ${String(output.data || "Unknown error")}`;
+                }
 
-            case "multimedia_display":
-            case "multimedia_result":
-              // For multimedia outputs, use representations if available
-              if (output.representations) {
-                const aiBundle = toAIMediaBundle(
-                  output.representations as MediaBundle,
-                );
-                return {
-                  outputType: output.outputType,
-                  data: aiBundle,
-                };
-              }
-              // Fallback to data field for legacy outputs
-              if (output.data && typeof output.data === "object") {
-                const aiBundle = toAIMediaBundle(output.data as MediaBundle);
-                return {
-                  outputType: output.outputType,
-                  data: aiBundle,
-                };
-              }
-              // Final fallback to plain text
-              return {
-                outputType: output.outputType,
-                data: { "text/plain": String(output.data || "") },
-              };
+              case "markdown":
+                return String(output.data || "");
 
-            case "markdown":
-              return {
-                outputType: "markdown" as const,
-                data: { "text/markdown": String(output.data || "") },
-              };
+              case "multimedia_display":
+              case "multimedia_result":
+                // For multimedia, extract from MediaContainer representations
+                if (output.representations) {
+                  const mediaContainers = output.representations as Record<
+                    string,
+                    MediaContainer
+                  >;
+                  const mimeTypes = Object.keys(mediaContainers);
 
-            default:
-              // Fallback for any unknown output types
-              return {
-                outputType: output.outputType,
-                data: typeof output.data === "string"
-                  ? { "text/plain": output.data }
-                  : (output.data || {}),
-              };
-          }
-        });
+                  // Try to get text representation from inline containers
+                  for (
+                    const mimeType of [
+                      "text/plain",
+                      "text/html",
+                      "text/markdown",
+                    ]
+                  ) {
+                    const container = mediaContainers[mimeType];
+                    if (container?.type === "inline") {
+                      return String(container.data || "");
+                    }
+                  }
 
+                  // Show available media types
+                  return `[${mimeTypes.join(", ")}]`;
+                }
+                return String(output.data || "[No representations]");
+
+              default:
+                return String(output.data || "");
+            }
+          },
+        );
+
+        // Build clean intermediate cell format
         return {
-          id: cell.id,
           cellType: cell.cellType,
-          source: cell.source || "",
-          position: cell.position,
-          outputs: filteredOutputs,
+          cellId: cell.id,
+          source: cell.source,
+          outputs: outputStrings,
         };
       });
 
+    // Convert to AI message format
+    const aiFormattedCells = previousCells.map((cell) => ({
+      id: cell.cellId,
+      cellType: cell.cellType,
+      source: cell.source,
+      position: allCells.find((c) => c.id === cell.cellId)?.position || 0,
+      outputs: cell.outputs.map((outputStr) => ({
+        outputType: "terminal" as const,
+        data: { text: outputStr },
+      })),
+    }));
+
     return {
-      previousCells,
+      previousCells: aiFormattedCells,
       totalCells: allCells.length,
       currentCellPosition: currentCell.position,
     };
