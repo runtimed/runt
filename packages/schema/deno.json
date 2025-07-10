@@ -1,6 +1,6 @@
 {
   "name": "@runt/schema",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Anode schema for runtime agents and clients",
   "license": "BSD-3-Clause",
   "repository": {
