@@ -735,42 +735,25 @@ export class PyodideRuntimeAgent {
             .orderBy("position", "asc"),
         ) as SchemaOutputData[];
 
-        // Convert outputs to AI-friendly formats
+        // Convert outputs to AI-friendly formats using type-safe pattern matching
         const filteredOutputs = outputs.map((output: SchemaOutputData) => {
-          const outputData = output.data;
-
-          // Handle terminal outputs first (data is a string, not object)
-          if (output.outputType === "terminal") {
-            return {
-              outputType: output.outputType,
-              data: {
-                text: output.data || "",
-                name: output.streamName || "stdout",
-              },
-            };
-          }
-
-          if (outputData && typeof outputData === "object") {
-            // For rich media outputs, convert to AI-friendly bundle
-            if (
-              outputData["text/plain"] || outputData["text/html"] ||
-              outputData["text/markdown"] || outputData["application/json"]
-            ) {
-              const aiBundle = toAIMediaBundle(outputData as MediaBundle);
+          switch (output.outputType) {
+            case "terminal":
               return {
-                outputType: output.outputType,
-                data: aiBundle,
+                outputType: "terminal" as const,
+                data: {
+                  text: String(output.data || ""),
+                  name: output.streamName || "stdout",
+                },
               };
-            }
 
-            // For error outputs, parse JSON data
-            if (output.outputType === "error") {
+            case "error":
               try {
                 const errorData = typeof output.data === "string"
                   ? JSON.parse(output.data)
                   : output.data;
                 return {
-                  outputType: output.outputType,
+                  outputType: "error" as const,
                   data: {
                     ename: errorData?.ename || "Error",
                     evalue: errorData?.evalue || "Unknown error",
@@ -779,7 +762,7 @@ export class PyodideRuntimeAgent {
                 };
               } catch {
                 return {
-                  outputType: output.outputType,
+                  outputType: "error" as const,
                   data: {
                     ename: "Error",
                     evalue: String(output.data || "Unknown error"),
@@ -787,24 +770,48 @@ export class PyodideRuntimeAgent {
                   },
                 };
               }
-            }
 
-            // For multimedia outputs, use representations if available
-            if (output.representations) {
+            case "multimedia_display":
+            case "multimedia_result":
+              // For multimedia outputs, use representations if available
+              if (output.representations) {
+                const aiBundle = toAIMediaBundle(
+                  output.representations as MediaBundle,
+                );
+                return {
+                  outputType: output.outputType,
+                  data: aiBundle,
+                };
+              }
+              // Fallback to data field for legacy outputs
+              if (output.data && typeof output.data === "object") {
+                const aiBundle = toAIMediaBundle(output.data as MediaBundle);
+                return {
+                  outputType: output.outputType,
+                  data: aiBundle,
+                };
+              }
+              // Final fallback to plain text
               return {
                 outputType: output.outputType,
-                data: output.representations,
+                data: { "text/plain": String(output.data || "") },
               };
-            }
-          }
 
-          // Fallback to data field
-          return {
-            outputType: output.outputType,
-            data: typeof output.data === "string"
-              ? { "text/plain": output.data }
-              : (output.data || {}),
-          };
+            case "markdown":
+              return {
+                outputType: "markdown" as const,
+                data: { "text/markdown": String(output.data || "") },
+              };
+
+            default:
+              // Fallback for any unknown output types
+              return {
+                outputType: output.outputType,
+                data: typeof output.data === "string"
+                  ? { "text/plain": output.data }
+                  : (output.data || {}),
+              };
+          }
         });
 
         return {
