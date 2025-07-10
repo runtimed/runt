@@ -14,7 +14,6 @@ import {
   KNOWN_MIME_TYPES,
   type KnownMimeType,
   type MediaBundle,
-  toAIMediaBundle,
   validateMediaBundle,
 } from "@runt/lib";
 import { getEssentialPackages } from "./cache-utils.ts";
@@ -22,7 +21,6 @@ import type { Store } from "npm:@livestore/livestore";
 import {
   type CellData,
   type MediaContainer,
-  type OutputData as SchemaOutputData,
   schema,
   tables,
 } from "@runt/schema";
