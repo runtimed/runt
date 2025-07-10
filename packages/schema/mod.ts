@@ -25,6 +25,11 @@ const MediaRepresentationSchema = Schema.Union(
   }),
 );
 
+const RangeSchema = Schema.Struct({
+  from: Schema.Number,
+  to: Schema.Number,
+});
+
 export const tables = {
   // Notebook metadata (single row per store)
   notebook: State.SQLite.table({
@@ -183,6 +188,21 @@ export const tables = {
       startedAt: State.SQLite.datetime({ nullable: true }),
       completedAt: State.SQLite.datetime({ nullable: true }),
       executionDurationMs: State.SQLite.integer({ nullable: true }),
+    },
+  }),
+
+  presence: State.SQLite.table({
+    name: "presence",
+    columns: {
+      userId: State.SQLite.text({ primaryKey: true }),
+      isAnonymous: State.SQLite.boolean({ default: false }),
+      notebookId: State.SQLite.text({ primaryKey: true }),
+      cellId: State.SQLite.text({ primaryKey: true }),
+      ranges: State.SQLite.json({
+        nullable: true,
+        schema: Schema.Array(RangeSchema),
+      }),
+      lastActiveAt: State.SQLite.datetime({ nullable: true }),
     },
   }),
 
@@ -493,6 +513,18 @@ export const events = {
       cellId: Schema.String,
       resultVariable: Schema.optional(Schema.String),
       changedBy: Schema.String,
+    }),
+  }),
+
+  presenceUpdated: Events.synced({
+    name: "v1.PresenceUpdated",
+    schema: Schema.Struct({
+      userId: Schema.String,
+      isAnonymous: Schema.Boolean,
+      notebookId: Schema.String,
+      cellId: Schema.String,
+      ranges: Schema.Array(RangeSchema),
+      lastActiveAt: Schema.Date,
     }),
   }),
 
@@ -923,6 +955,16 @@ const materializers = State.SQLite.materializers(events, {
         sqlResultVariable: resultVariable ?? null,
       })
       .where({ id: cellId }),
+
+  "v1.PresenceUpdated": ({ userId, notebookId, cellId, ranges, isAnonymous, lastActiveAt }, ctx) => {
+    const currentPresence = ctx.query(
+      tables.presence.select().where({ userId, notebookId, cellId, isAnonymous }).limit(1),
+    )[0];
+    if (currentPresence) {
+      return tables.presence.update({ ranges, lastActiveAt }).where({ userId, notebookId, cellId, isAnonymous });
+    }
+    return tables.presence.insert({ userId, notebookId, cellId, ranges, isAnonymous, lastActiveAt });
+  }
 });
 
 const state = State.SQLite.makeState({ tables, materializers });
