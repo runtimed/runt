@@ -186,6 +186,17 @@ export const tables = {
     },
   }),
 
+  presence: State.SQLite.table({
+    name: "presence",
+    columns: {
+      userId: State.SQLite.text({ primaryKey: true }),
+      isAnonymous: State.SQLite.boolean({ default: false }),
+      notebookId: State.SQLite.text({ primaryKey: true }),
+      cellId: State.SQLite.text({ primaryKey: true }),
+      lastActiveAt: State.SQLite.datetime({ nullable: true }),
+    },
+  }),
+
   // UI state for each user
   uiState: State.SQLite.clientDocument({
     name: "uiState",
@@ -493,6 +504,17 @@ export const events = {
       cellId: Schema.String,
       resultVariable: Schema.optional(Schema.String),
       changedBy: Schema.String,
+    }),
+  }),
+
+  presenceUpdated: Events.synced({
+    name: "v1.PresenceUpdated",
+    schema: Schema.Struct({
+      userId: Schema.String,
+      isAnonymous: Schema.Boolean,
+      notebookId: Schema.String,
+      cellId: Schema.String,
+      lastActiveAt: Schema.Date,
     }),
   }),
 
@@ -923,6 +945,16 @@ const materializers = State.SQLite.materializers(events, {
         sqlResultVariable: resultVariable ?? null,
       })
       .where({ id: cellId }),
+
+  "v1.PresenceUpdated": ({ userId, notebookId, cellId, isAnonymous, lastActiveAt }, ctx) => {
+    const currentPresence = ctx.query(
+      tables.presence.select().where({ userId, notebookId, cellId, isAnonymous }).limit(1),
+    )[0];
+    if (currentPresence) {
+      return tables.presence.update({ lastActiveAt }).where({ userId, notebookId, cellId, isAnonymous });
+    }
+    return tables.presence.insert({ userId, notebookId, cellId, isAnonymous, lastActiveAt });
+  }
 });
 
 const state = State.SQLite.makeState({ tables, materializers });
