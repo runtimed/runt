@@ -16,17 +16,12 @@ import {
 } from "@runt/schema";
 import { getEssentialPackages } from "./cache-utils.ts";
 import type { Store } from "npm:@livestore/livestore";
-import {
-  type CellData,
-  type MediaContainer,
-  schema,
-  tables,
-} from "@runt/schema";
+import { schema } from "@runt/schema";
 import {
   discoverAvailableAiModels,
   ensureTextPlainFallback,
   executeAI,
-  NotebookContextData,
+  gatherNotebookContext,
 } from "@runt/ai";
 
 /**
@@ -339,7 +334,7 @@ export class PyodideRuntimeAgent {
 
     // When an AI cell, hand it off to `@runt/ai` to handle, providing it notebook context
     if (cell.cellType === "ai") {
-      const notebookContext = this.gatherNotebookContext(cell);
+      const notebookContext = gatherNotebookContext(this.store, cell);
 
       // Track AI execution for cancellation
       const aiAbortController = new AbortController();
@@ -708,115 +703,5 @@ export class PyodideRuntimeAgent {
     }
 
     this.logger.info("Pyodide worker cleanup completed");
-  }
-
-  /**
-   * Gather context from previous cells for AI execution
-   */
-  public gatherNotebookContext(currentCell: CellData): NotebookContextData {
-    // Query all cells in order
-    const allCells = this.store.query(
-      tables.cells.select().orderBy("position", "asc"),
-    );
-
-    // Build clean intermediate format
-    const previousCells = allCells
-      .filter((cell: CellData) =>
-        cell.position < currentCell.position &&
-        cell.aiContextVisible !== false
-      )
-      .map((cell: CellData) => {
-        // Query outputs for this cell in order
-        const outputs = this.store.query(
-          tables.outputs
-            .select()
-            .where({ cellId: cell.id })
-            .orderBy("position", "asc"),
-        );
-
-        // Convert each output to simple string representation
-        const outputStrings = outputs.map(
-          (output): string => {
-            switch (output.outputType) {
-              case "terminal":
-                return String(output.data || "");
-
-              case "error":
-                try {
-                  const errorData = typeof output.data === "string"
-                    ? JSON.parse(output.data)
-                    : output.data;
-                  const traceback = errorData?.traceback?.join("\n") || "";
-                  return `${errorData?.ename || "Error"}: ${
-                    errorData?.evalue || "Unknown error"
-                  }\n${traceback}`;
-                } catch {
-                  return `Error: ${String(output.data || "Unknown error")}`;
-                }
-
-              case "markdown":
-                return String(output.data || "");
-
-              case "multimedia_display":
-              case "multimedia_result":
-                // For multimedia, extract from MediaContainer representations
-                if (output.representations) {
-                  const mediaContainers = output.representations as Record<
-                    string,
-                    MediaContainer
-                  >;
-                  const mimeTypes = Object.keys(mediaContainers);
-
-                  // Try to get text representation from inline containers
-                  // Prioritize markdown for AI context, then plain text, then HTML
-                  for (
-                    const mimeType of [
-                      "text/markdown",
-                      "text/plain",
-                    ]
-                  ) {
-                    const container = mediaContainers[mimeType];
-                    if (container?.type === "inline") {
-                      return String(container.data || "");
-                    }
-                  }
-
-                  // Show available media types
-                  return `[${mimeTypes.join(", ")}]`;
-                }
-                return String(output.data || "[No representations]");
-
-              default:
-                return String(output.data || "");
-            }
-          },
-        );
-
-        // Build clean intermediate cell format
-        return {
-          cellType: cell.cellType,
-          cellId: cell.id,
-          source: cell.source,
-          outputs: outputStrings,
-        };
-      });
-
-    // Convert to AI message format
-    const aiFormattedCells = previousCells.map((cell) => ({
-      id: cell.cellId,
-      cellType: cell.cellType,
-      source: cell.source,
-      position: allCells.find((c) => c.id === cell.cellId)?.position || 0,
-      outputs: cell.outputs.map((outputStr) => ({
-        outputType: "terminal" as const,
-        data: { text: outputStr },
-      })),
-    }));
-
-    return {
-      previousCells: aiFormattedCells,
-      totalCells: allCells.length,
-      currentCellPosition: currentCell.position,
-    };
   }
 }

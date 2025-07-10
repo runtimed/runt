@@ -25,6 +25,9 @@ export {
   toAIMediaBundle,
 } from "./media-utils.ts";
 
+// Export notebook context functions
+export { gatherNotebookContext } from "./notebook-context.ts";
+
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
 // Helper types for accessing tool call properties
