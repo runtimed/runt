@@ -5,6 +5,9 @@
   "type": "module",
   "main": "./mod.ts",
   "types": "./mod.ts",
+  "scripts": {
+    "format": "deno fmt"
+  },
   "exports": {
     ".": {
       "import": "./mod.ts",

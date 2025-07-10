@@ -196,7 +196,7 @@ export const tables = {
         schema: AuthProviderSchema,
       }),
       notebookId: State.SQLite.text({ primaryKey: true }),
-      cellId: State.SQLite.text({ primaryKey: true }),
+      cellId: State.SQLite.text({ nullable: true }),
       lastActiveAt: State.SQLite.datetime({ nullable: true }),
     },
   }),
