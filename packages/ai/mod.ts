@@ -304,7 +304,7 @@ export async function executeAI(
       if (isOllamaReady) {
         const openaiMessages = buildConversationMessages(
           notebookContext,
-          "This is a pyodide based notebook environment with assistant and user access to the same runtime. Users see and edit the same notebook as you. When you execute cells, the user sees the output as well",
+          "You are an AI assistant in a collaborative notebook environment. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You cannot execute code yourself, but you can see the results when users run cells. Use the visible outputs to help analyze data and answer questions.",
           prompt,
         );
 
@@ -424,7 +424,7 @@ The system will automatically pull models if they're not available locally.`;
       // Use conversation-based approach for better AI interaction
       const conversationMessages = buildConversationMessages(
         notebookContext,
-        "This is a pyodide based notebook environment with assistant and user access to the same runtime. Users see and edit the same notebook as you. When you execute cells, the user sees the output as well",
+        "You are an AI assistant in a collaborative notebook environment. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You cannot execute code yourself, but you can see the results when users run cells. Use the visible outputs to help analyze data and answer questions.",
         prompt,
       );
 
