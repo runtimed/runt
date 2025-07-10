@@ -2,6 +2,13 @@
   "version": "5",
   "specifiers": {
     "jsr:@openai/openai@^4.98.0": "4.102.0",
+    "jsr:@runt/ai@0.6": "0.6.1",
+    "jsr:@runt/ai@~0.6.1": "0.6.1",
+    "jsr:@runt/lib@0.6": "0.6.1",
+    "jsr:@runt/lib@~0.6.1": "0.6.1",
+    "jsr:@runt/pyodide-runtime-agent@0.6.1": "0.6.1",
+    "jsr:@runt/schema@0.6": "0.6.1",
+    "jsr:@runt/schema@~0.6.1": "0.6.1",
     "jsr:@std/assert@*": "1.0.13",
     "jsr:@std/assert@1.0.13": "1.0.13",
     "jsr:@std/async@*": "1.0.13",
@@ -30,6 +37,42 @@
       "integrity": "ea5201bc5c8a696d3a5139a9cd2252e3ab9b2b880769a9cd7f05602ea1a02acf",
       "dependencies": [
         "npm:zod"
+      ]
+    },
+    "@runt/ai@0.6.1": {
+      "integrity": "55e42521b8971ad2cd78e2167d5984fa8614b44d6b71a7837bad8a74524dceea",
+      "dependencies": [
+        "jsr:@openai/openai",
+        "jsr:@runt/lib@~0.6.1",
+        "jsr:@runt/schema@~0.6.1",
+        "npm:ollama",
+        "npm:strip-ansi"
+      ]
+    },
+    "@runt/lib@0.6.1": {
+      "integrity": "71ec68ad845c22acc95443fc94db8e4a9e88a3727b5abae2c7925d30e99413b3",
+      "dependencies": [
+        "jsr:@runt/schema@~0.6.1",
+        "jsr:@std/cli@1",
+        "npm:@livestore/adapter-node@~0.3.1",
+        "npm:@livestore/livestore@~0.3.1",
+        "npm:@livestore/sync-cf",
+        "npm:@opentelemetry/api@^1.9.0"
+      ]
+    },
+    "@runt/pyodide-runtime-agent@0.6.1": {
+      "integrity": "c4b34ccd554f4c463774456ebe2d7e0cbf338c03198d15d95b77ff90c8ea62a3",
+      "dependencies": [
+        "jsr:@runt/ai@~0.6.1",
+        "jsr:@runt/lib@~0.6.1",
+        "jsr:@runt/schema@~0.6.1",
+        "npm:@livestore/livestore@~0.3.1"
+      ]
+    },
+    "@runt/schema@0.6.1": {
+      "integrity": "62932cea2353fd3d6aba713aeb8cc4a0e66977f854fa00e34373957405a955ba",
+      "dependencies": [
+        "npm:@livestore/livestore@~0.3.1"
       ]
     },
     "@std/assert@1.0.13": {
@@ -1252,6 +1295,9 @@
     "https://deno.land/std@0.208.0/testing/bdd.ts": "c41f019786c4a9112aadb7e5a7bbcc711f58429ac5904b3855fa248ba5fa0ba6"
   },
   "workspace": {
+    "dependencies": [
+      "jsr:@runt/pyodide-runtime-agent@0.6.1"
+    ],
     "members": {
       "packages/ai": {
         "dependencies": [

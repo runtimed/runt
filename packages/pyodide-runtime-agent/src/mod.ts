@@ -8,6 +8,7 @@
 
 import { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 import { createLogger } from "@runt/lib";
+import { initializeTTYDisplay } from "./tty-display.ts";
 
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 export {
@@ -19,16 +20,28 @@ export {
   getPreloadPackages,
   isFirstRun,
 } from "./cache-utils.ts";
+export {
+  getTTYDisplay,
+  initializeTTYDisplay,
+  type StatusUpdate,
+  TTYDisplay,
+} from "./tty-display.ts";
 
 /**
  * Main function to run the Pyodide runtime agent
  */
 async function main() {
+  const display = initializeTTYDisplay();
   const agent = new PyodideRuntimeAgent();
   const logger = createLogger("pyrunt");
 
   try {
+    display.setStartupPhase("Initializing runtime agent...", 10);
+
+    display.setStartupPhase("Starting PyRunt...", 50);
     await agent.start();
+
+    display.setStartupPhase("Runtime started successfully", 100);
 
     logger.info("PyRunt started", {
       runtimeId: agent.config.runtimeId,
@@ -38,11 +51,15 @@ async function main() {
       syncUrl: agent.config.syncUrl,
     });
 
+    display.setReady();
     await agent.keepAlive();
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    display.setError("Failed to start PyRunt", errorMessage);
     logger.error("Failed to start PyRunt", error);
     Deno.exit(1);
   } finally {
+    display.stop();
     await agent.shutdown();
   }
 }

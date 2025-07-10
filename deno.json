@@ -9,7 +9,7 @@
     "@runt/ai": "./packages/ai/mod.ts",
     "@runt/schema": "./packages/schema/mod.ts",
     "@runt/lib": "./packages/lib/mod.ts",
-    "@runt/pyodide-runtime-agent": "./packages/pyodide-runtime-agent/src/mod.ts"
+    "@runt/pyodide-runtime-agent": "jsr:@runt/pyodide-runtime-agent@0.6.1"
   },
   "lint": {
     "rules": {

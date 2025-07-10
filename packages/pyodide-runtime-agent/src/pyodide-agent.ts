@@ -30,6 +30,7 @@ import {
   executeAI,
   NotebookContextData,
 } from "@runt/ai";
+import { getTTYDisplay } from "./tty-display.ts";
 
 /**
  * Configuration options for PyodideRuntimeAgent
@@ -169,11 +170,15 @@ export class PyodideRuntimeAgent {
    */
   private async initializePyodideWorker(): Promise<void> {
     try {
+      const display = getTTYDisplay();
+      display.setStartupPhase("Initializing Pyodide worker...", 20);
+
       this.logger.info("Initializing enhanced Pyodide worker");
 
       // Determine packages to load based on options
       const packagesToLoad = this.options.packages || getEssentialPackages();
 
+      display.setStartupPhase("Loading Python packages...", 40);
       this.logger.info("Loading packages", {
         packageCount: packagesToLoad.length,
         packages: packagesToLoad,
@@ -183,6 +188,8 @@ export class PyodideRuntimeAgent {
       this.interruptBuffer = new SharedArrayBuffer(4);
       const interruptView = new Int32Array(this.interruptBuffer);
       interruptView[0] = 0; // Initialize to no interrupt
+
+      display.setStartupPhase("Creating Pyodide worker...", 60);
 
       // Create worker with enhanced Pyodide
       this.worker = new Worker(
@@ -204,6 +211,8 @@ export class PyodideRuntimeAgent {
         this.handleWorkerCrash("Worker message error");
       });
 
+      display.setStartupPhase("Initializing Python runtime...", 80);
+
       // Initialize enhanced Pyodide in worker
       await this.sendWorkerMessage("init", {
         interruptBuffer: this.interruptBuffer,
@@ -211,8 +220,14 @@ export class PyodideRuntimeAgent {
       });
 
       this.isInitialized = true;
+      display.setStartupPhase("Pyodide worker ready!", 100);
       this.logger.info("Enhanced Pyodide worker initialized successfully");
     } catch (error) {
+      const display = getTTYDisplay();
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
+      display.setError("Failed to initialize Pyodide worker", errorMessage);
       this.logger.error("Failed to initialize enhanced Pyodide worker", error);
       throw error;
     }
@@ -339,6 +354,10 @@ export class PyodideRuntimeAgent {
     const { cell } = context;
     const code = cell.source?.trim() || "";
 
+    // Update TTY display for cell execution
+    const display = getTTYDisplay();
+    display.setExecuting(cell.cellType, cell.id);
+
     // When an AI cell, hand it off to `@runt/ai` to handle, providing it notebook context
     if (cell.cellType === "ai") {
       const notebookContext = this.gatherNotebookContext(cell);
@@ -366,13 +385,15 @@ export class PyodideRuntimeAgent {
       };
 
       try {
-        return await executeAI(
+        const result = await executeAI(
           aiContext,
           notebookContext,
           this.logger,
           this.store,
           this.config.sessionId,
         );
+        display.setIdle();
+        return result;
       } finally {
         this.currentAIExecution = null;
       }
@@ -383,6 +404,7 @@ export class PyodideRuntimeAgent {
       try {
         await this.initializePyodideWorker();
       } catch (_initError) {
+        display.setError("Failed to initialize Pyodide worker");
         throw new Error(
           "Pyodide worker not initialized and failed to reinitialize",
         );
@@ -390,6 +412,7 @@ export class PyodideRuntimeAgent {
     }
 
     if (!code) {
+      display.setIdle();
       return { success: true };
     }
 
@@ -420,9 +443,16 @@ export class PyodideRuntimeAgent {
       const result = await this.executeCodeSerialized(context, code);
       resolve(result);
     } catch (error) {
+      const display = getTTYDisplay();
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
+      display.setError("Execution failed", errorMessage);
       reject(error);
     } finally {
       this.isExecuting = false;
+      const display = getTTYDisplay();
+      display.setIdle();
       // Process next item in queue
       this.processExecutionQueue();
     }
