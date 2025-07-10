@@ -128,8 +128,11 @@ export const tables = {
       // Multi-media support
       representations: State.SQLite.json({
         nullable: true,
-        schema: Schema.Any,
-      }), // Full representation map for multimedia outputs
+        schema: Schema.Record({
+          key: Schema.String,
+          value: MediaRepresentationSchema,
+        }),
+      }),
     },
   }),
 

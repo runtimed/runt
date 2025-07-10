@@ -328,9 +328,10 @@ export async function handleToolCallWithResult(
                       output.representations &&
                       output.representations["text/plain"]
                     ) {
-                      resultText = String(
-                        output.representations["text/plain"].data || "",
-                      );
+                      const container = output.representations["text/plain"];
+                      if (container.type === "inline") {
+                        resultText = String(container.data || "");
+                      }
                     } else if (output.data) {
                       resultText = String(output.data);
                     }

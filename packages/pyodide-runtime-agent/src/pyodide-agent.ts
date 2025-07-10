@@ -735,11 +735,11 @@ export class PyodideRuntimeAgent {
             .select()
             .where({ cellId: cell.id })
             .orderBy("position", "asc"),
-        ) as SchemaOutputData[];
+        );
 
         // Convert each output to simple string representation
         const outputStrings = outputs.map(
-          (output: SchemaOutputData): string => {
+          (output): string => {
             switch (output.outputType) {
               case "terminal":
                 return String(output.data || "");
