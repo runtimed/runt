@@ -25,6 +25,8 @@ const MediaRepresentationSchema = Schema.Union(
   }),
 );
 
+const AuthProviderSchema = Schema.Literal("browser-session", "google");
+
 export const tables = {
   // Notebook metadata (single row per store)
   notebook: State.SQLite.table({
@@ -190,7 +192,9 @@ export const tables = {
     name: "presence",
     columns: {
       userId: State.SQLite.text({ primaryKey: true }),
-      isAnonymous: State.SQLite.boolean({ default: false }),
+      authProvider: State.SQLite.text({
+        schema: AuthProviderSchema,
+      }),
       notebookId: State.SQLite.text({ primaryKey: true }),
       cellId: State.SQLite.text({ primaryKey: true }),
       lastActiveAt: State.SQLite.datetime({ nullable: true }),
@@ -511,7 +515,7 @@ export const events = {
     name: "v1.PresenceUpdated",
     schema: Schema.Struct({
       userId: Schema.String,
-      isAnonymous: Schema.Boolean,
+      authProvider: AuthProviderSchema,
       notebookId: Schema.String,
       cellId: Schema.String,
       lastActiveAt: Schema.Date,
@@ -946,14 +950,14 @@ const materializers = State.SQLite.materializers(events, {
       })
       .where({ id: cellId }),
 
-  "v1.PresenceUpdated": ({ userId, notebookId, cellId, isAnonymous, lastActiveAt }, ctx) => {
+  "v1.PresenceUpdated": ({ userId, notebookId, cellId, authProvider, lastActiveAt }, ctx) => {
     const currentPresence = ctx.query(
-      tables.presence.select().where({ userId, notebookId, cellId, isAnonymous }).limit(1),
+      tables.presence.select().where({ userId, notebookId, cellId, authProvider }).limit(1),
     )[0];
     if (currentPresence) {
-      return tables.presence.update({ lastActiveAt }).where({ userId, notebookId, cellId, isAnonymous });
+      return tables.presence.update({ lastActiveAt }).where({ userId, notebookId, cellId, authProvider });
     }
-    return tables.presence.insert({ userId, notebookId, cellId, isAnonymous, lastActiveAt });
+    return tables.presence.insert({ userId, notebookId, cellId, authProvider, lastActiveAt });
   }
 });
 
