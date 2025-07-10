@@ -24,7 +24,7 @@ export type {
   ExecutionResult,
   ModelCapability,
   OutputType,
-  RichOutputData,
+  RawOutputData,
   RuntimeAgentEventHandlers,
   RuntimeAgentOptions,
   RuntimeCapabilities,

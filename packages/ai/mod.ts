@@ -135,7 +135,7 @@ export function buildConversationMessages(
       if (cell.outputs && cell.outputs.length > 0) {
         cellMessage += `\n\nOutput:\n`;
         cell.outputs.forEach((output) => {
-          if (output.outputType === "stream" && output.data.text) {
+          if (output.outputType === "terminal" && output.data.text) {
             cellMessage += `\`\`\`\n${
               stripAnsi(String(output.data.text))
             }\`\`\`\n`;

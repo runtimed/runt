@@ -7,6 +7,23 @@ import {
   type Store as LiveStore,
 } from "@livestore/livestore";
 
+// Base generic types for MediaContainer system
+export type InlineContainer<T = unknown> = {
+  type: "inline";
+  data: T;
+  metadata?: Record<string, unknown> | undefined;
+};
+
+export type ArtifactContainer = {
+  type: "artifact";
+  artifactId: string;
+  metadata?: Record<string, unknown> | undefined;
+};
+
+export type MediaContainer<T = unknown> =
+  | InlineContainer<T>
+  | ArtifactContainer;
+
 // Media representation schema for unified output system - defined first for use in events
 const MediaRepresentationSchema = Schema.Union(
   Schema.Struct({
@@ -512,33 +529,34 @@ export const events = {
 };
 
 // Helper function to select primary representation from multimedia data
-function selectPrimaryRepresentation(representations: Record<string, any>) {
-  const preferenceOrder = [
+function selectPrimaryRepresentation(
+  representations: Record<string, MediaContainer>,
+  preferredMimeTypes: string[] = [
     "text/html",
     "image/png",
     "image/jpeg",
     "image/svg+xml",
     "application/json",
     "text/plain",
-  ];
-
-  for (const mimeType of preferenceOrder) {
+  ],
+): { mimeType: string; container: MediaContainer } | null {
+  for (const mimeType of preferredMimeTypes) {
     if (representations[mimeType]) {
-      const rep = representations[mimeType];
       return {
-        data: rep.type === "inline" ? String(rep.data || "") : "",
         mimeType,
+        container: representations[mimeType],
       };
     }
   }
 
-  return { data: "", mimeType: "text/plain" };
+  return null;
 }
 
 // Helper function to update existing displays with same displayId
 function updateExistingDisplays(
   displayId: string,
-  representations: Record<string, any>,
+  representations: Record<string, MediaContainer>,
+  // deno-lint-ignore no-explicit-any
   ctx: any,
 ) {
   const existingOutputs = ctx.query(
@@ -552,13 +570,18 @@ function updateExistingDisplays(
     return [];
   }
 
-  const { data: primaryData, mimeType: primaryMimeType } =
-    selectPrimaryRepresentation(representations);
+  const primaryRep = selectPrimaryRepresentation(representations);
+  if (!primaryRep) {
+    return [];
+  }
+
+  const { mimeType, container } = primaryRep;
+  const data = container.type === "inline" ? String(container.data || "") : "";
 
   return [
     tables.outputs.update({
-      data: primaryData,
-      mimeType: primaryMimeType,
+      data,
+      mimeType,
       representations,
     }).where({
       displayId,
@@ -755,8 +778,13 @@ const materializers = State.SQLite.materializers(events, {
     }
 
     // Always create new output (core behavior of "Added" event)
-    const { data: primaryData, mimeType: primaryMimeType } =
-      selectPrimaryRepresentation(representations);
+    const primaryRep = selectPrimaryRepresentation(representations);
+    const primaryData = primaryRep
+      ? (primaryRep.container.type === "inline"
+        ? String(primaryRep.container.data || "")
+        : "")
+      : "";
+    const primaryMimeType = primaryRep ? primaryRep.mimeType : "text/plain";
 
     ops.push(
       tables.outputs.insert({
@@ -1042,28 +1070,28 @@ export type QueueStatus =
   | "cancelled";
 
 // Output types
-export type OutputType = "display_data" | "execute_result" | "stream" | "error";
+export type OutputType =
+  | "display_data"
+  | "execute_result"
+  | "terminal"
+  | "error";
 
-// TypeScript type derived from schema
-export type MediaRepresentation = {
-  type: "inline";
-  data: unknown;
-  metadata?: Record<string, unknown>;
-} | {
-  type: "artifact";
-  artifactId: string;
-  metadata?: Record<string, unknown>;
-};
+// Type guards for MediaContainer
+export function isInlineContainer<T>(
+  container: MediaContainer,
+): container is InlineContainer<T> {
+  return container.type === "inline";
+}
+
+export function isArtifactContainer(
+  container: MediaContainer,
+): container is ArtifactContainer {
+  return container.type === "artifact";
+}
 
 // Output data types for different output formats
 export interface RichOutputData {
-  "text/plain"?: string;
-  "text/markdown"?: string;
-  "text/html"?: string;
-  "image/svg+xml"?: string;
-  "image/svg"?: string;
-  "application/json"?: unknown;
-  [key: string]: unknown;
+  [mimeType: string]: MediaContainer;
 }
 
 // Error output structure
@@ -1072,12 +1100,6 @@ export interface ErrorOutputData {
   ename: string;
   evalue: string;
   traceback: string[];
-}
-
-// Stream output structure
-export interface StreamOutputData {
-  name: "stdout" | "stderr";
-  text: string;
 }
 
 // Type guards for output data
@@ -1092,22 +1114,10 @@ export function isErrorOutput(data: unknown): data is ErrorOutputData {
   );
 }
 
-export function isStreamOutput(data: unknown): data is StreamOutputData {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    "name" in data &&
-    "text" in data &&
-    ["stdout", "stderr"].includes((data as StreamOutputData).name) &&
-    typeof (data as StreamOutputData).text === "string"
-  );
-}
-
 export function isRichOutput(data: unknown): data is RichOutputData {
   return (
     typeof data === "object" &&
     data !== null &&
-    !isErrorOutput(data) &&
-    !isStreamOutput(data)
+    !isErrorOutput(data)
   );
 }

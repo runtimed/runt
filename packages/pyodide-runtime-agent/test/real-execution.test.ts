@@ -6,8 +6,11 @@ import {
   assertStringIncludes,
 } from "jsr:@std/assert";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
-import type { ExecutionContext, ExecutionResult } from "@runt/lib/types";
-import type { RichOutputData } from "@runt/schema";
+import type {
+  ExecutionContext,
+  ExecutionResult,
+  RawOutputData,
+} from "@runt/lib/types";
 
 // Create test agent with minimal packages for speed
 function createTestAgent(packages?: string[]): PyodideRuntimeAgent {
@@ -93,16 +96,16 @@ function createTestExecutionContext(code: string): {
     },
     stdout: (text: string) => outputs.push({ type: "stdout", data: text }),
     stderr: (text: string) => outputs.push({ type: "stderr", data: text }),
-    result: (data: RichOutputData, metadata?: Record<string, unknown>) =>
+    result: (data: RawOutputData, metadata?: Record<string, unknown>) =>
       outputs.push({ type: "result", data, metadata: metadata || undefined }),
     display: (
-      data: RichOutputData,
+      data: RawOutputData,
       metadata?: Record<string, unknown>,
     ) =>
       outputs.push({ type: "display", data, metadata: metadata || undefined }),
     updateDisplay: (
       _displayId: string,
-      data: RichOutputData,
+      data: RawOutputData,
       metadata?: Record<string, unknown>,
     ) =>
       outputs.push({ type: "display", data, metadata: metadata || undefined }),

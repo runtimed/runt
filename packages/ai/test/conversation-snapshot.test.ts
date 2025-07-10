@@ -32,7 +32,7 @@ Deno.test("AI conversation rendering - code cell context", () => {
         position: 1,
         outputs: [
           {
-            outputType: "stream",
+            outputType: "terminal",
             data: { "text": "   A\n0  1\n1  2\n2  3" },
           },
         ],
@@ -539,7 +539,7 @@ Deno.test("AI conversation rendering - complex interleaved conversation", () => 
         position: 1,
         outputs: [
           {
-            outputType: "stream",
+            outputType: "terminal",
             data: { text: "hello" },
           },
         ],
@@ -712,7 +712,7 @@ Deno.test("AI conversation rendering - complete integration flow", () => {
         position: 1,
         outputs: [
           {
-            outputType: "stream",
+            outputType: "terminal",
             data: { text: "Data: [1, 2, 3, 4, 5]" },
           },
         ],
@@ -1066,7 +1066,7 @@ Deno.test("AI conversation rendering - integrated code cells in conversation", (
         position: 1,
         outputs: [
           {
-            outputType: "stream",
+            outputType: "terminal",
             data: { text: "   A\n0  1\n1  2\n2  3" },
           },
         ],
@@ -1093,7 +1093,7 @@ Deno.test("AI conversation rendering - integrated code cells in conversation", (
         position: 3,
         outputs: [
           {
-            outputType: "stream",
+            outputType: "terminal",
             data: { text: "Mean: 2.0" },
           },
         ],

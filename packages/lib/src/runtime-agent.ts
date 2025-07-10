@@ -7,7 +7,7 @@ import {
   type Store,
 } from "npm:@livestore/livestore";
 import { makeCfSync } from "npm:@livestore/sync-cf";
-import { events, type MediaRepresentation, schema, tables } from "@runt/schema";
+import { events, type MediaContainer, schema, tables } from "@runt/schema";
 import { createLogger } from "./logging.ts";
 import type {
   CancellationHandler,
@@ -16,7 +16,7 @@ import type {
   ExecutionHandler,
   ExecutionQueueData,
   ExecutionResult,
-  RichOutputData,
+  RawOutputData,
   RuntimeAgentEventHandlers,
   RuntimeCapabilities,
   RuntimeSessionData,
@@ -549,14 +549,14 @@ export class RuntimeAgent {
       },
 
       display: (
-        data: RichOutputData,
+        data: RawOutputData,
         metadata?: Record<string, unknown>,
         displayId?: string,
       ) => {
-        // Convert MediaBundle to representations
+        // Convert raw data to MediaContainer representations
         const representations: Record<
           string,
-          { type: "inline"; data: unknown; metadata?: Record<string, unknown> }
+          MediaContainer
         > = {};
 
         for (const [mimeType, content] of Object.entries(data)) {
@@ -578,13 +578,13 @@ export class RuntimeAgent {
 
       updateDisplay: (
         displayId: string,
-        data: RichOutputData,
+        data: RawOutputData,
         metadata?: Record<string, unknown>,
       ) => {
         // For updated displays, use the dedicated update event (no new output created)
         const representations: Record<
           string,
-          MediaRepresentation
+          MediaContainer
         > = {};
 
         for (const [mimeType, content] of Object.entries(data)) {
@@ -602,13 +602,13 @@ export class RuntimeAgent {
       },
 
       result: (
-        data: RichOutputData,
+        data: RawOutputData,
         metadata?: Record<string, unknown>,
       ) => {
-        // Convert MediaBundle to representations
+        // Convert raw data to MediaContainer representations
         const representations: Record<
           string,
-          { type: "inline"; data: unknown; metadata?: Record<string, unknown> }
+          MediaContainer
         > = {};
 
         for (const [mimeType, content] of Object.entries(data)) {

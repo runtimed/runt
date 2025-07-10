@@ -9,9 +9,16 @@ import type {
   CellData,
   ExecutionQueueData,
   OutputType,
-  RichOutputData,
   schema,
 } from "@runt/schema";
+
+/**
+ * Raw output data format accepted by context.display() methods
+ * This is converted internally to MediaContainer format
+ */
+export interface RawOutputData {
+  [mimeType: string]: unknown;
+}
 
 /**
  * Configuration options for runtime agents
@@ -100,19 +107,19 @@ export interface ExecutionContext {
   stderr: (text: string) => void;
   /** Emit rich display data (plots, HTML, etc.) */
   display: (
-    data: RichOutputData,
+    data: RawOutputData,
     metadata?: Record<string, unknown>,
     displayId?: string,
   ) => void;
   /** Update existing display data by display ID */
   updateDisplay: (
     displayId: string,
-    data: RichOutputData,
+    data: RawOutputData,
     metadata?: Record<string, unknown>,
   ) => void;
   /** Emit execution result (final output) */
   result: (
-    data: RichOutputData,
+    data: RawOutputData,
     metadata?: Record<string, unknown>,
   ) => void;
   /** Emit error output */
@@ -138,7 +145,7 @@ export interface ExecutionResult {
   /** Whether execution succeeded */
   success: boolean;
   /** Optional final output data (for simple cases) */
-  data?: RichOutputData;
+  data?: RawOutputData;
   /** Optional metadata for final output */
   metadata?: Record<string, unknown>;
   /** Error message if execution failed */
@@ -220,7 +227,5 @@ export type {
   ErrorOutputData,
   ExecutionQueueData,
   OutputType,
-  RichOutputData,
   RuntimeSessionData,
-  StreamOutputData,
 } from "@runt/schema";
