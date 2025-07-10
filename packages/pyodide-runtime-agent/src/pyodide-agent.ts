@@ -739,6 +739,17 @@ export class PyodideRuntimeAgent {
         const filteredOutputs = outputs.map((output: SchemaOutputData) => {
           const outputData = output.data;
 
+          // Handle terminal outputs first (data is a string, not object)
+          if (output.outputType === "terminal") {
+            return {
+              outputType: output.outputType,
+              data: {
+                text: output.data || "",
+                name: output.streamName || "stdout",
+              },
+            };
+          }
+
           if (outputData && typeof outputData === "object") {
             // For rich media outputs, convert to AI-friendly bundle
             if (
@@ -749,17 +760,6 @@ export class PyodideRuntimeAgent {
               return {
                 outputType: output.outputType,
                 data: aiBundle,
-              };
-            }
-
-            // With new schema, data is flattened - check output type and handle accordingly
-            if (output.outputType === "terminal") {
-              return {
-                outputType: output.outputType,
-                data: {
-                  text: output.data || "",
-                  name: output.streamName || "stdout",
-                },
               };
             }
 
