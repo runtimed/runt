@@ -6,7 +6,9 @@ Deno.test("OpenAI Model Compatibility", async (t) => {
 
   await t.step("should identify models that use max_completion_tokens", () => {
     // Test private method via reflection
-    const usesMaxCompletionTokens = (client as any).usesMaxCompletionTokens;
+    const usesMaxCompletionTokens = (client as unknown as {
+      usesMaxCompletionTokens: (model: string) => boolean;
+    }).usesMaxCompletionTokens;
 
     // Models that should use max_completion_tokens
     assertEquals(usesMaxCompletionTokens("o1-preview"), true);
@@ -23,7 +25,9 @@ Deno.test("OpenAI Model Compatibility", async (t) => {
 
   await t.step("should identify models that support system messages", () => {
     // Test private method via reflection
-    const supportsSystemMessages = (client as any).supportsSystemMessages;
+    const supportsSystemMessages = (client as unknown as {
+      supportsSystemMessages: (model: string) => boolean;
+    }).supportsSystemMessages;
 
     // Models that don't support system messages
     assertEquals(supportsSystemMessages("o1-preview"), false);
@@ -42,7 +46,12 @@ Deno.test("OpenAI Model Compatibility", async (t) => {
     "should filter messages for models without system support",
     () => {
       // Test private method via reflection with proper binding
-      const filterMessagesForModel = (client as any).filterMessagesForModel
+      const filterMessagesForModel = (client as unknown as {
+        filterMessagesForModel: (
+          messages: { role: string; content: string }[],
+          model: string,
+        ) => { role: string; content: string }[];
+      }).filterMessagesForModel
         .bind(client);
 
       const messages = [
@@ -73,17 +82,27 @@ Deno.test("OpenAI Model Compatibility", async (t) => {
   );
 
   await t.step("should handle empty messages array", () => {
-    const filterMessagesForModel = (client as any).filterMessagesForModel.bind(
+    const filterMessagesForModel = (client as unknown as {
+      filterMessagesForModel: (
+        messages: { role: string; content: string }[],
+        model: string,
+      ) => { role: string; content: string }[];
+    }).filterMessagesForModel.bind(
       client,
     );
 
-    const emptyMessages: any[] = [];
+    const emptyMessages: { role: string; content: string }[] = [];
     const result = filterMessagesForModel(emptyMessages, "o1-preview");
     assertEquals(result.length, 0);
   });
 
   await t.step("should handle messages without system role", () => {
-    const filterMessagesForModel = (client as any).filterMessagesForModel.bind(
+    const filterMessagesForModel = (client as unknown as {
+      filterMessagesForModel: (
+        messages: { role: string; content: string }[],
+        model: string,
+      ) => { role: string; content: string }[];
+    }).filterMessagesForModel.bind(
       client,
     );
 
