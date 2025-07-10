@@ -42,6 +42,44 @@ Deno.test("OpenAI Model Compatibility", async (t) => {
     assertEquals(supportsSystemMessages("o4-mini"), true);
   });
 
+  await t.step("should identify models that support custom temperature", () => {
+    // Test private method via reflection
+    const supportsCustomTemperature = (client as unknown as {
+      supportsCustomTemperature: (model: string) => boolean;
+    }).supportsCustomTemperature;
+
+    // All reasoning models (o1, o3, o4) don't support custom temperature
+    assertEquals(supportsCustomTemperature("o1-preview"), false);
+    assertEquals(supportsCustomTemperature("o1-mini"), false);
+    assertEquals(supportsCustomTemperature("o3-mini"), false);
+    assertEquals(supportsCustomTemperature("o3"), false);
+    assertEquals(supportsCustomTemperature("o4-mini"), false);
+
+    // Non-reasoning models support custom temperature
+    assertEquals(supportsCustomTemperature("gpt-4o"), true);
+    assertEquals(supportsCustomTemperature("gpt-4o-mini"), true);
+    assertEquals(supportsCustomTemperature("gpt-4.1"), true);
+  });
+
+  await t.step("should identify reasoning models", () => {
+    // Test private method via reflection
+    const isReasoningModel = (client as unknown as {
+      isReasoningModel: (model: string) => boolean;
+    }).isReasoningModel;
+
+    // Reasoning models (start with o)
+    assertEquals(isReasoningModel("o1-preview"), true);
+    assertEquals(isReasoningModel("o1-mini"), true);
+    assertEquals(isReasoningModel("o3-mini"), true);
+    assertEquals(isReasoningModel("o3"), true);
+    assertEquals(isReasoningModel("o4-mini"), true);
+
+    // Non-reasoning models
+    assertEquals(isReasoningModel("gpt-4o"), false);
+    assertEquals(isReasoningModel("gpt-4o-mini"), false);
+    assertEquals(isReasoningModel("gpt-4.1"), false);
+  });
+
   await t.step(
     "should filter messages for models without system support",
     () => {

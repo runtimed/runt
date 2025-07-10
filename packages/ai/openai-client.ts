@@ -136,20 +136,46 @@ export class RuntOpenAIClient {
   }
 
   /**
+   * OpenAI Reasoning Models Compatibility Guide
+   *
+   * Reasoning models (o1, o3, o4 series) have specific parameter restrictions:
+   *
+   * 1. **Token Parameters**: Use max_completion_tokens instead of max_tokens
+   * 2. **Temperature**: Fixed at 1 (no custom values supported)
+   * 3. **System Messages**:
+   *    - o1 family: Not supported (convert to user messages)
+   *    - o3/o4 family: Converted to developer messages by API
+   * 4. **Other Fixed Parameters**: top_p=1, presence_penalty=0, frequency_penalty=0
+   * 5. **Reasoning Effort**: Some models support low/medium/high effort levels
+   *
+   * Models affected: o1-preview, o1-mini, o1-pro, o3, o3-mini, o3-pro, o4-mini, etc.
+   */
+
+  /**
+   * Check if model is a reasoning model (starts with 'o')
+   */
+  private isReasoningModel(modelName: string): boolean {
+    return modelName.startsWith("o1") ||
+      modelName.startsWith("o3") ||
+      modelName.startsWith("o4");
+  }
+
+  /**
    * Check if model uses max_completion_tokens instead of max_tokens
    */
   private usesMaxCompletionTokens(modelName: string): boolean {
-    return modelName.includes("o1") ||
-      modelName.includes("o3") ||
-      modelName.includes("o4-mini");
+    return modelName.startsWith("o1") ||
+      modelName.startsWith("o3") ||
+      modelName.startsWith("o4");
   }
 
   /**
    * Check if model supports system messages
    */
   private supportsSystemMessages(modelName: string): boolean {
-    // o1 family models don't support system messages
-    return !modelName.includes("o1");
+    // o1 family models don't support system messages at all
+    // o3/o4 models convert system messages to developer messages (handled by API)
+    return !modelName.startsWith("o1");
   }
 
   /**
@@ -173,6 +199,16 @@ export class RuntOpenAIClient {
       }
       return msg;
     });
+  }
+
+  /**
+   * Check if model supports custom temperature values
+   */
+  private supportsCustomTemperature(modelName: string): boolean {
+    // All reasoning models (o1, o3, o4) have temperature fixed at 1
+    return !(modelName.startsWith("o1") ||
+      modelName.startsWith("o3") ||
+      modelName.startsWith("o4"));
   }
 
   /**
@@ -341,7 +377,7 @@ export class RuntOpenAIClient {
         const baseParams = {
           model,
           messages: filteredMessages,
-          temperature,
+          ...(this.supportsCustomTemperature(model) ? { temperature } : {}),
           stream: true,
           ...(tools ? { tools } : {}),
           ...(enableTools && tools ? { tool_choice: "auto" as const } : {}),
