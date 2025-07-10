@@ -392,6 +392,17 @@ export const events = {
     }),
   }),
 
+  multimediaDisplayOutputUpdated: Events.synced({
+    name: "v1.MultimediaDisplayOutputUpdated",
+    schema: Schema.Struct({
+      displayId: Schema.String,
+      representations: Schema.Record({
+        key: Schema.String,
+        value: MediaRepresentationSchema,
+      }),
+    }),
+  }),
+
   multimediaResultOutputAdded: Events.synced({
     name: "v1.MultimediaResultOutputAdded",
     schema: Schema.Struct({
@@ -499,6 +510,62 @@ export const events = {
   // UI state
   uiStateSet: tables.uiState.set,
 };
+
+// Helper function to select primary representation from multimedia data
+function selectPrimaryRepresentation(representations: Record<string, any>) {
+  const preferenceOrder = [
+    "text/html",
+    "image/png",
+    "image/jpeg",
+    "image/svg+xml",
+    "application/json",
+    "text/plain",
+  ];
+
+  for (const mimeType of preferenceOrder) {
+    if (representations[mimeType]) {
+      const rep = representations[mimeType];
+      return {
+        data: rep.type === "inline" ? String(rep.data || "") : "",
+        mimeType,
+      };
+    }
+  }
+
+  return { data: "", mimeType: "text/plain" };
+}
+
+// Helper function to update existing displays with same displayId
+function updateExistingDisplays(
+  displayId: string,
+  representations: Record<string, any>,
+  ctx: any,
+) {
+  const existingOutputs = ctx.query(
+    tables.outputs.select().where({
+      displayId,
+      outputType: "multimedia_display",
+    }),
+  );
+
+  if (existingOutputs.length === 0) {
+    return [];
+  }
+
+  const { data: primaryData, mimeType: primaryMimeType } =
+    selectPrimaryRepresentation(representations);
+
+  return [
+    tables.outputs.update({
+      data: primaryData,
+      mimeType: primaryMimeType,
+      representations,
+    }).where({
+      displayId,
+      outputType: "multimedia_display",
+    }),
+  ];
+}
 
 // Materializers map events to state changes
 const materializers = State.SQLite.materializers(events, {
@@ -676,26 +743,20 @@ const materializers = State.SQLite.materializers(events, {
       ops.push(tables.pendingClears.delete().where({ cellId }));
     }
 
-    // Choose primary representation
-    const preferenceOrder = [
-      "text/html",
-      "image/png",
-      "image/jpeg",
-      "image/svg+xml",
-      "application/json",
-      "text/plain",
-    ];
-    let primaryData = "";
-    let primaryMimeType = "text/plain";
-
-    for (const mimeType of preferenceOrder) {
-      if (representations[mimeType]) {
-        const rep = representations[mimeType];
-        primaryData = rep.type === "inline" ? String(rep.data || "") : "";
-        primaryMimeType = mimeType;
-        break;
-      }
+    // If displayId provided, update all existing displays with same ID first
+    if (displayId) {
+      ops.push(
+        ...updateExistingDisplays(
+          displayId,
+          representations,
+          ctx,
+        ),
+      );
     }
+
+    // Always create new output (core behavior of "Added" event)
+    const { data: primaryData, mimeType: primaryMimeType } =
+      selectPrimaryRepresentation(representations);
 
     ops.push(
       tables.outputs.insert({
@@ -712,6 +773,18 @@ const materializers = State.SQLite.materializers(events, {
       }),
     );
     return ops;
+  },
+
+  "v1.MultimediaDisplayOutputUpdated": (
+    { displayId, representations },
+    ctx,
+  ) => {
+    // Only update existing displays - no new output creation
+    return updateExistingDisplays(
+      displayId,
+      representations,
+      ctx,
+    );
   },
 
   "v1.MultimediaResultOutputAdded": (

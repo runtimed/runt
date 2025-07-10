@@ -7,7 +7,7 @@ import {
   type Store,
 } from "npm:@livestore/livestore";
 import { makeCfSync } from "npm:@livestore/sync-cf";
-import { events, schema, tables } from "@runt/schema";
+import { events, type MediaRepresentation, schema, tables } from "@runt/schema";
 import { createLogger } from "./logging.ts";
 import type {
   CancellationHandler,
@@ -581,9 +581,24 @@ export class RuntimeAgent {
         data: RichOutputData,
         metadata?: Record<string, unknown>,
       ) => {
-        // For updated displays, we need to find the output and replace it
-        // This is a simplified implementation - could be enhanced
-        context.display(data, metadata, displayId);
+        // For updated displays, use the dedicated update event (no new output created)
+        const representations: Record<
+          string,
+          MediaRepresentation
+        > = {};
+
+        for (const [mimeType, content] of Object.entries(data)) {
+          representations[mimeType] = {
+            type: "inline",
+            data: content, // Keep JSON objects as-is, don't stringify
+            metadata: metadata?.[mimeType] as Record<string, unknown>,
+          };
+        }
+
+        this.store.commit(events.multimediaDisplayOutputUpdated({
+          displayId,
+          representations,
+        }));
       },
 
       result: (
