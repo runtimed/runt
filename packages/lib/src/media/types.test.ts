@@ -1,7 +1,6 @@
 import { assert, assertEquals } from "jsr:@std/assert";
 import {
   APPLICATION_MIME_TYPES,
-  ensureTextPlainFallback,
   IMAGE_MIME_TYPES,
   isApplicationMimeType,
   isImageMimeType,
@@ -12,11 +11,14 @@ import {
   isTextMimeType,
   JUPYTER_MIME_TYPES,
   KNOWN_MIME_TYPES,
-  type MediaBundle,
   TEXT_MIME_TYPES,
+} from "@runt/schema";
+import { validateMediaBundle } from "./types.ts";
+import {
+  ensureTextPlainFallback,
+  type RichOutputData,
   toAIMediaBundle,
-  validateMediaBundle,
-} from "./types.ts";
+} from "@runt/ai";
 
 Deno.test("Media Type Constants", () => {
   // Check that constants are non-empty
@@ -101,15 +103,15 @@ Deno.test("Type Guards", () => {
 
 Deno.test("AI Media Bundle Conversion", () => {
   // Test AI-friendly conversion
-  const bundle: MediaBundle = {
-    "text/plain": "Hello, world!",
-    "text/html": "<h1>Hello, world!</h1>",
-    "text/markdown": "# Hello, world!",
-    "application/json": { message: "Hello" },
-    "image/png": "base64data",
+  const richOutput: RichOutputData = {
+    "text/plain": { type: "inline", data: "Hello, world!" },
+    "text/html": { type: "inline", data: "<h1>Hello, world!</h1>" },
+    "text/markdown": { type: "inline", data: "# Hello, world!" },
+    "application/json": { type: "inline", data: { message: "Hello" } },
+    "image/png": { type: "inline", data: "base64data" },
   };
 
-  const aiBundle = toAIMediaBundle(bundle);
+  const aiBundle = toAIMediaBundle(richOutput);
 
   // Should include text/plain
   assert("text/plain" in aiBundle);
@@ -133,12 +135,12 @@ Deno.test("AI Media Bundle Conversion", () => {
 
 Deno.test("AI Bundle HTML to Plain Conversion", () => {
   // When no markdown available, should convert HTML to plain text
-  const bundle: MediaBundle = {
-    "text/html": "<h1>Hello, world!</h1>",
-    "application/json": { message: "Hello" },
+  const richOutput: RichOutputData = {
+    "text/html": { type: "inline", data: "<h1>Hello, world!</h1>" },
+    "application/json": { type: "inline", data: { message: "Hello" } },
   };
 
-  const aiBundle = toAIMediaBundle(bundle);
+  const aiBundle = toAIMediaBundle(richOutput);
 
   // Should have converted HTML to plain text
   assert("text/plain" in aiBundle);
@@ -157,7 +159,7 @@ Deno.test("AI Bundle HTML to Plain Conversion", () => {
 
 Deno.test("Ensure Text Plain Fallback", () => {
   // Bundle without text/plain
-  const bundle: MediaBundle = {
+  const bundle = {
     "text/html": "<h1>Hello, world!</h1>",
     "application/json": { message: "Hello" },
   };
@@ -167,7 +169,7 @@ Deno.test("Ensure Text Plain Fallback", () => {
   assertEquals(withFallback["text/plain"], "Hello, world!"); // HTML stripped
 
   // Bundle with text/plain already
-  const bundleWithPlain: MediaBundle = {
+  const bundleWithPlain = {
     "text/plain": "Already here",
     "text/html": "<h1>Hello</h1>",
   };
@@ -176,7 +178,7 @@ Deno.test("Ensure Text Plain Fallback", () => {
   assertEquals(unchanged["text/plain"], "Already here");
 
   // Markdown fallback
-  const markdownBundle: MediaBundle = {
+  const markdownBundle = {
     "text/markdown": "**Bold text**",
   };
 
@@ -184,7 +186,7 @@ Deno.test("Ensure Text Plain Fallback", () => {
   assertEquals(markdownFallback["text/plain"], "**Bold text**");
 
   // JSON fallback
-  const jsonBundle: MediaBundle = {
+  const jsonBundle = {
     "application/json": { message: "Hello" },
   };
 
@@ -198,7 +200,7 @@ Deno.test("Ensure Text Plain Fallback", () => {
 });
 
 Deno.test("Validate Media Bundle", () => {
-  const rawBundle: MediaBundle = {
+  const rawBundle = {
     "text/plain": "Hello",
     "text/html": "<h1>Hello</h1>",
     "application/json": '{"message": "Hello"}', // JSON as string
@@ -227,7 +229,7 @@ Deno.test("Validate Media Bundle", () => {
   assertEquals(typeof validated["application/vnd.custom+json"], "object");
 
   // Null values should be filtered out
-  const bundleWithNulls: MediaBundle = {
+  const bundleWithNulls = {
     "text/plain": "Hello",
     "text/html": null,
     "application/json": undefined,
@@ -250,7 +252,7 @@ Deno.test("Custom +json Media Types", () => {
   assert(isJsonMimeType(anodeType));
 
   // Should work in bundle validation
-  const bundle: MediaBundle = {
+  const bundle = {
     [customType]: { chart: "data" },
     [anodeType]: { tool: "info" },
   };
@@ -260,9 +262,9 @@ Deno.test("Custom +json Media Types", () => {
   assertEquals(typeof validated[anodeType], "object");
 
   // Should work in AI conversion (custom +json types aren't included by default)
-  const bundleWithCustom: MediaBundle = {
-    "text/plain": "Hello",
-    [customType]: { chart: "data" },
+  const bundleWithCustom: RichOutputData = {
+    "text/plain": { type: "inline", data: "Hello" },
+    [customType]: { type: "inline", data: { chart: "data" } },
   };
 
   const aiBundle = toAIMediaBundle(bundleWithCustom);

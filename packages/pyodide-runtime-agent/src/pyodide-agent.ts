@@ -7,15 +7,13 @@
 import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
 import type { ExecutionContext } from "@runt/lib";
 import { createLogger } from "@runt/lib";
+import { type MediaBundle, validateMediaBundle } from "@runt/lib";
 import {
-  ensureTextPlainFallback,
   isJsonMimeType,
   isTextBasedMimeType,
   KNOWN_MIME_TYPES,
   type KnownMimeType,
-  type MediaBundle,
-  validateMediaBundle,
-} from "@runt/lib";
+} from "@runt/schema";
 import { getEssentialPackages } from "./cache-utils.ts";
 import type { Store } from "npm:@livestore/livestore";
 import {
@@ -26,6 +24,7 @@ import {
 } from "@runt/schema";
 import {
   discoverAvailableAiModels,
+  ensureTextPlainFallback,
   executeAI,
   NotebookContextData,
 } from "@runt/ai";
@@ -579,7 +578,7 @@ export class PyodideRuntimeAgent {
       }
 
       if (hasMimeType) {
-        // Validate and ensure text/plain fallback
+        // Validate and ensure text/plain fallback for display
         const validated = validateMediaBundle(rawBundle);
         return ensureTextPlainFallback(validated);
       }
@@ -769,11 +768,11 @@ export class PyodideRuntimeAgent {
                   const mimeTypes = Object.keys(mediaContainers);
 
                   // Try to get text representation from inline containers
+                  // Prioritize markdown for AI context, then plain text, then HTML
                   for (
                     const mimeType of [
-                      "text/plain",
-                      "text/html",
                       "text/markdown",
+                      "text/plain",
                     ]
                   ) {
                     const container = mediaContainers[mimeType];

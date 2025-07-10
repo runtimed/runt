@@ -145,7 +145,7 @@ Deno.test({
 
       // Verify the arithmetic result - check representations for multimedia output
       const outputData = outputs[0]?.representations as {
-        "text/plain": { data: string };
+        "text/plain": { type: "inline"; data: string };
       };
       assertEquals(
         outputData?.["text/plain"]?.data,

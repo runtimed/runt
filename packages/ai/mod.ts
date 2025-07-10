@@ -14,6 +14,17 @@ import type { Store } from "@runt/schema";
 import { OpenAIClient } from "./openai-client.ts";
 import { RuntOllamaClient } from "./ollama-client.ts";
 
+// Export AI-specific media utilities
+export {
+  type AIMediaBundle,
+  ensureTextPlainFallback,
+  extractStructuredData,
+  hasVisualContent,
+  type RichOutputData,
+  toAIContext,
+  toAIMediaBundle,
+} from "./media-utils.ts";
+
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
 // Helper types for accessing tool call properties

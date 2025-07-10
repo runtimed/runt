@@ -1,17 +1,16 @@
 /**
- * # Media Types for AI-Aware Runtime Agents
+ * # Media Types for Runtime Agents
  *
- * When your Python code outputs tables, plots, or rich data, it creates multiple
- * representations - HTML for humans, JSON for data, plain text for accessibility.
- * But which format should we send to AI models?
+ * This module provides runtime-specific utilities for working with media bundles
+ * and validating content from Python execution environments.
  *
- * This module helps runtime agents convert Jupyter-style rich output into formats
- * that work well with Large Language Models.
+ * Core MIME type definitions and type guards are now in `@runt/schema` for
+ * consistent use across frontend and backend.
  *
  * ## Quick Start
  *
  * ```typescript
- * import { toAIMediaBundle, validateMediaBundle } from "@runt/lib/media";
+ * import { validateMediaBundle } from "@runt/lib/media";
  *
  * // Raw output from Python execution
  * const rawOutput = {
@@ -20,21 +19,19 @@
  *   "application/json": { revenue: 50000, currency: "USD" }
  * };
  *
- * // Convert for AI consumption (prefers markdown, keeps structured data)
- * const aiBundle = toAIMediaBundle(rawOutput);
- * // Send this to your AI model for better understanding
+ * // Validate and normalize the bundle
+ * const validated = validateMediaBundle(rawOutput);
  * ```
  */
 
-// Core types and constants
+// Core types and constants (re-exported from schema for consistency)
 export type {
   ApplicationMimeType,
   ImageMimeType,
   JupyterMimeType,
   KnownMimeType,
-  MediaBundle,
   TextMimeType,
-} from "./types.ts";
+} from "@runt/schema";
 
 export {
   APPLICATION_MIME_TYPES,
@@ -42,9 +39,9 @@ export {
   JUPYTER_MIME_TYPES,
   KNOWN_MIME_TYPES,
   TEXT_MIME_TYPES,
-} from "./types.ts";
+} from "@runt/schema";
 
-// Type guards
+// Type guards (re-exported from schema)
 export {
   isApplicationMimeType,
   isImageMimeType,
@@ -53,11 +50,9 @@ export {
   isKnownMimeType,
   isTextBasedMimeType,
   isTextMimeType,
-} from "./types.ts";
+} from "@runt/schema";
 
-// Utility functions
-export {
-  ensureTextPlainFallback,
-  toAIMediaBundle,
-  validateMediaBundle,
-} from "./types.ts";
+// Runtime-specific types and utilities
+export type { MediaBundle } from "./types.ts";
+
+export { validateMediaBundle } from "./types.ts";
