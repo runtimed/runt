@@ -19,7 +19,11 @@ function makeBaseConfig(overrides: Partial<Record<string, unknown>> = {}) {
     syncUrl: "url",
     authToken: "token",
     notebookId: "nb",
-    capabilities: { canExecuteCode: true, canExecuteSql: false, canExecuteAi: false },
+    capabilities: {
+      canExecuteCode: true,
+      canExecuteSql: false,
+      canExecuteAi: false,
+    },
     environmentOptions: {
       runtimePackageManager: "pip",
       runtimePythonPath: "/usr/bin/python3",
@@ -31,14 +35,22 @@ function makeBaseConfig(overrides: Partial<Record<string, unknown>> = {}) {
 
 Deno.test("parseRuntimeArgs: parses required CLI args", () => {
   const args = [
-    "--notebook", "nb1",
-    "--auth-token", "tok",
-    "--runtime-id", "rid",
-    "--runtime-type", "python",
-    "--sync-url", "ws://foo",
-    "--runtime-python-path", "/usr/bin/python3",
-    "--runtime-env-path", "/tmp/venv",
-    "--runtime-package-manager", "pipx",
+    "--notebook",
+    "nb1",
+    "--auth-token",
+    "tok",
+    "--runtime-id",
+    "rid",
+    "--runtime-type",
+    "python",
+    "--sync-url",
+    "ws://foo",
+    "--runtime-python-path",
+    "/usr/bin/python3",
+    "--runtime-env-path",
+    "/tmp/venv",
+    "--runtime-package-manager",
+    "pipx",
     "--runtime-env-externally-managed",
   ];
   const result = parseRuntimeArgs(args);
@@ -48,14 +60,22 @@ Deno.test("parseRuntimeArgs: parses required CLI args", () => {
   assertEquals(result.runtimeType, "python");
   assertEquals(result.syncUrl, "ws://foo");
   assert(result.environmentOptions);
-  assertEquals(result.environmentOptions?.runtimePythonPath, "/usr/bin/python3");
+  assertEquals(
+    result.environmentOptions?.runtimePythonPath,
+    "/usr/bin/python3",
+  );
   assertEquals(result.environmentOptions?.runtimeEnvPath, "/tmp/venv");
   assertEquals(result.environmentOptions?.runtimePackageManager, "pipx");
   assertEquals(result.environmentOptions?.runtimeEnvExternallyManaged, true);
 });
 
 Deno.test("parseRuntimeArgs: uses defaults for missing environmentOptions", () => {
-  const result = parseRuntimeArgs(["--notebook", "nb2", "--auth-token", "tok2"]);
+  const result = parseRuntimeArgs([
+    "--notebook",
+    "nb2",
+    "--auth-token",
+    "tok2",
+  ]);
   assert(result.environmentOptions);
   assertEquals(result.environmentOptions?.runtimePythonPath, "python3");
   assertEquals(result.environmentOptions?.runtimePackageManager, "pip");
@@ -80,17 +100,22 @@ Deno.test("createRuntimeConfig - deep merges environmentOptions from CLI, env, a
   using _getStub = stub(Deno.env, "get", (key: string) => envMap[key]);
   const args = addRequiredParams(["--runtime-python-path", "/cli/python"]);
   assertThrows(
-    () => createRuntimeConfig(args, {
-      runtimeType: "python",
-      capabilities: { canExecuteCode: true, canExecuteSql: false, canExecuteAi: false },
-      environmentOptions: {
-        runtimePythonPath: "/default/python",
-        runtimePackageManager: "pip",
-        runtimeEnvExternallyManaged: false,
-      },
-    }),
+    () =>
+      createRuntimeConfig(args, {
+        runtimeType: "python",
+        capabilities: {
+          canExecuteCode: true,
+          canExecuteSql: false,
+          canExecuteAi: false,
+        },
+        environmentOptions: {
+          runtimePythonPath: "/default/python",
+          runtimePackageManager: "pip",
+          runtimeEnvExternallyManaged: false,
+        },
+      }),
     Error,
-    "--runtime-package-manager"
+    "--runtime-package-manager",
   );
 });
 
@@ -102,7 +127,9 @@ Deno.test("createRuntimeConfig - runtimeEnvExternallyManaged is true if set in C
 });
 
 Deno.test("createRuntimeConfig - runtimeEnvExternallyManaged is true if set in env", () => {
-  const envMap: Record<string, string | undefined> = { RUNTIME_ENV_EXTERNALLY_MANAGED: "true" };
+  const envMap: Record<string, string | undefined> = {
+    RUNTIME_ENV_EXTERNALLY_MANAGED: "true",
+  };
   using _getStub = stub(Deno.env, "get", (key: string) => envMap[key]);
   const config = createRuntimeConfig(addRequiredParams([]));
   assertEquals(config.environmentOptions?.runtimeEnvExternallyManaged, true);
@@ -121,17 +148,20 @@ Deno.test("RuntimeConfig.validate - passes with valid environmentOptions", () =>
 
 Deno.test("RuntimeConfig.validate - throws for invalid manager", () => {
   assertThrows(
-    () => new RuntimeConfig(makeBaseConfig({ runtimePackageManager: "conda" })).validate(),
+    () =>
+      new RuntimeConfig(makeBaseConfig({ runtimePackageManager: "conda" }))
+        .validate(),
     Error,
-    "--runtime-package-manager"
+    "--runtime-package-manager",
   );
 });
 
 Deno.test("RuntimeConfig.validate - throws for empty python path", () => {
   assertThrows(
-    () => new RuntimeConfig(makeBaseConfig({ runtimePythonPath: "" })).validate(),
+    () =>
+      new RuntimeConfig(makeBaseConfig({ runtimePythonPath: "" })).validate(),
     Error,
-    "--runtime-python-path"
+    "--runtime-python-path",
   );
 });
 
@@ -139,6 +169,6 @@ Deno.test("RuntimeConfig.validate - throws for empty env path", () => {
   assertThrows(
     () => new RuntimeConfig(makeBaseConfig({ runtimeEnvPath: "" })).validate(),
     Error,
-    "--runtime-env-path"
+    "--runtime-env-path",
   );
 });

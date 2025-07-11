@@ -47,7 +47,7 @@ export class RuntimeAgent {
    */
   async start(): Promise<void> {
     try {
-      await this.handlers.onStartup?.();
+      await this.handlers.onStartup?.(this.config.environmentOptions);
 
       const logger = createLogger(`${this.config.runtimeType}-agent`, {
         context: {

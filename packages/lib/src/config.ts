@@ -25,7 +25,8 @@ export class RuntimeConfig {
   public readonly notebookId: string;
   public readonly capabilities: RuntimeCapabilities;
   public readonly sessionId: string;
-  public readonly environmentOptions?: RuntimeAgentOptions["environmentOptions"];
+  public readonly environmentOptions?:
+    RuntimeAgentOptions["environmentOptions"];
 
   constructor(options: RuntimeAgentOptions) {
     this.runtimeId = options.runtimeId;
@@ -86,7 +87,8 @@ export class RuntimeConfig {
 
     if (this.environmentOptions) {
       const invalid: string[] = [];
-      const { runtimePackageManager, runtimePythonPath, runtimeEnvPath } = this.environmentOptions;
+      const { runtimePackageManager, runtimePythonPath, runtimeEnvPath } =
+        this.environmentOptions;
       if (runtimePackageManager && runtimePackageManager !== "pip") {
         invalid.push(`--runtime-package-manager`);
       }
@@ -100,7 +102,9 @@ export class RuntimeConfig {
 
       if (invalid.length > 0) {
         throw new Error(
-          `Invalid value for:\n\n${invalid.join("\n")}\n\nUse --help for more information.`
+          `Invalid value for:\n\n${
+            invalid.join("\n")
+          }\n\nUse --help for more information.`,
         );
       }
     }
@@ -191,14 +195,13 @@ Logging Configuration:
   // Environment options
   const environmentOptions: Record<string, unknown> = {};
   // runtimePythonPath
-  environmentOptions.runtimePythonPath =
-    parsed["runtime-python-path"] ||
+  environmentOptions.runtimePythonPath = parsed["runtime-python-path"] ||
     Deno.env.get("RUNTIME_PYTHON_PATH") ||
     "python3";
   // runtimeEnvPath
   if (parsed["runtime-env-path"] || Deno.env.get("RUNTIME_ENV_PATH")) {
-    environmentOptions.runtimeEnvPath =
-      parsed["runtime-env-path"] || Deno.env.get("RUNTIME_ENV_PATH");
+    environmentOptions.runtimeEnvPath = parsed["runtime-env-path"] ||
+      Deno.env.get("RUNTIME_ENV_PATH");
   }
   // runtimePackageManager
   environmentOptions.runtimePackageManager =
@@ -207,13 +210,13 @@ Logging Configuration:
     "pip";
   // runtimeEnvExternallyManaged: true if CLI or env sets it, else false
   const cliExternallyManaged = Boolean(
-    parsed["runtime-env-externally-managed"]
+    parsed["runtime-env-externally-managed"],
   );
   const envExternallyManaged =
     Deno.env.get("RUNTIME_ENV_EXTERNALLY_MANAGED") === "1" ||
     Deno.env.get("RUNTIME_ENV_EXTERNALLY_MANAGED") === "true";
-  environmentOptions.runtimeEnvExternallyManaged =
-    cliExternallyManaged || envExternallyManaged;
+  environmentOptions.runtimeEnvExternallyManaged = cliExternallyManaged ||
+    envExternallyManaged;
   result.environmentOptions = environmentOptions;
 
   return result;
@@ -224,7 +227,7 @@ Logging Configuration:
  */
 export function createRuntimeConfig(
   args: string[],
-  defaults: Partial<RuntimeAgentOptions> = {}
+  defaults: Partial<RuntimeAgentOptions> = {},
 ): RuntimeConfig {
   const cliConfig = parseRuntimeArgs(args);
 
@@ -248,7 +251,7 @@ export function createRuntimeConfig(
 
   // Only include non-undefined values from CLI config
   const cleanCliConfig: Partial<RuntimeAgentOptions> = Object.fromEntries(
-    Object.entries(cliConfig).filter(([_, value]) => value !== undefined)
+    Object.entries(cliConfig).filter(([_, value]) => value !== undefined),
   );
 
   const config: RuntimeAgentOptions = {

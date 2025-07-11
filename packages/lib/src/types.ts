@@ -187,7 +187,9 @@ export type ExecutionHandler = (
  */
 export interface RuntimeAgentEventHandlers {
   /** Called when agent starts up */
-  onStartup?: () => void | Promise<void>;
+  onStartup?: (
+    environmentOptions?: RuntimeAgentOptions["environmentOptions"],
+  ) => void | Promise<void>;
   /** Called when agent shuts down */
   onShutdown?: () => void | Promise<void>;
   /** Called when connection to LiveStore is established */
