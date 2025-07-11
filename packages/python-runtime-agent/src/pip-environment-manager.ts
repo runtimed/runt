@@ -6,16 +6,13 @@ import {
 import { join } from 'jsr:@std/path/join';
 import { isAbsolute } from 'jsr:@std/path/is-absolute';
 
+export type { Environment } from './environment-manager.ts';
+
 function getEnvironmentBin(envPath: string, bin: string): string {
   const binDir = Deno.build.os === 'windows' ? 'Scripts' : 'bin';
   const binName =
     bin + (Deno.build.os === 'windows' && !bin.endsWith('.exe') ? '.exe' : '');
   return join(envPath, binDir, binName);
-}
-
-function getEnvPath(env: Environment): string {
-  if (env.manager !== 'pip') throw new Error('Invalid environment manager');
-  return env.data as string;
 }
 
 export class PipEnvironmentManager implements EnvironmentManager {
@@ -55,7 +52,7 @@ export class PipEnvironmentManager implements EnvironmentManager {
   }
 
   async deleteEnvironment(env: Environment): Promise<void> {
-    const envPath = getEnvPath(env);
+    const envPath = this.getEnvironmentPath(env);
     try {
       await Deno.remove(envPath, { recursive: true });
     } catch (err) {
@@ -66,7 +63,7 @@ export class PipEnvironmentManager implements EnvironmentManager {
   }
 
   async updateEnvironment(env: Environment, specs: string): Promise<void> {
-    const envPath = getEnvPath(env);
+    const envPath = this.getEnvironmentPath(env);
     const reqPath = await Deno.makeTempFile({ dir: envPath, suffix: '.txt' });
     try {
       await Deno.writeTextFile(reqPath, specs);
@@ -88,7 +85,7 @@ export class PipEnvironmentManager implements EnvironmentManager {
     command: string[],
     options?: { stdio?: 'inherit' | 'piped' | 'null' }
   ): Promise<void> {
-    const envPath = getEnvPath(env);
+    const envPath = this.getEnvironmentPath(env);
     if (!command[0]) {
       throw new Error('No command specified to run in environment');
     }
@@ -102,5 +99,10 @@ export class PipEnvironmentManager implements EnvironmentManager {
     if (!status.success) {
       throw new Error(`Command failed: ${command.join(' ')}`);
     }
+  }
+
+  getEnvironmentPath(env: Environment): string {
+    if (env.manager !== 'pip') throw new Error('Invalid environment manager');
+    return env.data as string;
   }
 }

@@ -143,3 +143,30 @@ Deno.test(
     }
   }
 );
+
+Deno.test(
+  'getEnvironmentPath: returns correct path for pip environment',
+  async () => {
+    const envManager = new PipEnvironmentManager();
+    const env = await envManager.createEnvironment();
+    const path = envManager.getEnvironmentPath(env);
+    if (path !== env.data) {
+      throw new Error('getEnvironmentPath did not return the correct path');
+    }
+    await envManager.deleteEnvironment(env);
+  }
+);
+
+Deno.test('getEnvironmentPath: throws for invalid manager', () => {
+  const envManager = new PipEnvironmentManager();
+  const fakeEnv = { manager: 'conda', data: '/tmp/fake' } as any;
+  let errored = false;
+  try {
+    envManager.getEnvironmentPath(fakeEnv);
+  } catch {
+    errored = true;
+  }
+  if (!errored) {
+    throw new Error('getEnvironmentPath did not throw for invalid manager');
+  }
+});

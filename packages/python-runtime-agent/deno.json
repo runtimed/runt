@@ -41,11 +41,19 @@
   },
   "lint": {
     "rules": {
-      "tags": ["recommended"]
+      "tags": [
+        "recommended"
+      ]
     }
   },
   "publish": {
-    "include": ["src/", "README.md"],
-    "exclude": ["**/*.test.ts", "**/test_*.ts"]
+    "include": [
+      "src/",
+      "README.md"
+    ],
+    "exclude": [
+      "**/*.test.ts",
+      "**/test_*.ts"
+    ]
   }
 }
