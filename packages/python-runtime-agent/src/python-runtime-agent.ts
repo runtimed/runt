@@ -6,6 +6,8 @@ import requirements from "./requirements.txt" with { type: "text" };
 import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
 import { createLogger } from "@runt/lib";
 import spawnteract from "spawnteract";
+import { executeAI, gatherNotebookContext } from "@runt/ai";
+import type { ExecutionContext } from "@runt/lib";
 
 export class PythonRuntimeAgent {
   private envManager = new PipEnvironmentManager();
@@ -13,6 +15,7 @@ export class PythonRuntimeAgent {
   private agent: RuntimeAgent;
   private logger = createLogger("python-runtime-agent");
   private kernel: any = null; // spawnteract kernel handle
+  private currentAIExecution: { cellId: string; abortController: AbortController } | null = null;
 
   constructor(args: string[] = Deno.args) {
     const config = createRuntimeConfig(args, {
@@ -20,14 +23,18 @@ export class PythonRuntimeAgent {
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
-        canExecuteAi: false,
+        canExecuteAi: true,
       },
     });
     this.agent = new RuntimeAgent(config, config.capabilities, {
       onStartup: this.onStartup.bind(this),
-      // onShutdown can be extended if needed
     });
     this.agent.onExecution(this.executeCell.bind(this));
+    this.agent.onCancellation(this.handleCancellation.bind(this));
+  }
+
+  get store() {
+    return this.agent.liveStore;
   }
 
   private async onStartup(): Promise<void> {
@@ -38,12 +45,12 @@ export class PythonRuntimeAgent {
     const envPath = this.envManager.getEnvironmentPath(this.environment);
     this.logger.info(`Environment created at ${envPath}`);
 
+    // Launch ipykernel using spawnteract
     this.logger.info("Launching ipykernel with spawnteract");
     this.kernel = await spawnteract.launch("python3", {
       cwd: envPath,
       env: {
         ...Deno.env.toObject(),
-        VIRTUAL_ENV: envPath,
         PATH: `${envPath}/bin:${Deno.env.get("PATH") ?? ""}`,
       },
       kernelArgs: [
@@ -51,10 +58,9 @@ export class PythonRuntimeAgent {
       ],
     });
     this.logger.info("ipykernel launched");
-    // TODO: handle kernel shutdown/cleanup
   }
 
-  private async executeCell(context: any): Promise<{ success: boolean; error?: string }> {
+  private async executeCell(context: ExecutionContext): Promise<{ success: boolean; error?: string }> {
     const { cell, stdout, stderr, result, error, abortSignal } = context;
     const code = cell.source?.trim() || "";
     if (!code) return { success: true };
@@ -62,14 +68,40 @@ export class PythonRuntimeAgent {
       stderr("Kernel not started\n");
       return { success: false, error: "Kernel not started" };
     }
-    // Only support code cells for now
+    if (cell.cellType === "ai") {
+      // AI cell: use @runt/ai
+      const notebookContext = gatherNotebookContext(this.store, cell);
+      const aiAbortController = new AbortController();
+      this.currentAIExecution = {
+        cellId: cell.id,
+        abortController: aiAbortController,
+      };
+      if (abortSignal.aborted) {
+        aiAbortController.abort();
+      } else {
+        abortSignal.addEventListener("abort", () => {
+          aiAbortController.abort();
+        });
+      }
+      const aiContext = { ...context, abortSignal: aiAbortController.signal };
+      try {
+        return await executeAI(
+          aiContext,
+          notebookContext,
+          this.logger,
+          this.store,
+          context.sessionId,
+        );
+      } finally {
+        this.currentAIExecution = null;
+      }
+    }
     if (cell.cellType !== "code") {
-      stderr("Only code cells are supported\n");
-      return { success: false, error: "Only code cells are supported" };
+      stderr("Only code and AI cells are supported\n");
+      return { success: false, error: "Only code and AI cells are supported" };
     }
     try {
       const msg = await this.kernel.execute(code);
-      // Stream outputs as they arrive
       for await (const output of msg) {
         if (output.output_type === "stream") {
           if (output.name === "stdout") stdout(output.text);
@@ -88,6 +120,29 @@ export class PythonRuntimeAgent {
     }
   }
 
+  private handleCancellation(queueId: string, cellId: string, reason: string): void {
+    this.logger.info("Python execution cancellation", {
+      queueId,
+      cellId,
+      reason,
+    });
+    if (this.currentAIExecution && this.currentAIExecution.cellId === cellId) {
+      this.logger.info("Cancelling AI execution", { cellId });
+      this.currentAIExecution.abortController.abort();
+      this.currentAIExecution = null;
+      return;
+    }
+    // Interrupt the ipykernel for code cell cancellation
+    if (this.kernel && this.kernel.spawn && typeof this.kernel.spawn.kill === "function") {
+      try {
+        this.logger.info("Sending SIGINT to ipykernel process");
+        this.kernel.spawn.kill("SIGINT");
+      } catch (err) {
+        this.logger.error("Failed to send SIGINT to kernel process", err);
+      }
+    }
+  }
+
   async start(): Promise<void> {
     await this.agent.start();
   }
@@ -98,7 +153,16 @@ export class PythonRuntimeAgent {
 
   async shutdown(): Promise<void> {
     this.logger.info('PythonRuntimeAgent shutdown (tearing down environment)');
-    // TODO: shutdown/cleanup kernel process
+    // Shutdown/cleanup kernel process
+    if (this.kernel && this.kernel.spawn && typeof this.kernel.spawn.kill === "function") {
+      try {
+        this.logger.info("Killing ipykernel process");
+        this.kernel.spawn.kill();
+      } catch (err) {
+        this.logger.error("Failed to kill kernel process", err);
+      }
+      this.kernel = null;
+    }
     if (this.environment) {
       await this.envManager.deleteEnvironment(this.environment);
       this.environment = null;
