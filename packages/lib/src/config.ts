@@ -11,7 +11,7 @@ import type { RuntimeAgentOptions, RuntimeCapabilities } from "./types.ts";
  * Default configuration values
  */
 export const DEFAULT_CONFIG = {
-  syncUrl: "wss://anode-docworker.rgbkrk.workers.dev",
+  syncUrl: "wss://app.runt.run/livestore",
 } as const;
 
 /**
