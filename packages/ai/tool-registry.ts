@@ -1,5 +1,9 @@
 import { type CellData, events, type Store, tables } from "@runt/schema";
 import type { Logger } from "@runt/lib";
+import { createLogger } from "@runt/lib";
+
+// Create logger for tool execution debugging
+const toolLogger = createLogger("ai-tools");
 
 interface NotebookTool {
   name: string;
