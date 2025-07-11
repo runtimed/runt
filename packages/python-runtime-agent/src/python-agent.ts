@@ -11,7 +11,7 @@ export class PythonRuntimeAgent {
 
   constructor(args: string[] = [], options: PythonAgentOptions = {}) {
     this.config = createRuntimeConfig(args, {
-      kernelType: "python3-subprocess",
+      runtimeType: "python",
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,

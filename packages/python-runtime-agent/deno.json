@@ -14,9 +14,9 @@
     "pythonrunt": "./src/mod.ts"
   },
   "imports": {
-    "@runt/ai": "jsr:@runt/ai@^0.5.3",
-    "@runt/lib": "jsr:@runt/lib@^0.5.3",
-    "@runt/schema": "jsr:@runt/schema@^0.5.3"
+    "@runt/ai": "jsr:@runt/ai@^0.6.2",
+    "@runt/lib": "jsr:@runt/lib@^0.6.2",
+    "@runt/schema": "jsr:@runt/schema@^0.6.2"
   },
   "tasks": {
     "dev": "deno run --allow-all src/mod.ts",

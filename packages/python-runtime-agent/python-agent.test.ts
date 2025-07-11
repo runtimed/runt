@@ -22,7 +22,7 @@ Deno.test("PythonRuntimeAgent configuration", async (t) => {
     assertEquals(typeof agent.start, "function");
     assertEquals(typeof agent.shutdown, "function");
     assertEquals(typeof agent.keepAlive, "function");
-    assertEquals(agent.config.kernelType, "python3-subprocess");
+    assertEquals(agent.config.runtimeType, "python");
     assertEquals(agent.config.capabilities.canExecuteCode, true);
     assertEquals(agent.config.capabilities.canExecuteSql, false);
     assertEquals(agent.config.capabilities.canExecuteAi, true);

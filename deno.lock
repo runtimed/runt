@@ -2,11 +2,10 @@
   "version": "5",
   "specifiers": {
     "jsr:@openai/openai@^4.98.0": "4.102.0",
-    "jsr:@runt/ai@~0.5.3": "0.5.3",
-    "jsr:@runt/lib@~0.5.3": "0.5.3",
-    "jsr:@runt/schema@~0.5.3": "0.5.3",
+    "jsr:@std/assert@*": "1.0.13",
     "jsr:@std/async@1": "1.0.13",
     "jsr:@std/cli@1": "1.0.20",
+    "jsr:@std/internal@^1.0.6": "1.0.9",
     "npm:@livestore/adapter-node@~0.3.1": "0.3.1_vite@6.3.4__picomatch@4.0.2_@opentelemetry+api@1.9.0",
     "npm:@livestore/livestore@~0.3.1": "0.3.1_@opentelemetry+api@1.9.0",
     "npm:@livestore/sync-cf@~0.3.1": "0.3.1_@opentelemetry+api@1.9.0",
@@ -23,30 +22,10 @@
         "npm:zod"
       ]
     },
-    "@runt/ai@0.5.3": {
-      "integrity": "2ac8e1935fbfb7ca269768b368d60c830fc1b7783f5deb15fd20b6cd143807e0",
+    "@std/assert@1.0.13": {
+      "integrity": "ae0d31e41919b12c656c742b22522c32fb26ed0cba32975cb0de2a273cb68b29",
       "dependencies": [
-        "jsr:@openai/openai",
-        "jsr:@runt/lib",
-        "jsr:@runt/schema",
-        "npm:strip-ansi"
-      ]
-    },
-    "@runt/lib@0.5.3": {
-      "integrity": "de87df1a7d93e41d93dda7a23ef04bb2d9445cc2e472c13ce64ad597718f712e",
-      "dependencies": [
-        "jsr:@runt/schema",
-        "jsr:@std/cli",
-        "npm:@livestore/adapter-node",
-        "npm:@livestore/livestore",
-        "npm:@livestore/sync-cf",
-        "npm:@opentelemetry/api"
-      ]
-    },
-    "@runt/schema@0.5.3": {
-      "integrity": "efaee42f9459ebdd0e3a008a295d33d5cf66a30e01d3a9c244c28e98abd577e7",
-      "dependencies": [
-        "npm:@livestore/livestore"
+        "jsr:@std/internal"
       ]
     },
     "@std/async@1.0.13": {
@@ -54,6 +33,9 @@
     },
     "@std/cli@1.0.20": {
       "integrity": "a8c384a2c98cec6ec6a2055c273a916e2772485eb784af0db004c5ab8ba52333"
+    },
+    "@std/internal@1.0.9": {
+      "integrity": "bdfb97f83e4db7a13e8faab26fb1958d1b80cc64366501af78a0aee151696eb8"
     }
   },
   "npm": {
@@ -1038,9 +1020,9 @@
       },
       "packages/python-runtime-agent": {
         "dependencies": [
-          "jsr:@runt/ai@~0.5.3",
-          "jsr:@runt/lib@~0.5.3",
-          "jsr:@runt/schema@~0.5.3"
+          "jsr:@runt/ai@~0.6.2",
+          "jsr:@runt/lib@~0.6.2",
+          "jsr:@runt/schema@~0.6.2"
         ]
       },
       "packages/schema": {
