@@ -3,15 +3,15 @@
 // This module provides utilities for parsing command-line arguments and
 // environment variables to configure runtime agents with sensible defaults.
 
-import { parseArgs } from "@std/cli/parse-args";
-import { createLogger } from "./logging.ts";
-import type { RuntimeAgentOptions, RuntimeCapabilities } from "./types.ts";
+import { parseArgs } from '@std/cli/parse-args';
+import { createLogger } from './logging.ts';
+import type { RuntimeAgentOptions, RuntimeCapabilities } from './types.ts';
 
 /**
  * Default configuration values
  */
 export const DEFAULT_CONFIG = {
-  syncUrl: "wss://anode-docworker.rgbkrk.workers.dev",
+  syncUrl: 'wss://anode-docworker.rgbkrk.workers.dev',
 } as const;
 
 /**
@@ -35,9 +35,9 @@ export class RuntimeConfig {
     this.capabilities = options.capabilities;
 
     // Generate unique session ID
-    this.sessionId = `${this.runtimeType}-${this.runtimeId}-${Date.now()}-${
-      Math.random().toString(36).slice(2)
-    }`;
+    this.sessionId = `${this.runtimeType}-${
+      this.runtimeId
+    }-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
   /**
@@ -48,37 +48,37 @@ export class RuntimeConfig {
 
     if (!this.authToken) {
       missing.push({
-        field: "authToken",
-        suggestion: "--auth-token <token> or AUTH_TOKEN env var",
+        field: 'authToken',
+        suggestion: '--auth-token <token> or AUTH_TOKEN env var',
       });
     }
     if (!this.notebookId) {
       missing.push({
-        field: "notebookId",
-        suggestion: "--notebook <id> or NOTEBOOK_ID env var",
+        field: 'notebookId',
+        suggestion: '--notebook <id> or NOTEBOOK_ID env var',
       });
     }
     if (!this.runtimeId) {
       missing.push({
-        field: "runtimeId",
-        suggestion: "--runtime-id <id> or RUNTIME_ID env var",
+        field: 'runtimeId',
+        suggestion: '--runtime-id <id> or RUNTIME_ID env var',
       });
     }
     if (!this.runtimeType) {
       missing.push({
-        field: "runtimeType",
-        suggestion: "--runtime-type <type> or RUNTIME_TYPE env var",
+        field: 'runtimeType',
+        suggestion: '--runtime-type <type> or RUNTIME_TYPE env var',
       });
     }
 
     if (missing.length > 0) {
       const messages = missing.map(
-        ({ field, suggestion }) => `  ${field}: ${suggestion}`,
+        ({ field, suggestion }) => `  ${field}: ${suggestion}`
       );
       throw new Error(
-        `Missing required configuration:\n\n${
-          messages.join("\n")
-        }\n\nUse --help for more information.`,
+        `Missing required configuration:\n\n${messages.join(
+          '\n'
+        )}\n\nUse --help for more information.`
       );
     }
   }
@@ -90,21 +90,27 @@ export class RuntimeConfig {
 export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
   const parsed = parseArgs(args, {
     string: [
-      "notebook",
-      "auth-token",
-      "sync-url",
-      "runtime-id",
-      "runtime-type",
-      "heartbeat-interval",
+      'notebook',
+      'auth-token',
+      'sync-url',
+      'runtime-id',
+      'runtime-type',
+      'heartbeat-interval',
+      'runtime-env-path',
+      'runtime-package-manager',
+      'runtime-specs',
     ],
-    boolean: ["help"],
+    boolean: ['help'],
     alias: {
-      n: "notebook",
-      t: "auth-token",
-      s: "sync-url",
-      r: "runtime-id",
-      T: "runtime-type",
-      h: "help",
+      n: 'notebook',
+      t: 'auth-token',
+      s: 'sync-url',
+      r: 'runtime-id',
+      T: 'runtime-type',
+      h: 'help',
+      E: 'runtime-env-path',
+      P: 'runtime-package-manager',
+      S: 'runtime-specs',
     },
   });
 
@@ -144,23 +150,37 @@ Logging Configuration:
   }
 
   const result: Partial<RuntimeAgentOptions> = {
-    syncUrl: parsed["sync-url"] || Deno.env.get("LIVESTORE_SYNC_URL") ||
+    syncUrl:
+      parsed['sync-url'] ||
+      Deno.env.get('LIVESTORE_SYNC_URL') ||
       DEFAULT_CONFIG.syncUrl,
   };
 
-  const notebookId = parsed.notebook || Deno.env.get("NOTEBOOK_ID");
+  const notebookId = parsed.notebook || Deno.env.get('NOTEBOOK_ID');
   if (notebookId) result.notebookId = notebookId;
 
-  const authToken = parsed["auth-token"] || Deno.env.get("AUTH_TOKEN");
+  const authToken = parsed['auth-token'] || Deno.env.get('AUTH_TOKEN');
   if (authToken) result.authToken = authToken;
 
-  const runtimeType = parsed["runtime-type"] || Deno.env.get("RUNTIME_TYPE");
-  if (runtimeType && typeof runtimeType === "string") {
+  const runtimeType = parsed['runtime-type'] || Deno.env.get('RUNTIME_TYPE');
+  if (runtimeType && typeof runtimeType === 'string') {
     result.runtimeType = runtimeType;
   }
 
-  const runtimeId = parsed["runtime-id"] || Deno.env.get("RUNTIME_ID");
-  if (runtimeId && typeof runtimeId === "string") result.runtimeId = runtimeId;
+  const runtimeId = parsed['runtime-id'] || Deno.env.get('RUNTIME_ID');
+  if (runtimeId && typeof runtimeId === 'string') result.runtimeId = runtimeId;
+
+  // Add extra runtime options
+  const runtimeEnvPath =
+    parsed['runtime-env-path'] || Deno.env.get('RUNTIME_ENV_PATH');
+  if (runtimeEnvPath) result.runtimeEnvPath = runtimeEnvPath;
+  const runtimePackageManager =
+    parsed['runtime-package-manager'] ||
+    Deno.env.get('RUNTIME_PACKAGE_MANAGER');
+  if (runtimePackageManager)
+    result.runtimePackageManager = runtimePackageManager;
+  const runtimeSpecs = parsed['runtime-specs'] || Deno.env.get('RUNTIME_SPECS');
+  if (runtimeSpecs) result.runtimeSpecs = runtimeSpecs;
 
   return result;
 }
@@ -170,13 +190,13 @@ Logging Configuration:
  */
 export function createRuntimeConfig(
   args: string[],
-  defaults: Partial<RuntimeAgentOptions> = {},
+  defaults: Partial<RuntimeAgentOptions> = {}
 ): RuntimeConfig {
   const cliConfig = parseRuntimeArgs(args);
 
   // Merge CLI config with defaults - CLI args override defaults
   const mergedDefaults = {
-    runtimeType: "runtime",
+    runtimeType: 'runtime',
     syncUrl: DEFAULT_CONFIG.syncUrl,
     capabilities: {
       canExecuteCode: true,
@@ -188,7 +208,7 @@ export function createRuntimeConfig(
 
   // Only include non-undefined values from CLI config
   const cleanCliConfig = Object.fromEntries(
-    Object.entries(cliConfig).filter(([_, value]) => value !== undefined),
+    Object.entries(cliConfig).filter(([_, value]) => value !== undefined)
   );
 
   const config: RuntimeAgentOptions = {
@@ -198,16 +218,17 @@ export function createRuntimeConfig(
 
   // Generate runtimeId after merging to use correct runtimeType
   if (!config.runtimeId) {
-    config.runtimeId = cliConfig.runtimeId ||
-      Deno.env.get("RUNTIME_ID") ||
+    config.runtimeId =
+      cliConfig.runtimeId ||
+      Deno.env.get('RUNTIME_ID') ||
       `${config.runtimeType}-runtime-${Deno.pid}`;
   }
 
   const runtimeConfig = new RuntimeConfig(config);
   runtimeConfig.validate();
 
-  const logger = createLogger("config");
-  logger.debug("Runtime configuration created", {
+  const logger = createLogger('config');
+  logger.debug('Runtime configuration created', {
     runtimeType: runtimeConfig.runtimeType,
     runtimeId: runtimeConfig.runtimeId,
     syncUrl: runtimeConfig.syncUrl,

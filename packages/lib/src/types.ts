@@ -4,13 +4,13 @@
 // the runtime agent library, importing existing types from @runt/schema
 // and adding runtime-specific extensions.
 
-import type { Store } from "npm:@livestore/livestore";
+import type { Store } from 'npm:@livestore/livestore';
 import type {
   CellData,
   ExecutionQueueData,
   OutputType,
   schema,
-} from "@runt/schema";
+} from '@runt/schema';
 
 /**
  * Raw output data format accepted by context.display() methods
@@ -36,6 +36,12 @@ export interface RuntimeAgentOptions {
   authToken: string;
   /** Notebook ID to connect to */
   notebookId: string;
+  /** Optional: Path to an existing environment to use */
+  runtimeEnvPath?: string;
+  /** Optional: Package manager to use for the environment (e.g., 'pip') */
+  runtimePackageManager?: string;
+  /** Optional: Specs (requirements) to update the environment with */
+  runtimeSpecs?: string;
 }
 
 /**
@@ -75,10 +81,10 @@ export interface AiModel {
  * Capabilities that an AI model can have
  */
 export type ModelCapability =
-  | "completion" // Basic text completion
-  | "tools" // Function/tool calling
-  | "vision" // Image understanding
-  | "thinking"; // Chain of thought reasoning
+  | 'completion' // Basic text completion
+  | 'tools' // Function/tool calling
+  | 'vision' // Image understanding
+  | 'thinking'; // Chain of thought reasoning
 
 /**
  * Execution context passed to handlers
@@ -109,19 +115,16 @@ export interface ExecutionContext {
   display: (
     data: RawOutputData,
     metadata?: Record<string, unknown>,
-    displayId?: string,
+    displayId?: string
   ) => void;
   /** Update existing display data by display ID */
   updateDisplay: (
     displayId: string,
     data: RawOutputData,
-    metadata?: Record<string, unknown>,
+    metadata?: Record<string, unknown>
   ) => void;
   /** Emit execution result (final output) */
-  result: (
-    data: RawOutputData,
-    metadata?: Record<string, unknown>,
-  ) => void;
+  result: (data: RawOutputData, metadata?: Record<string, unknown>) => void;
   /** Emit error output */
   error: (ename: string, evalue: string, traceback: string[]) => void;
   /** Clear all previous outputs for this cell */
@@ -171,7 +174,7 @@ export interface ExecutionResult {
  * @returns Promise resolving to execution result (success/failure state)
  */
 export type ExecutionHandler = (
-  context: ExecutionContext,
+  context: ExecutionContext
 ) => Promise<ExecutionResult>;
 
 /**
@@ -189,7 +192,7 @@ export interface RuntimeAgentEventHandlers {
   /** Called when an execution fails */
   onExecutionError?: (
     error: Error,
-    context: ExecutionContext,
+    context: ExecutionContext
   ) => void | Promise<void>;
 }
 
@@ -197,7 +200,7 @@ export interface RuntimeAgentEventHandlers {
  * Cancellation error for when execution is interrupted
  */
 export interface CancellationError extends Error {
-  name: "CancellationError";
+  name: 'CancellationError';
   queueId: string;
   cellId: string;
 }
@@ -208,18 +211,27 @@ export interface CancellationError extends Error {
 export type CancellationHandler = (
   queueId: string,
   cellId: string,
-  reason: string,
+  reason: string
 ) => void | Promise<void>;
 
 /**
  * Runtime agent status
  */
 export type AgentStatus =
-  | "starting"
-  | "ready"
-  | "busy"
-  | "error"
-  | "shutting-down";
+  | 'starting'
+  | 'ready'
+  | 'busy'
+  | 'error'
+  | 'shutting-down';
+
+/**
+ * Subset of config options safe to pass to onStartup handlers
+ */
+export type RuntimeAgentStartupConfig = {
+  runtimeEnvPath?: string;
+  runtimePackageManager?: string;
+  runtimeSpecs?: string;
+};
 
 // Re-export commonly used schema types for convenience
 export type {
@@ -228,4 +240,4 @@ export type {
   ExecutionQueueData,
   OutputType,
   RuntimeSessionData,
-} from "@runt/schema";
+} from '@runt/schema';
