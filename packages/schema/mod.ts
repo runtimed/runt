@@ -1285,11 +1285,12 @@ export interface AiToolCallData {
  */
 export interface AiToolResultData {
   tool_call_id: string;
-  tool_name: string;
-  arguments: Record<string, unknown>;
   status: "success" | "error";
-  timestamp: string;
   result?: string;
+  // Optional fields for backward compatibility
+  tool_name?: string;
+  arguments?: Record<string, unknown>;
+  timestamp?: string;
 }
 
 /**
@@ -1316,16 +1317,10 @@ export function isAiToolResultData(data: unknown): data is AiToolResultData {
     typeof data === "object" &&
     data !== null &&
     "tool_call_id" in data &&
-    "tool_name" in data &&
-    "arguments" in data &&
     "status" in data &&
-    "timestamp" in data &&
     typeof (data as AiToolResultData).tool_call_id === "string" &&
-    typeof (data as AiToolResultData).tool_name === "string" &&
-    typeof (data as AiToolResultData).arguments === "object" &&
     (typeof (data as AiToolResultData).status === "string") &&
-    ["success", "error"].includes((data as AiToolResultData).status) &&
-    typeof (data as AiToolResultData).timestamp === "string"
+    ["success", "error"].includes((data as AiToolResultData).status)
   );
 }
 
