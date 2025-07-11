@@ -323,18 +323,52 @@ export async function handleToolCallWithResult(
                     output.outputType === "multimedia_result"
                   ) {
                     // Try to get text representation from representations or fallback to data
+                    // Prioritize markdown for AI context, then plain text
                     let resultText = "";
+                    let usedFormat = "";
+
+                    toolLogger.debug(
+                      "Processing multimedia_result for tool response",
+                      {
+                        cellId,
+                        hasRepresentations: !!output.representations,
+                        representationKeys: output.representations
+                          ? Object.keys(output.representations)
+                          : [],
+                        hasData: !!output.data,
+                      },
+                    );
+
                     if (
+                      output.representations &&
+                      output.representations["text/markdown"]
+                    ) {
+                      const container = output.representations["text/markdown"];
+                      if (container.type === "inline") {
+                        resultText = String(container.data || "");
+                        usedFormat = "text/markdown";
+                      }
+                    } else if (
                       output.representations &&
                       output.representations["text/plain"]
                     ) {
                       const container = output.representations["text/plain"];
                       if (container.type === "inline") {
                         resultText = String(container.data || "");
+                        usedFormat = "text/plain";
                       }
                     } else if (output.data) {
                       resultText = String(output.data);
+                      usedFormat = "raw_data";
                     }
+
+                    toolLogger.debug("Tool result content extracted", {
+                      cellId,
+                      usedFormat,
+                      contentLength: resultText.length,
+                      contentPreview: resultText.substring(0, 100),
+                    });
+
                     if (resultText) {
                       outputTexts.push(`Result: ${resultText.trim()}`);
                     }
