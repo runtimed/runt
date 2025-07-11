@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@openai/openai@^4.68.4": "4.102.0",
     "jsr:@openai/openai@^4.98.0": "4.102.0",
     "jsr:@std/assert@*": "1.0.13",
     "jsr:@std/assert@1.0.13": "1.0.13",
@@ -1263,6 +1264,11 @@
           "npm:ollama@~0.5.16",
           "npm:pyodide@~0.27.7",
           "npm:strip-ansi@^7.1.0"
+        ]
+      },
+      "packages/aipython-runtime-agent": {
+        "dependencies": [
+          "jsr:@openai/openai@^4.68.4"
         ]
       },
       "packages/lib": {

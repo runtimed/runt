@@ -1,0 +1,39 @@
+{
+  "name": "@runt/aipython-runtime-agent",
+  "version": "0.1.0",
+  "description": "AI-powered Python execution simulation runtime agent",
+  "exports": {
+    ".": "./src/mod.ts",
+    "./aipython-agent": "./src/aipython-agent.ts"
+  },
+  "imports": {
+    "@runt/lib": "../lib/mod.ts",
+    "@runt/schema": "../schema/mod.ts",
+    "@openai/openai": "jsr:@openai/openai@^4.68.4"
+  },
+  "tasks": {
+    "dev": "deno run --allow-all --env-file=../../.env src/aipython-agent.ts",
+    "test": "deno test --allow-all",
+    "check": "deno check src/*.ts"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 80,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": false,
+    "proseWrap": "preserve"
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}
