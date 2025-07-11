@@ -92,7 +92,6 @@ jobs:
           deno eval "
           import * as schema from './packages/schema/mod.ts';
           import * as lib from './packages/lib/mod.ts';
-          import * as pythonAgent from './packages/python-runtime-agent/src/mod.ts';
           console.log('Package imports work');
           "
 
@@ -102,7 +101,6 @@ jobs:
           deno eval "
           const schemaConfig = JSON.parse(Deno.readTextFileSync('./packages/schema/deno.json'));
           const libConfig = JSON.parse(Deno.readTextFileSync('./packages/lib/deno.json'));
-          const pythonAgentConfig = JSON.parse(Deno.readTextFileSync('./packages/python-runtime-agent/deno.json'));
           const rootConfig = JSON.parse(Deno.readTextFileSync('./deno.json'));
           console.log('deno.json files are valid');
           "
