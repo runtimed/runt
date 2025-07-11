@@ -198,6 +198,7 @@ export const tables = {
       notebookId: State.SQLite.text({ primaryKey: true }),
       cellId: State.SQLite.text({ nullable: true }),
       lastActiveAt: State.SQLite.datetime({ nullable: true }),
+      deleted: State.SQLite.boolean({ default: false }),
     },
   }),
 
@@ -517,7 +518,7 @@ export const events = {
       userId: Schema.String,
       authProvider: AuthProviderSchema,
       notebookId: Schema.String,
-      cellId: Schema.String,
+      cellId: Schema.optional(Schema.String),
       lastActiveAt: Schema.Date,
     }),
   }),
@@ -951,13 +952,39 @@ const materializers = State.SQLite.materializers(events, {
       .where({ id: cellId }),
 
   "v1.PresenceUpdated": ({ userId, notebookId, cellId, authProvider, lastActiveAt }, ctx) => {
+    const ops = [];
+
+    // Remove the stale presence
+    const now = new Date().getTime();
+    const TEN_SECONDS = 1000 * 5;
+
+    const staleUsers = ctx.query(tables.presence.select().where({ notebookId, lastActiveAt: {
+      op: '>',
+      value: new Date(now - TEN_SECONDS),
+    } }))
+
+
+    console.log('staleUsers', staleUsers);
+
+    ops.push(tables.presence.update({ deleted: true }).where({ notebookId, userId: {
+      op: '!=',
+      value: userId,
+    }, lastActiveAt: {
+      op: '>',
+      value: new Date(now - TEN_SECONDS),
+    } }));
+
+    console.log('v1.PresenceUpdated 🔥🔥🔥 22');
     const currentPresence = ctx.query(
       tables.presence.select().where({ userId, notebookId, cellId, authProvider }).limit(1),
     )[0];
     if (currentPresence) {
-      return tables.presence.update({ lastActiveAt }).where({ userId, notebookId, cellId, authProvider });
+      ops.push(tables.presence.update({ lastActiveAt, deleted: false }).where({ userId, notebookId, cellId, authProvider }));
+    } else {
+      ops.push(tables.presence.insert({ userId, notebookId, cellId, authProvider, lastActiveAt }));
     }
-    return tables.presence.insert({ userId, notebookId, cellId, authProvider, lastActiveAt });
+
+    return ops;
   }
 });
 
