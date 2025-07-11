@@ -56,7 +56,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       notebookId: "test-notebook-integration",
       syncUrl: "ws://localhost:8787",
       authToken: "test-integration-token",
-
+      environmentOptions: {},
       capabilities,
     });
   };
@@ -146,6 +146,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         syncUrl: "ws://localhost:8787",
         authToken: "valid-token",
         capabilities: capabilities,
+        environmentOptions: {},
       });
 
       const agent = new RuntimeAgent(validConfig, capabilities);
@@ -165,6 +166,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
           syncUrl: "ws://localhost:8787",
           authToken: "token",
           capabilities: capabilities,
+          environmentOptions: {},
         });
         config.validate(); // Explicitly call validate
       } catch (e) {
@@ -240,6 +242,7 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: true,
       },
+      environmentOptions: {},
     });
 
     assertEquals(config.runtimeId, "test-runtime");
@@ -262,6 +265,7 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: false,
       },
+      environmentOptions: {},
     });
 
     const config2 = new RuntimeConfig({
@@ -275,6 +279,7 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: false,
       },
+      environmentOptions: {},
     });
 
     // Session IDs should be different
@@ -294,6 +299,7 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: false,
       },
+      environmentOptions: {},
     });
   });
 });

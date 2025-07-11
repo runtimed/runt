@@ -25,8 +25,7 @@ export class RuntimeConfig {
   public readonly notebookId: string;
   public readonly capabilities: RuntimeCapabilities;
   public readonly sessionId: string;
-  public readonly environmentOptions?:
-    RuntimeAgentOptions["environmentOptions"];
+  public readonly environmentOptions: RuntimeAgentOptions["environmentOptions"];
 
   constructor(options: RuntimeAgentOptions) {
     this.runtimeId = options.runtimeId;
@@ -192,23 +191,18 @@ Logging Configuration:
   const runtimeId = parsed["runtime-id"] || Deno.env.get("RUNTIME_ID");
   if (runtimeId && typeof runtimeId === "string") result.runtimeId = runtimeId;
 
-  // Environment options
   const environmentOptions: Record<string, unknown> = {};
-  // runtimePythonPath
   environmentOptions.runtimePythonPath = parsed["runtime-python-path"] ||
     Deno.env.get("RUNTIME_PYTHON_PATH") ||
     "python3";
-  // runtimeEnvPath
   if (parsed["runtime-env-path"] || Deno.env.get("RUNTIME_ENV_PATH")) {
     environmentOptions.runtimeEnvPath = parsed["runtime-env-path"] ||
       Deno.env.get("RUNTIME_ENV_PATH");
   }
-  // runtimePackageManager
   environmentOptions.runtimePackageManager =
     parsed["runtime-package-manager"] ||
     Deno.env.get("RUNTIME_PACKAGE_MANAGER") ||
     "pip";
-  // runtimeEnvExternallyManaged: true if CLI or env sets it, else false
   const cliExternallyManaged = Boolean(
     parsed["runtime-env-externally-managed"],
   );

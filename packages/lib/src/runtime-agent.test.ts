@@ -57,6 +57,7 @@ Deno.test("RuntimeAgent", async (t) => {
       syncUrl: "ws://localhost:8787",
       authToken: "test-token",
       capabilities,
+      environmentOptions: {},
     });
   };
 
@@ -173,6 +174,7 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: true,
       },
+      environmentOptions: {},
     });
 
     assertEquals(config.runtimeId, "test-runtime");
@@ -195,6 +197,7 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: false,
       },
+      environmentOptions: {},
     });
 
     const config2 = new RuntimeConfig({
@@ -208,6 +211,7 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: false,
       },
+      environmentOptions: {},
     });
 
     // Session IDs should be different
@@ -227,6 +231,7 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: false,
       },
+      environmentOptions: {},
     });
   });
 });

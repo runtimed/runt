@@ -36,8 +36,8 @@ export interface RuntimeAgentOptions {
   authToken: string;
   /** Notebook ID to connect to */
   notebookId: string;
-  /** Optional: Environment-related options for the runtime */
-  environmentOptions?: {
+  /** Environment-related options for the runtime */
+  environmentOptions: {
     /** Path to the python executable to use (default: "python3") */
     runtimePythonPath?: string;
     /** Path to the environment/venv to use (default: unset) */
@@ -188,7 +188,7 @@ export type ExecutionHandler = (
 export interface RuntimeAgentEventHandlers {
   /** Called when agent starts up */
   onStartup?: (
-    environmentOptions?: RuntimeAgentOptions["environmentOptions"],
+    environmentOptions: RuntimeAgentOptions["environmentOptions"],
   ) => void | Promise<void>;
   /** Called when agent shuts down */
   onShutdown?: () => void | Promise<void>;

@@ -35,6 +35,7 @@ Deno.test("RuntimeConfig validation works", () => {
         canExecuteSql: false,
         canExecuteAi: false,
       },
+      environmentOptions: {},
     });
     config.validate();
     throw new Error("Should have thrown validation error");
@@ -57,6 +58,7 @@ Deno.test("RuntimeConfig validation works", () => {
       canExecuteSql: false,
       canExecuteAi: false,
     },
+    environmentOptions: {},
   });
 
   // Should not throw
