@@ -92,7 +92,7 @@ and Runt. The linking method depends on your development phase:
 ### Production (JSR Package)
 
 ```json
-"@runt/schema": "jsr:^0.6.0"
+"@runt/schema": "jsr:^0.6.2"
 ```
 
 Use this for stable releases and production deployments.
