@@ -180,19 +180,40 @@ export function buildConversationMessages(
           },
         );
 
+        // Handle markdown outputs from AI cells (streaming text responses)
         if (
-          role === "assistant" && output.data &&
-          typeof output.data === "object" && "text/markdown" in output.data
+          output.outputType === "markdown" &&
+          output.data &&
+          typeof output.data === "string" &&
+          metadata?.anode?.role === "assistant"
         ) {
-          // Assistant text response
-          const markdownContent = String(
-            (output.data as Record<string, unknown>)["text/markdown"],
-          );
-          logger.debug("Adding assistant message to conversation", {
+          // Assistant markdown response
+          const markdownContent = String(output.data);
+          logger.debug("Adding assistant markdown message to conversation", {
             cellId: cell.id,
             contentLength: markdownContent.length,
             contentPreview: markdownContent.substring(0, 100),
           });
+          messages.push({
+            role: "assistant" as const,
+            content: markdownContent,
+          });
+        } else if (
+          role === "assistant" && output.data &&
+          typeof output.data === "object" && "text/markdown" in output.data
+        ) {
+          // Assistant text response from display_data
+          const markdownContent = String(
+            (output.data as Record<string, unknown>)["text/markdown"],
+          );
+          logger.debug(
+            "Adding assistant display_data message to conversation",
+            {
+              cellId: cell.id,
+              contentLength: markdownContent.length,
+              contentPreview: markdownContent.substring(0, 100),
+            },
+          );
           messages.push({
             role: "assistant" as const,
             content: markdownContent,
