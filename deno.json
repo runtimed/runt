@@ -16,6 +16,7 @@
       "exclude": ["no-slow-types"]
     }
   },
+  "lock": false,
   "tasks": {
     "dev": "deno run --allow-net --allow-env packages/lib/examples/echo-agent.ts",
     "test": "RUNT_LOG_LEVEL=ERROR RUNT_DISABLE_CONSOLE_LOGS=true deno test --allow-env --allow-net --allow-read --allow-write --allow-sys",
