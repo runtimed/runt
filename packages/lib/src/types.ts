@@ -36,6 +36,17 @@ export interface RuntimeAgentOptions {
   authToken: string;
   /** Notebook ID to connect to */
   notebookId: string;
+  /** Optional: Environment-related options for the runtime */
+  environmentOptions?: {
+    /** Path to the python executable to use (default: "python3") */
+    runtimePythonPath?: string;
+    /** Path to the environment/venv to use (default: unset) */
+    runtimeEnvPath?: string;
+    /** Package manager to use (default: "pip") */
+    runtimePackageManager?: string;
+    /** If true, treat the environment as externally managed (default: false) */
+    runtimeEnvExternallyManaged?: boolean;
+  };
 }
 
 /**
@@ -118,10 +129,7 @@ export interface ExecutionContext {
     metadata?: Record<string, unknown>,
   ) => void;
   /** Emit execution result (final output) */
-  result: (
-    data: RawOutputData,
-    metadata?: Record<string, unknown>,
-  ) => void;
+  result: (data: RawOutputData, metadata?: Record<string, unknown>) => void;
   /** Emit error output */
   error: (ename: string, evalue: string, traceback: string[]) => void;
   /** Clear all previous outputs for this cell */

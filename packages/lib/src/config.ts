@@ -25,6 +25,7 @@ export class RuntimeConfig {
   public readonly notebookId: string;
   public readonly capabilities: RuntimeCapabilities;
   public readonly sessionId: string;
+  public readonly environmentOptions?: RuntimeAgentOptions["environmentOptions"];
 
   constructor(options: RuntimeAgentOptions) {
     this.runtimeId = options.runtimeId;
@@ -33,6 +34,7 @@ export class RuntimeConfig {
     this.authToken = options.authToken;
     this.notebookId = options.notebookId;
     this.capabilities = options.capabilities;
+    this.environmentOptions = options.environmentOptions;
 
     // Generate unique session ID
     this.sessionId = `${this.runtimeType}-${this.runtimeId}-${Date.now()}-${
@@ -81,6 +83,27 @@ export class RuntimeConfig {
         }\n\nUse --help for more information.`,
       );
     }
+
+    if (this.environmentOptions) {
+      const invalid: string[] = [];
+      const { runtimePackageManager, runtimePythonPath, runtimeEnvPath } = this.environmentOptions;
+      if (runtimePackageManager && runtimePackageManager !== "pip") {
+        invalid.push(`--runtime-package-manager`);
+      }
+
+      if (runtimePythonPath !== undefined && !runtimePythonPath) {
+        invalid.push(`--runtime-python-path`);
+      }
+      if (runtimeEnvPath !== undefined && !runtimeEnvPath) {
+        invalid.push(`--runtime-env-path`);
+      }
+
+      if (invalid.length > 0) {
+        throw new Error(
+          `Invalid value for:\n\n${invalid.join("\n")}\n\nUse --help for more information.`
+        );
+      }
+    }
   }
 }
 
@@ -96,8 +119,11 @@ export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
       "runtime-id",
       "runtime-type",
       "heartbeat-interval",
+      "runtime-python-path",
+      "runtime-env-path",
+      "runtime-package-manager",
     ],
-    boolean: ["help"],
+    boolean: ["help", "runtime-env-externally-managed"],
     alias: {
       n: "notebook",
       t: "auth-token",
@@ -162,6 +188,34 @@ Logging Configuration:
   const runtimeId = parsed["runtime-id"] || Deno.env.get("RUNTIME_ID");
   if (runtimeId && typeof runtimeId === "string") result.runtimeId = runtimeId;
 
+  // Environment options
+  const environmentOptions: Record<string, unknown> = {};
+  // runtimePythonPath
+  environmentOptions.runtimePythonPath =
+    parsed["runtime-python-path"] ||
+    Deno.env.get("RUNTIME_PYTHON_PATH") ||
+    "python3";
+  // runtimeEnvPath
+  if (parsed["runtime-env-path"] || Deno.env.get("RUNTIME_ENV_PATH")) {
+    environmentOptions.runtimeEnvPath =
+      parsed["runtime-env-path"] || Deno.env.get("RUNTIME_ENV_PATH");
+  }
+  // runtimePackageManager
+  environmentOptions.runtimePackageManager =
+    parsed["runtime-package-manager"] ||
+    Deno.env.get("RUNTIME_PACKAGE_MANAGER") ||
+    "pip";
+  // runtimeEnvExternallyManaged: true if CLI or env sets it, else false
+  const cliExternallyManaged = Boolean(
+    parsed["runtime-env-externally-managed"]
+  );
+  const envExternallyManaged =
+    Deno.env.get("RUNTIME_ENV_EXTERNALLY_MANAGED") === "1" ||
+    Deno.env.get("RUNTIME_ENV_EXTERNALLY_MANAGED") === "true";
+  environmentOptions.runtimeEnvExternallyManaged =
+    cliExternallyManaged || envExternallyManaged;
+  result.environmentOptions = environmentOptions;
+
   return result;
 }
 
@@ -170,7 +224,7 @@ Logging Configuration:
  */
 export function createRuntimeConfig(
   args: string[],
-  defaults: Partial<RuntimeAgentOptions> = {},
+  defaults: Partial<RuntimeAgentOptions> = {}
 ): RuntimeConfig {
   const cliConfig = parseRuntimeArgs(args);
 
@@ -183,17 +237,27 @@ export function createRuntimeConfig(
       canExecuteSql: false,
       canExecuteAi: false,
     },
+    environmentOptions: {
+      runtimePythonPath: "python3",
+      runtimePackageManager: "pip",
+      runtimeEnvExternallyManaged: false,
+      ...(defaults.environmentOptions ?? {}),
+    },
     ...defaults,
   };
 
   // Only include non-undefined values from CLI config
-  const cleanCliConfig = Object.fromEntries(
-    Object.entries(cliConfig).filter(([_, value]) => value !== undefined),
+  const cleanCliConfig: Partial<RuntimeAgentOptions> = Object.fromEntries(
+    Object.entries(cliConfig).filter(([_, value]) => value !== undefined)
   );
 
   const config: RuntimeAgentOptions = {
     ...mergedDefaults,
     ...cleanCliConfig,
+    environmentOptions: {
+      ...mergedDefaults.environmentOptions,
+      ...(cleanCliConfig.environmentOptions ?? {}),
+    },
   } as RuntimeAgentOptions;
 
   // Generate runtimeId after merging to use correct runtimeType
@@ -213,6 +277,7 @@ export function createRuntimeConfig(
     syncUrl: runtimeConfig.syncUrl,
     notebookId: runtimeConfig.notebookId,
     sessionId: runtimeConfig.sessionId,
+    environmentOptions: config.environmentOptions,
   });
 
   return runtimeConfig;
