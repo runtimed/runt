@@ -256,7 +256,7 @@ export function buildConversationMessages(
               logger.debug("Adding markdown content to conversation", {
                 cellId: cell.id,
                 contentLength: String(markdownContent).length,
-                contentPreview: String(markdownContent).substring(0, 100),
+                fullContent: String(markdownContent),
               });
               cellMessage += `${markdownContent}\n`;
             } else if (
@@ -559,7 +559,7 @@ The system will automatically pull models if they're not available locally.`;
           index: idx,
           role: msg.role,
           contentLength: msg.content?.length || 0,
-          contentPreview: msg.content?.slice(0, 100) || "",
+          fullContent: msg.content || "",
           hasToolCalls: !!(msg as ChatMessageWithToolCalls).tool_calls,
           toolCallCount: (msg as ChatMessageWithToolCalls).tool_calls?.length ||
             0,

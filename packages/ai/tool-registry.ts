@@ -370,7 +370,7 @@ export async function handleToolCallWithResult(
                       cellId,
                       usedFormat,
                       contentLength: resultText.length,
-                      contentPreview: resultText.substring(0, 100),
+                      fullContent: resultText,
                     });
 
                     if (resultText) {
