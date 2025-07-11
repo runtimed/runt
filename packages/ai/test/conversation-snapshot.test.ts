@@ -1,5 +1,6 @@
 import { assertEquals } from "jsr:@std/assert";
 import { buildConversationMessages, type NotebookContextData } from "../mod.ts";
+import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
 
 // Helper types for test assertions
 interface AssistantMessageWithToolCalls {
@@ -82,7 +83,7 @@ Deno.test("AI conversation rendering - flattened tool calls", () => {
           {
             outputType: "display_data",
             data: {
-              "application/vnd.anode.aitool+json": {
+              [AI_TOOL_CALL_MIME_TYPE]: {
                 tool_call_id: "call_123",
                 tool_name: "create_cell",
                 arguments: {
@@ -98,7 +99,7 @@ Deno.test("AI conversation rendering - flattened tool calls", () => {
           {
             outputType: "display_data",
             data: {
-              "application/vnd.anode.aitool.result+json": {
+              [AI_TOOL_RESULT_MIME_TYPE]: {
                 tool_call_id: "call_123",
                 result: "Created code cell: cell-abc123",
                 status: "success",
@@ -234,7 +235,7 @@ Deno.test("AI conversation rendering - sequential tool call flow", () => {
           {
             outputType: "display_data",
             data: {
-              "application/vnd.anode.aitool+json": {
+              [AI_TOOL_CALL_MIME_TYPE]: {
                 tool_call_id: "call_1",
                 tool_name: "create_cell",
                 arguments: {
@@ -250,7 +251,7 @@ Deno.test("AI conversation rendering - sequential tool call flow", () => {
           {
             outputType: "display_data",
             data: {
-              "application/vnd.anode.aitool.result+json": {
+              [AI_TOOL_RESULT_MIME_TYPE]: {
                 tool_call_id: "call_1",
                 result: "Created code cell: cell-abc",
                 status: "success",
@@ -262,7 +263,7 @@ Deno.test("AI conversation rendering - sequential tool call flow", () => {
           {
             outputType: "display_data",
             data: {
-              "application/vnd.anode.aitool+json": {
+              [AI_TOOL_CALL_MIME_TYPE]: {
                 tool_call_id: "call_2",
                 tool_name: "create_cell",
                 arguments: {
@@ -277,7 +278,7 @@ Deno.test("AI conversation rendering - sequential tool call flow", () => {
           {
             outputType: "display_data",
             data: {
-              "application/vnd.anode.aitool.result+json": {
+              [AI_TOOL_RESULT_MIME_TYPE]: {
                 tool_call_id: "call_2",
                 result: "Created code cell: cell-def",
                 status: "success",
@@ -439,7 +440,7 @@ Deno.test("AI conversation rendering - tool calls without text responses", () =>
           {
             outputType: "display_data",
             data: {
-              "application/vnd.anode.aitool+json": {
+              [AI_TOOL_CALL_MIME_TYPE]: {
                 tool_call_id: "call_only",
                 tool_name: "execute_cell",
                 arguments: { cellId: "some-cell" },
@@ -450,7 +451,7 @@ Deno.test("AI conversation rendering - tool calls without text responses", () =>
           {
             outputType: "display_data",
             data: {
-              "application/vnd.anode.aitool.result+json": {
+              [AI_TOOL_RESULT_MIME_TYPE]: {
                 tool_call_id: "call_only",
                 result: "Execution completed",
                 status: "success",
@@ -578,7 +579,7 @@ Deno.test("AI conversation rendering - complex interleaved conversation", () => 
           {
             outputType: "display_data",
             data: {
-              "application/vnd.anode.aitool+json": {
+              [AI_TOOL_CALL_MIME_TYPE]: {
                 tool_call_id: "improve_call",
                 tool_name: "create_cell",
                 arguments: {

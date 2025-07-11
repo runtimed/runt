@@ -7,7 +7,7 @@ import {
   type Store as LiveStore,
 } from "@livestore/livestore";
 
-console.log("551 PM July 10");
+console.log("633 PM July 10");
 
 // Base generic types for MediaContainer system
 export type InlineContainer<T = unknown> = {
@@ -39,6 +39,11 @@ export const APPLICATION_MIME_TYPES = [
   "application/javascript",
 ] as const;
 
+export const AI_TOOL_MIME_TYPES = [
+  "application/vnd.anode.aitool+json",
+  "application/vnd.anode.aitool.result+json",
+] as const;
+
 export const IMAGE_MIME_TYPES = [
   "image/png",
   "image/jpeg",
@@ -68,12 +73,14 @@ export const KNOWN_MIME_TYPES = [
   ...APPLICATION_MIME_TYPES,
   ...IMAGE_MIME_TYPES,
   ...JUPYTER_MIME_TYPES,
+  ...AI_TOOL_MIME_TYPES,
 ] as const;
 
 export type TextMimeType = typeof TEXT_MIME_TYPES[number];
 export type ApplicationMimeType = typeof APPLICATION_MIME_TYPES[number];
 export type ImageMimeType = typeof IMAGE_MIME_TYPES[number];
 export type JupyterMimeType = typeof JUPYTER_MIME_TYPES[number];
+export type AiToolMimeType = typeof AI_TOOL_MIME_TYPES[number];
 export type KnownMimeType = typeof KNOWN_MIME_TYPES[number];
 
 /**
@@ -106,6 +113,15 @@ export function isJupyterMimeType(
   mimeType: string,
 ): mimeType is JupyterMimeType {
   return (JUPYTER_MIME_TYPES as readonly string[]).includes(mimeType);
+}
+
+/**
+ * Type guard to check if a MIME type is an AI tool format
+ */
+export function isAiToolMimeType(
+  mimeType: string,
+): mimeType is AiToolMimeType {
+  return (AI_TOOL_MIME_TYPES as readonly string[]).includes(mimeType);
 }
 
 /**
@@ -1256,3 +1272,73 @@ export function isRichOutput(data: unknown): data is RichOutputData {
     !isErrorOutput(data)
   );
 }
+
+/**
+ * AI tool call data structure for notebook outputs
+ */
+export interface AiToolCallData {
+  tool_call_id: string;
+  tool_name: string;
+  arguments: Record<string, unknown>;
+}
+
+/**
+ * AI tool result data structure for notebook outputs
+ */
+export interface AiToolResultData {
+  tool_call_id: string;
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  status: "success" | "error";
+  timestamp: string;
+  result?: string;
+}
+
+/**
+ * Type guard to check if data is an AI tool call
+ */
+export function isAiToolCallData(data: unknown): data is AiToolCallData {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "tool_call_id" in data &&
+    "tool_name" in data &&
+    "arguments" in data &&
+    typeof (data as AiToolCallData).tool_call_id === "string" &&
+    typeof (data as AiToolCallData).tool_name === "string" &&
+    typeof (data as AiToolCallData).arguments === "object"
+  );
+}
+
+/**
+ * Type guard to check if data is an AI tool result
+ */
+export function isAiToolResultData(data: unknown): data is AiToolResultData {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "tool_call_id" in data &&
+    "tool_name" in data &&
+    "arguments" in data &&
+    "status" in data &&
+    "timestamp" in data &&
+    typeof (data as AiToolResultData).tool_call_id === "string" &&
+    typeof (data as AiToolResultData).tool_name === "string" &&
+    typeof (data as AiToolResultData).arguments === "object" &&
+    (typeof (data as AiToolResultData).status === "string") &&
+    ["success", "error"].includes((data as AiToolResultData).status) &&
+    typeof (data as AiToolResultData).timestamp === "string"
+  );
+}
+
+/**
+ * AI tool call MIME type constant
+ */
+export const AI_TOOL_CALL_MIME_TYPE =
+  "application/vnd.anode.aitool+json" as const;
+
+/**
+ * AI tool result MIME type constant
+ */
+export const AI_TOOL_RESULT_MIME_TYPE =
+  "application/vnd.anode.aitool.result+json" as const;

@@ -6,7 +6,12 @@
  */
 
 import type { Store } from "@runt/schema";
-import { type CellData, type OutputData, tables } from "@runt/schema";
+import {
+  type CellData,
+  type MediaContainer,
+  type OutputData,
+  tables,
+} from "@runt/schema";
 import type { CellContextData, NotebookContextData } from "./mod.ts";
 
 /**
@@ -43,12 +48,23 @@ export function gatherNotebookContext(
       // Convert outputs to AI context format, preserving ALL metadata
       // This is crucial for maintaining conversation flow with tool calls
       const contextOutputs = outputs.map((output: OutputData) => {
-        return {
+        const result: {
+          outputType: string;
+          data: unknown;
+          metadata?: Record<string, unknown>;
+          representations?: Record<string, MediaContainer>;
+        } = {
           outputType: output.outputType,
           data: output.data || {},
           metadata: output.metadata || {},
-          representations: output.representations || undefined,
         };
+
+        // Only include representations if they exist
+        if (output.representations) {
+          result.representations = output.representations;
+        }
+
+        return result;
       });
 
       return {

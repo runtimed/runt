@@ -9,14 +9,20 @@ import type {
 } from "@runt/lib";
 
 import { handleToolCallWithResult } from "./tool-registry.ts";
-import type { MediaContainer, Store } from "@runt/schema";
+import type {
+  AiToolCallData,
+  AiToolResultData,
+  MediaContainer,
+  Store,
+} from "@runt/schema";
+import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
 import { createLogger } from "@runt/lib";
 
 import { OpenAIClient } from "./openai-client.ts";
 import { RuntOllamaClient } from "./ollama-client.ts";
 
-// Export AI-specific media utilities
-export {
+// Import and export AI-specific media utilities
+import {
   type AIMediaBundle,
   ensureTextPlainFallback,
   extractStructuredData,
@@ -26,6 +32,17 @@ export {
   toAIMediaBundle,
 } from "./media-utils.ts";
 
+// Re-export for external use
+export {
+  type AIMediaBundle,
+  ensureTextPlainFallback,
+  extractStructuredData,
+  hasVisualContent,
+  type RichOutputData,
+  toAIContext,
+  toAIMediaBundle,
+};
+
 // Export notebook context functions
 export { gatherNotebookContext } from "./notebook-context.ts";
 
@@ -33,6 +50,34 @@ export { gatherNotebookContext } from "./notebook-context.ts";
 const logger = createLogger("ai-conversation");
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
+
+// Extended message type for rich multimedia content
+export interface RichChatMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content:
+    | string
+    | Array<{
+      type: "text" | "image_url";
+      text?: string;
+      image_url?: {
+        url: string;
+        detail?: "low" | "high" | "auto";
+      };
+    }>;
+  tool_calls?: Array<{
+    id: string;
+    type: "function";
+    function: {
+      name: string;
+      arguments: string;
+    };
+  }>;
+  tool_call_id?: string;
+  // Preserve original multimedia data for AI clients that can handle it
+  multimedia?: {
+    [mimeType: string]: unknown;
+  };
+}
 
 // Helper types for accessing tool call properties
 type ChatMessageWithToolCalls = ChatMessage & {
@@ -52,20 +97,9 @@ type ChatMessageWithToolCallId = ChatMessage & {
   tool_call_id: string;
 };
 
-interface ToolResultData {
-  tool_call_id: string;
-  result?: string;
-  status: string;
-}
-
-export interface ToolCallData {
-  tool_call_id: string;
-  tool_name: string;
-  arguments: Record<string, unknown>;
-  status: "success" | "error";
-  timestamp: string;
-  execution_time_ms?: number;
-}
+// Use schema types for tool data
+export type ToolResultData = AiToolResultData;
+export type ToolCallData = AiToolCallData;
 
 export interface NotebookContextData {
   previousCells: CellContextData[];
@@ -141,10 +175,10 @@ export function buildConversationMessages(
         } else if (role === "function_call") {
           // Tool call - create assistant message with tool_calls
           const toolData = output.data && typeof output.data === "object" &&
-              "application/vnd.anode.aitool+json" in output.data
+              AI_TOOL_CALL_MIME_TYPE in output.data
             ? (output.data as Record<string, unknown>)[
-              "application/vnd.anode.aitool+json"
-            ] as ToolCallData
+              AI_TOOL_CALL_MIME_TYPE
+            ] as AiToolCallData
             : null;
           if (toolData) {
             messages.push({
@@ -163,10 +197,10 @@ export function buildConversationMessages(
         } else if (role === "tool") {
           // Tool result
           const resultData = output.data && typeof output.data === "object" &&
-              "application/vnd.anode.aitool.result+json" in output.data
+              AI_TOOL_RESULT_MIME_TYPE in output.data
             ? (output.data as Record<string, unknown>)[
-              "application/vnd.anode.aitool.result+json"
-            ] as ToolResultData
+              AI_TOOL_RESULT_MIME_TYPE
+            ] as AiToolResultData
             : null;
           if (resultData) {
             messages.push({
@@ -247,30 +281,59 @@ export function buildConversationMessages(
               plainType: representations["text/plain"]?.type,
             });
 
-            // Prioritize markdown for AI context
-            if (
-              representations &&
-              representations["text/markdown"]?.type === "inline"
-            ) {
-              const markdownContent = representations["text/markdown"].data;
-              logger.debug("Adding markdown content to conversation", {
-                cellId: cell.id,
-                contentLength: String(markdownContent).length,
-                fullContent: String(markdownContent),
-              });
-              cellMessage += `${markdownContent}\n`;
-            } else if (
-              representations &&
-              representations["text/plain"]?.type === "inline"
-            ) {
-              const plainContent = stripAnsi(
-                String(representations["text/plain"].data),
+            // Preserve full multimedia data for AI providers that support it
+            const aiBundle = toAIMediaBundle(representations as RichOutputData);
+            const hasRichContent = Object.keys(aiBundle).length > 0;
+
+            if (hasRichContent) {
+              logger.debug(
+                "Adding multimedia content to conversation",
+                {
+                  cellId: cell.id,
+                  mimeTypes: Object.keys(aiBundle),
+                  hasMarkdown: !!aiBundle["text/markdown"],
+                  hasPlain: !!aiBundle["text/plain"],
+                  hasImages: Object.keys(aiBundle).some((type) =>
+                    type.startsWith("image/")
+                  ),
+                  hasJson: !!aiBundle["application/json"],
+                },
               );
-              logger.debug("Adding plain text content to conversation", {
-                cellId: cell.id,
-                contentLength: plainContent.length,
-              });
-              cellMessage += `\`\`\`\n${plainContent}\n\`\`\`\n`;
+
+              // Prioritize markdown for structured text, but preserve other formats
+              if (aiBundle["text/markdown"]) {
+                cellMessage += `${aiBundle["text/markdown"]}\n`;
+              } else if (aiBundle["text/plain"]) {
+                cellMessage += `${aiBundle["text/plain"]}\n`;
+              }
+
+              // Include structured data as formatted JSON
+              if (aiBundle["application/json"]) {
+                try {
+                  const jsonContent = JSON.stringify(
+                    aiBundle["application/json"],
+                    null,
+                    2,
+                  );
+                  cellMessage +=
+                    `\n**Structured Data:**\n\`\`\`json\n${jsonContent}\n\`\`\`\n`;
+                } catch {
+                  cellMessage += `\n**Structured Data:** ${
+                    String(aiBundle["application/json"])
+                  }\n`;
+                }
+              }
+
+              // Note presence of visual content for AI awareness
+              if (
+                Object.keys(aiBundle).some((type) => type.startsWith("image/"))
+              ) {
+                cellMessage += `\n**Visual Content:** ${
+                  Object.keys(aiBundle).filter((type) =>
+                    type.startsWith("image/")
+                  ).join(", ")
+                } (available for vision-capable models)\n`;
+              }
             }
           }
 

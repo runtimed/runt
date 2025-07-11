@@ -3,6 +3,8 @@ import type { Message, Tool } from "npm:ollama";
 import type { AiModel, ModelCapability } from "@runt/lib";
 import { createLogger, type ExecutionContext } from "@runt/lib";
 
+import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
+
 import { NOTEBOOK_TOOLS } from "./tool-registry.ts";
 import {
   type AgenticOptions,
@@ -490,7 +492,7 @@ export class RuntOllamaClient {
               const successOutput: OutputData = {
                 type: "display_data",
                 data: {
-                  "application/vnd.anode.aitool+json": toolCallData,
+                  [AI_TOOL_CALL_MIME_TYPE]: toolCallData,
                   "text/markdown":
                     `🔧 **Tool executed**: \`${toolCall.function.name}\`\n\n${
                       formatToolCall(
@@ -526,7 +528,7 @@ export class RuntOllamaClient {
                 iteration: iteration + 1,
               };
               context.display({
-                "application/vnd.anode.aitool.result+json": {
+                [AI_TOOL_RESULT_MIME_TYPE]: {
                   tool_call_id: toolCall.id,
                   result: toolResult,
                   status: "success",
@@ -568,7 +570,7 @@ export class RuntOllamaClient {
               const errorOutput: OutputData = {
                 type: "display_data",
                 data: {
-                  "application/vnd.anode.aitool+json": errorToolCallData,
+                  [AI_TOOL_CALL_MIME_TYPE]: errorToolCallData,
                   "text/markdown":
                     `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError: ${errorMessage}`,
                   "text/plain":

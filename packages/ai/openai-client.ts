@@ -5,6 +5,7 @@ import {
   type ExecutionContext,
   type ModelCapability,
 } from "@runt/lib";
+import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
 
 import { NOTEBOOK_TOOLS } from "./tool-registry.ts";
 
@@ -525,7 +526,7 @@ export class RuntOpenAIClient {
                 const errorOutput: OutputData = {
                   type: "display_data",
                   data: {
-                    "application/vnd.anode.aitool+json": toolCallData,
+                    [AI_TOOL_CALL_MIME_TYPE]: toolCallData,
                     "text/markdown":
                       `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError parsing arguments: ${parseError.message}`,
                     "text/plain":
@@ -588,7 +589,7 @@ export class RuntOpenAIClient {
                 const successOutput: OutputData = {
                   type: "display_data",
                   data: {
-                    "application/vnd.anode.aitool+json": toolCallData,
+                    [AI_TOOL_CALL_MIME_TYPE]: toolCallData,
                     "text/markdown":
                       `🔧 **Tool executed**: \`${toolCall.function.name}\`\n\n${
                         this.formatToolCall(toolCall.function.name, args)
@@ -620,7 +621,7 @@ export class RuntOpenAIClient {
                   iteration: iteration + 1,
                 };
                 context.display({
-                  "application/vnd.anode.aitool.result+json": {
+                  [AI_TOOL_RESULT_MIME_TYPE]: {
                     tool_call_id: toolCall.id,
                     result: toolResult,
                     status: "success",
@@ -662,7 +663,7 @@ export class RuntOpenAIClient {
                 const errorOutput: OutputData = {
                   type: "display_data",
                   data: {
-                    "application/vnd.anode.aitool+json": errorToolCallData,
+                    [AI_TOOL_CALL_MIME_TYPE]: errorToolCallData,
                     "text/markdown":
                       `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError: ${errorMessage}`,
                     "text/plain":
