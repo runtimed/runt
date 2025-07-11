@@ -240,8 +240,14 @@ export class AIPythonAgent {
                 type: "object",
                 description: "Output data in various MIME types",
                 properties: {
-                  "text/plain": { type: "string" },
-                  "text/html": { type: "string" },
+                  "text/plain": {
+                    type: "string",
+                    description: "Plain text output (max 2000 chars)",
+                  },
+                  "text/html": {
+                    type: "string",
+                    description: "HTML output (max 2000 chars)",
+                  },
                   "application/json": { type: "object" },
                   "image/png": { type: "string" },
                   "image/svg+xml": { type: "string" },
@@ -269,9 +275,18 @@ export class AIPythonAgent {
                 type: "object",
                 description: "Display data in various MIME types",
                 properties: {
-                  "text/plain": { type: "string" },
-                  "text/html": { type: "string" },
-                  "text/markdown": { type: "string" },
+                  "text/plain": {
+                    type: "string",
+                    description: "Plain text output (max 2000 chars)",
+                  },
+                  "text/html": {
+                    type: "string",
+                    description: "HTML output (max 2000 chars)",
+                  },
+                  "text/markdown": {
+                    type: "string",
+                    description: "Markdown output (max 2000 chars)",
+                  },
                   "application/json": { type: "object" },
                   "image/png": { type: "string" },
                   "image/svg+xml": { type: "string" },
@@ -336,6 +351,14 @@ Rules:
 - Use stderr for warnings
 - Be accurate to real Python behavior
 
+IMPORTANT JSON FORMATTING:
+- Keep tool call arguments concise and well-formatted
+- For large outputs (like matrices, long lists), truncate with "..." and indicate size
+- Always properly escape quotes and newlines in JSON strings
+- Use \\n for newlines, \\" for quotes within strings
+- For very long output, use multiple stdout calls instead of one huge string
+- Example: Instead of outputting 1000 lines, output first few lines + summary
+
 Previous conversation context:
 ${context}
 
@@ -359,7 +382,7 @@ Execute this Python code:`;
           tools: this.getIPythonTools(),
           tool_choice: "auto",
           temperature: 0.1,
-          max_tokens: 1000,
+          max_tokens: 2000,
         });
 
         const message = response.choices?.[0]?.message;
@@ -418,27 +441,68 @@ Execute this Python code:`;
     const { name, arguments: argsStr } = toolCall.function;
 
     try {
-      const args = JSON.parse(argsStr);
+      // Handle malformed JSON by attempting to fix common issues
+      let args;
+      try {
+        args = JSON.parse(argsStr);
+      } catch (parseError) {
+        // Try to fix common JSON issues
+        const fixedArgsStr = this.fixMalformedJSON(argsStr);
+        try {
+          args = JSON.parse(fixedArgsStr);
+          this.logger.warn(`Fixed malformed JSON for tool call ${name}`);
+        } catch (secondParseError) {
+          this.logger.error(`Failed to parse JSON for tool call ${name}:`, {
+            original: argsStr.substring(0, 200) + "...",
+            parseError: parseError instanceof Error
+              ? parseError.message
+              : String(parseError),
+          });
+
+          // Fallback: try to extract basic text content
+          const fallbackArgs = this.extractFallbackArgs(name, argsStr);
+          if (fallbackArgs) {
+            args = fallbackArgs;
+          } else {
+            throw parseError;
+          }
+        }
+      }
 
       switch (name) {
         case "stdout":
-          context.stdout(args.text);
+          const stdoutText = args.text || String(args);
+          // Truncate very long output
+          const truncatedStdout = stdoutText.length > 5000
+            ? stdoutText.substring(0, 5000) + "\n[Output truncated...]"
+            : stdoutText;
+          context.stdout(truncatedStdout);
           return "stdout output written";
 
         case "stderr":
-          context.stderr(args.text);
+          const stderrText = args.text || String(args);
+          // Truncate very long output
+          const truncatedStderr = stderrText.length > 5000
+            ? stderrText.substring(0, 5000) + "\n[Output truncated...]"
+            : stderrText;
+          context.stderr(truncatedStderr);
           return "stderr output written";
 
         case "execute_result":
-          context.result(args.data, args.metadata);
+          const resultData = args.data || { "text/plain": String(args) };
+          context.result(resultData, args.metadata);
           return "execute result displayed";
 
         case "display":
-          context.display(args.data, args.metadata);
+          const displayData = args.data || { "text/plain": String(args) };
+          context.display(displayData, args.metadata);
           return "display data shown";
 
         case "error":
-          context.error(args.ename, args.evalue, args.traceback);
+          const ename = args.ename || "PythonError";
+          const evalue = args.evalue || "Error during execution";
+          const traceback = args.traceback || [evalue];
+          context.error(ename, evalue, traceback);
           return "error reported";
 
         default:
@@ -447,8 +511,92 @@ Execute this Python code:`;
       }
     } catch (err) {
       this.logger.error(`Error handling tool call ${name}:`, err);
+
+      // Final fallback: try to output something useful
+      switch (name) {
+        case "stdout":
+        case "stderr":
+          context.stdout(
+            `[Error parsing tool call: ${
+              err instanceof Error ? err.message : String(err)
+            }]`,
+          );
+          break;
+        case "execute_result":
+        case "display":
+          context.result({
+            "text/plain": `[Error parsing tool call: ${
+              err instanceof Error ? err.message : String(err)
+            }]`,
+          });
+          break;
+        case "error":
+          context.error(
+            "ToolCallError",
+            err instanceof Error ? err.message : String(err),
+            ["Tool call parsing failed"],
+          );
+          break;
+      }
+
       return `Error: ${err instanceof Error ? err.message : String(err)}`;
     }
+  }
+
+  private fixMalformedJSON(jsonStr: string): string {
+    // Common fixes for malformed JSON
+    let fixed = jsonStr;
+
+    // Fix unterminated strings by finding last quote and ensuring it's closed
+    const lastQuoteIndex = fixed.lastIndexOf('"');
+    if (lastQuoteIndex !== -1) {
+      const afterLastQuote = fixed.substring(lastQuoteIndex + 1);
+      if (
+        !afterLastQuote.includes('"') && !afterLastQuote.trim().endsWith("}")
+      ) {
+        // Likely unterminated string, add closing quote
+        fixed = fixed.substring(0, lastQuoteIndex + 1) + '"' + afterLastQuote;
+      }
+    }
+
+    // Ensure JSON object is properly closed
+    const openBraces = (fixed.match(/\{/g) || []).length;
+    const closeBraces = (fixed.match(/\}/g) || []).length;
+    if (openBraces > closeBraces) {
+      fixed += "}";
+    }
+
+    // Fix common escape sequence issues
+    fixed = fixed.replace(/\\n/g, "\\n");
+    fixed = fixed.replace(/\\t/g, "\\t");
+    fixed = fixed.replace(/\\r/g, "\\r");
+
+    return fixed;
+  }
+
+  private extractFallbackArgs(toolName: string, malformedJson: string): any {
+    // Try to extract basic content from malformed JSON
+    switch (toolName) {
+      case "stdout":
+      case "stderr":
+        // Try to extract text content
+        const textMatch = malformedJson.match(/"text":\s*"([^"]*)/);
+        if (textMatch) {
+          return { text: textMatch[1] };
+        }
+        break;
+
+      case "execute_result":
+      case "display":
+        // Try to extract text/plain content
+        const plainMatch = malformedJson.match(/"text\/plain":\s*"([^"]*)/);
+        if (plainMatch) {
+          return { data: { "text/plain": plainMatch[1] } };
+        }
+        break;
+    }
+
+    return null;
   }
 
   private trimConversationHistory() {
