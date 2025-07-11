@@ -157,20 +157,45 @@ export function buildConversationMessages(
     );
     if (cell.cellType === "ai" && cell.outputs && cell.outputs.length > 0) {
       // Process AI cell outputs sequentially - each output becomes a message
-      cell.outputs.forEach((output) => {
+      cell.outputs.forEach((output, outputIndex) => {
         const metadata = output.metadata as { anode?: { role?: string } };
         const role = metadata?.anode?.role;
+
+        logger.debug(
+          `Processing AI cell output ${outputIndex + 1}/${cell.outputs.length}`,
+          {
+            cellId: cell.id,
+            outputType: output.outputType,
+            role: role,
+            hasMetadata: !!output.metadata,
+            metadataKeys: output.metadata ? Object.keys(output.metadata) : [],
+            anodeMetadata: metadata?.anode,
+            hasData: !!output.data,
+            dataKeys: output.data && typeof output.data === "object"
+              ? Object.keys(output.data as Record<string, unknown>)
+              : [],
+            hasMarkdown: output.data && typeof output.data === "object"
+              ? "text/markdown" in output.data
+              : false,
+          },
+        );
 
         if (
           role === "assistant" && output.data &&
           typeof output.data === "object" && "text/markdown" in output.data
         ) {
           // Assistant text response
+          const markdownContent = String(
+            (output.data as Record<string, unknown>)["text/markdown"],
+          );
+          logger.debug("Adding assistant message to conversation", {
+            cellId: cell.id,
+            contentLength: markdownContent.length,
+            contentPreview: markdownContent.substring(0, 100),
+          });
           messages.push({
             role: "assistant" as const,
-            content: String(
-              (output.data as Record<string, unknown>)["text/markdown"],
-            ),
+            content: markdownContent,
           });
         } else if (role === "function_call") {
           // Tool call - create assistant message with tool_calls
