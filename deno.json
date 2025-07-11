@@ -11,7 +11,8 @@
     "@runt/schema": "./packages/schema/mod.ts",
     "@runt/lib": "./packages/lib/mod.ts",
     "@runt/pyodide-runtime-agent": "./packages/pyodide-runtime-agent/src/mod.ts",
-    "@runt/python-runtime-agent": "./packages/python-runtime-agent/src/mod.ts"
+    "@runt/python-runtime-agent": "./packages/python-runtime-agent/src/mod.ts",
+    "@std/path": "jsr:@std/path@^1.1.1"
   },
   "lint": {
     "rules": {
