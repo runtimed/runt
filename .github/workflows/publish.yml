@@ -28,7 +28,8 @@ jobs:
       schema: ${{ steps.changes.outputs.schema }}
       lib: ${{ steps.changes.outputs.lib }}
       ai: ${{ steps.changes.outputs.ai }}
-      pyodide: ${{ steps.changes.outputs.pyodide }}
+      pyodide-runtime-agent: ${{ steps.changes.outputs.pyodide-runtime-agent }}
+      python-runtime-agent: ${{ steps.changes.outputs.python-runtime-agent }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -68,17 +69,24 @@ jobs:
           fi
 
           if git diff --name-only $PREVIOUS_COMMIT HEAD | grep -E '^packages/pyodide-runtime-agent/' || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "pyodide=true" >> $GITHUB_OUTPUT
+            echo "pyodide-runtime-agent=true" >> $GITHUB_OUTPUT
             echo "Pyodide package changed"
           else
-            echo "pyodide=false" >> $GITHUB_OUTPUT
+            echo "pyodide-runtime-agent=false" >> $GITHUB_OUTPUT
+          fi
+
+          if git diff --name-only $PREVIOUS_COMMIT HEAD | grep -E '^packages/python-runtime-agent/' || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "python-runtime-agent=true" >> $GITHUB_OUTPUT
+            echo "Python Runtime Agent package changed"
+          else
+            echo "python-runtime-agent=false" >> $GITHUB_OUTPUT
           fi
 
   validate:
     name: Validate Packages
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.schema == 'true' || needs.changes.outputs.lib == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.pyodide == 'true'
+    if: needs.changes.outputs.schema == 'true' || needs.changes.outputs.lib == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.pyodide-runtime-agent == 'true' || needs.changes.outputs.python-runtime-agent == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -99,12 +107,14 @@ jobs:
           LIB_VERSION=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/lib/deno.json')).version)")
           AI_VERSION=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/ai/deno.json')).version)")
           PYODIDE_VERSION=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/pyodide-runtime-agent/deno.json')).version)")
+          PYTHON_RUNTIME_AGENT_VERSION=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/python-runtime-agent/deno.json')).version)")
 
           echo "Package versions:"
           echo "  Schema: $SCHEMA_VERSION"
           echo "  Lib: $LIB_VERSION"
           echo "  AI: $AI_VERSION"
           echo "  Pyodide: $PYODIDE_VERSION"
+          echo "  Python Runtime Agent: $PYTHON_RUNTIME_AGENT_VERSION"
 
           # Check that dependencies reference correct versions
           LIB_SCHEMA_DEP=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/lib/deno.json')).imports['@runt/schema'])")
@@ -113,6 +123,9 @@ jobs:
           PYODIDE_SCHEMA_DEP=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/pyodide-runtime-agent/deno.json')).imports['@runt/schema'])")
           PYODIDE_LIB_DEP=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/pyodide-runtime-agent/deno.json')).imports['@runt/lib'])")
           PYODIDE_AI_DEP=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/pyodide-runtime-agent/deno.json')).imports['@runt/ai'])")
+          PYTHON_RUNTIME_AGENT_SCHEMA_DEP=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/python-runtime-agent/deno.json')).imports['@runt/schema'])")
+          PYTHON_RUNTIME_AGENT_LIB_DEP=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/python-runtime-agent/deno.json')).imports['@runt/lib'])")
+          PYTHON_RUNTIME_AGENT_AI_DEP=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('packages/python-runtime-agent/deno.json')).imports['@runt/ai'])")
 
           echo "Workspace dependencies:"
           echo "  Lib -> Schema: $LIB_SCHEMA_DEP"
@@ -121,6 +134,9 @@ jobs:
           echo "  Pyodide -> Schema: $PYODIDE_SCHEMA_DEP"
           echo "  Pyodide -> Lib: $PYODIDE_LIB_DEP"
           echo "  Pyodide -> AI: $PYODIDE_AI_DEP"
+          echo "  Python Runtime Agent -> Schema: $PYTHON_RUNTIME_AGENT_SCHEMA_DEP"
+          echo "  Python Runtime Agent -> Lib: $PYTHON_RUNTIME_AGENT_LIB_DEP"
+          echo "  Python Runtime Agent -> AI: $PYTHON_RUNTIME_AGENT_AI_DEP"
 
       - name: Dry run publish validation
         run: |
@@ -152,6 +168,12 @@ jobs:
             cd ../..
           fi
 
+          if [ "${{ needs.changes.outputs.python-runtime-agent }}" = "true" ]; then
+            echo "Validating python-runtime-agent package..."
+            cd packages/python-runtime-agent
+            deno publish --dry-run --allow-slow-types
+            cd ../..
+          fi
   publish-schema:
     name: Publish Schema
     runs-on: ubuntu-latest
@@ -285,7 +307,7 @@ jobs:
     name: Publish Pyodide Runtime Agent
     runs-on: ubuntu-latest
     needs: [changes, validate, publish-schema, publish-lib, publish-ai]
-    if: needs.changes.outputs.pyodide == 'true' && needs.validate.result == 'success' && (needs.publish-schema.result == 'success' || needs.publish-schema.result == 'skipped') && (needs.publish-lib.result == 'success' || needs.publish-lib.result == 'skipped') && (needs.publish-ai.result == 'success' || needs.publish-ai.result == 'skipped')
+    if: needs.changes.outputs.pyodide-runtime-agent == 'true' && needs.validate.result == 'success' && (needs.publish-schema.result == 'success' || needs.publish-schema.result == 'skipped') && (needs.publish-lib.result == 'success' || needs.publish-lib.result == 'skipped') && (needs.publish-ai.result == 'success' || needs.publish-ai.result == 'skipped')
     permissions:
       contents: read
       id-token: write
@@ -326,11 +348,58 @@ jobs:
           echo "Publishing @runt/pyodide-runtime-agent@${{ steps.version.outputs.version }}"
           npx jsr publish --allow-slow-types
 
+  publish-python-runtime-agent:
+    name: Publish Python Runtime Agent
+    runs-on: ubuntu-latest
+    needs: [
+      changes,
+      validate,
+      publish-schema,
+      publish-lib,
+      publish-ai,
+      publish-pyodide,
+    ]
+    if: needs.changes.outputs.python-runtime-agent == 'true' && needs.validate.result == 'success' && (needs.publish-schema.result == 'success' || needs.publish-schema.result == 'skipped') && (needs.publish-lib.result == 'success' || needs.publish-lib.result == 'skipped') && (needs.publish-ai.result == 'success' || needs.publish-ai.result == 'skipped') && (needs.publish-pyodide.result == 'success' || needs.publish-pyodide.result == 'skipped')
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+          cache: true
+
+      - name: Get package version
+
+      - name: Wait for dependencies
+        if: (needs.publish-schema.result == 'success' || needs.publish-lib.result == 'success' || needs.publish-ai.result == 'success' || needs.publish-pyodide.result == 'success') && github.event.inputs.dry_run != 'true'
+        run: |
+          echo "Waiting for dependencies to be available on JSR..."
+          sleep 60
+
+      - name: Dry run publish
+        if: github.event.inputs.dry_run == 'true'
+        run: |
+          cd packages/python-runtime-agent
+          echo "Dry run: Would publish @runt/python-runtime-agent@${{ steps.version.outputs.version }}"
+          deno publish --dry-run --allow-slow-types
+
+      - name: Publish to JSR
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          cd packages/python-runtime-agent
+          echo "Publishing @runt/python-runtime-agent@${{ steps.version.outputs.version }}"
+          npx jsr publish --allow-slow-types
+
   create-tags:
     name: Create Release Tags
     runs-on: ubuntu-latest
     needs: [changes, publish-schema, publish-lib, publish-ai, publish-pyodide]
-    if: always() && (needs.changes.outputs.schema == 'true' || needs.changes.outputs.lib == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.pyodide == 'true') && github.event.inputs.dry_run != 'true'
+    if: always() && (needs.changes.outputs.schema == 'true' || needs.changes.outputs.lib == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.pyodide-runtime-agent == 'true') && github.event.inputs.dry_run != 'true'
     permissions:
       contents: write
     steps:
@@ -397,7 +466,7 @@ jobs:
           echo "- Schema: ${{ needs.changes.outputs.schema }}"
           echo "- Lib: ${{ needs.changes.outputs.lib }}"
           echo "- AI: ${{ needs.changes.outputs.ai }}"
-          echo "- Pyodide: ${{ needs.changes.outputs.pyodide }}"
+          echo "- Pyodide: ${{ needs.changes.outputs.pyodide-runtime-agent }}"
           echo ""
           echo "**Results:**"
           echo "- Validation: ${{ needs.validate.result }}"
