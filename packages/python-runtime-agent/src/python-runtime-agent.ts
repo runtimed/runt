@@ -2,7 +2,9 @@ import {
   Environment,
   PipEnvironmentManager,
 } from './pip-environment-manager.ts';
+import type { EnvironmentManager } from './environment-manager.ts';
 import requirements from "./requirements.txt" with { type: "text" };
+import type { RuntimeAgentStartupConfig } from "@runt/lib/types";
 import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
 import { createLogger } from "@runt/lib";
 import spawnteract from "spawnteract";
@@ -10,7 +12,7 @@ import { executeAI, gatherNotebookContext } from "@runt/ai";
 import type { ExecutionContext } from "@runt/lib";
 
 export class PythonRuntimeAgent {
-  private envManager = new PipEnvironmentManager();
+  private envManager: EnvironmentManager = new PipEnvironmentManager();
   private environment: Environment | null = null;
   private agent: RuntimeAgent;
   private logger = createLogger("python-runtime-agent");
@@ -37,13 +39,27 @@ export class PythonRuntimeAgent {
     return this.agent.liveStore;
   }
 
-  private async onStartup(): Promise<void> {
-    this.logger.info("PythonRuntimeAgent onStartup: creating environment");
-    this.environment = await this.envManager.createEnvironment({
-      specs: requirements,
-    });
-    const envPath = this.envManager.getEnvironmentPath(this.environment);
-    this.logger.info(`Environment created at ${envPath}`);
+  private async onStartup(startupConfig: RuntimeAgentStartupConfig): Promise<void> {
+    const environmentPath = startupConfig.runtimeEnvPath;
+    const specs = startupConfig.runtimeSpecs ?? requirements;
+    let envPath: string;
+    if (typeof environmentPath === 'string' && environmentPath.length > 0) {
+      this.logger.info(`PythonRuntimeAgent onStartup: loading environment at ${environmentPath}`);
+      this.environment = await this.envManager.loadEnvironment(environmentPath);
+      this.logger.info(`Environment loaded at ${environmentPath}`);
+      if (specs) {
+        await this.envManager.updateEnvironment(this.environment, specs);
+        this.logger.info('Environment updated with provided specs');
+      }
+      envPath = this.envManager.getEnvironmentPath(this.environment);
+    } else {
+      this.logger.info("PythonRuntimeAgent onStartup: creating environment");
+      this.environment = await this.envManager.createEnvironment({
+        specs,
+      });
+      envPath = this.envManager.getEnvironmentPath(this.environment);
+      this.logger.info(`Environment created at ${envPath}`);
+    }
 
     // Launch ipykernel using spawnteract
     this.logger.info("Launching ipykernel with spawnteract");

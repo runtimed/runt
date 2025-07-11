@@ -1,14 +1,14 @@
 // RuntimeAgent - Base class for building Anode runtime agents
 
-import { makeAdapter } from "npm:@livestore/adapter-node";
+import { makeAdapter } from 'npm:@livestore/adapter-node';
 import {
   createStorePromise,
   queryDb,
   type Store,
-} from "npm:@livestore/livestore";
-import { makeCfSync } from "npm:@livestore/sync-cf";
-import { events, type MediaContainer, schema, tables } from "@runt/schema";
-import { createLogger } from "./logging.ts";
+} from 'npm:@livestore/livestore';
+import { makeCfSync } from 'npm:@livestore/sync-cf';
+import { events, type MediaContainer, schema, tables } from '@runt/schema';
+import { createLogger } from './logging.ts';
 import type {
   CancellationHandler,
   CellData,
@@ -17,11 +17,11 @@ import type {
   ExecutionQueueData,
   ExecutionResult,
   RawOutputData,
-  RuntimeAgentEventHandlers,
   RuntimeCapabilities,
   RuntimeSessionData,
-} from "./types.ts";
-import type { RuntimeConfig } from "./config.ts";
+} from './types.ts';
+import type { RuntimeAgentStartupConfig } from './types.ts';
+import type { RuntimeConfig } from './config.ts';
 
 /**
  * Base RuntimeAgent class providing LiveStore integration and execution management
@@ -39,7 +39,18 @@ export class RuntimeAgent {
   constructor(
     private config: RuntimeConfig,
     private capabilities: RuntimeCapabilities,
-    private handlers: RuntimeAgentEventHandlers = {},
+    private handlers: {
+      onStartup?: (
+        startupConfig: RuntimeAgentStartupConfig
+      ) => void | Promise<void>;
+      onShutdown?: () => void | Promise<void>;
+      onConnected?: () => void | Promise<void>;
+      onDisconnected?: (error?: Error) => void | Promise<void>;
+      onExecutionError?: (
+        error: Error,
+        context: ExecutionContext
+      ) => void | Promise<void>;
+    } = {}
   ) {}
 
   /**
@@ -47,7 +58,13 @@ export class RuntimeAgent {
    */
   async start(): Promise<void> {
     try {
-      await this.handlers.onStartup?.();
+      // Only pass through the safe config subset
+      const startupConfig: RuntimeAgentStartupConfig = {
+        runtimeEnvPath: (this.config as any).runtimeEnvPath,
+        runtimePackageManager: (this.config as any).runtimePackageManager,
+        runtimeSpecs: (this.config as any).runtimeSpecs,
+      };
+      await this.handlers.onStartup?.(startupConfig);
 
       const logger = createLogger(`${this.config.runtimeType}-agent`, {
         context: {
@@ -57,17 +74,17 @@ export class RuntimeAgent {
         },
       });
 
-      logger.info("Starting runtime agent", {
+      logger.info('Starting runtime agent', {
         runtimeType: this.config.runtimeType,
         notebookId: this.config.notebookId,
       });
 
       // Create LiveStore adapter for real-time collaboration
       const adapter = makeAdapter({
-        storage: { type: "in-memory" },
+        storage: { type: 'in-memory' },
         sync: {
           backend: makeCfSync({ url: this.config.syncUrl }),
-          onSyncError: "ignore",
+          onSyncError: 'ignore',
         },
       });
 
@@ -86,41 +103,47 @@ export class RuntimeAgent {
       // Register runtime session
       // Displace any existing active sessions for this notebook
       const existingSessions = this.store.query(
-        tables.runtimeSessions.select().where({ isActive: true }),
+        tables.runtimeSessions.select().where({ isActive: true })
       );
 
       for (const session of existingSessions) {
-        this.store.commit(events.runtimeSessionTerminated({
-          sessionId: session.sessionId,
-          reason: "displaced",
-        }));
+        this.store.commit(
+          events.runtimeSessionTerminated({
+            sessionId: session.sessionId,
+            reason: 'displaced',
+          })
+        );
       }
 
       // Start session with "starting" status
-      this.store.commit(events.runtimeSessionStarted({
-        sessionId: this.config.sessionId,
-        runtimeId: this.config.runtimeId,
-        runtimeType: this.config.runtimeType,
-        capabilities: this.capabilities,
-      }));
+      this.store.commit(
+        events.runtimeSessionStarted({
+          sessionId: this.config.sessionId,
+          runtimeId: this.config.runtimeId,
+          runtimeType: this.config.runtimeType,
+          capabilities: this.capabilities,
+        })
+      );
 
       // Set up reactive queries and subscriptions
       this.setupSubscriptions();
 
       // Mark session as ready
-      this.store.commit(events.runtimeSessionStatusChanged({
-        sessionId: this.config.sessionId,
-        status: "ready",
-      }));
+      this.store.commit(
+        events.runtimeSessionStatusChanged({
+          sessionId: this.config.sessionId,
+          status: 'ready',
+        })
+      );
 
       await this.handlers.onConnected?.();
-      logger.info("Runtime agent connected and ready");
+      logger.info('Runtime agent connected and ready');
 
       // Set up shutdown handlers
       this.setupShutdownHandlers();
     } catch (error) {
       const logger = createLogger(`${this.config.runtimeType}-agent`);
-      logger.error("Failed to start runtime agent", error);
+      logger.error('Failed to start runtime agent', error);
       await this.handlers.onDisconnected?.(error as Error);
       throw error;
     }
@@ -134,7 +157,7 @@ export class RuntimeAgent {
     this.isShuttingDown = true;
 
     const shutdownLogger = createLogger(`${this.config.runtimeType}-agent`);
-    shutdownLogger.info("Runtime agent shutting down", {
+    shutdownLogger.info('Runtime agent shutting down', {
       runtimeId: this.config.runtimeId,
       sessionId: this.config.sessionId,
     });
@@ -150,17 +173,19 @@ export class RuntimeAgent {
       try {
         if (this.store) {
           // Terminate session on shutdown
-          this.store.commit(events.runtimeSessionTerminated({
-            sessionId: this.config.sessionId,
-            reason: "shutdown",
-          }));
+          this.store.commit(
+            events.runtimeSessionTerminated({
+              sessionId: this.config.sessionId,
+              reason: 'shutdown',
+            })
+          );
         }
       } catch (error) {
         const termLogger = createLogger(`${this.config.runtimeType}-agent`);
         if (error instanceof Error) {
-          termLogger.error("Failed to mark session as terminated", error);
+          termLogger.error('Failed to mark session as terminated', error);
         } else {
-          termLogger.warn("Failed to mark session as terminated", {
+          termLogger.warn('Failed to mark session as terminated', {
             error: String(error),
           });
         }
@@ -175,13 +200,13 @@ export class RuntimeAgent {
       }
     } catch (error) {
       const logger = createLogger(`${this.config.runtimeType}-agent`);
-      logger.error("Error during shutdown", error, {
+      logger.error('Error during shutdown', error, {
         runtimeId: this.config.runtimeId,
         sessionId: this.config.sessionId,
       });
     }
 
-    shutdownLogger.info("Runtime agent shutdown complete", {
+    shutdownLogger.info('Runtime agent shutdown complete', {
       runtimeId: this.config.runtimeId,
       sessionId: this.config.sessionId,
     });
@@ -214,7 +239,7 @@ export class RuntimeAgent {
     return {
       success: true,
       data: {
-        "text/plain": context.cell.source || "",
+        'text/plain': context.cell.source || '',
       },
       metadata: {},
     };
@@ -226,159 +251,146 @@ export class RuntimeAgent {
   private setupSubscriptions(): void {
     // Watch for work assigned to this specific runtime
     const assignedWorkQuery$ = queryDb(
-      tables.executionQueue.select()
-        .where({
-          status: "assigned",
-          assignedRuntimeSession: this.config.sessionId,
-        }),
+      tables.executionQueue.select().where({
+        status: 'assigned',
+        assignedRuntimeSession: this.config.sessionId,
+      }),
       {
-        label: "assignedWork",
+        label: 'assignedWork',
         deps: [this.config.sessionId],
-      },
+      }
     );
 
     // Watch for pending work to claim
     const pendingWorkQuery$ = queryDb(
-      tables.executionQueue.select()
-        .where({ status: "pending" }),
+      tables.executionQueue.select().where({ status: 'pending' }),
       {
-        label: "pendingWork",
-      },
+        label: 'pendingWork',
+      }
     );
 
     // Watch for active runtimes
     const activeRuntimesQuery$ = queryDb(
-      tables.runtimeSessions.select()
-        .where({ isActive: true }),
+      tables.runtimeSessions.select().where({ isActive: true }),
       {
-        label: "activeRuntimes",
-      },
+        label: 'activeRuntimes',
+      }
     );
 
     // Watch for completed executions to clean up processedExecutions
     const completedExecutionsQuery$ = queryDb(
-      tables.executionQueue.select()
-        .where({ status: "completed" }),
+      tables.executionQueue.select().where({ status: 'completed' }),
       {
-        label: "completedExecutions",
-      },
+        label: 'completedExecutions',
+      }
     );
 
     // Watch for failed executions to clean up processedExecutions
     const failedExecutionsQuery$ = queryDb(
-      tables.executionQueue.select()
-        .where({ status: "failed" }),
+      tables.executionQueue.select().where({ status: 'failed' }),
       {
-        label: "failedExecutions",
-      },
+        label: 'failedExecutions',
+      }
     );
 
     // Watch for cancelled executions
     const cancelledWorkQuery$ = queryDb(
-      tables.executionQueue.select()
-        .where({ status: "cancelled" }),
+      tables.executionQueue.select().where({ status: 'cancelled' }),
       {
-        label: "cancelledWork",
-      },
+        label: 'cancelledWork',
+      }
     );
 
     // Subscribe to assigned work
     // NOTE: Using `as any` due to readonly vs mutable array type mismatch between
     // LiveStore query results and subscription system. This is a known limitation.
-    const assignedWorkSub = this.store.subscribe(
-      assignedWorkQuery$,
-      {
-        onUpdate: (entries: readonly ExecutionQueueData[]) => {
-          if (this.isShuttingDown) return;
+    const assignedWorkSub = this.store.subscribe(assignedWorkQuery$, {
+      onUpdate: (entries: readonly ExecutionQueueData[]) => {
+        if (this.isShuttingDown) return;
 
-          setTimeout(async () => {
-            for (const queueEntry of entries) {
-              if (this.processedExecutions.has(queueEntry.id)) {
-                continue;
-              }
-
-              this.processedExecutions.add(queueEntry.id);
-
-              try {
-                await this.processExecution(queueEntry);
-              } catch (error) {
-                const logger = createLogger(`${this.config.runtimeType}-agent`);
-                logger.error("Error processing execution", error, {
-                  executionId: queueEntry.id,
-                  cellId: queueEntry.cellId,
-                });
-                // Error handling with full context happens within processExecution
-              }
+        setTimeout(async () => {
+          for (const queueEntry of entries) {
+            if (this.processedExecutions.has(queueEntry.id)) {
+              continue;
             }
-          }, 0);
-        },
+
+            this.processedExecutions.add(queueEntry.id);
+
+            try {
+              await this.processExecution(queueEntry);
+            } catch (error) {
+              const logger = createLogger(`${this.config.runtimeType}-agent`);
+              logger.error('Error processing execution', error, {
+                executionId: queueEntry.id,
+                cellId: queueEntry.cellId,
+              });
+              // Error handling with full context happens within processExecution
+            }
+          }
+        }, 0);
       },
-    );
+    });
 
     // Subscribe to pending work
     // NOTE: Using `as any` due to readonly vs mutable array type mismatch between
     // LiveStore query results and subscription system. This is a known limitation.
-    const pendingWorkSub = this.store.subscribe(
-      pendingWorkQuery$,
-      {
-        onUpdate: (entries: readonly ExecutionQueueData[]) => {
-          if (this.isShuttingDown) return;
+    const pendingWorkSub = this.store.subscribe(pendingWorkQuery$, {
+      onUpdate: (entries: readonly ExecutionQueueData[]) => {
+        if (this.isShuttingDown) return;
 
-          if (entries.length > 0) {
-            const logger = createLogger(`${this.config.runtimeType}-agent`);
+        if (entries.length > 0) {
+          const logger = createLogger(`${this.config.runtimeType}-agent`);
 
-            // Log cell count for sync debugging
-            const allCells = this.store.query(tables.cells.select());
-            logger.info("Runtime sync status", {
-              pendingExecutions: entries.length,
-              totalCells: allCells.length,
-              cellIds: allCells.map((c) => c.id),
-            });
+          // Log cell count for sync debugging
+          const allCells = this.store.query(tables.cells.select());
+          logger.info('Runtime sync status', {
+            pendingExecutions: entries.length,
+            totalCells: allCells.length,
+            cellIds: allCells.map((c) => c.id),
+          });
 
-            logger.debug("Pending executions", {
-              count: entries.length,
-              executions: entries.map((e) => ({ id: e.id, cellId: e.cellId })),
-            });
-          }
+          logger.debug('Pending executions', {
+            count: entries.length,
+            executions: entries.map((e) => ({ id: e.id, cellId: e.cellId })),
+          });
+        }
 
-          setTimeout(() => {
-            const activeRuntimes = this.store.query(activeRuntimesQuery$);
-            const ourRuntime = activeRuntimes.find((r: RuntimeSessionData) =>
-              r.sessionId === this.config.sessionId
-            );
+        setTimeout(() => {
+          const activeRuntimes = this.store.query(activeRuntimesQuery$);
+          const ourRuntime = activeRuntimes.find(
+            (r: RuntimeSessionData) => r.sessionId === this.config.sessionId
+          );
 
-            if (!ourRuntime) return;
+          if (!ourRuntime) return;
 
-            // Try to claim first pending execution
-            const firstPending = entries[0];
-            if (firstPending && firstPending.status === "pending") {
-              try {
-                this.store.commit(events.executionAssigned({
+          // Try to claim first pending execution
+          const firstPending = entries[0];
+          if (firstPending && firstPending.status === 'pending') {
+            try {
+              this.store.commit(
+                events.executionAssigned({
                   queueId: firstPending.id,
                   runtimeSessionId: this.config.sessionId,
-                }));
-              } catch (_error) {
-                // Silently fail - another runtime may have claimed it
-              }
+                })
+              );
+            } catch (_error) {
+              // Silently fail - another runtime may have claimed it
             }
-          }, 0);
-        },
+          }
+        }, 0);
       },
-    );
+    });
 
     // Subscribe to cancelled work
-    const cancelledWorkSub = this.store.subscribe(
-      cancelledWorkQuery$,
-      {
-        onUpdate: (entries: readonly ExecutionQueueData[]) => {
-          if (this.isShuttingDown) return;
+    const cancelledWorkSub = this.store.subscribe(cancelledWorkQuery$, {
+      onUpdate: (entries: readonly ExecutionQueueData[]) => {
+        if (this.isShuttingDown) return;
 
-          for (const entry of entries) {
-            this.handleCancellation(entry.id, entry.cellId, "user_requested");
-          }
-        },
+        for (const entry of entries) {
+          this.handleCancellation(entry.id, entry.cellId, 'user_requested');
+        }
       },
-    );
+    });
 
     // Subscribe to completed executions for cleanup
     const completedExecutionsSub = this.store.subscribe(
@@ -392,23 +404,20 @@ export class RuntimeAgent {
             this.processedExecutions.delete(entry.id);
           }
         },
-      },
+      }
     );
 
     // Subscribe to failed executions for cleanup
-    const failedExecutionsSub = this.store.subscribe(
-      failedExecutionsQuery$,
-      {
-        onUpdate: (entries: readonly ExecutionQueueData[]) => {
-          if (this.isShuttingDown) return;
+    const failedExecutionsSub = this.store.subscribe(failedExecutionsQuery$, {
+      onUpdate: (entries: readonly ExecutionQueueData[]) => {
+        if (this.isShuttingDown) return;
 
-          // Clean up processedExecutions Set for failed work
-          for (const entry of entries) {
-            this.processedExecutions.delete(entry.id);
-          }
-        },
+        // Clean up processedExecutions Set for failed work
+        for (const entry of entries) {
+          this.processedExecutions.delete(entry.id);
+        }
       },
-    );
+    });
 
     // Store subscriptions for cleanup
     this.subscriptions.push(
@@ -416,7 +425,7 @@ export class RuntimeAgent {
       pendingWorkSub,
       cancelledWorkSub,
       completedExecutionsSub,
-      failedExecutionsSub,
+      failedExecutionsSub
     );
   }
 
@@ -426,12 +435,12 @@ export class RuntimeAgent {
   private handleCancellation(
     queueId: string,
     cellId: string,
-    reason: string,
+    reason: string
   ): void {
     const controller = this.activeExecutions.get(queueId);
     if (controller) {
       const logger = createLogger(`${this.config.runtimeType}-agent`);
-      logger.debug("Cancelling execution", {
+      logger.debug('Cancelling execution', {
         queueId,
         cellId,
         reason,
@@ -446,9 +455,9 @@ export class RuntimeAgent {
         } catch (error) {
           const cancelLogger = createLogger(`${this.config.runtimeType}-agent`);
           if (error instanceof Error) {
-            cancelLogger.error("Cancellation handler error", error);
+            cancelLogger.error('Cancellation handler error', error);
           } else {
-            cancelLogger.warn("Cancellation handler error", {
+            cancelLogger.warn('Cancellation handler error', {
               error: String(error),
             });
           }
@@ -461,10 +470,10 @@ export class RuntimeAgent {
    * Process a single execution request
    */
   private async processExecution(
-    queueEntry: ExecutionQueueData,
+    queueEntry: ExecutionQueueData
   ): Promise<void> {
     const logger = createLogger(`${this.config.runtimeType}-agent`);
-    logger.debug("Processing execution", {
+    logger.debug('Processing execution', {
       executionId: queueEntry.id,
       cellId: queueEntry.cellId,
     });
@@ -477,7 +486,7 @@ export class RuntimeAgent {
 
     // Get cell data
     const cells = this.store.query(
-      tables.cells.select().where({ id: queueEntry.cellId }),
+      tables.cells.select().where({ id: queueEntry.cellId })
     );
     const cell = cells[0] as CellData;
 
@@ -500,183 +509,191 @@ export class RuntimeAgent {
       abortSignal: controller.signal,
       checkCancellation: () => {
         if (controller.signal.aborted) {
-          throw new Error("Execution cancelled");
+          throw new Error('Execution cancelled');
         }
       },
 
       // Output emission methods for real-time streaming
       stdout: (text: string) => {
         if (text) {
-          this.store.commit(events.terminalOutputAdded({
-            id: crypto.randomUUID(),
-            cellId: cell.id,
-            position: outputPosition++,
-            content: {
-              type: "inline",
-              data: text,
-            },
-            streamName: "stdout",
-          }));
+          this.store.commit(
+            events.terminalOutputAdded({
+              id: crypto.randomUUID(),
+              cellId: cell.id,
+              position: outputPosition++,
+              content: {
+                type: 'inline',
+                data: text,
+              },
+              streamName: 'stdout',
+            })
+          );
         }
       },
 
       // Append to existing terminal output (for streaming)
       appendTerminal: (outputId: string, text: string) => {
         if (text) {
-          this.store.commit(events.terminalOutputAppended({
-            outputId,
-            content: {
-              type: "inline",
-              data: text,
-            },
-          }));
+          this.store.commit(
+            events.terminalOutputAppended({
+              outputId,
+              content: {
+                type: 'inline',
+                data: text,
+              },
+            })
+          );
         }
       },
 
       stderr: (text: string) => {
         if (text) {
-          this.store.commit(events.terminalOutputAdded({
-            id: crypto.randomUUID(),
-            cellId: cell.id,
-            position: outputPosition++,
-            content: {
-              type: "inline",
-              data: text,
-            },
-            streamName: "stderr",
-          }));
+          this.store.commit(
+            events.terminalOutputAdded({
+              id: crypto.randomUUID(),
+              cellId: cell.id,
+              position: outputPosition++,
+              content: {
+                type: 'inline',
+                data: text,
+              },
+              streamName: 'stderr',
+            })
+          );
         }
       },
 
       display: (
         data: RawOutputData,
         metadata?: Record<string, unknown>,
-        displayId?: string,
+        displayId?: string
       ) => {
         // Convert raw data to MediaContainer representations
-        const representations: Record<
-          string,
-          MediaContainer
-        > = {};
+        const representations: Record<string, MediaContainer> = {};
 
         for (const [mimeType, content] of Object.entries(data)) {
           representations[mimeType] = {
-            type: "inline",
+            type: 'inline',
             data: content, // Keep JSON objects as-is, don't stringify
             metadata: metadata?.[mimeType] as Record<string, unknown>,
           };
         }
 
-        this.store.commit(events.multimediaDisplayOutputAdded({
-          id: crypto.randomUUID(),
-          cellId: cell.id,
-          position: outputPosition++,
-          representations,
-          displayId,
-        }));
+        this.store.commit(
+          events.multimediaDisplayOutputAdded({
+            id: crypto.randomUUID(),
+            cellId: cell.id,
+            position: outputPosition++,
+            representations,
+            displayId,
+          })
+        );
       },
 
       updateDisplay: (
         displayId: string,
         data: RawOutputData,
-        metadata?: Record<string, unknown>,
+        metadata?: Record<string, unknown>
       ) => {
         // For updated displays, use the dedicated update event (no new output created)
-        const representations: Record<
-          string,
-          MediaContainer
-        > = {};
+        const representations: Record<string, MediaContainer> = {};
 
         for (const [mimeType, content] of Object.entries(data)) {
           representations[mimeType] = {
-            type: "inline",
+            type: 'inline',
             data: content, // Keep JSON objects as-is, don't stringify
             metadata: metadata?.[mimeType] as Record<string, unknown>,
           };
         }
 
-        this.store.commit(events.multimediaDisplayOutputUpdated({
-          displayId,
-          representations,
-        }));
+        this.store.commit(
+          events.multimediaDisplayOutputUpdated({
+            displayId,
+            representations,
+          })
+        );
       },
 
-      result: (
-        data: RawOutputData,
-        metadata?: Record<string, unknown>,
-      ) => {
+      result: (data: RawOutputData, metadata?: Record<string, unknown>) => {
         // Convert raw data to MediaContainer representations
-        const representations: Record<
-          string,
-          MediaContainer
-        > = {};
+        const representations: Record<string, MediaContainer> = {};
 
         for (const [mimeType, content] of Object.entries(data)) {
           representations[mimeType] = {
-            type: "inline",
+            type: 'inline',
             data: content, // Keep JSON objects as-is for Altair plots, etc.
             metadata: metadata?.[mimeType] as Record<string, unknown>,
           };
         }
 
-        this.store.commit(events.multimediaResultOutputAdded({
-          id: crypto.randomUUID(),
-          cellId: cell.id,
-          position: outputPosition++,
-          representations,
-          executionCount: queueEntry.executionCount,
-        }));
+        this.store.commit(
+          events.multimediaResultOutputAdded({
+            id: crypto.randomUUID(),
+            cellId: cell.id,
+            position: outputPosition++,
+            representations,
+            executionCount: queueEntry.executionCount,
+          })
+        );
       },
 
       error: (ename: string, evalue: string, traceback: string[]) => {
-        this.store.commit(events.errorOutputAdded({
-          id: crypto.randomUUID(),
-          cellId: cell.id,
-          position: outputPosition++,
-          content: {
-            type: "inline",
-            data: {
-              ename,
-              evalue,
-              traceback,
+        this.store.commit(
+          events.errorOutputAdded({
+            id: crypto.randomUUID(),
+            cellId: cell.id,
+            position: outputPosition++,
+            content: {
+              type: 'inline',
+              data: {
+                ename,
+                evalue,
+                traceback,
+              },
             },
-          },
-        }));
+          })
+        );
       },
 
       // Markdown output methods for AI responses
       markdown: (content: string, metadata?: Record<string, unknown>) => {
         const outputId = crypto.randomUUID();
-        this.store.commit(events.markdownOutputAdded({
-          id: outputId,
-          cellId: cell.id,
-          position: outputPosition++,
-          content: {
-            type: "inline",
-            data: content,
-            metadata,
-          },
-        }));
+        this.store.commit(
+          events.markdownOutputAdded({
+            id: outputId,
+            cellId: cell.id,
+            position: outputPosition++,
+            content: {
+              type: 'inline',
+              data: content,
+              metadata,
+            },
+          })
+        );
         return outputId;
       },
 
       // Append to existing markdown output (for streaming AI responses)
       appendMarkdown: (outputId: string, content: string) => {
-        this.store.commit(events.markdownOutputAppended({
-          outputId,
-          content: {
-            type: "inline",
-            data: content,
-          },
-        }));
+        this.store.commit(
+          events.markdownOutputAppended({
+            outputId,
+            content: {
+              type: 'inline',
+              data: content,
+            },
+          })
+        );
       },
 
       clear: (wait: boolean = false) => {
-        this.store.commit(events.cellOutputsCleared({
-          cellId: cell.id,
-          wait,
-          clearedBy: `runtime-${this.config.runtimeId}`,
-        }));
+        this.store.commit(
+          events.cellOutputsCleared({
+            cellId: cell.id,
+            wait,
+            clearedBy: `runtime-${this.config.runtimeId}`,
+          })
+        );
 
         if (!wait) {
           outputPosition = 0;
@@ -686,12 +703,14 @@ export class RuntimeAgent {
 
     try {
       // Mark execution as started
-      this.store.commit(events.executionStarted({
-        queueId: queueEntry.id,
-        cellId: queueEntry.cellId,
-        runtimeSessionId: this.config.sessionId,
-        startedAt: executionStartTime,
-      }));
+      this.store.commit(
+        events.executionStarted({
+          queueId: queueEntry.id,
+          cellId: queueEntry.cellId,
+          runtimeSessionId: this.config.sessionId,
+          startedAt: executionStartTime,
+        })
+      );
 
       // Clear previous outputs (immediate clear)
       context.clear(false);
@@ -705,19 +724,21 @@ export class RuntimeAgent {
 
       // Mark execution as completed
       const executionEndTime = new Date();
-      const executionDurationMs = executionEndTime.getTime() -
-        executionStartTime.getTime();
+      const executionDurationMs =
+        executionEndTime.getTime() - executionStartTime.getTime();
 
-      this.store.commit(events.executionCompleted({
-        queueId: queueEntry.id,
-        cellId: queueEntry.cellId,
-        status: result.success ? "success" : "error",
-        error: result.error,
-        completedAt: executionEndTime,
-        executionDurationMs,
-      }));
+      this.store.commit(
+        events.executionCompleted({
+          queueId: queueEntry.id,
+          cellId: queueEntry.cellId,
+          status: result.success ? 'success' : 'error',
+          error: result.error,
+          completedAt: executionEndTime,
+          executionDurationMs,
+        })
+      );
 
-      logger.debug("Execution completed", {
+      logger.debug('Execution completed', {
         executionId: queueEntry.id,
         cellId: queueEntry.cellId,
         duration_ms: executionDurationMs,
@@ -726,7 +747,7 @@ export class RuntimeAgent {
     } catch (error) {
       // Check if execution was cancelled
       if (controller.signal.aborted) {
-        logger.debug("Execution was cancelled", {
+        logger.debug('Execution was cancelled', {
           executionId: queueEntry.id,
           cellId: queueEntry.cellId,
         });
@@ -734,7 +755,7 @@ export class RuntimeAgent {
         return;
       }
 
-      logger.error("Error in execution", error, {
+      logger.error('Error in execution', error, {
         executionId: queueEntry.id,
         cellId: queueEntry.cellId,
       });
@@ -744,19 +765,21 @@ export class RuntimeAgent {
 
       try {
         const executionEndTime = new Date();
-        const executionDurationMs = executionEndTime.getTime() -
-          executionStartTime.getTime();
+        const executionDurationMs =
+          executionEndTime.getTime() - executionStartTime.getTime();
 
-        this.store.commit(events.executionCompleted({
-          queueId: queueEntry.id,
-          cellId: queueEntry.cellId,
-          status: "error",
-          error: error instanceof Error ? error.message : String(error),
-          completedAt: executionEndTime,
-          executionDurationMs,
-        }));
+        this.store.commit(
+          events.executionCompleted({
+            queueId: queueEntry.id,
+            cellId: queueEntry.cellId,
+            status: 'error',
+            error: error instanceof Error ? error.message : String(error),
+            completedAt: executionEndTime,
+            executionDurationMs,
+          })
+        );
       } catch (commitError) {
-        logger.error("Failed to mark execution as failed", commitError, {
+        logger.error('Failed to mark execution as failed', commitError, {
           executionId: queueEntry.id,
           cellId: queueEntry.cellId,
         });
@@ -774,34 +797,33 @@ export class RuntimeAgent {
     const shutdown = () => this.shutdown();
 
     // Store signal handlers for cleanup
-    this.signalHandlers.set("SIGINT", shutdown);
-    this.signalHandlers.set("SIGTERM", shutdown);
+    this.signalHandlers.set('SIGINT', shutdown);
+    this.signalHandlers.set('SIGTERM', shutdown);
 
-    Deno.addSignalListener("SIGINT" as Deno.Signal, shutdown);
-    Deno.addSignalListener("SIGTERM" as Deno.Signal, shutdown);
+    Deno.addSignalListener('SIGINT' as Deno.Signal, shutdown);
+    Deno.addSignalListener('SIGTERM' as Deno.Signal, shutdown);
 
-    globalThis.addEventListener("unhandledrejection", (event) => {
+    globalThis.addEventListener('unhandledrejection', (event) => {
       const errorLogger = createLogger(`${this.config.runtimeType}-agent`);
       errorLogger.error(
-        "Unhandled rejection",
+        'Unhandled rejection',
         event.reason instanceof Error ? event.reason : undefined,
         {
-          reason: event.reason instanceof Error
-            ? undefined
-            : String(event.reason),
-        },
+          reason:
+            event.reason instanceof Error ? undefined : String(event.reason),
+        }
       );
       shutdown();
     });
 
-    globalThis.addEventListener("error", (event) => {
+    globalThis.addEventListener('error', (event) => {
       const errorLogger = createLogger(`${this.config.runtimeType}-agent`);
       errorLogger.error(
-        "Uncaught error",
+        'Uncaught error',
         event.error instanceof Error ? event.error : undefined,
         {
           error: event.error instanceof Error ? undefined : String(event.error),
-        },
+        }
       );
       shutdown();
     });
@@ -817,7 +839,7 @@ export class RuntimeAgent {
       } catch (error) {
         // Ignore errors during cleanup
         const cleanupLogger = createLogger(`${this.config.runtimeType}-agent`);
-        cleanupLogger.debug("Error removing signal listener", {
+        cleanupLogger.debug('Error removing signal listener', {
           signal,
           error: error instanceof Error ? error.message : String(error),
         });

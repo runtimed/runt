@@ -20,4 +20,5 @@ export interface EnvironmentManager {
     options?: { stdio?: 'inherit' | 'piped' | 'null' }
   ): Promise<void>;
   getEnvironmentPath(env: Environment): string;
+  loadEnvironment(path: string): Promise<Environment>;
 }

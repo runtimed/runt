@@ -105,4 +105,21 @@ export class PipEnvironmentManager implements EnvironmentManager {
     if (env.manager !== 'pip') throw new Error('Invalid environment manager');
     return env.data as string;
   }
+
+  async loadEnvironment(path: string): Promise<Environment> {
+    const envPath = isAbsolute(path) ? path : join(Deno.cwd(), path);
+    const env: Environment = { manager: 'pip', data: envPath };
+    try {
+      await this.runInEnvironment(env, ['python', '-m', 'pip', '--version'], {
+        stdio: 'null',
+      });
+    } catch (err) {
+      throw new Error(
+        `Failed to validate pip in environment: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
+    return env;
+  }
 }
