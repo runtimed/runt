@@ -9,7 +9,7 @@ import type {
 } from "@runt/lib";
 
 import { handleToolCallWithResult } from "./tool-registry.ts";
-import type { Store } from "@runt/schema";
+import type { MediaContainer, OutputData, Store } from "@runt/schema";
 
 import { OpenAIClient } from "./openai-client.ts";
 import { RuntOllamaClient } from "./ollama-client.ts";
@@ -79,8 +79,9 @@ export interface CellContextData {
   position: number;
   outputs: Array<{
     outputType: string;
-    data: Record<string, unknown>;
+    data: unknown;
     metadata?: Record<string, unknown>;
+    representations?: Record<string, MediaContainer>;
   }>;
 }
 
@@ -107,37 +108,54 @@ export function buildConversationMessages(
         const metadata = output.metadata as { anode?: { role?: string } };
         const role = metadata?.anode?.role;
 
-        if (role === "assistant" && output.data["text/markdown"]) {
+        if (
+          role === "assistant" && output.data &&
+          typeof output.data === "object" && "text/markdown" in output.data
+        ) {
           // Assistant text response
           messages.push({
             role: "assistant" as const,
-            content: String(output.data["text/markdown"]),
+            content: String(
+              (output.data as Record<string, unknown>)["text/markdown"],
+            ),
           });
         } else if (role === "function_call") {
           // Tool call - create assistant message with tool_calls
-          const toolData = output
-            .data["application/vnd.anode.aitool+json"] as ToolCallData;
-          messages.push({
-            role: "assistant" as const,
-            content: "", // Empty content for pure tool call
-            tool_calls: [{
-              id: toolData.tool_call_id,
-              type: "function" as const,
-              function: {
-                name: toolData.tool_name,
-                arguments: JSON.stringify(toolData.arguments),
-              },
-            }],
-          });
+          const toolData = output.data && typeof output.data === "object" &&
+              "application/vnd.anode.aitool+json" in output.data
+            ? (output.data as Record<string, unknown>)[
+              "application/vnd.anode.aitool+json"
+            ] as ToolCallData
+            : null;
+          if (toolData) {
+            messages.push({
+              role: "assistant" as const,
+              content: "", // Empty content for pure tool call
+              tool_calls: [{
+                id: toolData.tool_call_id,
+                type: "function" as const,
+                function: {
+                  name: toolData.tool_name,
+                  arguments: JSON.stringify(toolData.arguments),
+                },
+              }],
+            });
+          }
         } else if (role === "tool") {
           // Tool result
-          const resultData = output
-            .data["application/vnd.anode.aitool.result+json"] as ToolResultData;
-          messages.push({
-            role: "tool" as const,
-            content: resultData.result || "Success",
-            tool_call_id: resultData.tool_call_id,
-          });
+          const resultData = output.data && typeof output.data === "object" &&
+              "application/vnd.anode.aitool.result+json" in output.data
+            ? (output.data as Record<string, unknown>)[
+              "application/vnd.anode.aitool.result+json"
+            ] as ToolResultData
+            : null;
+          if (resultData) {
+            messages.push({
+              role: "tool" as const,
+              content: resultData.result || "Success",
+              tool_call_id: resultData.tool_call_id,
+            });
+          }
         }
       });
     } else if (cell.cellType === "code" || cell.cellType === "sql") {
@@ -149,29 +167,73 @@ export function buildConversationMessages(
       if (cell.outputs && cell.outputs.length > 0) {
         cellMessage += `\n\nOutput:\n`;
         cell.outputs.forEach((output) => {
-          if (output.outputType === "terminal" && output.data.text) {
-            cellMessage += `\`\`\`\n${
-              stripAnsi(String(output.data.text))
-            }\`\`\`\n`;
-          } else if (
-            output.outputType === "error" && output.data.ename &&
-            output.data.evalue
-          ) {
-            cellMessage += `\`\`\`\nError: ${
-              stripAnsi(String(output.data.ename))
-            }: ${stripAnsi(String(output.data.evalue))}\n\`\`\`\n`;
+          if (output.outputType === "terminal" && output.data) {
+            // Handle both old format (data.text) and new format (data as string)
+            const terminalText = typeof output.data === "object" &&
+                output.data !== null && "text" in output.data
+              ? String((output.data as Record<string, unknown>).text)
+              : String(output.data);
+            cellMessage += `\`\`\`\n${stripAnsi(terminalText)}\`\`\`\n`;
           } else if (
             (output.outputType === "execute_result" ||
               output.outputType === "display_data") &&
-            output.data["text/plain"]
+            output.data && typeof output.data === "object"
           ) {
-            cellMessage += `\`\`\`\n${
-              stripAnsi(String(output.data["text/plain"]))
-            }\n\`\`\`\n`;
+            // Handle execute_result and display_data outputs
+            const outputData = output.data as Record<string, unknown>;
+            if (outputData["text/plain"]) {
+              cellMessage += `\`\`\`\n${
+                stripAnsi(String(outputData["text/plain"]))
+              }\n\`\`\`\n`;
+            }
+            if (outputData["text/markdown"]) {
+              cellMessage += `${outputData["text/markdown"]}\n`;
+            }
+          } else if (
+            output.outputType === "error" && output.data
+          ) {
+            try {
+              const errorData = typeof output.data === "string"
+                ? JSON.parse(output.data)
+                : output.data;
+              cellMessage += `\`\`\`\nError: ${
+                stripAnsi(String(errorData.ename || "Unknown"))
+              }: ${
+                stripAnsi(String(errorData.evalue || "Unknown error"))
+              }\n\`\`\`\n`;
+            } catch {
+              cellMessage += `\`\`\`\nError: ${
+                stripAnsi(String(output.data))
+              }\n\`\`\`\n`;
+            }
+          } else if (
+            output.outputType === "markdown" && output.data
+          ) {
+            cellMessage += `${output.data}\n`;
+          } else if (
+            (output.outputType === "multimedia_result" ||
+              output.outputType === "multimedia_display") &&
+            output.representations
+          ) {
+            // Handle MediaContainer representations (at top level, not in data)
+            const representations = output.representations;
+
+            // Prioritize markdown for AI context
+            if (
+              representations &&
+              representations["text/markdown"]?.type === "inline"
+            ) {
+              cellMessage += `${representations["text/markdown"].data}\n`;
+            } else if (
+              representations &&
+              representations["text/plain"]?.type === "inline"
+            ) {
+              cellMessage += `\`\`\`\n${
+                stripAnsi(String(representations["text/plain"].data))
+              }\n\`\`\`\n`;
+            }
           }
-          if (output.data["text/markdown"]) {
-            cellMessage += `${output.data["text/markdown"]}\n`;
-          }
+
           // Future: Add image/multimodal support here
           // if (output.data["image/png"]) {
           //   cellMessage += `[Image output displayed]\n`;
