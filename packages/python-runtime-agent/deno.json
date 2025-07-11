@@ -16,7 +16,8 @@
   "imports": {
     "@runt/ai": "jsr:@runt/ai@^0.6.2",
     "@runt/lib": "jsr:@runt/lib@^0.6.2",
-    "@runt/schema": "jsr:@runt/schema@^0.6.2"
+    "@runt/schema": "jsr:@runt/schema@^0.6.2",
+    "spawnteract": "npm:spawnteract@^5.0.1"
   },
   "tasks": {
     "dev": "deno run --allow-all --env-file=.env src/python-runtime-agent.ts",
