@@ -9,7 +9,8 @@ import type {
 } from "@runt/lib";
 
 import { handleToolCallWithResult } from "./tool-registry.ts";
-import type { MediaContainer, OutputData, Store } from "@runt/schema";
+import type { MediaContainer, Store } from "@runt/schema";
+import { createLogger } from "@runt/lib";
 
 import { OpenAIClient } from "./openai-client.ts";
 import { RuntOllamaClient } from "./ollama-client.ts";
@@ -27,6 +28,9 @@ export {
 
 // Export notebook context functions
 export { gatherNotebookContext } from "./notebook-context.ts";
+
+// Create logger for AI conversation debugging
+const logger = createLogger("ai-conversation");
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
@@ -95,13 +99,28 @@ export function buildConversationMessages(
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
+  logger.debug("Building conversation messages", {
+    totalCells: context.totalCells,
+    previousCellsCount: context.previousCells.length,
+    currentPosition: context.currentCellPosition,
+  });
+
   messages.push({
     role: "system" as const,
     content: systemPrompt,
   });
 
   // Process each cell in order, building sequential conversation
-  context.previousCells.forEach((cell) => {
+  context.previousCells.forEach((cell, cellIndex) => {
+    logger.debug(
+      `Processing cell ${cellIndex + 1}/${context.previousCells.length}`,
+      {
+        cellId: cell.id,
+        cellType: cell.cellType,
+        outputCount: cell.outputs?.length || 0,
+        position: cell.position,
+      },
+    );
     if (cell.cellType === "ai" && cell.outputs && cell.outputs.length > 0) {
       // Process AI cell outputs sequentially - each output becomes a message
       cell.outputs.forEach((output) => {
@@ -218,19 +237,40 @@ export function buildConversationMessages(
             // Handle MediaContainer representations (at top level, not in data)
             const representations = output.representations;
 
+            logger.debug("Found multimedia representations", {
+              cellId: cell.id,
+              outputType: output.outputType,
+              mimeTypes: Object.keys(representations),
+              hasMarkdown: !!representations["text/markdown"],
+              hasPlain: !!representations["text/plain"],
+              markdownType: representations["text/markdown"]?.type,
+              plainType: representations["text/plain"]?.type,
+            });
+
             // Prioritize markdown for AI context
             if (
               representations &&
               representations["text/markdown"]?.type === "inline"
             ) {
-              cellMessage += `${representations["text/markdown"].data}\n`;
+              const markdownContent = representations["text/markdown"].data;
+              logger.debug("Adding markdown content to conversation", {
+                cellId: cell.id,
+                contentLength: String(markdownContent).length,
+                contentPreview: String(markdownContent).substring(0, 100),
+              });
+              cellMessage += `${markdownContent}\n`;
             } else if (
               representations &&
               representations["text/plain"]?.type === "inline"
             ) {
-              cellMessage += `\`\`\`\n${
-                stripAnsi(String(representations["text/plain"].data))
-              }\n\`\`\`\n`;
+              const plainContent = stripAnsi(
+                String(representations["text/plain"].data),
+              );
+              logger.debug("Adding plain text content to conversation", {
+                cellId: cell.id,
+                contentLength: plainContent.length,
+              });
+              cellMessage += `\`\`\`\n${plainContent}\n\`\`\`\n`;
             }
           }
 
@@ -258,6 +298,14 @@ export function buildConversationMessages(
   messages.push({
     role: "user" as const,
     content: userPrompt,
+  });
+
+  logger.debug("Conversation messages built successfully", {
+    totalMessages: messages.length,
+    systemMessages: messages.filter((m) => m.role === "system").length,
+    userMessages: messages.filter((m) => m.role === "user").length,
+    assistantMessages: messages.filter((m) => m.role === "assistant").length,
+    toolMessages: messages.filter((m) => m.role === "tool").length,
   });
 
   return messages;

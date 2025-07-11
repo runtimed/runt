@@ -47,6 +47,7 @@ export function gatherNotebookContext(
           outputType: output.outputType,
           data: output.data || {},
           metadata: output.metadata || {},
+          representations: output.representations || undefined,
         };
       });
 
