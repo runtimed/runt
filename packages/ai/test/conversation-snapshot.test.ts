@@ -1055,6 +1055,88 @@ Deno.test("AI conversation rendering - debug UI scenario", () => {
   // The sequential tool call flow maintains perfect OpenAI compatibility
 });
 
+Deno.test("AI conversation rendering - markdown outputs as assistant messages", () => {
+  const context: NotebookContextData = {
+    previousCells: [
+      {
+        id: "cell-1",
+        cellType: "ai",
+        source: "What is 2 + 2?",
+        position: 1,
+        outputs: [
+          // AI response as markdown output (streaming response)
+          {
+            outputType: "markdown",
+            data: "2 + 2 equals 4. This is a basic arithmetic operation.",
+            metadata: {
+              anode: {
+                role: "assistant",
+                ai_provider: "openai",
+                ai_model: "gpt-4o-mini",
+                iteration: 1,
+              },
+            },
+          },
+        ],
+      },
+      {
+        id: "cell-2",
+        cellType: "ai",
+        source: "Create a simple example",
+        position: 2,
+        outputs: [
+          // AI response as display_data output
+          {
+            outputType: "display_data",
+            data: {
+              "text/markdown": "I'll create a simple example for you.",
+              "text/plain": "I'll create a simple example for you.",
+            },
+            metadata: {
+              anode: {
+                role: "assistant",
+                ai_provider: "openai",
+                ai_model: "gpt-4o-mini",
+                iteration: 1,
+              },
+            },
+          },
+        ],
+      },
+    ],
+    totalCells: 2,
+    currentCellPosition: 2,
+  };
+
+  const messages = buildConversationMessages(
+    context,
+    "You are a helpful assistant.",
+    "What else can you help with?",
+  );
+
+  // Should have: system, assistant (markdown), assistant (display_data), user (prompt)
+  assertEquals(messages.length, 4);
+  assertEquals(messages[0].role, "system");
+  assertEquals(messages[1].role, "assistant");
+  assertEquals(messages[2].role, "assistant");
+  assertEquals(messages[3].role, "user");
+
+  // Check first assistant message (from markdown output)
+  assertEquals(
+    messages[1].content,
+    "2 + 2 equals 4. This is a basic arithmetic operation.",
+  );
+
+  // Check second assistant message (from display_data output)
+  assertEquals(
+    messages[2].content,
+    "I'll create a simple example for you.",
+  );
+
+  // Check current prompt is last
+  assertEquals(messages[3].content, "What else can you help with?");
+});
+
 Deno.test("AI conversation rendering - integrated code cells in conversation", () => {
   const context: NotebookContextData = {
     previousCells: [
