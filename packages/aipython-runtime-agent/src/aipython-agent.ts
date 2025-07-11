@@ -175,16 +175,14 @@ export class AIPythonAgent {
       -this.config.maxHistoryLength,
     );
     const contextParts: string[] = [];
+    let inputCount = 0;
 
     for (const entry of recentHistory) {
       if (entry.type === "code") {
-        contextParts.push(
-          `In [${contextParts.length / 2 + 1}]: ${entry.content}`,
-        );
+        inputCount++;
+        contextParts.push(`In [${inputCount}]: ${entry.content}`);
       } else if (entry.type === "output" && this.config.includeOutputs) {
-        contextParts.push(
-          `Out[${Math.floor(contextParts.length / 2) + 1}]: ${entry.content}`,
-        );
+        contextParts.push(`Out[${inputCount}]: ${entry.content}`);
       }
     }
 
@@ -372,6 +370,7 @@ Execute this Python code:`;
     try {
       const maxIterations = 5; // Prevent infinite loops
       let iteration = 0;
+      const outputCapture: string[] = [];
 
       while (iteration < maxIterations) {
         iteration++;
@@ -401,7 +400,11 @@ Execute this Python code:`;
         // Process tool calls if any
         if (message.tool_calls && message.tool_calls.length > 0) {
           for (const toolCall of message.tool_calls) {
-            const result = this.handleToolCall(toolCall, execContext);
+            const result = this.handleToolCall(
+              toolCall,
+              execContext,
+              outputCapture,
+            );
 
             // Add tool result to conversation
             messages.push({
@@ -417,6 +420,15 @@ Execute this Python code:`;
 
         // No more tool calls, we're done
         break;
+      }
+
+      // Add captured outputs to conversation history
+      if (outputCapture.length > 0) {
+        this.conversationHistory.push({
+          type: "output",
+          content: outputCapture.join("\n"),
+          timestamp: new Date(),
+        });
       }
 
       return true;
@@ -437,6 +449,7 @@ Execute this Python code:`;
   private handleToolCall(
     toolCall: OpenAI.Chat.Completions.ChatCompletionMessageToolCall,
     context: ExecutionContext,
+    outputCapture?: string[],
   ): string {
     const { name, arguments: argsStr } = toolCall.function;
 
@@ -477,6 +490,7 @@ Execute this Python code:`;
             ? stdoutText.substring(0, 5000) + "\n[Output truncated...]"
             : stdoutText;
           context.stdout(truncatedStdout);
+          outputCapture?.push(truncatedStdout);
           return "stdout output written";
 
         case "stderr":
@@ -486,16 +500,23 @@ Execute this Python code:`;
             ? stderrText.substring(0, 5000) + "\n[Output truncated...]"
             : stderrText;
           context.stderr(truncatedStderr);
+          outputCapture?.push(`stderr: ${truncatedStderr}`);
           return "stderr output written";
 
         case "execute_result":
           const resultData = args.data || { "text/plain": String(args) };
           context.result(resultData, args.metadata);
+          const resultText = resultData["text/plain"] ||
+            JSON.stringify(resultData);
+          outputCapture?.push(resultText);
           return "execute result displayed";
 
         case "display":
           const displayData = args.data || { "text/plain": String(args) };
           context.display(displayData, args.metadata);
+          const displayText = displayData["text/plain"] ||
+            "[Rich display content]";
+          outputCapture?.push(displayText);
           return "display data shown";
 
         case "error":
@@ -503,6 +524,7 @@ Execute this Python code:`;
           const evalue = args.evalue || "Error during execution";
           const traceback = args.traceback || [evalue];
           context.error(ename, evalue, traceback);
+          outputCapture?.push(`${ename}: ${evalue}`);
           return "error reported";
 
         default:
