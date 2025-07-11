@@ -3,15 +3,19 @@
 // This agent uses AI to simulate IPython execution by providing the AI with
 // tools that are directly connected to the execution context output methods.
 
+import OpenAI from "@openai/openai";
 import { createLogger, createRuntimeConfig, RuntimeAgent } from "@runt/lib";
 import type { ExecutionContext, ExecutionResult } from "@runt/lib";
-import { tables } from "@runt/schema";
 
 interface AIPythonConfig {
   /** AI model to use for Python simulation */
   model: string;
   /** API key for the AI service */
   apiKey: string;
+  /** OpenAI base URL (optional) */
+  baseURL?: string;
+  /** OpenAI organization (optional) */
+  organization?: string;
   /** Maximum conversation history to send */
   maxHistoryLength: number;
   /** Whether to include outputs in history */
@@ -24,40 +28,14 @@ interface ConversationEntry {
   timestamp: Date;
 }
 
-interface OpenAIMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
-  tool_calls?: OpenAIToolCall[];
-  tool_call_id?: string;
-}
-
-interface OpenAIToolCall {
-  id: string;
-  type: "function";
-  function: {
-    name: string;
-    arguments: string;
-  };
-}
-
-interface OpenAITool {
-  type: "function";
-  function: {
-    name: string;
-    description: string;
-    parameters: {
-      type: "object";
-      properties: Record<string, unknown>;
-      required: string[];
-    };
-  };
-}
+type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
 export class AIPythonAgent {
   private agent: RuntimeAgent;
   private config: AIPythonConfig;
   private logger = createLogger("aipython-agent");
   private conversationHistory: ConversationEntry[] = [];
+  private openaiClient: OpenAI;
 
   constructor(aiConfig: Partial<AIPythonConfig> = {}) {
     // Create runtime config from CLI args and environment
@@ -89,6 +67,9 @@ export class AIPythonAgent {
     this.config = {
       model: aiConfig.model || Deno.env.get("AIPYTHON_MODEL") || "gpt-4o-mini",
       apiKey: aiConfig.apiKey || Deno.env.get("OPENAI_API_KEY") || "",
+      baseURL: aiConfig.baseURL || Deno.env.get("OPENAI_BASE_URL"),
+      organization: aiConfig.organization ||
+        Deno.env.get("OPENAI_ORGANIZATION"),
       maxHistoryLength: aiConfig.maxHistoryLength || 20,
       includeOutputs: aiConfig.includeOutputs ?? true,
       ...aiConfig,
@@ -100,6 +81,13 @@ export class AIPythonAgent {
       );
       Deno.exit(1);
     }
+
+    // Initialize OpenAI client
+    this.openaiClient = new OpenAI({
+      apiKey: this.config.apiKey,
+      baseURL: this.config.baseURL,
+      organization: this.config.organization,
+    });
 
     // Create the runtime agent
     this.agent = new RuntimeAgent(runtimeConfig, runtimeConfig.capabilities, {
@@ -126,7 +114,7 @@ export class AIPythonAgent {
     await this.agent.shutdown();
   }
 
-  async keepAlive() {
+  keepAlive() {
     return this.agent.keepAlive();
   }
 
@@ -203,7 +191,7 @@ export class AIPythonAgent {
     return contextParts.join("\n\n");
   }
 
-  private getIPythonTools(): OpenAITool[] {
+  private getIPythonTools(): OpenAI.Chat.Completions.ChatCompletionTool[] {
     return [
       {
         type: "function",
@@ -353,50 +341,28 @@ ${context}
 
 Execute this Python code:`;
 
-    const messages: OpenAIMessage[] = [
+    const messages: ChatMessage[] = [
       { role: "system", content: systemPrompt },
       { role: "user", content: code },
     ];
 
     try {
-      let maxIterations = 5; // Prevent infinite loops
+      const maxIterations = 5; // Prevent infinite loops
       let iteration = 0;
 
       while (iteration < maxIterations) {
         iteration++;
 
-        const response = await fetch(
-          "https://api.openai.com/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${this.config.apiKey}`,
-            },
-            body: JSON.stringify({
-              model: this.config.model,
-              messages,
-              tools: this.getIPythonTools(),
-              tool_choice: "auto",
-              temperature: 0.1,
-              max_tokens: 1000,
-            }),
-          },
-        );
+        const response = await this.openaiClient.chat.completions.create({
+          model: this.config.model,
+          messages,
+          tools: this.getIPythonTools(),
+          tool_choice: "auto",
+          temperature: 0.1,
+          max_tokens: 1000,
+        });
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({
-            error: "Unknown API error",
-          }));
-          throw new Error(
-            `OpenAI API error: ${response.status} - ${
-              errorData.error?.message || "Unknown error"
-            }`,
-          );
-        }
-
-        const data = await response.json();
-        const message = data.choices?.[0]?.message;
+        const message = response.choices?.[0]?.message;
 
         if (!message) {
           throw new Error("No response from AI");
@@ -412,7 +378,7 @@ Execute this Python code:`;
         // Process tool calls if any
         if (message.tool_calls && message.tool_calls.length > 0) {
           for (const toolCall of message.tool_calls) {
-            const result = await this.handleToolCall(toolCall, execContext);
+            const result = this.handleToolCall(toolCall, execContext);
 
             // Add tool result to conversation
             messages.push({
@@ -445,10 +411,10 @@ Execute this Python code:`;
     }
   }
 
-  private async handleToolCall(
-    toolCall: OpenAIToolCall,
+  private handleToolCall(
+    toolCall: OpenAI.Chat.Completions.ChatCompletionMessageToolCall,
     context: ExecutionContext,
-  ): Promise<string> {
+  ): string {
     const { name, arguments: argsStr } = toolCall.function;
 
     try {

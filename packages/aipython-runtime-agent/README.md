@@ -26,11 +26,13 @@ deno install --allow-all --name aipython jsr:@runt/aipython-runtime-agent/bin/ai
 ### Environment Variables
 
 Required:
+
 - `OPENAI_API_KEY`: Your OpenAI API key
 - `NOTEBOOK_ID`: Anode notebook ID to connect to
 - `AUTH_TOKEN`: Authentication token for the notebook
 
 Optional:
+
 - `AIPYTHON_MODEL`: AI model to use (default: `gpt-4o-mini`)
 - `LIVESTORE_SYNC_URL`: Custom LiveStore sync URL
 
@@ -87,46 +89,54 @@ await agent.keepAlive();
 ## Example Interactions
 
 ### Basic Expression
+
 ```python
 2 + 3
 ```
+
 → AI uses `execute_result({"text/plain": "5"})`
 
 ### Print Statement
+
 ```python
 print("Hello, World!")
 ```
+
 → AI uses `stdout("Hello, World!\n")`
 
 ### Error Handling
+
 ```python
 x = 1 / 0
 ```
+
 → AI uses `error("ZeroDivisionError", "division by zero", [traceback...])`
 
 ### Rich Display
+
 ```python
 import matplotlib.pyplot as plt
 plt.plot([1, 2, 3], [1, 4, 9])
 plt.show()
 ```
+
 → AI uses `display({"image/png": "...", "text/plain": "plot description"})`
 
 ## Configuration Options
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `model` | `gpt-4o-mini` | OpenAI model to use |
-| `apiKey` | `OPENAI_API_KEY` env var | OpenAI API key |
-| `maxHistoryLength` | `20` | Max conversation entries to send |
-| `includeOutputs` | `true` | Include previous outputs in context |
+| Option             | Default                  | Description                         |
+| ------------------ | ------------------------ | ----------------------------------- |
+| `model`            | `gpt-4o-mini`            | OpenAI model to use                 |
+| `apiKey`           | `OPENAI_API_KEY` env var | OpenAI API key                      |
+| `maxHistoryLength` | `20`                     | Max conversation entries to send    |
+| `includeOutputs`   | `true`                   | Include previous outputs in context |
 
 ## Available Tools
 
 The AI has access to these IPython-like tools:
 
 - **`stdout(text)`** - Write to stdout stream
-- **`stderr(text)`** - Write to stderr stream  
+- **`stderr(text)`** - Write to stderr stream
 - **`execute_result(data, metadata?)`** - Return expression results
 - **`display(data, metadata?)`** - Display rich content
 - **`error(ename, evalue, traceback)`** - Report Python errors

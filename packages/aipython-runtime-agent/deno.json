@@ -8,7 +8,8 @@
   },
   "imports": {
     "@runt/lib": "../lib/mod.ts",
-    "@runt/schema": "../schema/mod.ts"
+    "@runt/schema": "../schema/mod.ts",
+    "@openai/openai": "jsr:@openai/openai@^4.68.4"
   },
   "tasks": {
     "dev": "deno run --allow-all --env-file=../../.env src/aipython-agent.ts",
