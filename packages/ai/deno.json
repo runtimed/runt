@@ -32,6 +32,8 @@
       "ollama-client.ts",
       "shared-types.ts",
       "tool-registry.ts",
+      "media-utils.ts",
+      "notebook-context.ts",
       "README.md"
     ],
     "exclude": ["**/*.test.ts", "**/test_*.ts", "examples/"]
