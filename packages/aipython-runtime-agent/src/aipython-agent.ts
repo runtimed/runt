@@ -464,7 +464,7 @@ Execute this Python code:`;
         try {
           args = JSON.parse(fixedArgsStr);
           this.logger.warn(`Fixed malformed JSON for tool call ${name}`);
-        } catch (secondParseError) {
+        } catch (_secondParseError) {
           this.logger.error(`Failed to parse JSON for tool call ${name}:`, {
             original: argsStr.substring(0, 200) + "...",
             parseError: parseError instanceof Error
@@ -483,7 +483,7 @@ Execute this Python code:`;
       }
 
       switch (name) {
-        case "stdout":
+        case "stdout": {
           const stdoutText = args.text || String(args);
           // Truncate very long output
           const truncatedStdout = stdoutText.length > 5000
@@ -492,8 +492,9 @@ Execute this Python code:`;
           context.stdout(truncatedStdout);
           outputCapture?.push(truncatedStdout);
           return "stdout output written";
+        }
 
-        case "stderr":
+        case "stderr": {
           const stderrText = args.text || String(args);
           // Truncate very long output
           const truncatedStderr = stderrText.length > 5000
@@ -502,30 +503,34 @@ Execute this Python code:`;
           context.stderr(truncatedStderr);
           outputCapture?.push(`stderr: ${truncatedStderr}`);
           return "stderr output written";
+        }
 
-        case "execute_result":
+        case "execute_result": {
           const resultData = args.data || { "text/plain": String(args) };
           context.result(resultData, args.metadata);
           const resultText = resultData["text/plain"] ||
             JSON.stringify(resultData);
           outputCapture?.push(resultText);
           return "execute result displayed";
+        }
 
-        case "display":
+        case "display": {
           const displayData = args.data || { "text/plain": String(args) };
           context.display(displayData, args.metadata);
           const displayText = displayData["text/plain"] ||
             "[Rich display content]";
           outputCapture?.push(displayText);
           return "display data shown";
+        }
 
-        case "error":
+        case "error": {
           const ename = args.ename || "PythonError";
           const evalue = args.evalue || "Error during execution";
           const traceback = args.traceback || [evalue];
           context.error(ename, evalue, traceback);
           outputCapture?.push(`${ename}: ${evalue}`);
           return "error reported";
+        }
 
         default:
           this.logger.warn(`Unknown tool call: ${name}`);
@@ -596,26 +601,31 @@ Execute this Python code:`;
     return fixed;
   }
 
-  private extractFallbackArgs(toolName: string, malformedJson: string): any {
+  private extractFallbackArgs(
+    toolName: string,
+    malformedJson: string,
+  ): unknown {
     // Try to extract basic content from malformed JSON
     switch (toolName) {
       case "stdout":
-      case "stderr":
+      case "stderr": {
         // Try to extract text content
         const textMatch = malformedJson.match(/"text":\s*"([^"]*)/);
         if (textMatch) {
           return { text: textMatch[1] };
         }
         break;
+      }
 
       case "execute_result":
-      case "display":
+      case "display": {
         // Try to extract text/plain content
         const plainMatch = malformedJson.match(/"text\/plain":\s*"([^"]*)/);
         if (plainMatch) {
           return { data: { "text/plain": plainMatch[1] } };
         }
         break;
+      }
     }
 
     return null;
