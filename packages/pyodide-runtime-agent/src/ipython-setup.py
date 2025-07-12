@@ -25,10 +25,10 @@ from IPython.core.history import HistoryManager
 import matplotlib
 import matplotlib.pyplot as plt
 
-# Configure matplotlib for rich SVG output
-matplotlib.use("svg")
-plt.rcParams["figure.dpi"] = 100
-plt.rcParams["savefig.dpi"] = 100
+# Configure matplotlib for rich PNG output
+matplotlib.use("agg")
+plt.rcParams["figure.dpi"] = 150
+plt.rcParams["savefig.dpi"] = 150
 plt.rcParams["figure.facecolor"] = "white"
 plt.rcParams["savefig.facecolor"] = "white"
 plt.rcParams["figure.figsize"] = (8, 6)
@@ -204,26 +204,33 @@ _original_show = plt.show
 
 
 def _capture_matplotlib_show(block=None):
-    """Capture matplotlib plots as SVG and send via display system"""
+    """Capture matplotlib plots as PNG and send via display system"""
     if plt.get_fignums():
         fig = plt.gcf()
-        svg_buffer = io.StringIO()
+        png_buffer = io.BytesIO()
 
         try:
             fig.savefig(
-                svg_buffer,
-                format="svg",
+                png_buffer,
+                format="png",
                 bbox_inches="tight",
                 facecolor="white",
                 edgecolor="none",
+                dpi=150,
             )
-            svg_content = svg_buffer.getvalue()
-            svg_buffer.close()
+            png_data = png_buffer.getvalue()
+            png_buffer.close()
 
-            # Use IPython's display system
-            from IPython.display import display, SVG
+            # Use IPython's display system for PNG
+            import base64
+            from IPython.display import display
 
-            display(SVG(svg_content))
+            # Convert to base64 for proper IPython display format
+            png_base64 = base64.b64encode(png_data).decode("ascii")
+
+            # Create display data in IPython format
+            display_data = {"image/png": png_base64}
+            display(display_data, raw=True)
 
             plt.clf()
         except Exception as e:

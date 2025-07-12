@@ -53,6 +53,15 @@ export {
 } from "@runt/schema";
 
 // Runtime-specific types and utilities
-export type { MediaBundle } from "./types.ts";
+export type {
+  ArtifactUploadConfig,
+  ArtifactUploadResponse,
+  MediaBundle,
+} from "./types.ts";
 
-export { validateMediaBundle } from "./types.ts";
+export {
+  getArtifactContentUrl,
+  uploadArtifact,
+  uploadArtifactIfNeeded,
+  validateMediaBundle,
+} from "./types.ts";

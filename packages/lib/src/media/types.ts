@@ -89,3 +89,154 @@ export function validateMediaBundle(bundle: MediaBundle): MediaBundle {
 
   return result;
 }
+
+/**
+ * Configuration for artifact uploads
+ */
+export interface ArtifactUploadConfig {
+  syncUrl: string;
+  authToken: string;
+  notebookId: string;
+  threshold?: number; // Default 16KB
+}
+
+/**
+ * Response from artifact upload
+ */
+export interface ArtifactUploadResponse {
+  artifactId: string;
+  byteLength: number;
+  mimeType: string;
+}
+
+/**
+ * Upload data as an artifact if it exceeds the size threshold
+ *
+ * @param data - The data to potentially upload as an artifact
+ * @param mimeType - MIME type of the data
+ * @param config - Upload configuration
+ * @returns Promise resolving to either inline data or artifact reference
+ *
+ * @example
+ * ```typescript
+ * const config = {
+ *   syncUrl: "https://api.example.com",
+ *   authToken: "abc123",
+ *   notebookId: "notebook-456"
+ * };
+ *
+ * // Small data stays inline
+ * const small = await uploadArtifactIfNeeded("Hello", "text/plain", config);
+ * // { type: "inline", data: "Hello" }
+ *
+ * // Large data becomes artifact
+ * const large = await uploadArtifactIfNeeded(largeImageData, "image/png", config);
+ * // { type: "artifact", artifactId: "notebook-456/abc123...", metadata: {...} }
+ * ```
+ */
+export async function uploadArtifactIfNeeded(
+  data: ArrayBuffer | string,
+  mimeType: string,
+  config: ArtifactUploadConfig,
+): Promise<
+  {
+    type: "inline";
+    data: unknown;
+  } | {
+    type: "artifact";
+    artifactId: string;
+    metadata: { byteLength: number; mimeType: string };
+  }
+> {
+  const threshold = config.threshold || 16384; // 16KB default
+
+  // Convert data to ArrayBuffer for size checking
+  let buffer: ArrayBuffer;
+  if (typeof data === "string") {
+    const encoded = new TextEncoder().encode(data);
+    buffer = new ArrayBuffer(encoded.byteLength);
+    new Uint8Array(buffer).set(encoded);
+  } else {
+    buffer = data;
+  }
+
+  // If below threshold, return inline
+  if (buffer.byteLength <= threshold) {
+    return {
+      type: "inline",
+      data: typeof data === "string" ? data : buffer,
+    };
+  }
+
+  // Upload as artifact
+  const response = await uploadArtifact(buffer, mimeType, config);
+
+  return {
+    type: "artifact",
+    artifactId: response.artifactId,
+    metadata: {
+      byteLength: response.byteLength,
+      mimeType: response.mimeType,
+    },
+  };
+}
+
+/**
+ * Upload data as an artifact to the sync backend
+ *
+ * @param data - Binary data to upload
+ * @param mimeType - MIME type of the data
+ * @param config - Upload configuration
+ * @returns Promise resolving to upload response
+ */
+export async function uploadArtifact(
+  data: ArrayBuffer,
+  mimeType: string,
+  config: ArtifactUploadConfig,
+): Promise<ArtifactUploadResponse> {
+  const url = `${config.syncUrl}/api/artifacts`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": mimeType,
+      "X-Notebook-ID": config.notebookId,
+      "X-Auth-Token": config.authToken,
+    },
+    body: data,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    let errorMessage: string;
+
+    try {
+      const errorJson = JSON.parse(errorText);
+      errorMessage = errorJson.message ||
+        `Upload failed with status ${response.status}`;
+    } catch {
+      errorMessage =
+        `Upload failed with status ${response.status}: ${errorText}`;
+    }
+
+    throw new Error(`Artifact upload failed: ${errorMessage}`);
+  }
+
+  return await response.json() as ArtifactUploadResponse;
+}
+
+/**
+ * Generate a content URL for an artifact
+ *
+ * @param artifactId - The artifact identifier
+ * @param config - Configuration containing sync URL and auth token
+ * @returns URL for accessing the artifact content
+ */
+export function getArtifactContentUrl(
+  artifactId: string,
+  config: Pick<ArtifactUploadConfig, "syncUrl" | "authToken">,
+): string {
+  const url = new URL(`/api/artifacts/${artifactId}`, config.syncUrl);
+  url.searchParams.set("token", config.authToken);
+  return url.toString();
+}

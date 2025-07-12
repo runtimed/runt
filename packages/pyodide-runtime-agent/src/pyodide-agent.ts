@@ -5,14 +5,20 @@
 // via Pyodide's built-in interrupt system.
 
 import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
-import type { ExecutionContext } from "@runt/lib";
+import type { ExecutionContext, RawOutputData } from "@runt/lib";
 import { createLogger } from "@runt/lib";
-import { type MediaBundle, validateMediaBundle } from "@runt/lib";
+import {
+  type ArtifactUploadConfig,
+  type MediaBundle,
+  uploadArtifactIfNeeded,
+  validateMediaBundle,
+} from "@runt/lib";
 import {
   isJsonMimeType,
   isTextBasedMimeType,
   KNOWN_MIME_TYPES,
   type KnownMimeType,
+  type MediaContainer,
 } from "@runt/schema";
 import { getEssentialPackages } from "./cache-utils.ts";
 import type { Store } from "npm:@livestore/livestore";
@@ -256,20 +262,62 @@ export class PyodideRuntimeAgent {
           case "result":
           case "execute_result":
             if (data.data !== null && data.data !== undefined) {
-              this.currentExecutionContext.result(
-                this.formatRichOutput(data.data, data.metadata),
-              );
+              // Process artifacts asynchronously
+              this.processMediaBundleWithArtifacts(data.data, data.metadata)
+                .then((processedBundle) => {
+                  if (this.currentExecutionContext) {
+                    this.currentExecutionContext.result(processedBundle);
+                  }
+                }).catch((error) => {
+                  this.logger.error(
+                    "Failed to process artifacts for execute_result",
+                    {
+                      error: error instanceof Error
+                        ? error.message
+                        : String(error),
+                    },
+                  );
+                  // Fallback to regular formatting
+                  if (this.currentExecutionContext) {
+                    this.currentExecutionContext.result(
+                      this.formatRichOutput(data.data, data.metadata),
+                    );
+                  }
+                });
             }
             break;
           case "display_data":
             if (data.data !== null && data.data !== undefined) {
               // Extract display_id from transient data if present
               const displayId = data.transient?.display_id;
-              this.currentExecutionContext.display(
-                this.formatRichOutput(data.data, data.metadata),
-                data.metadata || {},
-                displayId,
-              );
+              // Process artifacts asynchronously
+              this.processMediaBundleWithArtifacts(data.data, data.metadata)
+                .then((processedBundle) => {
+                  if (this.currentExecutionContext) {
+                    this.currentExecutionContext.display(
+                      processedBundle,
+                      data.metadata || {},
+                      displayId,
+                    );
+                  }
+                }).catch((error) => {
+                  this.logger.error(
+                    "Failed to process artifacts for display_data",
+                    {
+                      error: error instanceof Error
+                        ? error.message
+                        : String(error),
+                    },
+                  );
+                  // Fallback to regular formatting
+                  if (this.currentExecutionContext) {
+                    this.currentExecutionContext.display(
+                      this.formatRichOutput(data.data, data.metadata),
+                      data.metadata || {},
+                      displayId,
+                    );
+                  }
+                });
             }
             break;
           case "update_display_data":
@@ -277,17 +325,61 @@ export class PyodideRuntimeAgent {
               // Extract display_id from transient data
               const displayId = data.transient?.display_id;
               if (displayId) {
-                this.currentExecutionContext.updateDisplay(
-                  displayId,
-                  this.formatRichOutput(data.data, data.metadata),
-                  data.metadata || {},
-                );
+                // Process artifacts asynchronously
+                this.processMediaBundleWithArtifacts(data.data, data.metadata)
+                  .then((processedBundle) => {
+                    if (this.currentExecutionContext) {
+                      this.currentExecutionContext.updateDisplay(
+                        displayId,
+                        processedBundle,
+                        data.metadata || {},
+                      );
+                    }
+                  }).catch((error) => {
+                    this.logger.error(
+                      "Failed to process artifacts for update_display_data",
+                      {
+                        error: error instanceof Error
+                          ? error.message
+                          : String(error),
+                      },
+                    );
+                    // Fallback to regular formatting
+                    if (this.currentExecutionContext) {
+                      this.currentExecutionContext.updateDisplay(
+                        displayId,
+                        this.formatRichOutput(data.data, data.metadata),
+                        data.metadata || {},
+                      );
+                    }
+                  });
               } else {
                 // Fallback to regular display if no display_id
-                this.currentExecutionContext.display(
-                  this.formatRichOutput(data.data, data.metadata),
-                  data.metadata || {},
-                );
+                this.processMediaBundleWithArtifacts(data.data, data.metadata)
+                  .then((processedBundle) => {
+                    if (this.currentExecutionContext) {
+                      this.currentExecutionContext.display(
+                        processedBundle,
+                        data.metadata || {},
+                      );
+                    }
+                  }).catch((error) => {
+                    this.logger.error(
+                      "Failed to process artifacts for update_display_data fallback",
+                      {
+                        error: error instanceof Error
+                          ? error.message
+                          : String(error),
+                      },
+                    );
+                    // Fallback to regular formatting
+                    if (this.currentExecutionContext) {
+                      this.currentExecutionContext.display(
+                        this.formatRichOutput(data.data, data.metadata),
+                        data.metadata || {},
+                      );
+                    }
+                  });
               }
             }
             break;
@@ -525,6 +617,75 @@ export class PyodideRuntimeAgent {
   // Type guard for rich data structure
   private hasDataProperty(value: unknown): value is { data: unknown } {
     return this.isRecord(value) && "data" in value;
+  }
+
+  /**
+   * Process media bundle and upload large items as artifacts
+   */
+  private async processMediaBundleWithArtifacts(
+    result: unknown,
+    metadata?: Record<string, unknown>,
+  ): Promise<RawOutputData> {
+    const mediaBundle = this.formatRichOutput(result, metadata);
+    const processedBundle: Record<string, MediaContainer> = {};
+    const outputData: RawOutputData = {};
+
+    const artifactConfig: ArtifactUploadConfig = {
+      syncUrl: this.config.syncUrl.replace("ws://", "http://").replace(
+        "wss://",
+        "https://",
+      ).replace("/api", ""),
+      authToken: this.config.authToken,
+      notebookId: this.config.notebookId,
+    };
+
+    for (const [mimeType, content] of Object.entries(mediaBundle)) {
+      try {
+        if (typeof content === "string") {
+          const result = await uploadArtifactIfNeeded(
+            content,
+            mimeType,
+            artifactConfig,
+          );
+          processedBundle[mimeType] = result;
+        } else {
+          // For non-string content, serialize to JSON first
+          const jsonContent = JSON.stringify(content);
+          const result = await uploadArtifactIfNeeded(
+            jsonContent,
+            mimeType,
+            artifactConfig,
+          );
+          processedBundle[mimeType] = result;
+        }
+      } catch (error) {
+        // Fallback to inline if artifact upload fails
+        this.logger.warn("Artifact upload failed, using inline data", {
+          mimeType,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        processedBundle[mimeType] = {
+          type: "inline",
+          data: content,
+        };
+      }
+    }
+
+    // Convert MediaContainer objects back to RawOutputData for ExecutionContext
+    for (const [mimeType, container] of Object.entries(processedBundle)) {
+      if (container.type === "inline") {
+        outputData[mimeType] = container.data;
+      } else if (container.type === "artifact") {
+        // For artifacts, store the container info for frontend processing
+        outputData[mimeType] = {
+          type: "artifact",
+          artifactId: container.artifactId,
+          metadata: container.metadata,
+        };
+      }
+    }
+
+    return outputData;
   }
 
   private formatRichOutput(
