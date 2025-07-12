@@ -1,0 +1,130 @@
+name: DRY Publish
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "packages/*/deno.json"
+      - "packages/*/mod.ts"
+      - "packages/*/src/**"
+      - ".github/workflows/publish2.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "packages/*/deno.json"
+      - "packages/*/mod.ts"
+      - "packages/*/src/**"
+      - ".github/workflows/publish2.yml"
+
+env:
+  DENO_VERSION: v2.x
+  BUILD_ORDER: '["schema","lib", "ai", "pyodide-runtime-agent"]'
+
+jobs:
+  generate-build-order:
+    runs-on: ubuntu-latest
+    outputs:
+      build_list: ${{ steps.set_outputs.outputs.build_list }}
+      dry_run: ${{ steps.set_outputs.outputs.dry_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Filter changed packages
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            schema:
+              - 'packages/schema/**'
+            lib:
+              - 'packages/lib/**'
+            ai:
+              - 'packages/ai/**'
+            pyodide-runtime-agent:
+              - 'packages/pyodide-runtime-agent/**'
+            publish2:
+              - '.github/workflows/publish2.yml'
+
+      - name: Generate changed_packages
+        id: changed_pkgs
+        run: |
+          # Convert BUILD_ORDER to a bash array
+          PKGS=$(echo "$BUILD_ORDER" | jq -r '.[]')
+          # Build a jq filter to extract only those keys from the dorny output using .["key"] syntax
+          JQ_FILTER=$(echo "$BUILD_ORDER" | jq -r 'map("\"" + . + "\": .[\"" + . + "\"]") | join(", ")')
+          # Compose the final object
+          CHANGED_PACKAGES=$(jq -n --argjson obj '${{ toJson(steps.filter.outputs) }}' '$obj' | jq -c "{ $JQ_FILTER }")
+          echo "$CHANGED_PACKAGES"
+          echo "changed_packages=$CHANGED_PACKAGES" >> $GITHUB_OUTPUT
+
+      - name: Ensure build-order is up to date
+        run: |
+          set -e
+          # CHANGED_PACKAGES is a JSON object with package keys and boolean values
+          CHANGED_PACKAGES=$(echo '${{ steps.changed_pkgs.outputs.changed_packages }}' | jq -r 'keys | .[]' | jq -R . | jq -c -s .)
+
+          # PKG_NAMES represents all the packages in the repo
+          PKG_NAMES=$(ls packages/*/deno.json | xargs -n1 jq -r .name | sed 's/^@runt\///' | jq -R . | jq -c -s .)
+
+          BUILD_ORDER_SORTED=$(echo "$BUILD_ORDER" | jq -c 'sort')
+          PKG_NAMES_SORTED=$(echo "$PKG_NAMES" | jq -c 'sort')
+          CHANGED_PACKAGES_SORTED=$(echo "$CHANGED_PACKAGES" | jq -c 'sort')
+
+          echo "BUILD_ORDER: $BUILD_ORDER"
+          echo "BUILD_ORDER_SORTED: $BUILD_ORDER_SORTED"
+          echo "CHANGED_PACKAGES: $CHANGED_PACKAGES"
+          echo "CHANGED_PACKAGES_SORTED: $CHANGED_PACKAGES_SORTED"
+          echo "PKG_NAMES: $PKG_NAMES"
+          echo "PKG_NAMES_SORTED: $PKG_NAMES_SORTED"
+
+          # Detect any mismatches between these three values, and report an error
+          if [ "$BUILD_ORDER_SORTED" != "$PKG_NAMES_SORTED" ]; then
+            echo "Mismatch: BUILD_ORDER and PKG_NAMES do not match" && exit 1
+          fi
+          if [ "$BUILD_ORDER_SORTED" != "$CHANGED_PACKAGES_SORTED" ]; then
+            echo "Mismatch: BUILD_ORDER and CHANGED_PACKAGES do not match" && exit 1
+          fi
+
+      - name: Generate build_list
+        id: build_list
+        run: |
+          CHANGED_PACKAGES=$(echo '${{ steps.changed_pkgs.outputs.changed_packages }}')
+          values=$(echo "$BUILD_ORDER" | jq --argjson changed "$CHANGED_PACKAGES" '[.[] | $changed[.]]')
+          idx_first_packgage_to_build=$(echo "$values" | jq 'index(true)')
+          if [ "$idx_first_packgage_to_build" = "null" ]; then
+            BUILD_LIST="[]"
+          else
+            BUILD_LIST=$(echo "$BUILD_ORDER" | jq -c ".[ $idx_first_packgage_to_build : ]")
+          fi
+
+          echo "BUILD_LIST: $BUILD_LIST"
+          echo "build_list=$BUILD_LIST" >> $GITHUB_OUTPUT
+
+      - name: Set outputs
+        id: set_outputs
+        run: |
+          BUILD_LIST=${{ steps.build_list.outputs.build_list }}
+          GITHUB_ACTION_CHANGED=${{ steps.filter.outputs.publish2 }}
+          GITHUB_EVENT_NAME=${{ github.event_name }}
+          GITHUB_REF_NAME=${{ github.ref_name }}
+
+          DRY_RUN=false
+
+          if [ "$BUILD_LIST" = "[]" ] && [ "$GITHUB_ACTION_CHANGED" = "true" ]; then
+            echo "Only changing the github action, setting dry_run to true, and building everything"
+            BUILD_LIST="$BUILD_ORDER"
+            DRY_RUN=true
+          fi
+
+          if [ "$GITHUB_EVENT_NAME" != "push" ] || [ "$GITHUB_REF_NAME" != "main" ]; then
+            echo "Running a $GITHUB_EVENT_NAME event on a $GITHUB_REF_NAME branch, setting dry_run to true"
+            DRY_RUN=true
+          fi
+
+          echo "BUILD_LIST: $BUILD_LIST"
+          echo "DRY_RUN: $DRY_RUN"
+          echo "build_list=$BUILD_LIST" >> $GITHUB_OUTPUT
+          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
