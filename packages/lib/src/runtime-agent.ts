@@ -9,7 +9,15 @@ import {
 import { makeCfSync } from "npm:@livestore/sync-cf";
 import { events, type MediaContainer, schema, tables } from "@runt/schema";
 import { createLogger } from "./logging.ts";
+import {
+  type ArtifactUploadConfig,
+  getArtifactContentUrl,
+  uploadArtifact,
+  uploadArtifactIfNeeded,
+} from "./media/types.ts";
 import type {
+  ArtifactMetadata,
+  ArtifactReference,
   CancellationHandler,
   CellData,
   ExecutionContext,
@@ -681,6 +689,87 @@ export class RuntimeAgent {
         if (!wait) {
           outputPosition = 0;
         }
+      },
+
+      // Phase 2: Direct binary upload methods for artifact system
+      uploadBinary: async (
+        data: ArrayBuffer,
+        mimeType: string,
+        metadata: ArtifactMetadata = {},
+      ): Promise<ArtifactReference> => {
+        const uploadConfig: ArtifactUploadConfig = {
+          syncUrl: this.config.syncUrl,
+          authToken: this.config.authToken,
+          notebookId: this.config.notebookId,
+        };
+
+        const response = await uploadArtifact(data, mimeType, uploadConfig);
+
+        const artifactRef: ArtifactReference = {
+          artifactId: response.artifactId,
+          url: getArtifactContentUrl(response.artifactId, uploadConfig),
+          metadata: {
+            ...metadata,
+            byteLength: response.byteLength,
+          },
+        };
+
+        return artifactRef;
+      },
+
+      uploadIfNeeded: async (
+        data: ArrayBuffer | string,
+        mimeType: string,
+        threshold: number = 16384,
+      ): Promise<MediaContainer> => {
+        const uploadConfig: ArtifactUploadConfig = {
+          syncUrl: this.config.syncUrl,
+          authToken: this.config.authToken,
+          notebookId: this.config.notebookId,
+          threshold,
+        };
+
+        const result = await uploadArtifactIfNeeded(
+          data,
+          mimeType,
+          uploadConfig,
+        );
+
+        if (result.type === "inline") {
+          return {
+            type: "inline",
+            data: result.data,
+          };
+        } else {
+          return {
+            type: "artifact",
+            artifactId: result.artifactId,
+            metadata: result.metadata,
+          };
+        }
+      },
+
+      displayArtifact: (
+        artifactId: string,
+        mimeType: string,
+        metadata: Record<string, unknown> = {},
+      ): void => {
+        const container: MediaContainer = {
+          type: "artifact",
+          artifactId,
+          metadata,
+        };
+
+        const representations: Record<string, MediaContainer> = {
+          [mimeType]: container,
+        };
+
+        this.store.commit(events.multimediaDisplayOutputAdded({
+          id: crypto.randomUUID(),
+          cellId: cell.id,
+          position: outputPosition++,
+          representations,
+        }));
       },
     };
 

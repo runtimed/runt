@@ -218,7 +218,79 @@ export class PyodideRuntimeAgent {
   }
 
   /**
-   * Send message to worker and wait for response
+   * Handle binary upload request from Python
+   */
+  private async handleBinaryUpload(
+    messageId: string,
+    data: {
+      arrayBuffer: ArrayBuffer;
+      mimeType: string;
+      metadata: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    if (!this.currentExecutionContext) {
+      throw new Error("No execution context available for binary upload");
+    }
+
+    const artifactRef = await this.currentExecutionContext.uploadBinary(
+      data.arrayBuffer,
+      data.mimeType,
+      data.metadata,
+    );
+
+    this.worker?.postMessage({
+      id: messageId,
+      type: "upload_response",
+      data: { artifactId: artifactRef.artifactId },
+    });
+  }
+
+  /**
+   * Handle smart upload request from Python
+   */
+  private async handleUploadIfNeeded(
+    messageId: string,
+    data: { arrayBuffer: ArrayBuffer; mimeType: string; threshold: number },
+  ): Promise<void> {
+    if (!this.currentExecutionContext) {
+      throw new Error("No execution context available for upload");
+    }
+
+    const container = await this.currentExecutionContext.uploadIfNeeded(
+      data.arrayBuffer,
+      data.mimeType,
+      data.threshold,
+    );
+
+    this.worker?.postMessage({
+      id: messageId,
+      type: "upload_response",
+      data: container,
+    });
+  }
+
+  /**
+   * Handle display artifact request from Python
+   */
+  private handleDisplayArtifact(data: {
+    artifactId: string;
+    mimeType: string;
+    metadata: Record<string, unknown>;
+  }): void {
+    if (!this.currentExecutionContext) {
+      this.logger.warn("No execution context available for display artifact");
+      return;
+    }
+
+    this.currentExecutionContext.displayArtifact(
+      data.artifactId,
+      data.mimeType,
+      data.metadata,
+    );
+  }
+
+  /**
+   * Send a message to the worker and wait for response
    */
   private sendWorkerMessage(type: string, data: unknown): Promise<unknown> {
     return new Promise((resolve, reject) => {
@@ -398,20 +470,50 @@ export class PyodideRuntimeAgent {
       return;
     }
 
-    const pending = this.pendingExecutions.get(id);
-    if (!pending) return;
+    // Phase 2: Handle binary upload messages
+    if (type === "upload_binary") {
+      this.handleBinaryUpload(id, data).catch((error) => {
+        this.worker?.postMessage({
+          id,
+          type: "upload_response",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+      return;
+    }
 
-    this.pendingExecutions.delete(id);
+    if (type === "upload_if_needed") {
+      this.handleUploadIfNeeded(id, data).catch((error) => {
+        this.worker?.postMessage({
+          id,
+          type: "upload_response",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+      return;
+    }
 
-    if (error) {
-      // Handle specific error types
-      if (error.includes("KeyboardInterrupt")) {
-        pending.reject(new Error("Execution cancelled"));
+    if (type === "display_artifact") {
+      this.handleDisplayArtifact(data);
+      return;
+    }
+
+    if (type === "response") {
+      const pending = this.pendingExecutions.get(id);
+      if (!pending) return;
+
+      this.pendingExecutions.delete(id);
+
+      if (error) {
+        // Handle specific error types
+        if (error.includes("KeyboardInterrupt")) {
+          pending.reject(new Error("Execution cancelled"));
+        } else {
+          pending.reject(new Error(error));
+        }
       } else {
-        pending.reject(new Error(error));
+        pending.resolve(data);
       }
-    } else {
-      pending.resolve(data);
     }
   }
 

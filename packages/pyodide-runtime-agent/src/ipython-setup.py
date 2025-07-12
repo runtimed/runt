@@ -239,8 +239,154 @@ def _capture_matplotlib_show(block=None):
     return _original_show(block=block) if block is not None else _original_show()
 
 
-# Replace matplotlib show with our enhanced version
-plt.show = _capture_matplotlib_show
+# Phase 2: Artifact uploader for direct binary upload
+class ArtifactUploader:
+    """Direct binary upload API for Python runtime"""
+
+    def __init__(self):
+        self.threshold = 16384  # 16KB default threshold
+
+    async def upload_binary(self, data: bytes, mime_type: str, metadata: dict = None):
+        """Upload binary data directly to artifact service"""
+        if metadata is None:
+            metadata = {}
+
+        # Convert bytes to Uint8Array for JavaScript
+        import js
+
+        uint8_array = js.Uint8Array.new(len(data))
+        uint8_array.set(data)
+
+        # Call JavaScript bridge
+        artifact_id = await js.js_upload_binary(uint8_array, mime_type, metadata)
+        return artifact_id
+
+    async def upload_if_needed(
+        self, data: bytes, mime_type: str, threshold: int = None
+    ):
+        """Upload if over threshold, otherwise return inline container"""
+        if threshold is None:
+            threshold = self.threshold
+
+        import js
+
+        uint8_array = js.Uint8Array.new(len(data))
+        uint8_array.set(data)
+
+        container = await js.js_upload_if_needed(uint8_array, mime_type, threshold)
+        return container.to_py()
+
+
+# Global artifact uploader instance
+artifact = ArtifactUploader()
+
+
+# Enhanced matplotlib show with Phase 2 binary upload
+def _capture_matplotlib_show_phase2(block=None):
+    """Capture matplotlib plots with artifact-aware output"""
+    if plt.get_fignums():
+        fig = plt.gcf()
+        png_buffer = io.BytesIO()
+
+        try:
+            fig.savefig(
+                png_buffer,
+                format="png",
+                bbox_inches="tight",
+                facecolor="white",
+                edgecolor="none",
+                dpi=150,
+            )
+            png_data = png_buffer.getvalue()
+            png_buffer.close()
+
+            # Check if JavaScript bridge is available and data is large enough
+            import js
+
+            if hasattr(js, "js_upload_binary") and len(png_data) > artifact.threshold:
+                # Use Phase 2 direct binary upload for large images
+                async def upload_and_display():
+                    try:
+                        metadata = {
+                            "source": "matplotlib",
+                            "width": int(fig.get_figwidth() * fig.dpi),
+                            "height": int(fig.get_figheight() * fig.dpi),
+                        }
+                        artifact_id = await artifact.upload_binary(
+                            png_data, "image/png", metadata
+                        )
+                        js.js_display_artifact(artifact_id, "image/png", metadata)
+                    except Exception as e:
+                        print(f"Artifact upload failed, falling back to base64: {e}")
+                        # Fallback to normal IPython display
+                        from IPython.display import Image, display
+
+                        display(Image(data=png_data))
+
+                # Run the async upload
+                import asyncio
+
+                try:
+                    # Try to get current event loop
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # Create task for running loop
+                        import concurrent.futures
+
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            future = executor.submit(asyncio.run, upload_and_display())
+                            future.result()
+                    else:
+                        # No running loop, run directly
+                        asyncio.run(upload_and_display())
+                except Exception as e:
+                    print(f"Async execution failed, using fallback: {e}")
+                    # Fallback to base64 display
+                    import base64
+                    from IPython.display import display
+
+                    png_base64 = base64.b64encode(png_data).decode("ascii")
+                    display_data = {"image/png": png_base64}
+                    display(display_data, raw=True)
+            else:
+                # Fallback to normal IPython display for small images or when bridge unavailable
+                import base64
+                from IPython.display import display
+
+                png_base64 = base64.b64encode(png_data).decode("ascii")
+                display_data = {"image/png": png_base64}
+                display(display_data, raw=True)
+
+            plt.clf()
+        except Exception as e:
+            print(f"Error capturing plot: {e}")
+
+    return _original_show(block=block) if block is not None else _original_show()
+
+
+# Replace matplotlib show with Phase 2 enhanced version
+plt.show = _capture_matplotlib_show_phase2
+
+
+# Setup convenience functions for artifact system
+def setup_artifact_bridge():
+    """Setup artifact upload capabilities in Python environment"""
+    # Make artifact uploader globally available
+    globals()["artifact"] = artifact
+
+    # Add convenience function for display
+    def display_artifact(artifact_id: str, mime_type: str, metadata: dict = None):
+        if metadata is None:
+            metadata = {}
+        import js
+
+        js.js_display_artifact(artifact_id, mime_type, metadata)
+
+    globals()["display_artifact"] = display_artifact
+
+
+# Call setup
+setup_artifact_bridge()
 
 
 def setup_rich_formatters():

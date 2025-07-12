@@ -306,6 +306,118 @@ async function executePython(code: string): Promise<{
   });
 
   try {
+    // Phase 2: Set up binary artifact upload bridge functions
+    pyodide.globals.set(
+      "js_upload_binary",
+      async (
+        data: Uint8Array,
+        mimeType: string,
+        metadata: Record<string, unknown> = {},
+      ) => {
+        try {
+          // Convert Uint8Array to ArrayBuffer for upload
+          const arrayBuffer = data.buffer.slice(
+            data.byteOffset,
+            data.byteOffset + data.byteLength,
+          );
+
+          // Send upload request to main thread
+          const uploadId = crypto.randomUUID();
+          self.postMessage({
+            type: "upload_binary",
+            id: uploadId,
+            data: {
+              arrayBuffer,
+              mimeType,
+              metadata,
+            },
+          });
+
+          // Wait for response from main thread
+          return await new Promise<string>((resolve, reject) => {
+            const handler = (event: MessageEvent) => {
+              const response = event.data;
+              if (
+                response.id === uploadId && response.type === "upload_response"
+              ) {
+                self.removeEventListener("message", handler);
+                if (response.error) {
+                  reject(new Error(response.error));
+                } else {
+                  resolve(response.data.artifactId);
+                }
+              }
+            };
+            self.addEventListener("message", handler);
+          });
+        } catch (error) {
+          self.postMessage({
+            type: "log",
+            data: `Binary upload failed: ${error}`,
+          });
+          throw error;
+        }
+      },
+    );
+
+    pyodide.globals.set(
+      "js_upload_if_needed",
+      (data: Uint8Array, mimeType: string, threshold: number = 16384) => {
+        try {
+          const arrayBuffer = data.buffer.slice(
+            data.byteOffset,
+            data.byteOffset + data.byteLength,
+          );
+
+          const uploadId = crypto.randomUUID();
+          self.postMessage({
+            type: "upload_if_needed",
+            id: uploadId,
+            data: {
+              arrayBuffer,
+              mimeType,
+              threshold,
+            },
+          });
+
+          return Promise.resolve({
+            type: buffer.byteLength <= threshold ? "inline" : "artifact",
+            data: buffer.byteLength <= threshold
+              ? Array.from(new Uint8Array(buffer))
+              : undefined,
+            artifactId: buffer.byteLength > threshold
+              ? "would-be-uploaded"
+              : undefined,
+            metadata: { byteLength: buffer.byteLength, mimeType },
+          });
+        } catch (error) {
+          self.postMessage({
+            type: "log",
+            data: `Upload if needed failed: ${error}`,
+          });
+          throw error;
+        }
+      },
+    );
+
+    pyodide.globals.set(
+      "js_display_artifact",
+      (
+        artifactId: string,
+        mimeType: string,
+        metadata: Record<string, unknown> = {},
+      ) => {
+        self.postMessage({
+          type: "display_artifact",
+          data: {
+            artifactId,
+            mimeType,
+            metadata,
+          },
+        });
+      },
+    );
+
     // Set up JavaScript callbacks with proper serialization
     pyodide.globals.set(
       "js_display_callback",

@@ -94,6 +94,15 @@ function createMockExecutionContext(): {
       markdownOutputs.set(outputId, existing + content);
       outputs.push({ type: "appendMarkdown", data: { outputId, content } });
     },
+
+    // Phase 2: Binary upload methods
+    uploadBinary: async () => ({
+      artifactId: "mock-artifact-id",
+      url: "mock-artifact-url",
+      metadata: {},
+    }),
+    uploadIfNeeded: async () => ({ type: "inline", data: "" }),
+    displayArtifact: () => {},
   };
 
   const getMarkdownContent = (outputId: string): string => {

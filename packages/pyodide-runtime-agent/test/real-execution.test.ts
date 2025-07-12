@@ -120,6 +120,15 @@ function createTestExecutionContext(code: string): {
     },
     appendMarkdown: (outputId: string, content: string) =>
       outputs.push({ type: "appendMarkdown", data: { outputId, content } }),
+
+    // Phase 2: Binary upload methods
+    uploadBinary: async () => ({
+      artifactId: "mock-artifact-id",
+      url: "mock-artifact-url",
+      metadata: {},
+    }),
+    uploadIfNeeded: async () => ({ type: "inline", data: "" }),
+    displayArtifact: () => {},
   };
 
   return { context, outputs, abortController };

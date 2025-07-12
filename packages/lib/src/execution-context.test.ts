@@ -2,7 +2,8 @@
 // ExecutionContext output methods tests
 
 import { assertEquals } from "jsr:@std/assert";
-import type { ExecutionContext } from "./types.ts";
+import type { ArtifactReference, ExecutionContext } from "./types.ts";
+import type { MediaContainer } from "@runt/schema";
 
 // Simple test that verifies ExecutionContext method signatures exist and work
 Deno.test("ExecutionContext - method signatures", () => {
@@ -68,6 +69,37 @@ Deno.test("ExecutionContext - method signatures", () => {
 
     appendMarkdown: (outputId, content) => {
       outputs.push({ type: "appendMarkdown", data: { outputId, content } });
+    },
+
+    // Phase 2: Binary upload methods
+    uploadBinary: async (data, mimeType, metadata) => {
+      outputs.push({
+        type: "uploadBinary",
+        data: { data, mimeType, metadata },
+      });
+      return {
+        artifactId: "mock-artifact-id",
+        url: "mock-artifact-url",
+        metadata: metadata || {},
+      };
+    },
+
+    uploadIfNeeded: async (data, mimeType, threshold) => {
+      outputs.push({
+        type: "uploadIfNeeded",
+        data: { data, mimeType, threshold },
+      });
+      return {
+        type: "inline",
+        data: data,
+      };
+    },
+
+    displayArtifact: (artifactId, mimeType, metadata) => {
+      outputs.push({
+        type: "displayArtifact",
+        data: { artifactId, mimeType, metadata },
+      });
     },
   };
 
@@ -156,6 +188,15 @@ Deno.test("ExecutionContext - empty string handling", () => {
     appendTerminal: () => {},
     markdown: () => "mock-markdown-id",
     appendMarkdown: () => {},
+
+    // Phase 2: Binary upload methods
+    uploadBinary: async () => ({
+      artifactId: "mock-artifact-id",
+      url: "mock-artifact-url",
+      metadata: {},
+    }),
+    uploadIfNeeded: async () => ({ type: "inline", data: "" }),
+    displayArtifact: () => {},
   };
 
   // Empty strings should be filtered out
@@ -214,10 +255,19 @@ Deno.test("ExecutionContext - streaming methods", () => {
     },
 
     appendMarkdown: (outputId: string, content: string) => {
-      assertEquals(outputId, "md-output-id");
-      assertEquals(content, " more markdown");
+      assertEquals(outputId, "test-output-id");
+      assertEquals(content, "appended markdown");
       called = true;
     },
+
+    // Phase 2: Binary upload methods
+    uploadBinary: async () => ({
+      artifactId: "mock-artifact-id",
+      url: "mock-artifact-url",
+      metadata: {},
+    }),
+    uploadIfNeeded: async () => ({ type: "inline", data: "" }),
+    displayArtifact: () => {},
   };
 
   // Test appendTerminal
@@ -232,7 +282,7 @@ Deno.test("ExecutionContext - streaming methods", () => {
 
   // Test appendMarkdown
   called = false;
-  context.appendMarkdown("md-output-id", " more markdown");
+  context.appendMarkdown("test-output-id", "appended markdown");
   assertEquals(called, true);
 });
 
@@ -262,6 +312,15 @@ Deno.test("ExecutionContext - clear with wait parameter", () => {
     clear: (wait = false) => {
       clearCalls.push({ wait });
     },
+
+    // Phase 2: Binary upload methods
+    uploadBinary: async () => ({
+      artifactId: "mock-artifact-id",
+      url: "mock-artifact-url",
+      metadata: {},
+    }),
+    uploadIfNeeded: async () => ({ type: "inline", data: "" }),
+    displayArtifact: () => {},
   };
 
   // Test default parameter

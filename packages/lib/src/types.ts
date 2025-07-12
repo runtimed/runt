@@ -8,6 +8,7 @@ import type { Store } from "npm:@livestore/livestore";
 import type {
   CellData,
   ExecutionQueueData,
+  MediaContainer,
   OutputType,
   schema,
 } from "@runt/schema";
@@ -18,6 +19,36 @@ import type {
  */
 export interface RawOutputData {
   [mimeType: string]: unknown;
+}
+
+/**
+ * Metadata for artifacts uploaded via binary upload API
+ */
+export interface ArtifactMetadata {
+  /** Size of the artifact in bytes */
+  byteLength?: number;
+  /** Image dimensions for visual content */
+  dimensions?: { width: number; height: number };
+  /** Source that generated this artifact (e.g., "matplotlib", "pandas", "user") */
+  source?: string;
+  /** Text encoding for text-based artifacts */
+  encoding?: string;
+  /** Compression method applied */
+  compression?: string;
+  /** Additional metadata specific to the content type */
+  [key: string]: unknown;
+}
+
+/**
+ * Reference to an uploaded artifact with authentication URL
+ */
+export interface ArtifactReference {
+  /** Unique identifier for the artifact */
+  artifactId: string;
+  /** Pre-authenticated URL for frontend access */
+  url: string;
+  /** Artifact metadata */
+  metadata: ArtifactMetadata;
 }
 
 /**
@@ -140,6 +171,87 @@ export interface ExecutionContext {
   markdown: (content: string, metadata?: Record<string, unknown>) => string;
   /** Append to existing markdown output (for streaming AI responses) */
   appendMarkdown: (outputId: string, content: string) => void;
+
+  // Phase 2: Direct binary upload methods for artifact system
+
+  /**
+   * Upload binary data directly to artifact service
+   *
+   * This bypasses the IPython display system to avoid base64 conversion,
+   * enabling efficient storage and display of large binary content.
+   *
+   * @param data - Binary data as ArrayBuffer
+   * @param mimeType - MIME type of the content (e.g., "image/png")
+   * @param metadata - Optional metadata about the artifact
+   * @returns Promise resolving to artifact reference with pre-authenticated URL
+   *
+   * @example
+   * ```typescript
+   * const pngData = new ArrayBuffer(imageBytes);
+   * const artifact = await context.uploadBinary(pngData, "image/png", {
+   *   source: "matplotlib",
+   *   dimensions: { width: 800, height: 600 }
+   * });
+   * console.log(`Uploaded as ${artifact.artifactId}`);
+   * ```
+   */
+  uploadBinary: (
+    data: ArrayBuffer,
+    mimeType: string,
+    metadata?: ArtifactMetadata,
+  ) => Promise<ArtifactReference>;
+
+  /**
+   * Smart upload that chooses between inline and artifact storage based on size
+   *
+   * Small content (under threshold) remains inline for efficiency.
+   * Large content is uploaded as an artifact to prevent bloating the event log.
+   *
+   * @param data - Content as ArrayBuffer or string
+   * @param mimeType - MIME type of the content
+   * @param threshold - Size threshold in bytes (default: 16384 = 16KB)
+   * @returns Promise resolving to MediaContainer (inline or artifact)
+   *
+   * @example
+   * ```typescript
+   * const container = await context.uploadIfNeeded(imageData, "image/png");
+   * if (container.type === "artifact") {
+   *   console.log(`Large image uploaded: ${container.artifactId}`);
+   * } else {
+   *   console.log("Small image kept inline");
+   * }
+   * ```
+   */
+  uploadIfNeeded: (
+    data: ArrayBuffer | string,
+    mimeType: string,
+    threshold?: number,
+  ) => Promise<MediaContainer>;
+
+  /**
+   * Display a pre-uploaded artifact by reference
+   *
+   * Use this after uploading content with uploadBinary() to display
+   * the artifact in the notebook output.
+   *
+   * @param artifactId - Identifier of the uploaded artifact
+   * @param mimeType - MIME type for proper display handling
+   * @param metadata - Optional display metadata
+   *
+   * @example
+   * ```typescript
+   * const artifact = await context.uploadBinary(pngData, "image/png");
+   * context.displayArtifact(artifact.artifactId, "image/png", {
+   *   caption: "Generated plot",
+   *   width: 800
+   * });
+   * ```
+   */
+  displayArtifact: (
+    artifactId: string,
+    mimeType: string,
+    metadata?: Record<string, unknown>,
+  ) => void;
 }
 
 /**
