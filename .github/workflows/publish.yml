@@ -8,7 +8,7 @@ on:
       - "packages/*/deno.json"
       - "packages/*/mod.ts"
       - "packages/*/src/**"
-      - ".github/workflows/publish2.yml"
+      - ".github/workflows/publish.yml"
   pull_request:
     branches:
       - main
@@ -16,7 +16,7 @@ on:
       - "packages/*/deno.json"
       - "packages/*/mod.ts"
       - "packages/*/src/**"
-      - ".github/workflows/publish2.yml"
+      - ".github/workflows/publish.yml"
 
 env:
   DENO_VERSION: v2.x
@@ -45,8 +45,8 @@ jobs:
               - 'packages/ai/**'
             pyodide-runtime-agent:
               - 'packages/pyodide-runtime-agent/**'
-            publish2:
-              - '.github/workflows/publish2.yml'
+            publish:
+              - '.github/workflows/publish.yml'
 
       - name: Generate changed_packages
         id: changed_pkgs
@@ -107,7 +107,7 @@ jobs:
         id: set_outputs
         run: |
           BUILD_LIST=${{ steps.build_list.outputs.build_list }}
-          GITHUB_ACTION_CHANGED=${{ steps.filter.outputs.publish2 }}
+          GITHUB_ACTION_CHANGED=${{ steps.filter.outputs.publish }}
           GITHUB_EVENT_NAME=${{ github.event_name }}
           GITHUB_REF_NAME=${{ github.ref_name }}
 
@@ -135,7 +135,7 @@ jobs:
     needs: generate-build-order
     if: ${{ needs.generate-build-order.outputs.build_list != '[]' }}
     concurrency:
-      group: publish2-${{ github.run_id }}
+      group: publish-${{ github.run_id }}
       cancel-in-progress: false
     permissions:
       contents: write
