@@ -16,7 +16,8 @@
     "README.md"
   ],
   "dependencies": {
-    "@livestore/livestore": "^0.3.1"
+    "@livestore/livestore": "^0.3.1",
+    "@livestore/wa-sqlite": "1.0.5"
   },
   "repository": {
     "type": "git",
