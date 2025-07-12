@@ -128,3 +128,80 @@ jobs:
           echo "DRY_RUN: $DRY_RUN"
           echo "build_list=$BUILD_LIST" >> $GITHUB_OUTPUT
           echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
+
+  publish:
+    name: Publish Packages Sequentially
+    runs-on: ubuntu-latest
+    needs: generate-build-order
+    if: ${{ needs.generate-build-order.outputs.build_list != '[]' }}
+    concurrency:
+      group: publish2-${{ github.run_id }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+          cache: true
+
+      - name: Publish packages in order
+        id: publish
+        env:
+          BUILD_LIST: ${{ needs.generate-build-order.outputs.build_list }}
+          DRY_RUN: ${{ needs.generate-build-order.outputs.dry_run }}
+        run: |
+          set -e
+          PACKAGES=$(echo "$BUILD_LIST" | jq -r '.[]')
+          TAGS_CREATED=()
+          for PKG in $PACKAGES; do
+            PKG_DIR="packages/$PKG"
+            DENO_JSON="$PKG_DIR/deno.json"
+            if [ ! -f "$DENO_JSON" ]; then
+              echo "No deno.json for $PKG, skipping."
+              continue
+            fi
+            VERSION=$(jq -r .version "$DENO_JSON")
+            echo "Publishing @$PKG@$VERSION"
+            cd "$PKG_DIR"
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "Dry run: Would publish @$PKG@$VERSION"
+              deno publish --dry-run --allow-slow-types
+            else
+              deno publish --allow-slow-types
+            fi
+            cd -
+            if [ "$DRY_RUN" != "true" ]; then
+              echo "Waiting for @$PKG@$VERSION to be available on JSR..."
+              TIMEOUT=30
+              ELAPSED=0
+              while true; do
+                deno info jsr:@runt/$PKG@$VERSION && break
+                sleep 2
+                ELAPSED=$((ELAPSED+2))
+                if [ $ELAPSED -ge $TIMEOUT ]; then
+                  echo "Timeout waiting for @$PKG@$VERSION to be available on JSR"
+                  exit 1
+                fi
+              done
+              TAG="v${VERSION}-${PKG}"
+              git config --local user.email "action@github.com"
+              git config --local user.name "GitHub Action"
+              git tag "$TAG" -m "Release @$PKG@$VERSION"
+              TAGS_CREATED+=("$TAG")
+            fi
+          done
+          if [ "$DRY_RUN" != "true" ] && [ ${#TAGS_CREATED[@]} -gt 0 ]; then
+            git push origin --tags
+          fi
+          echo "Published packages: $PACKAGES"
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "**Dry run completed - no packages were published**"
+          else
+            echo "✅ **Packages successfully published to JSR**"
+          fi
