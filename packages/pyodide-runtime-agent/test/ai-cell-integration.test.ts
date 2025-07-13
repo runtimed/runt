@@ -36,11 +36,10 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
 
   await t.step("can execute AI cell with mock response", async () => {
     if (!agent) throw new Error("Agent not initialized");
-    const store = agent.store;
 
     // Create an AI cell
     const aiCellId = "ai-cell-test-1";
-    store.commit(
+    agent.store.commit(
       events.cellCreated({
         id: aiCellId,
         cellType: "ai",
@@ -51,7 +50,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
 
     // Set the AI cell source
     const prompt = "Explain what machine learning is in simple terms";
-    store.commit(
+    agent.store.commit(
       events.cellSourceChanged({
         id: aiCellId,
         source: prompt,
@@ -63,7 +62,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
     const queueId1 = `exec-${Date.now()}-${
       Math.random().toString(36).slice(2)
     }`;
-    store.commit(
+    agent.store.commit(
       events.executionRequested({
         queueId: queueId1,
         cellId: aiCellId,
@@ -76,7 +75,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
     let attempts = 0;
     const maxAttempts = 20; // 20 seconds max wait
     while (attempts < maxAttempts) {
-      const queueEntries = store.query(
+      const queueEntries = agent.store.query(
         tables.executionQueue.select().where({ cellId: aiCellId }),
       );
 
@@ -95,7 +94,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
     }
 
     // Check that we got outputs
-    const outputs = store.query(
+    const outputs = agent.store.query(
       tables.outputs.select().where({ cellId: aiCellId }),
     );
 
@@ -133,11 +132,10 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
 
   await t.step("can handle AI cell tool calling (create_cell)", async () => {
     if (!agent) throw new Error("Agent not initialized");
-    const store = agent.store;
 
     // Create an AI cell that should trigger tool calling
     const aiCellId = "ai-cell-tool-test";
-    store.commit(
+    agent.store.commit(
       events.cellCreated({
         id: aiCellId,
         cellType: "ai",
@@ -148,7 +146,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
 
     // Set a prompt that should trigger cell creation in a real scenario
     const prompt = "Create a Python cell that prints 'Hello, AI!'";
-    store.commit(
+    agent.store.commit(
       events.cellSourceChanged({
         id: aiCellId,
         source: prompt,
@@ -160,7 +158,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
     const queueId2 = `exec-${Date.now()}-${
       Math.random().toString(36).slice(2)
     }`;
-    store.commit(
+    agent.store.commit(
       events.executionRequested({
         queueId: queueId2,
         cellId: aiCellId,
@@ -173,7 +171,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
     let attempts = 0;
     const maxAttempts = 20;
     while (attempts < maxAttempts) {
-      const queueEntries = store.query(
+      const queueEntries = agent.store.query(
         tables.executionQueue.select().where({ cellId: aiCellId }),
       );
 
@@ -199,11 +197,10 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
 
   await t.step("can handle mixed AI and Python cells", async () => {
     if (!agent) throw new Error("Agent not initialized");
-    const store = agent.store;
 
     // Create a Python cell first
     const pythonCellId = "python-cell-mixed";
-    store.commit(
+    agent.store.commit(
       events.cellCreated({
         id: pythonCellId,
         cellType: "code",
@@ -212,7 +209,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
       }),
     );
 
-    store.commit(
+    agent.store.commit(
       events.cellSourceChanged({
         id: pythonCellId,
         source: "x = 42\nprint(f'The answer is {x}')",
@@ -224,7 +221,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
     const queueId3 = `exec-${Date.now()}-${
       Math.random().toString(36).slice(2)
     }`;
-    store.commit(
+    agent.store.commit(
       events.executionRequested({
         queueId: queueId3,
         cellId: pythonCellId,
@@ -236,7 +233,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
     // Wait for Python execution
     let attempts = 0;
     while (attempts < 15) {
-      const queueEntries = store.query(
+      const queueEntries = agent.store.query(
         tables.executionQueue.select().where({ cellId: pythonCellId }),
       );
 
@@ -253,7 +250,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
 
     // Now create an AI cell that can see the Python cell
     const aiCellId = "ai-cell-context";
-    store.commit(
+    agent.store.commit(
       events.cellCreated({
         id: aiCellId,
         cellType: "ai",
@@ -262,7 +259,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
       }),
     );
 
-    store.commit(
+    agent.store.commit(
       events.cellSourceChanged({
         id: aiCellId,
         source: "What did the previous Python cell do?",
@@ -274,7 +271,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
     const queueId4 = `exec-${Date.now()}-${
       Math.random().toString(36).slice(2)
     }`;
-    store.commit(
+    agent.store.commit(
       events.executionRequested({
         queueId: queueId4,
         cellId: aiCellId,
@@ -286,7 +283,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
     // Wait for AI execution
     attempts = 0;
     while (attempts < 15) {
-      const queueEntries = store.query(
+      const queueEntries = agent.store.query(
         tables.executionQueue.select().where({ cellId: aiCellId }),
       );
 
@@ -302,7 +299,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Integration", async (t) => {
     }
 
     // Check that AI cell completed
-    const aiOutputs = store.query(
+    const aiOutputs = agent.store.query(
       tables.outputs.select().where({ cellId: aiCellId }),
     );
 
@@ -363,11 +360,10 @@ Deno.test("PyodideRuntimeAgent - AI Cell Error Handling", async (t) => {
 
   await t.step("handles empty AI cell gracefully", async () => {
     if (!agent) throw new Error("Agent not initialized");
-    const store = agent.store;
 
     // Create an AI cell with empty content
     const aiCellId = "ai-cell-empty";
-    store.commit(
+    agent.store.commit(
       events.cellCreated({
         id: aiCellId,
         cellType: "ai",
@@ -382,7 +378,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Error Handling", async (t) => {
     const queueId5 = `exec-${Date.now()}-${
       Math.random().toString(36).slice(2)
     }`;
-    store.commit(
+    agent.store.commit(
       events.executionRequested({
         queueId: queueId5,
         cellId: aiCellId,
@@ -394,7 +390,7 @@ Deno.test("PyodideRuntimeAgent - AI Cell Error Handling", async (t) => {
     // Wait for execution to complete
     let attempts = 0;
     while (attempts < 10) {
-      const queueEntries = store.query(
+      const queueEntries = agent.store.query(
         tables.executionQueue.select().where({ cellId: aiCellId }),
       );
 

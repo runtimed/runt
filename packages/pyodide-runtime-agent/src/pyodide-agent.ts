@@ -15,8 +15,6 @@ import {
   type KnownMimeType,
 } from "@runt/schema";
 import { getEssentialPackages } from "./cache-utils.ts";
-import type { Store } from "npm:@livestore/livestore";
-import { schema } from "@runt/schema";
 import {
   discoverAvailableAiModels,
   ensureTextPlainFallback,
@@ -150,11 +148,8 @@ export class PyodideRuntimeAgent {
     await this.agent.keepAlive();
   }
 
-  /**
-   * Get the LiveStore instance (for testing)
-   */
-  get store(): Store<typeof schema> {
-    return this.agent.liveStore;
+  public get store() {
+    return this.agent.store;
   }
 
   /**
