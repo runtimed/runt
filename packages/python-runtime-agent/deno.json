@@ -1,0 +1,46 @@
+{
+  "name": "@runt/python-runtime-agent",
+  "version": "0.0.1",
+  "description": "Stub Python runtime agent for Runt platform.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/runtimed/anode.git"
+  },
+  "exports": {
+    ".": "./mod.ts"
+  },
+  "imports": {
+    "@runt/lib": "jsr:@runt/lib@^0.6.2",
+    "@runt/schema": "jsr:@runt/schema@^0.6.2"
+  },
+  "tasks": {
+    "test": "deno test --allow-all",
+    "check": "deno check src/**/*.ts",
+    "fmt": "deno fmt",
+    "lint": "deno lint"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 80,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": false,
+    "proseWrap": "preserve"
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  },
+  "publish": {
+    "include": ["mod.ts", "src/", "README.md"],
+    "exclude": ["**/*.test.ts", "**/test_*.ts"]
+  }
+}
