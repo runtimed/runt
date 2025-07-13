@@ -41,8 +41,7 @@ interface PyodideAgentOptions {
  * including IPython integration, rich display support, matplotlib SVG output,
  * pandas HTML tables, and enhanced error formatting.
  */
-export class PyodideRuntimeAgent {
-  private agent: RuntimeAgent;
+export class PyodideRuntimeAgent extends RuntimeAgent {
   private worker: Worker | null = null;
   private interruptBuffer?: SharedArrayBuffer;
   private isInitialized = false;
@@ -96,20 +95,24 @@ export class PyodideRuntimeAgent {
       Deno.exit(1);
     }
 
-    this.agent = new RuntimeAgent(config, config.capabilities, {
-      onStartup: this.initializePyodideWorker.bind(this),
-      onShutdown: this.cleanupWorker.bind(this),
+    super(config, config.capabilities, {
+      onStartup: async () => {
+        await this.initializePyodideWorker();
+      },
+      onShutdown: () => {
+        this.cleanupWorker();
+      },
     });
 
     this.options = options;
-    this.agent.onExecution(this.executeCell.bind(this));
-    this.agent.onCancellation(this.handleCancellation.bind(this));
+    this.onExecution(this.executeCell.bind(this));
+    this.onCancellation(this.handlePyodideCancellation.bind(this));
   }
 
   /**
    * Start the Pyodide runtime agent
    */
-  async start(): Promise<Record<string, unknown> | void> {
+  override async start(): Promise<Record<string, unknown> | void> {
     this.logger.info("Starting Pyodide Python runtime agent");
 
     // Discover available AI models if enabled
@@ -135,29 +138,7 @@ export class PyodideRuntimeAgent {
       }
     }
 
-    return this.agent.start();
-  }
-
-  /**
-   * Shutdown the runtime agent
-   */
-  async shutdown(): Promise<void> {
-    await this.agent.shutdown();
-  }
-
-  /**
-   * Keep the agent alive
-   */
-  async keepAlive(): Promise<void> {
-    await this.agent.keepAlive();
-  }
-
-  public get store() {
-    return this.agent.store;
-  }
-
-  get config(): RuntimeConfig {
-    return this.agent.config;
+    return super.start();
   }
 
   /**
@@ -620,7 +601,7 @@ export class PyodideRuntimeAgent {
   /**
    * Handle cancellation events
    */
-  private handleCancellation(
+  private handlePyodideCancellation(
     queueId: string,
     cellId: string,
     reason: string,

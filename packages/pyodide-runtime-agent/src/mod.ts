@@ -7,7 +7,7 @@
  */
 
 import { PyodideRuntimeAgent } from "./pyodide-agent.ts";
-import { createLogger } from "@runt/lib";
+import { runner } from "@runt/lib";
 
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 export {
@@ -20,28 +20,8 @@ export {
   isFirstRun,
 } from "./cache-utils.ts";
 
-/**
- * Main function to run the Pyodide runtime agent
- */
-async function main() {
-  const agent = new PyodideRuntimeAgent();
-  const logger = createLogger("pyrunt");
-
-  try {
-    const startInfo = await agent.start();
-
-    logger.info("PyRunt started", startInfo || {});
-
-    await agent.keepAlive();
-  } catch (error) {
-    logger.error("Failed to start PyRunt", error);
-    Deno.exit(1);
-  } finally {
-    await agent.shutdown();
-  }
-}
-
-// Run as script if this file is executed directly
+// Run the agent if this file is executed directly
 if (import.meta.main) {
-  await main();
+  const agent = new PyodideRuntimeAgent();
+  await runner(agent);
 }
