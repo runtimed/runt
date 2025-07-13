@@ -28,15 +28,9 @@ async function main() {
   const logger = createLogger("pyrunt");
 
   try {
-    await agent.start();
+    const startInfo = await agent.start();
 
-    logger.info("PyRunt started", {
-      runtimeId: agent.config.runtimeId,
-      runtimeType: agent.config.runtimeType,
-      notebookId: agent.config.notebookId,
-      sessionId: agent.config.sessionId,
-      syncUrl: agent.config.syncUrl,
-    });
+    logger.info("PyRunt started", startInfo || {});
 
     await agent.keepAlive();
   } catch (error) {

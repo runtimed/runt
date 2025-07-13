@@ -107,7 +107,7 @@ export class PyodideRuntimeAgent {
   /**
    * Start the Pyodide runtime agent
    */
-  async start(): Promise<void> {
+  async start(): Promise<Record<string, unknown> | void> {
     this.logger.info("Starting Pyodide Python runtime agent");
 
     // Discover available AI models if enabled
@@ -133,7 +133,7 @@ export class PyodideRuntimeAgent {
       }
     }
 
-    await this.agent.start();
+    return this.agent.start();
   }
 
   /**
