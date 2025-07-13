@@ -112,7 +112,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
   /**
    * Start the Pyodide runtime agent
    */
-  override async start(): Promise<Record<string, unknown> | void> {
+  override async start(): Promise<void> {
     this.logger.info("Starting Pyodide Python runtime agent");
 
     // Discover available AI models if enabled
@@ -138,7 +138,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       }
     }
 
-    return super.start();
+    await super.start();
   }
 
   /**

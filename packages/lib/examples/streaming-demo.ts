@@ -37,12 +37,10 @@ class StreamingDemoAgent {
   }
 
   async start() {
-    const result = await this.agent.start();
+    await this.agent.start();
 
     // Auto-create help cell if notebook is empty
     this.createHelpCellIfEmpty();
-
-    return result;
   }
 
   async shutdown() {
@@ -56,7 +54,7 @@ class StreamingDemoAgent {
   private createHelpCellIfEmpty() {
     try {
       // Check if there are any existing cells using LiveStore query
-      const cells = this.agent.liveStore.query(
+      const cells = this.agent.store.query(
         tables.cells.select(),
       );
 
@@ -65,7 +63,7 @@ class StreamingDemoAgent {
 
         // Create a cell with help command
         const cellId = crypto.randomUUID();
-        this.agent.liveStore.commit(events.cellCreated({
+        this.agent.store.commit(events.cellCreated({
           id: cellId,
           cellType: "code",
           position: 0,
@@ -73,7 +71,7 @@ class StreamingDemoAgent {
         }));
 
         // Update the cell with source content
-        this.agent.liveStore.commit(events.cellSourceChanged({
+        this.agent.store.commit(events.cellSourceChanged({
           id: cellId,
           source: "help",
           modifiedBy: "streaming-demo-runtime",
@@ -81,7 +79,7 @@ class StreamingDemoAgent {
 
         // Queue it for execution
         const queueId = crypto.randomUUID();
-        this.agent.liveStore.commit(events.executionRequested({
+        this.agent.store.commit(events.executionRequested({
           queueId: queueId,
           cellId: cellId,
           executionCount: 1,

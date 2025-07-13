@@ -68,8 +68,13 @@ agent.onExecution(async (context) => {
 
 // Start the agent
 try {
-  const startInfo = await agent.start();
-  logger.info("Echo agent started", startInfo || {});
+  await agent.start();
+  logger.info("Echo agent started", {
+    runtimeId: agent.config.runtimeId,
+    runtimeType: agent.config.runtimeType,
+    notebookId: agent.config.notebookId,
+    sessionId: agent.config.sessionId,
+  });
 
   await agent.keepAlive();
 } catch (error) {

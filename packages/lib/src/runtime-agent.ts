@@ -45,7 +45,7 @@ export class RuntimeAgent {
   /**
    * Start the runtime agent - connects to LiveStore and begins processing
    */
-  async start(): Promise<Record<string, unknown> | void> {
+  async start(): Promise<void> {
     try {
       await this.handlers.onStartup?.(this.config.environmentOptions);
 
@@ -119,14 +119,7 @@ export class RuntimeAgent {
       // Set up shutdown handlers
       this.setupShutdownHandlers();
 
-      // Return startup info for logging
-      return {
-        runtimeId: this.config.runtimeId,
-        runtimeType: this.config.runtimeType,
-        notebookId: this.config.notebookId,
-        sessionId: this.config.sessionId,
-        syncUrl: this.config.syncUrl,
-      };
+      // No return value
     } catch (error) {
       const logger = createLogger(`${this.config.runtimeType}-agent`);
       logger.error("Failed to start runtime agent", error);

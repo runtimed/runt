@@ -39,7 +39,7 @@ class ExamplePythonRuntime {
   }
 
   async start() {
-    return await this.agent.start();
+    await this.agent.start();
   }
 
   async shutdown() {
