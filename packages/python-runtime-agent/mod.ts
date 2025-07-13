@@ -4,5 +4,5 @@ export { PythonRuntimeAgent };
 
 if (import.meta.main) {
   const agent = new PythonRuntimeAgent();
-  await runner(agent);
+  await runner(agent, "PyRunt");
 }

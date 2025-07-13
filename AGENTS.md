@@ -42,7 +42,7 @@ AI behavior with iterative tool calls.
 - ✅ Cross-package TypeScript imports with proper typing
 - ✅ CI/CD pipeline with multi-platform testing
 - ✅ JSR publishing for all packages with executable installation
-- ✅ Global executable installation as `pyrunt`
+- ✅ Global executable installation as `pyrunt` or `pyorunt` (pyodide)
 - ✅ Agentic AI behavior with iterative tool call responses
 - ✅ Interrupt-aware AI conversations with configurable max iterations
 - ✅ Streaming output support with granular event types

@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run --allow-all --unstable-broadcast-channel
 /**
- * PyRunt - Python Runtime Agent
+ * PyoRunt - Python Runtime Agent
  *
  * Main executable entry point for the Pyodide runtime agent.
  * This file serves as both the library entry point and the executable.
@@ -23,5 +23,5 @@ export {
 // Run the agent if this file is executed directly
 if (import.meta.main) {
   const agent = new PyodideRuntimeAgent();
-  await runner(agent);
+  await runner(agent, "PyoRunt");
 }

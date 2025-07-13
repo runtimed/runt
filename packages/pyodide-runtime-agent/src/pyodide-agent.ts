@@ -91,7 +91,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       console.error(
         "  deno install -gf --allow-all jsr:@runt/pyodide-runtime-agent",
       );
-      console.error("  pyrunt --notebook my-notebook --auth-token your-token");
+      console.error("  pyorunt --notebook my-notebook --auth-token your-token");
       Deno.exit(1);
     }
 

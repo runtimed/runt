@@ -11,7 +11,7 @@
     ".": "./src/mod.ts"
   },
   "bin": {
-    "pyrunt": "./src/mod.ts"
+    "pyorunt": "./src/mod.ts"
   },
   "imports": {
     "@runt/ai": "jsr:@runt/ai@^0.6.2",
