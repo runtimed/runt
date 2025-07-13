@@ -37,7 +37,7 @@ export class RuntimeAgent {
   private signalHandlers = new Map<string, () => void>();
 
   constructor(
-    private config: RuntimeConfig,
+    public config: RuntimeConfig,
     private capabilities: RuntimeCapabilities,
     private handlers: RuntimeAgentEventHandlers = {},
   ) {}

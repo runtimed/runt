@@ -172,24 +172,42 @@ Logging Configuration:
     Deno.exit(0);
   }
 
-  const result: Partial<RuntimeAgentOptions> = {
+  let result: Partial<RuntimeAgentOptions> = {
     syncUrl: parsed["sync-url"] || Deno.env.get("LIVESTORE_SYNC_URL") ||
       DEFAULT_CONFIG.syncUrl,
   };
 
   const notebookId = parsed.notebook || Deno.env.get("NOTEBOOK_ID");
-  if (notebookId) result.notebookId = notebookId;
+  if (notebookId) {
+    result = {
+      ...result,
+      notebookId,
+    };
+  }
 
   const authToken = parsed["auth-token"] || Deno.env.get("AUTH_TOKEN");
-  if (authToken) result.authToken = authToken;
+  if (authToken) {
+    result = {
+      ...result,
+      authToken,
+    };
+  }
 
   const runtimeType = parsed["runtime-type"] || Deno.env.get("RUNTIME_TYPE");
   if (runtimeType && typeof runtimeType === "string") {
-    result.runtimeType = runtimeType;
+    result = {
+      ...result,
+      runtimeType,
+    };
   }
 
   const runtimeId = parsed["runtime-id"] || Deno.env.get("RUNTIME_ID");
-  if (runtimeId && typeof runtimeId === "string") result.runtimeId = runtimeId;
+  if (runtimeId && typeof runtimeId === "string") {
+    result = {
+      ...result,
+      runtimeId,
+    };
+  }
 
   const environmentOptions: Record<string, unknown> = {};
   environmentOptions.runtimePythonPath = parsed["runtime-python-path"] ||
@@ -211,7 +229,10 @@ Logging Configuration:
     Deno.env.get("RUNTIME_ENV_EXTERNALLY_MANAGED") === "true";
   environmentOptions.runtimeEnvExternallyManaged = cliExternallyManaged ||
     envExternallyManaged;
-  result.environmentOptions = environmentOptions;
+  result = {
+    ...result,
+    environmentOptions,
+  };
 
   return result;
 }
@@ -248,21 +269,22 @@ export function createRuntimeConfig(
     Object.entries(cliConfig).filter(([_, value]) => value !== undefined),
   );
 
+  // Compose the config object without mutating any readonly property
+  const runtimeId = cleanCliConfig.runtimeId ||
+    Deno.env.get("RUNTIME_ID") ||
+    `${
+      cleanCliConfig.runtimeType || mergedDefaults.runtimeType
+    }-runtime-${Deno.pid}`;
+
   const config: RuntimeAgentOptions = {
     ...mergedDefaults,
     ...cleanCliConfig,
+    runtimeId,
     environmentOptions: {
       ...mergedDefaults.environmentOptions,
       ...(cleanCliConfig.environmentOptions ?? {}),
     },
   } as RuntimeAgentOptions;
-
-  // Generate runtimeId after merging to use correct runtimeType
-  if (!config.runtimeId) {
-    config.runtimeId = cliConfig.runtimeId ||
-      Deno.env.get("RUNTIME_ID") ||
-      `${config.runtimeType}-runtime-${Deno.pid}`;
-  }
 
   const runtimeConfig = new RuntimeConfig(config);
   runtimeConfig.validate();

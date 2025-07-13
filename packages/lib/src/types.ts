@@ -25,28 +25,28 @@ export interface RawOutputData {
  */
 export interface RuntimeAgentOptions {
   /** Unique identifier for this runtime */
-  runtimeId: string;
+  readonly runtimeId: string;
   /** Human-readable runtime type (appears in UI) */
-  runtimeType: string;
+  readonly runtimeType: string;
   /** Capabilities this runtime supports */
-  capabilities: RuntimeCapabilities;
+  readonly capabilities: Readonly<RuntimeCapabilities>;
   /** LiveStore sync URL */
-  syncUrl: string;
+  readonly syncUrl: string;
   /** Authentication token */
-  authToken: string;
+  readonly authToken: string;
   /** Notebook ID to connect to */
-  notebookId: string;
+  readonly notebookId: string;
   /** Environment-related options for the runtime */
-  environmentOptions: {
+  readonly environmentOptions: Readonly<{
     /** Path to the python executable to use (default: "python3") */
-    runtimePythonPath?: string;
+    readonly runtimePythonPath?: string;
     /** Path to the environment/venv to use (default: unset) */
-    runtimeEnvPath?: string;
+    readonly runtimeEnvPath?: string;
     /** Package manager to use (default: "pip") */
-    runtimePackageManager?: string;
+    readonly runtimePackageManager?: string;
     /** If true, treat the environment as externally managed (default: false) */
-    runtimeEnvExternallyManaged?: boolean;
-  };
+    readonly runtimeEnvExternallyManaged?: boolean;
+  }>;
 }
 
 /**

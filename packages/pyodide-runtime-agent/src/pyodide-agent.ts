@@ -4,7 +4,11 @@
 // IPython integration, rich display support, and true interruption support
 // via Pyodide's built-in interrupt system.
 
-import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
+import {
+  createRuntimeConfig,
+  RuntimeAgent,
+  type RuntimeConfig,
+} from "@runt/lib";
 import type { ExecutionContext } from "@runt/lib";
 import { createLogger } from "@runt/lib";
 import { type MediaBundle, validateMediaBundle } from "@runt/lib";
@@ -59,12 +63,12 @@ export class PyodideRuntimeAgent {
     reject: (error: unknown) => void;
   }>();
   private logger = createLogger("pyodide-agent");
-  public config: ReturnType<typeof createRuntimeConfig>;
   private options: PyodideAgentOptions;
 
   constructor(args: string[] = Deno.args, options: PyodideAgentOptions = {}) {
+    let config: RuntimeConfig;
     try {
-      this.config = createRuntimeConfig(args, {
+      config = createRuntimeConfig(args, {
         runtimeType: "python3-pyodide",
         capabilities: {
           canExecuteCode: true,
@@ -92,7 +96,7 @@ export class PyodideRuntimeAgent {
       Deno.exit(1);
     }
 
-    this.agent = new RuntimeAgent(this.config, this.config.capabilities, {
+    this.agent = new RuntimeAgent(config, config.capabilities, {
       onStartup: this.initializePyodideWorker.bind(this),
       onShutdown: this.cleanupWorker.bind(this),
     });
@@ -150,6 +154,10 @@ export class PyodideRuntimeAgent {
 
   public get store() {
     return this.agent.store;
+  }
+
+  get config(): RuntimeConfig {
+    return this.agent.config;
   }
 
   /**
