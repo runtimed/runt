@@ -45,6 +45,8 @@ jobs:
               - 'packages/ai/**'
             pyodide-runtime-agent:
               - 'packages/pyodide-runtime-agent/**'
+            python-runtime-agent:
+              - 'packages/python-runtime-agent/**'
             publish:
               - '.github/workflows/publish.yml'
 
