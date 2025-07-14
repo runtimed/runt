@@ -59,12 +59,24 @@ jobs:
           JQ_FILTER=$(echo "$BUILD_ORDER" | jq -r 'map("\"" + . + "\": .[\"" + . + "\"]") | join(", ")')
           # Compose the final object
           CHANGED_PACKAGES=$(jq -n --argjson obj '${{ toJson(steps.filter.outputs) }}' '$obj' | jq -c "{ $JQ_FILTER }")
+          # Dorny has values of true/false, but they're strings not booleans. Fix that here
+          CHANGED_PACKAGES=$(echo "$CHANGED_PACKAGES" | jq -c 'with_entries(
+            .value |= (
+              if type == "string" then
+                (if (ascii_downcase == "true") then true
+                 elif (ascii_downcase == "false") then false
+                 else . end)
+              else
+                .
+              end
+            )
+          )')
           MISSING_KEYS=$(echo "$CHANGED_PACKAGES" | jq -r 'to_entries | map(select(.value == null) | .key) | join(",")')
           if [ -n "$MISSING_KEYS" ]; then
             echo "Error: The following keys are missing from the dorny filter step: $MISSING_KEYS"
             exit 1
           fi
-          echo "$CHANGED_PACKAGES"
+          echo "CHANGED_PACKAGES: $CHANGED_PACKAGES"
           echo "changed_packages=$CHANGED_PACKAGES" >> $GITHUB_OUTPUT
 
       - name: Ensure build-order is up to date
