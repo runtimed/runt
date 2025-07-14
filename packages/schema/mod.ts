@@ -170,7 +170,7 @@ export const tables = {
     name: "debug-pin",
     columns: {
       id: State.SQLite.text({ primaryKey: true }),
-      // Update these to test schema changes
+      // Update these to test schema changes, you can update either one or both
       title1: State.SQLite.text({ default: "test1" }),
     },
   }),
@@ -752,11 +752,14 @@ function updateExistingDisplays(
 const materializers = State.SQLite.materializers(events, {
   // Notebook materializers
   "v1.NotebookInitialized": ({ id, title, ownerId }) =>
-    tables.notebook.insert({
+    [tables.notebook.insert({
       id,
       title,
       ownerId,
     }),
+    tables.debugPin.insert({
+      id,
+    })],
 
   "v1.NotebookTitleChanged": ({ title }) => tables.notebook.update({ title }),
 
