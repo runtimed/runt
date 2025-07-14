@@ -175,15 +175,12 @@ export const tables = {
     },
   }),
 
-  // Notebook metadata (single row per store)
-  notebook: State.SQLite.table({
-    name: "notebook",
+  // Notebook metadata (key-value pairs per store)
+  notebookMetadata: State.SQLite.table({
+    name: "notebookMetadata",
     columns: {
-      id: State.SQLite.text({ primaryKey: true }), // Same as storeId
-      title: State.SQLite.text({ default: "Untitled Notebook" }),
-      runtimeType: State.SQLite.text({ default: "python3" }),
-      ownerId: State.SQLite.text(),
-      isPublic: State.SQLite.boolean({ default: false }),
+      key: State.SQLite.text({ primaryKey: true }),
+      value: State.SQLite.text(),
     },
   }),
 
@@ -370,6 +367,14 @@ export const events = {
     name: "v1.NotebookTitleChanged",
     schema: Schema.Struct({
       title: Schema.String,
+    }),
+  }),
+
+  notebookMetadataSet: Events.synced({
+    name: "v1.NotebookMetadataSet",
+    schema: Schema.Struct({
+      key: Schema.String,
+      value: Schema.String,
     }),
   }),
 
@@ -754,17 +759,31 @@ const materializers = State.SQLite.materializers(events, {
   "v1.NotebookInitialized": (
     { id, title, ownerId },
   ) => [
-    tables.notebook.insert({
-      id,
-      title,
-      ownerId,
-    }).onConflict("id", "replace"),
+    // Legacy event - convert to metadata format
+    tables.notebookMetadata.insert({
+      key: "title",
+      value: title,
+    }).onConflict("key", "replace"),
+    tables.notebookMetadata.insert({
+      key: "ownerId",
+      value: ownerId,
+    }).onConflict("key", "replace"),
     tables.debugPin.insert({
       id,
     }).onConflict("id", "replace"),
   ],
 
-  "v1.NotebookTitleChanged": ({ title }) => tables.notebook.update({ title }),
+  "v1.NotebookTitleChanged": ({ title }) =>
+    tables.notebookMetadata.insert({
+      key: "title",
+      value: title,
+    }).onConflict("key", "replace"),
+
+  "v1.NotebookMetadataSet": ({ key, value }) =>
+    tables.notebookMetadata.insert({
+      key,
+      value,
+    }).onConflict("key", "replace"),
 
   // Cell materializers
   "v1.CellCreated": ({ id, cellType, position, createdBy }) =>
@@ -1200,7 +1219,7 @@ export const schema = makeSchema({ events, state });
 export type Store = LiveStore<typeof schema>;
 
 // Type exports derived from the actual table definitions - full type inference works here!
-export type NotebookData = typeof tables.notebook.Type;
+export type NotebookMetadataData = typeof tables.notebookMetadata.Type;
 export type CellData = typeof tables.cells.Type;
 export type OutputData = typeof tables.outputs.Type;
 
@@ -1254,6 +1273,29 @@ export function isArtifactContainer(
   container: MediaContainer,
 ): container is ArtifactContainer {
   return container.type === "artifact";
+}
+
+// Helper function to get notebook metadata with defaults
+export function getNotebookMetadata(
+  metadataRecords: Array<{ key: string; value: string }>,
+  key: string,
+  defaultValue: string = "",
+): string {
+  const record = metadataRecords.find((r) => r.key === key);
+  return record?.value ?? defaultValue;
+}
+
+// Helper to get common notebook metadata values
+export function getNotebookInfo(
+  metadataRecords: Array<{ key: string; value: string }>,
+) {
+  return {
+    title: getNotebookMetadata(metadataRecords, "title", "Untitled"),
+    ownerId: getNotebookMetadata(metadataRecords, "ownerId", "anonymous"),
+    runtimeType: getNotebookMetadata(metadataRecords, "runtimeType", "python3"),
+    isPublic:
+      getNotebookMetadata(metadataRecords, "isPublic", "false") === "true",
+  };
 }
 
 // Output data types for different output formats
