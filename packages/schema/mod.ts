@@ -758,10 +758,10 @@ const materializers = State.SQLite.materializers(events, {
       id,
       title,
       ownerId,
-    }),
+    }).onConflict("id", "replace"),
     tables.debugPin.insert({
       id,
-    }),
+    }).onConflict("id", "replace"),
   ],
 
   "v1.NotebookTitleChanged": ({ title }) => tables.notebook.update({ title }),
@@ -773,7 +773,7 @@ const materializers = State.SQLite.materializers(events, {
       cellType,
       position,
       createdBy,
-    }),
+    }).onConflict("id", "ignore"),
 
   "v1.CellSourceChanged": ({ id, source }) =>
     tables.cells.update({ source }).where({ id }),
@@ -811,7 +811,7 @@ const materializers = State.SQLite.materializers(events, {
       canExecuteSql: capabilities.canExecuteSql,
       canExecuteAi: capabilities.canExecuteAi,
       availableAiModels: capabilities.availableAiModels || null,
-    }),
+    }).onConflict("sessionId", "replace"),
 
   "v1.RuntimeSessionStatusChanged": ({ sessionId, status }) =>
     tables.runtimeSessions
@@ -841,7 +841,7 @@ const materializers = State.SQLite.materializers(events, {
       executionCount,
       requestedBy,
       status: "pending",
-    }),
+    }).onConflict("id", "ignore"),
     // Update cell execution state
     tables.cells
       .update({
@@ -962,7 +962,7 @@ const materializers = State.SQLite.materializers(events, {
         mimeType: primaryMimeType,
         metadata: null,
         representations,
-      }),
+      }).onConflict("id", "replace"),
     );
     return ops;
   },
@@ -1026,7 +1026,7 @@ const materializers = State.SQLite.materializers(events, {
         mimeType: primaryMimeType,
         metadata: null,
         representations,
-      }),
+      }).onConflict("id", "replace"),
     );
     return ops;
   },
@@ -1057,7 +1057,7 @@ const materializers = State.SQLite.materializers(events, {
         mimeType: "text/plain",
         metadata: content.metadata || null,
         representations: null,
-      }),
+      }).onConflict("id", "replace"),
     );
     return ops;
   },
@@ -1103,7 +1103,7 @@ const materializers = State.SQLite.materializers(events, {
         mimeType: "text/markdown",
         metadata: content.metadata || null,
         representations: null,
-      }),
+      }).onConflict("id", "replace"),
     );
     return ops;
   },
@@ -1149,7 +1149,7 @@ const materializers = State.SQLite.materializers(events, {
         mimeType: "application/json",
         metadata: content.metadata || null,
         representations: null,
-      }),
+      }).onConflict("id", "replace"),
     );
     return ops;
   },
@@ -1157,7 +1157,10 @@ const materializers = State.SQLite.materializers(events, {
   "v1.CellOutputsCleared": ({ cellId, wait, clearedBy }) => {
     if (wait) {
       // Store pending clear for wait=True
-      return tables.pendingClears.insert({ cellId, clearedBy });
+      return tables.pendingClears.insert({ cellId, clearedBy }).onConflict(
+        "cellId",
+        "replace",
+      );
     } else {
       // Immediate clear for wait=False
       return tables.outputs.delete().where({ cellId });
