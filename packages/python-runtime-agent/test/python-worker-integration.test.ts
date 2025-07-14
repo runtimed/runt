@@ -84,6 +84,16 @@ Deno.test({
       assertEquals(worker.getKernelPid(), null, "Kernel PID should be null after shutdown");
     });
 
+    await t.step("Can execute Python code and get result via JupyterKernelConnection", async () => {
+      worker = new PythonWorker(pythonPath);
+      await worker.start();
+      const conn = await worker.getConnection();
+      const { result, outputs } = await conn.execute("1+2");
+      assertEquals(result.trim(), "3");
+      assert(outputs.length > 0);
+      await worker.shutdown();
+    });
+
     // Teardown
     await t.step("[teardown] remove venv tempdir", async () => {
       if (venvDir) {
