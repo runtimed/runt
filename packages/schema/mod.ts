@@ -166,6 +166,15 @@ const MediaRepresentationSchema = Schema.Union(
 );
 
 export const tables = {
+  debugPin: State.SQLite.table({
+    name: "debug-pin",
+    columns: {
+      id: State.SQLite.text({ primaryKey: true }),
+      // Update these to test schema changes
+      title1: State.SQLite.text({ default: "test1" }),
+    },
+  }),
+
   // Notebook metadata (single row per store)
   notebook: State.SQLite.table({
     name: "notebook",
