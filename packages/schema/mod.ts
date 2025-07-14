@@ -751,15 +751,18 @@ function updateExistingDisplays(
 // Materializers map events to state changes
 const materializers = State.SQLite.materializers(events, {
   // Notebook materializers
-  "v1.NotebookInitialized": ({ id, title, ownerId }) =>
-    [tables.notebook.insert({
+  "v1.NotebookInitialized": (
+    { id, title, ownerId },
+  ) => [
+    tables.notebook.insert({
       id,
       title,
       ownerId,
     }),
     tables.debugPin.insert({
       id,
-    })],
+    }),
+  ],
 
   "v1.NotebookTitleChanged": ({ title }) => tables.notebook.update({ title }),
 
