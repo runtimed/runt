@@ -1,30 +1,24 @@
 {
-  "name": "@runt/pyodide-runtime-agent",
-  "version": "0.6.2",
-  "description": "Python runtime agent using Pyodide with IPython integration",
+  "name": "@runt/python-runtime-agent",
+  "version": "0.0.1",
+  "description": "Stub Python runtime agent for Runt platform.",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/runtimed/anode.git"
   },
   "exports": {
-    ".": "./src/mod.ts"
+    ".": "./mod.ts"
   },
   "bin": {
-    "pyorunt": "./src/mod.ts"
+    "pyrunt": "./mod.ts"
   },
   "imports": {
-    "@runt/ai": "jsr:@runt/ai@^0.6.2",
     "@runt/lib": "jsr:@runt/lib@^0.6.2",
-    "@runt/schema": "jsr:@runt/schema@^0.6.2",
-    "npm:pyodide": "npm:pyodide@^0.27.7",
-    "@std/async": "jsr:@std/async@^1.0.0",
-    "npm:@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
-    "npm:strip-ansi": "npm:strip-ansi@^7.1.0"
+    "@runt/schema": "jsr:@runt/schema@^0.6.2"
   },
   "tasks": {
-    "dev": "deno run --allow-all --env-file=.env src/pyodide-agent.ts",
-    "test": "deno test --allow-all --env-file=.env",
+    "test": "deno test --allow-all",
     "check": "deno check src/**/*.ts",
     "fmt": "deno fmt",
     "lint": "deno lint"
@@ -49,7 +43,7 @@
     }
   },
   "publish": {
-    "include": ["src/", "README.md"],
+    "include": ["mod.ts", "src/", "README.md"],
     "exclude": ["**/*.test.ts", "**/test_*.ts"]
   }
 }

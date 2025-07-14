@@ -4,7 +4,11 @@
 // IPython integration, rich display support, and true interruption support
 // via Pyodide's built-in interrupt system.
 
-import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
+import {
+  createRuntimeConfig,
+  RuntimeAgent,
+  type RuntimeConfig,
+} from "@runt/lib";
 import type { ExecutionContext } from "@runt/lib";
 import { createLogger } from "@runt/lib";
 import { type MediaBundle, validateMediaBundle } from "@runt/lib";
@@ -15,8 +19,6 @@ import {
   type KnownMimeType,
 } from "@runt/schema";
 import { getEssentialPackages } from "./cache-utils.ts";
-import type { Store } from "npm:@livestore/livestore";
-import { schema } from "@runt/schema";
 import {
   discoverAvailableAiModels,
   ensureTextPlainFallback,
@@ -39,8 +41,7 @@ interface PyodideAgentOptions {
  * including IPython integration, rich display support, matplotlib SVG output,
  * pandas HTML tables, and enhanced error formatting.
  */
-export class PyodideRuntimeAgent {
-  private agent: RuntimeAgent;
+export class PyodideRuntimeAgent extends RuntimeAgent {
   private worker: Worker | null = null;
   private interruptBuffer?: SharedArrayBuffer;
   private isInitialized = false;
@@ -61,12 +62,12 @@ export class PyodideRuntimeAgent {
     reject: (error: unknown) => void;
   }>();
   private logger = createLogger("pyodide-agent");
-  public config: ReturnType<typeof createRuntimeConfig>;
   private options: PyodideAgentOptions;
 
   constructor(args: string[] = Deno.args, options: PyodideAgentOptions = {}) {
+    let config: RuntimeConfig;
     try {
-      this.config = createRuntimeConfig(args, {
+      config = createRuntimeConfig(args, {
         runtimeType: "python3-pyodide",
         capabilities: {
           canExecuteCode: true,
@@ -90,24 +91,28 @@ export class PyodideRuntimeAgent {
       console.error(
         "  deno install -gf --allow-all jsr:@runt/pyodide-runtime-agent",
       );
-      console.error("  pyrunt --notebook my-notebook --auth-token your-token");
+      console.error("  pyorunt --notebook my-notebook --auth-token your-token");
       Deno.exit(1);
     }
 
-    this.agent = new RuntimeAgent(this.config, this.config.capabilities, {
-      onStartup: this.initializePyodideWorker.bind(this),
-      onShutdown: this.cleanupWorker.bind(this),
+    super(config, config.capabilities, {
+      onStartup: async () => {
+        await this.initializePyodideWorker();
+      },
+      onShutdown: () => {
+        this.cleanupWorker();
+      },
     });
 
     this.options = options;
-    this.agent.onExecution(this.executeCell.bind(this));
-    this.agent.onCancellation(this.handleCancellation.bind(this));
+    this.onExecution(this.executeCell.bind(this));
+    this.onCancellation(this.handlePyodideCancellation.bind(this));
   }
 
   /**
    * Start the Pyodide runtime agent
    */
-  async start(): Promise<void> {
+  override async start(): Promise<void> {
     this.logger.info("Starting Pyodide Python runtime agent");
 
     // Discover available AI models if enabled
@@ -133,28 +138,7 @@ export class PyodideRuntimeAgent {
       }
     }
 
-    await this.agent.start();
-  }
-
-  /**
-   * Shutdown the runtime agent
-   */
-  async shutdown(): Promise<void> {
-    await this.agent.shutdown();
-  }
-
-  /**
-   * Keep the agent alive
-   */
-  async keepAlive(): Promise<void> {
-    await this.agent.keepAlive();
-  }
-
-  /**
-   * Get the LiveStore instance (for testing)
-   */
-  get store(): Store<typeof schema> {
-    return this.agent.liveStore;
+    await super.start();
   }
 
   /**
@@ -617,7 +601,7 @@ export class PyodideRuntimeAgent {
   /**
    * Handle cancellation events
    */
-  private handleCancellation(
+  private handlePyodideCancellation(
     queueId: string,
     cellId: string,
     reason: string,

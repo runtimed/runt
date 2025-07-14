@@ -39,11 +39,10 @@ Deno.test({
 
     await t.step("AI cell cancellation clears execution state", async () => {
       if (!agent) throw new Error("Agent not initialized");
-      const store = agent.store;
 
       // Create an AI cell
       const aiCellId = "ai-cell-cancel-test";
-      store.commit(
+      agent.store.commit(
         events.cellCreated({
           id: aiCellId,
           cellType: "ai",
@@ -54,7 +53,7 @@ Deno.test({
 
       // Set a long-running AI prompt
       const prompt = "Explain quantum computing in great detail with examples";
-      store.commit(
+      agent.store.commit(
         events.cellSourceChanged({
           id: aiCellId,
           source: prompt,
@@ -64,7 +63,7 @@ Deno.test({
 
       // Create a code cell that should NOT execute if cancellation works
       const codeCellId = "code-cell-after-ai";
-      store.commit(
+      agent.store.commit(
         events.cellCreated({
           id: codeCellId,
           cellType: "code",
@@ -73,7 +72,7 @@ Deno.test({
         }),
       );
 
-      store.commit(
+      agent.store.commit(
         events.cellSourceChanged({
           id: codeCellId,
           source: "print('This should not execute after AI cancellation')",
@@ -85,7 +84,7 @@ Deno.test({
       const aiQueueId = `exec-ai-${Date.now()}-${
         Math.random().toString(36).slice(2)
       }`;
-      store.commit(
+      agent.store.commit(
         events.executionRequested({
           queueId: aiQueueId,
           cellId: aiCellId,
@@ -100,7 +99,7 @@ Deno.test({
       clearTimeout(startDelay);
 
       // Cancel the AI execution
-      store.commit(
+      agent.store.commit(
         events.executionCancelled({
           queueId: aiQueueId,
           cellId: aiCellId,
@@ -113,7 +112,7 @@ Deno.test({
       const codeQueueId = `exec-code-${Date.now()}-${
         Math.random().toString(36).slice(2)
       }`;
-      store.commit(
+      agent.store.commit(
         events.executionRequested({
           queueId: codeQueueId,
           cellId: codeCellId,
@@ -127,10 +126,10 @@ Deno.test({
       const maxAttempts = 10;
 
       while (attempts < maxAttempts) {
-        const aiQueueEntry = store.query(
+        const aiQueueEntry = agent.store.query(
           tables.executionQueue.select().where({ id: aiQueueId }),
         )[0];
-        const codeQueueEntry = store.query(
+        const codeQueueEntry = agent.store.query(
           tables.executionQueue.select().where({ id: codeQueueId }),
         )[0];
 
@@ -149,7 +148,7 @@ Deno.test({
       }
 
       // Verify AI execution was cancelled
-      const aiQueueEntry = store.query(
+      const aiQueueEntry = agent.store.query(
         tables.executionQueue.select().where({ id: aiQueueId }),
       )[0];
       assertExists(aiQueueEntry);
@@ -160,7 +159,7 @@ Deno.test({
       );
 
       // Verify code execution completed successfully (no interrupt leak)
-      const codeQueueEntry = store.query(
+      const codeQueueEntry = agent.store.query(
         tables.executionQueue.select().where({ id: codeQueueId }),
       )[0];
       assertExists(codeQueueEntry);
@@ -171,7 +170,7 @@ Deno.test({
       );
 
       // Verify code cell outputs don't contain KeyboardInterrupt
-      const codeOutputs = store.query(
+      const codeOutputs = agent.store.query(
         tables.outputs.select().where({ cellId: codeCellId }),
       );
 

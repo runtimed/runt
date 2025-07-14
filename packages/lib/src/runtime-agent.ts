@@ -27,7 +27,7 @@ import type { RuntimeConfig } from "./config.ts";
  * Base RuntimeAgent class providing LiveStore integration and execution management
  */
 export class RuntimeAgent {
-  private store!: Store<typeof schema>;
+  #store!: Store<typeof schema>;
   private isShuttingDown = false;
   private processedExecutions = new Set<string>();
 
@@ -37,7 +37,7 @@ export class RuntimeAgent {
   private signalHandlers = new Map<string, () => void>();
 
   constructor(
-    private config: RuntimeConfig,
+    public config: RuntimeConfig,
     private capabilities: RuntimeCapabilities,
     private handlers: RuntimeAgentEventHandlers = {},
   ) {}
@@ -71,7 +71,7 @@ export class RuntimeAgent {
         },
       });
 
-      this.store = await createStorePromise({
+      this.#store = await createStorePromise({
         adapter,
         schema,
         storeId: this.config.notebookId,
@@ -118,6 +118,8 @@ export class RuntimeAgent {
 
       // Set up shutdown handlers
       this.setupShutdownHandlers();
+
+      // No return value
     } catch (error) {
       const logger = createLogger(`${this.config.runtimeType}-agent`);
       logger.error("Failed to start runtime agent", error);
@@ -148,7 +150,7 @@ export class RuntimeAgent {
 
       // Mark session as terminated
       try {
-        if (this.store) {
+        if (this.#store) {
           // Terminate session on shutdown
           this.store.commit(events.runtimeSessionTerminated({
             sessionId: this.config.sessionId,
@@ -170,7 +172,7 @@ export class RuntimeAgent {
       this.cleanupSignalHandlers();
 
       // Close LiveStore connection
-      if (this.store) {
+      if (this.#store) {
         await this.store.shutdown?.();
       }
     } catch (error) {
@@ -201,11 +203,8 @@ export class RuntimeAgent {
     this.cancellationHandlers.push(handler);
   }
 
-  /**
-   * Get the LiveStore instance (for testing)
-   */
-  get liveStore(): Store<typeof schema> {
-    return this.store;
+  public get store(): Store<typeof schema> {
+    return this.#store;
   }
 
   private executionHandler: ExecutionHandler = async (context) => {

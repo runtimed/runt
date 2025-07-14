@@ -69,12 +69,11 @@ agent.onExecution(async (context) => {
 // Start the agent
 try {
   await agent.start();
-
   logger.info("Echo agent started", {
-    runtimeId: config.runtimeId,
-    runtimeType: config.runtimeType,
-    notebookId: config.notebookId,
-    sessionId: config.sessionId,
+    runtimeId: agent.config.runtimeId,
+    runtimeType: agent.config.runtimeType,
+    notebookId: agent.config.notebookId,
+    sessionId: agent.config.sessionId,
   });
 
   await agent.keepAlive();

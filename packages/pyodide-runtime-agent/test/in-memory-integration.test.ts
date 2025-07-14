@@ -66,14 +66,11 @@ Deno.test({
     await t.step("can execute Python code and get results", async () => {
       if (!agent) throw new Error("Agent not started");
 
-      // Get access to the agent's store (type-safe shared instance)
-      const store = agent.store;
-
       console.log("📊 Testing complete execution pipeline...");
 
       // Create notebook
       const notebookId = agent.config.notebookId;
-      store.commit(events.notebookInitialized({
+      agent.store.commit(events.notebookInitialized({
         id: notebookId,
         title: "Integration Test Notebook",
         ownerId: "test-user",
@@ -81,7 +78,7 @@ Deno.test({
 
       // Create a cell with Python arithmetic
       const cellId = `cell-${crypto.randomUUID()}`;
-      store.commit(events.cellCreated({
+      agent.store.commit(events.cellCreated({
         id: cellId,
         position: 0,
         cellType: "code",
@@ -90,7 +87,7 @@ Deno.test({
 
       // Test basic arithmetic
       const pythonCode = "3 * 7";
-      store.commit(events.cellSourceChanged({
+      agent.store.commit(events.cellSourceChanged({
         id: cellId,
         source: pythonCode,
         modifiedBy: "test-user",
@@ -100,7 +97,7 @@ Deno.test({
       const queueId = `exec-${Date.now()}-${
         Math.random().toString(36).slice(2)
       }`;
-      store.commit(events.executionRequested({
+      agent.store.commit(events.executionRequested({
         queueId,
         cellId,
         executionCount: 1,
@@ -113,11 +110,11 @@ Deno.test({
       await delay(3000);
 
       // Check results
-      const queueEntries = store.query(queryDb(
+      const queueEntries = agent.store.query(queryDb(
         tables.executionQueue.select().where({ cellId }),
       ));
 
-      const outputs = store.query(queryDb(
+      const outputs = agent.store.query(queryDb(
         tables.outputs.select().where({ cellId }),
       ));
 
