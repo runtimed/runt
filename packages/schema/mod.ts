@@ -166,8 +166,8 @@ const MediaRepresentationSchema = Schema.Union(
 );
 
 export const tables = {
-  debugPin: State.SQLite.table({
-    name: "debug-pin",
+  debug: State.SQLite.table({
+    name: "debug",
     columns: {
       id: State.SQLite.text({ primaryKey: true }),
       // Update column name or value to test schema changes
@@ -768,7 +768,7 @@ const materializers = State.SQLite.materializers(events, {
       key: "ownerId",
       value: ownerId,
     }).onConflict("key", "replace"),
-    tables.debugPin.insert({
+    tables.debug.insert({
       id,
     }).onConflict("id", "replace"),
   ],
