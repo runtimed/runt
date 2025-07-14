@@ -167,11 +167,11 @@ const MediaRepresentationSchema = Schema.Union(
 
 export const tables = {
   debugPin: State.SQLite.table({
-    name: "debug-pin",
+    name: "debugPin",
     columns: {
       id: State.SQLite.text({ primaryKey: true }),
       // Update column name or value to test schema changes
-      version: State.SQLite.text({ default: "1" }),
+      version: State.SQLite.text({ default: "6" }),
     },
   }),
 
