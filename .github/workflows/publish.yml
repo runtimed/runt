@@ -125,10 +125,10 @@ jobs:
       - name: Set outputs
         id: set_outputs
         run: |
-          BUILD_LIST=${{ steps.build_list.outputs.build_list }}
-          GITHUB_ACTION_CHANGED=${{ steps.filter.outputs.publish }}
-          GITHUB_EVENT_NAME=${{ github.event_name }}
-          GITHUB_REF_NAME=${{ github.ref_name }}
+          BUILD_LIST='${{ steps.build_list.outputs.build_list }}'
+          GITHUB_ACTION_CHANGED='${{ steps.filter.outputs.publish }}'
+          GITHUB_EVENT_NAME='${{ github.event_name }}'
+          GITHUB_REF_NAME='${{ github.ref_name }}'
 
           DRY_RUN=false
 
