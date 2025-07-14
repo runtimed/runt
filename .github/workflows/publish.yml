@@ -57,6 +57,11 @@ jobs:
           JQ_FILTER=$(echo "$BUILD_ORDER" | jq -r 'map("\"" + . + "\": .[\"" + . + "\"]") | join(", ")')
           # Compose the final object
           CHANGED_PACKAGES=$(jq -n --argjson obj '${{ toJson(steps.filter.outputs) }}' '$obj' | jq -c "{ $JQ_FILTER }")
+          MISSING_KEYS=$(echo "$CHANGED_PACKAGES" | jq -r 'to_entries | map(select(.value == null) | .key) | join(",")')
+          if [ -n "$MISSING_KEYS" ]; then
+            echo "Error: The following keys are missing from the dorny filter step: $MISSING_KEYS"
+            exit 1
+          fi
           echo "$CHANGED_PACKAGES"
           echo "changed_packages=$CHANGED_PACKAGES" >> $GITHUB_OUTPUT
 
