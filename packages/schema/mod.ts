@@ -170,8 +170,8 @@ export const tables = {
     name: "debug-pin",
     columns: {
       id: State.SQLite.text({ primaryKey: true }),
-      // Update these to test schema changes, you can update either one or both
-      title1: State.SQLite.text({ default: "test1" }),
+      // Update column name or value to test schema changes
+      version: State.SQLite.text({ default: "1" }),
     },
   }),
 
