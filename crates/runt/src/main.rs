@@ -33,8 +33,19 @@ async fn list_kernels() -> Result<()> {
     let runtime_dir = runtime_dir();
     let mut entries = fs::read_dir(runtime_dir).await?;
 
-    println!("{:<12} {:<10} {:<6} {:<6} {:<6} {:<6} {:<6} {:<6} {:<38} {:<10}", 
-             "KERNEL_NAME", "IP", "TRANS", "SHELL", "IOPUB", "STDIN", "CONTROL", "HB", "KEY", "SIG_SCHEME");
+    println!(
+        "{:<12} {:<10} {:<6} {:<6} {:<6} {:<6} {:<6} {:<6} {:<38} {:<10}",
+        "KERNEL_NAME",
+        "IP",
+        "TRANS",
+        "SHELL",
+        "IOPUB",
+        "STDIN",
+        "CONTROL",
+        "HB",
+        "KEY",
+        "SIG_SCHEME"
+    );
 
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
@@ -55,16 +66,21 @@ async fn read_connection_info(path: &PathBuf) -> Result<ConnectionInfo> {
 }
 
 fn print_kernel_info(path: &PathBuf, info: &ConnectionInfo) {
-    let kernel_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
-    println!("{:<12} {:<10} {:<6} {:<6} {:<6} {:<6} {:<6} {:<6} {:<38} {:<10}",
-             kernel_name,
-             info.ip,
-             info.transport,
-             info.shell_port,
-             info.iopub_port,
-             info.stdin_port,
-             info.control_port,
-             info.hb_port,
-             info.key,
-             info.signature_scheme);
+    let kernel_name = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
+    println!(
+        "{:<12} {:<10} {:<6} {:<6} {:<6} {:<6} {:<6} {:<6} {:<38} {:<10}",
+        kernel_name,
+        info.ip,
+        info.transport,
+        info.shell_port,
+        info.iopub_port,
+        info.stdin_port,
+        info.control_port,
+        info.hb_port,
+        info.key,
+        info.signature_scheme
+    );
 }
