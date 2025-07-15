@@ -16,7 +16,7 @@
   "imports": {
     "@runt/lib": "jsr:@runt/lib@^0.6.2",
     "@runt/schema": "jsr:@runt/schema@^0.6.2",
-    "@runtimed/jmp": "npm:@runtimed/jmp@^3.0.0",
+    "uuid": "npm:uuid@^11.1.0",
     "@std/path": "jsr:@std/path@^1.1.1"
   },
   "tasks": {

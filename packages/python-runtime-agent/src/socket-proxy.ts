@@ -1,4 +1,15 @@
 import * as path from "@std/path";
+import { Message } from "./jmp-vendor/jmp.ts";
+import { createLogger } from "@runt/lib";
+
+export type SocketProxyListener<T = unknown> = (msg: T) => void;
+
+interface ListenerEntry<T = unknown> {
+  event: string;
+  listener: SocketProxyListener<T>;
+  jupyterDecode: boolean;
+  once: boolean;
+}
 
 let nextRequestId = 1;
 
@@ -16,11 +27,15 @@ export class SocketProxy {
   private key: string;
   private stdinWriter: WritableStreamDefaultWriter<Uint8Array>;
   private stdoutReader: ReadableStreamDefaultReader<Uint8Array>;
+  private stderrReader: ReadableStreamDefaultReader<Uint8Array>;
   private decoder = new TextDecoder();
   private buffer = "";
   private queue: ProxyRequest[] = [];
   private processing = false;
   private closed = false;
+  private listeners: ListenerEntry[] = [];
+  private receiveLoopStarted = false;
+  private isHeartbeat: boolean;
 
   constructor(pythonPath: string, socketType: string, connect: string, scheme: string = "sha256", key: string = "") {
     this.pythonPath = pythonPath;
@@ -28,6 +43,7 @@ export class SocketProxy {
     this.connect = connect;
     this.scheme = scheme;
     this.key = key;
+    this.isHeartbeat = /^(hb|heartbeat)$/i.test(socketType);
     this.zmqProxyPath = path.join(
       path.dirname(new URL(import.meta.url).pathname),
       "zmq_proxy.py"
@@ -36,11 +52,13 @@ export class SocketProxy {
       args: [this.zmqProxyPath, "--role", this.socketType, "--connect", this.connect],
       stdin: "piped",
       stdout: "piped",
-      stderr: "null",
+      stderr: "piped",
     });
     this.proc = cmd.spawn();
     this.stdinWriter = this.proc.stdin.getWriter();
     this.stdoutReader = this.proc.stdout.getReader();
+    this.stderrReader = this.proc.stderr.getReader();
+    this.startStderrLogging();
   }
 
   private encodeBase64(parts: Uint8Array[]): string[] {
@@ -114,6 +132,115 @@ export class SocketProxy {
       this.queue.push({ type: "read", resolve, reject });
       this.processQueue();
     });
+  }
+
+  /**
+   * Send a message. Accepts either a Message instance or raw parts (Uint8Array[]).
+   */
+  public async send(msg: Message | Uint8Array[]): Promise<void> {
+    if (this.closed) throw new Error("SocketProxy is closed");
+    if (msg instanceof Message) {
+      const encoded = msg._encode(this.scheme, this.key);
+      const parts: Uint8Array[] = encoded.map((part) => {
+        if (part instanceof Uint8Array) return part;
+        if (typeof part === "string") {
+          return new TextEncoder().encode(part);
+        }
+        throw new Error("Unsupported message part type in send");
+      });
+      await this.sendRaw(parts);
+    } else {
+      await this.sendRaw(msg);
+    }
+  }
+
+  /**
+   * Register a listener for incoming messages. Only 'message' event is supported.
+   * If jupyterDecode is true, decodes using Message._decode and passes Message, else passes raw parts.
+   */
+  public on(event: "message", listener: SocketProxyListener<Message>, jupyterDecode = true): void {
+    this.listeners.push({ event, listener: listener as SocketProxyListener, jupyterDecode, once: false });
+    if (!this.isHeartbeat) {
+      this.startReceiveLoop();
+    }
+  }
+
+  /**
+   * Register a one-time listener for incoming messages.
+   */
+  public once(event: "message", listener: SocketProxyListener<Message>, jupyterDecode = true): void {
+    this.listeners.push({ event, listener: listener as SocketProxyListener, jupyterDecode, once: true });
+    if (!this.isHeartbeat) {
+      this.startReceiveLoop();
+    }
+  }
+
+  /**
+   * Remove a listener.
+   */
+  public off(event: "message", listener: SocketProxyListener<Message>): void {
+    this.listeners = this.listeners.filter(l => l.event !== event || l.listener !== listener);
+  }
+
+  /**
+   * For heartbeat sockets, the background receive loop is disabled.
+   * Use receiveRaw() directly after sendRaw() for request/response.
+   */
+  private startReceiveLoop() {
+    if (this.receiveLoopStarted || this.isHeartbeat) return;
+    this.receiveLoopStarted = true;
+    (async () => {
+      while (!this.closed) {
+        try {
+          const parts = await this.receiveRaw();
+          const listeners = [...this.listeners];
+          for (const entry of listeners) {
+            if (entry.event !== "message") continue;
+            let msg: unknown = parts;
+            if (entry.jupyterDecode) {
+              msg = Message._decode(parts, this.scheme, this.key);
+              if (!msg) continue;
+            }
+            (entry.listener as SocketProxyListener)(msg);
+            if (entry.once) {
+              this.off(entry.event, entry.listener);
+            }
+          }
+        } catch (err) {
+          if (!this.closed) {
+            // Optionally log error
+          }
+        }
+      }
+    })();
+  }
+
+  /**
+   * Start a background loop to read and debug log lines from zmq-proxy stderr.
+   */
+  private startStderrLogging() {
+    const log = createLogger("socket-proxy");
+    (async () => {
+      let stderrBuffer = "";
+      while (true) {
+        try {
+          const { value, done } = await this.stderrReader.read();
+          if (done) break;
+          if (value) stderrBuffer += this.decoder.decode(value);
+          let newlineIdx;
+          while ((newlineIdx = stderrBuffer.indexOf("\n")) !== -1) {
+            const line = stderrBuffer.slice(0, newlineIdx);
+            stderrBuffer = stderrBuffer.slice(newlineIdx + 1);
+            if (line.trim()) {
+              log.info(`[zmq-proxy stderr] ${line}`);
+            }
+          }
+        } catch (err) {
+          // If the process is closed, exit loop
+          break;
+        }
+      }
+    })();
   }
 
   async shutdown(): Promise<void> {
