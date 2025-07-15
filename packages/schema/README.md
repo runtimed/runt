@@ -39,4 +39,5 @@ const cells = store.query(tables.cells.select().where({ cellType: "code" }));
 
 ## Why both deno.json and package.json?
 
-`package.json` is used for local syncing; `deno.json` is for publishing the package.
+`package.json` is used for local syncing; `deno.json` is for publishing the
+package.
