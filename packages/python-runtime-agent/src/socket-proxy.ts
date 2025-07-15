@@ -36,6 +36,7 @@ export class SocketProxy {
   private listeners: ListenerEntry[] = [];
   private receiveLoopStarted = false;
   private isHeartbeat: boolean;
+  private messageCounter = 0;
 
   constructor(pythonPath: string, socketType: string, connect: string, scheme: string = "sha256", key: string = "") {
     this.pythonPath = pythonPath;
@@ -194,11 +195,15 @@ export class SocketProxy {
         try {
           const parts = await this.receiveRaw();
           const listeners = [...this.listeners];
+          this.messageCounter++;
           for (const entry of listeners) {
             if (entry.event !== "message") continue;
             let msg: unknown = parts;
             if (entry.jupyterDecode) {
-              msg = Message._decode(parts, this.scheme, this.key);
+              msg = Message._decode(parts, this.scheme, this.key, {
+                socketType: this.socketType,
+                messageNumber: this.messageCounter,
+              });
               if (!msg) continue;
             }
             (entry.listener as SocketProxyListener)(msg);
@@ -232,7 +237,7 @@ export class SocketProxy {
             const line = stderrBuffer.slice(0, newlineIdx);
             stderrBuffer = stderrBuffer.slice(newlineIdx + 1);
             if (line.trim()) {
-              log.info(`[zmq-proxy stderr] ${line}`);
+              log.debug(`[zmq-proxy stderr] ${line}`);
             }
           }
         } catch (err) {

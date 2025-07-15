@@ -97,10 +97,11 @@ export class Message {
   static _decode(
     messageFrames: unknown[],
     scheme?: string,
-    key?: string
+    key?: string,
+    loggingContext?: Record<string, unknown>
   ): Message | null {
     try {
-      return _decode(messageFrames, scheme, key);
+      return _decode(messageFrames, scheme, key, loggingContext);
     } catch (err) {
       let formattedErr = err;
       if (err instanceof Uint8Array) {
@@ -110,7 +111,7 @@ export class Message {
       } else if (typeof err === "object" && err !== null && "toString" in err) {
         formattedErr = err.toString();
       }
-      logger.error("MESSAGE: DECODE: Error:", err, { message: formattedErr });
+      logger.error("MESSAGE: DECODE: Error:", err, { ...loggingContext, message: formattedErr });
     }
     return null;
   }
@@ -148,35 +149,82 @@ export class Message {
 function _decode(
   messageFrames: unknown[],
   scheme?: string,
-  key?: string
+  key?: string,
+  loggingContext?: Record<string, unknown>
 ): Message | null {
   scheme = scheme || "sha256";
   key = key || "";
   let i = 0;
   const idents: unknown[] = [];
+  // Diagnostic: log each frame as we search for the delimiter
   for (i = 0; i < messageFrames.length; i++) {
     const frame = messageFrames[i];
-    if ((frame as any).toString() === DELIMITER) {
+    let frameStr: string;
+    if (frame instanceof Uint8Array) {
+      try {
+        frameStr = new TextDecoder().decode(frame);
+      } catch {
+        frameStr = String(frame);
+      }
+    } else {
+      frameStr = String(frame);
+    }
+    logger.debug("[DECODE] Checking frame", {
+      ...loggingContext,
+      frameIndex: i,
+      frameType: typeof frame,
+      frameValue: frameStr,
+      delimiterExpected: DELIMITER
+    });
+    if (frameStr === DELIMITER) {
+      logger.debug("[DECODE] Delimiter found", {
+        ...loggingContext,
+        delimiterIndex: i,
+        delimiterValue: frameStr
+      });
       break;
     }
     idents.push(frame);
   }
-  if (messageFrames.length - i < 5) {
+  // Fix: require at least 5 frames after the delimiter
+  if (messageFrames.length - (i + 1) < 5) {
     logFramesError(
       "MESSAGE: DECODE: Not enough message frames",
-      messageFrames
+      messageFrames,
+      loggingContext
     );
     return null;
   }
-  if ((messageFrames[i] as any).toString() !== DELIMITER) {
+  if (typeof messageFrames[i] === "undefined" || (function(frame) {
+    if (frame instanceof Uint8Array) {
+      try {
+        return new TextDecoder().decode(frame) === DELIMITER;
+      } catch {
+        return false;
+      }
+    } else {
+      return String(frame) === DELIMITER;
+    }
+  })(messageFrames[i]) === false) {
     logFramesError(
       "MESSAGE: DECODE: Missing delimiter",
-      messageFrames
+      messageFrames,
+      loggingContext
     );
     return null;
   }
   if (key) {
-    const obtainedSignature = (messageFrames[i + 1] as any).toString();
+    let obtainedSignature: string;
+    const sigFrame = messageFrames[i + 1];
+    if (sigFrame instanceof Uint8Array) {
+      try {
+        obtainedSignature = new TextDecoder().decode(sigFrame);
+      } catch {
+        obtainedSignature = Array.from(sigFrame).map(b => b.toString(16).padStart(2, "0")).join("");
+      }
+    } else {
+      obtainedSignature = String(sigFrame);
+    }
     const hmac = crypto.createHmac(scheme, key);
     hmac.update(Buffer.isBuffer(messageFrames[i + 2]) ? messageFrames[i + 2] as Buffer : Buffer.from(messageFrames[i + 2] as string));
     hmac.update(Buffer.isBuffer(messageFrames[i + 3]) ? messageFrames[i + 3] as Buffer : Buffer.from(messageFrames[i + 3] as string));
@@ -188,6 +236,7 @@ function _decode(
         "MESSAGE: DECODE: Incorrect message signature",
         undefined,
         {
+          ...loggingContext,
           obtained: obtainedSignature,
           expected: expectedSignature,
           frames: formatFrames(messageFrames).join("\n")
@@ -206,7 +255,17 @@ function _decode(
   });
   return message;
   function toJSON(value: unknown): Record<string, unknown> {
-    return JSON.parse((value as any).toString());
+    let str: string;
+    if (value instanceof Uint8Array) {
+      try {
+        str = new TextDecoder().decode(value);
+      } catch {
+        str = value.toString();
+      }
+    } else {
+      str = String(value);
+    }
+    return JSON.parse(str);
   }
 }
 
@@ -240,10 +299,10 @@ function formatFrames(frames: unknown[]): string[] {
 }
 
 // Update logger.error calls to join frames with newlines
-function logFramesError(message: string, frames: unknown[]) {
+function logFramesError(message: string, frames: unknown[], loggingContext?: Record<string, unknown>) {
   logger.error(
     message,
     undefined,
-    { frames: formatFrames(frames).join("\n") }
+    { ...loggingContext, frames: formatFrames(frames).join("\n") }
   );
 }
