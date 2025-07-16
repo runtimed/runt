@@ -16,6 +16,8 @@ interface NotebookProps {
 
 const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
   const cleanupRef = useRef<(() => void) | null>(null);
+  const errorCountRef = useRef(0);
+  const lastErrorTimeRef = useRef(0);
   const { exitApp } = useExitHandler({
     onExit: () => {
       console.log("Exiting due to fatal error...");
@@ -95,7 +97,29 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
   );
 
   const renderError = (error: Error) => {
-    console.error("Fatal LiveStore error:", error.message);
+    const now = Date.now();
+    const timeSinceLastError = now - lastErrorTimeRef.current;
+
+    // Reset counter if it's been more than 10 seconds since last error
+    if (timeSinceLastError > 10000) {
+      errorCountRef.current = 0;
+    }
+
+    errorCountRef.current += 1;
+    lastErrorTimeRef.current = now;
+
+    console.error(
+      `Fatal LiveStore error (${errorCountRef.current}):`,
+      error.message,
+    );
+
+    // If we've had more than 3 errors in 10 seconds, exit to prevent loop
+    if (errorCountRef.current > 3) {
+      console.error(
+        "Too many LiveStore errors, exiting to prevent restart loop",
+      );
+      setTimeout(() => exitApp(), 1000);
+    }
 
     return (
       <ErrorDisplay
