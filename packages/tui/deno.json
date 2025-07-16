@@ -1,6 +1,6 @@
 {
   "name": "@runt/tui",
-  "version": "0.1.0",
+  "version": "0.6.4",
   "description": "Terminal notebook viewer for Runt runtime agents",
   "license": "BSD-3-Clause",
   "exports": "./mod.ts",
