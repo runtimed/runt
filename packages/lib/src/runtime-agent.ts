@@ -522,12 +522,19 @@ export class RuntimeAgent {
       // Append to existing terminal output (for streaming)
       appendTerminal: (outputId: string, text: string) => {
         if (text) {
+          const existingOutput = this.store.query(
+            tables.outputs.where({ id: outputId }).first(),
+          );
+          const existingContent = existingOutput?.data || "";
+          const concatenatedContent = existingContent + text;
+
           this.store.commit(events.terminalOutputAppended({
             outputId,
             content: {
               type: "inline",
               data: text,
             },
+            concatenatedContent,
           }));
         }
       },
@@ -661,12 +668,19 @@ export class RuntimeAgent {
 
       // Append to existing markdown output (for streaming AI responses)
       appendMarkdown: (outputId: string, content: string) => {
+        const existingOutput = this.store.query(
+          tables.outputs.where({ id: outputId }).first(),
+        );
+        const existingContent = existingOutput?.data || "";
+        const concatenatedContent = existingContent + content;
+
         this.store.commit(events.markdownOutputAppended({
           outputId,
           content: {
             type: "inline",
             data: content,
           },
+          concatenatedContent,
         }));
       },
 

@@ -604,6 +604,7 @@ export const events = {
     schema: Schema.Struct({
       outputId: Schema.String,
       content: MediaRepresentationSchema,
+      concatenatedContent: Schema.String,
     }),
   }),
 
@@ -622,6 +623,7 @@ export const events = {
     schema: Schema.Struct({
       outputId: Schema.String,
       content: MediaRepresentationSchema,
+      concatenatedContent: Schema.String,
     }),
   }),
 
@@ -1113,16 +1115,11 @@ const materializers = State.SQLite.materializers(events, {
     return ops;
   },
 
-  "v1.TerminalOutputAppended": ({ outputId, content }, _ctx) => {
-    const newContent = content.type === "inline" ? String(content.data) : "";
-
+  "v1.TerminalOutputAppended": ({ outputId, concatenatedContent }) => {
     return [
-      tables.outputs.update({
-        data: {
-          __sql: `COALESCE(data, '') || ?`,
-          bindValues: [newContent],
-        } as unknown as string,
-      }).where({ id: outputId }),
+      tables.outputs.update({ data: concatenatedContent }).where({
+        id: outputId,
+      }),
     ];
   },
 
@@ -1155,16 +1152,11 @@ const materializers = State.SQLite.materializers(events, {
     return ops;
   },
 
-  "v1.MarkdownOutputAppended": ({ outputId, content }, _ctx) => {
-    const newContent = content.type === "inline" ? String(content.data) : "";
-
+  "v1.MarkdownOutputAppended": ({ outputId, concatenatedContent }) => {
     return [
-      tables.outputs.update({
-        data: {
-          __sql: `COALESCE(data, '') || ?`,
-          bindValues: [newContent],
-        } as unknown as string,
-      }).where({ id: outputId }),
+      tables.outputs.update({ data: concatenatedContent }).where({
+        id: outputId,
+      }),
     ];
   },
 
