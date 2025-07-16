@@ -360,6 +360,7 @@ export const tables = {
 // All events are scoped to a single notebook (storeId = notebookId)
 export const events = {
   // Notebook events (single notebook per store)
+  /** @deprecated  */
   notebookInitialized: Events.synced({
     name: "v1.NotebookInitialized",
     schema: Schema.Struct({
@@ -778,6 +779,7 @@ function updateExistingDisplays(
 // Materializers map events to state changes
 const materializers = State.SQLite.materializers(events, {
   // Notebook materializers
+  /** @deprecated */
   "v1.NotebookInitialized": ({ id, title, ownerId }) => [
     // Legacy event - convert to metadata format
     tables.notebookMetadata
