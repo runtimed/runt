@@ -12,9 +12,9 @@
     "lint": "deno lint"
   },
   "imports": {
-    "@runt/schema": "../schema/mod.ts",
-    "@runt/lib": "../lib/mod.ts",
-    "@runt/ai": "../ai/mod.ts",
+    "@runt/schema": "jsr:@runt/schema@^0.6.4",
+    "@runt/lib": "jsr:@runt/lib@^0.6.4",
+    "@runt/ai": "jsr:@runt/ai@^0.6.4",
     "@inkjs/ui": "npm:@inkjs/ui@^2.0.0",
     "@livestore/adapter-node": "npm:@livestore/adapter-node@^0.3.1",
     "@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
