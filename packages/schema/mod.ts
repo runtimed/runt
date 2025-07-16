@@ -979,7 +979,7 @@ const materializers = State.SQLite.materializers(events, {
     // Check for pending clears
     const pendingClear = ctx.query(
       tables.pendingClears.select().where({ cellId }).limit(1),
-    )[0];
+    )[0] || null;
     if (pendingClear) {
       ops.push(tables.outputs.delete().where({ cellId }));
       ops.push(tables.pendingClears.delete().where({ cellId }));
@@ -1034,7 +1034,7 @@ const materializers = State.SQLite.materializers(events, {
     // Check for pending clears
     const pendingClear = ctx.query(
       tables.pendingClears.select().where({ cellId }).limit(1),
-    )[0];
+    )[0] || null;
     if (pendingClear) {
       ops.push(tables.outputs.delete().where({ cellId }));
       ops.push(tables.pendingClears.delete().where({ cellId }));
@@ -1088,7 +1088,7 @@ const materializers = State.SQLite.materializers(events, {
     // Check for pending clears
     const pendingClear = ctx.query(
       tables.pendingClears.select().where({ cellId }).limit(1),
-    )[0];
+    )[0] || null;
     if (pendingClear) {
       ops.push(tables.outputs.delete().where({ cellId }));
       ops.push(tables.pendingClears.delete().where({ cellId }));
@@ -1116,7 +1116,7 @@ const materializers = State.SQLite.materializers(events, {
   "v1.TerminalOutputAppended": ({ outputId, content }, ctx) => {
     const existingOutput = ctx.query(
       tables.outputs.select().where({ id: outputId }).limit(1),
-    )[0];
+    )[0] || null;
 
     if (!existingOutput) {
       return [];
@@ -1135,7 +1135,7 @@ const materializers = State.SQLite.materializers(events, {
     // Check for pending clears
     const pendingClear = ctx.query(
       tables.pendingClears.select().where({ cellId }).limit(1),
-    )[0];
+    )[0] || null;
     if (pendingClear) {
       ops.push(tables.outputs.delete().where({ cellId }));
       ops.push(tables.pendingClears.delete().where({ cellId }));
@@ -1162,7 +1162,7 @@ const materializers = State.SQLite.materializers(events, {
   "v1.MarkdownOutputAppended": ({ outputId, content }, ctx) => {
     const existingOutput = ctx.query(
       tables.outputs.select().where({ id: outputId }).limit(1),
-    )[0];
+    )[0] || null;
 
     if (!existingOutput) {
       return [];
@@ -1181,7 +1181,7 @@ const materializers = State.SQLite.materializers(events, {
     // Check for pending clears
     const pendingClear = ctx.query(
       tables.pendingClears.select().where({ cellId }).limit(1),
-    )[0];
+    )[0] || null;
     if (pendingClear) {
       ops.push(tables.outputs.delete().where({ cellId }));
       ops.push(tables.pendingClears.delete().where({ cellId }));
