@@ -522,20 +522,27 @@ export class RuntimeAgent {
       // Append to existing terminal output (for streaming)
       appendTerminal: (outputId: string, text: string) => {
         if (text) {
-          const existingOutput = this.store.query(
-            tables.outputs.where({ id: outputId }).first(),
-          );
-          const existingContent = existingOutput?.data || "";
-          const concatenatedContent = existingContent + text;
+          try {
+            const existingOutput = this.store.query(
+              tables.outputs.where({ id: outputId }).first(),
+            );
+            const existingContent = existingOutput?.data || "";
+            const concatenatedContent = existingContent + text;
 
-          this.store.commit(events.terminalOutputAppended({
-            outputId,
-            content: {
-              type: "inline",
-              data: text,
-            },
-            concatenatedContent,
-          }));
+            this.store.commit(events.terminalOutputAppended({
+              outputId,
+              content: {
+                type: "inline",
+                data: text,
+              },
+              concatenatedContent,
+            }));
+          } catch (error) {
+            // Output was cleared while streaming - ignore append
+            console.warn(
+              `Failed to append to terminal output ${outputId}: output may have been cleared`,
+            );
+          }
         }
       },
 
@@ -668,20 +675,27 @@ export class RuntimeAgent {
 
       // Append to existing markdown output (for streaming AI responses)
       appendMarkdown: (outputId: string, content: string) => {
-        const existingOutput = this.store.query(
-          tables.outputs.where({ id: outputId }).first(),
-        );
-        const existingContent = existingOutput?.data || "";
-        const concatenatedContent = existingContent + content;
+        try {
+          const existingOutput = this.store.query(
+            tables.outputs.where({ id: outputId }).first(),
+          );
+          const existingContent = existingOutput?.data || "";
+          const concatenatedContent = existingContent + content;
 
-        this.store.commit(events.markdownOutputAppended({
-          outputId,
-          content: {
-            type: "inline",
-            data: content,
-          },
-          concatenatedContent,
-        }));
+          this.store.commit(events.markdownOutputAppended({
+            outputId,
+            content: {
+              type: "inline",
+              data: content,
+            },
+            concatenatedContent,
+          }));
+        } catch (error) {
+          // Output was cleared while streaming - ignore append
+          console.warn(
+            `Failed to append to markdown output ${outputId}: output may have been cleared`,
+          );
+        }
       },
 
       clear: (wait: boolean = false) => {

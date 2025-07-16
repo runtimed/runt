@@ -7,6 +7,8 @@ import {
   type Store as LiveStore,
 } from "@livestore/livestore";
 
+console.log("943 AM");
+
 // Base generic types for MediaContainer system
 export type InlineContainer<T = unknown> = {
   type: "inline";
