@@ -1,8 +1,10 @@
 #!/usr/bin/env -S deno run --allow-net --allow-env --allow-read --allow-write --allow-sys --quiet
 import React from "react";
 import { render, useStdin } from "ink";
+import { Effect, Logger, LogLevel } from "effect";
 import meow from "meow";
 import App from "./app.tsx";
+import { createSimpleTUILogger } from "./utils/simpleLogging.ts";
 
 const cli = meow(
   `
@@ -40,6 +42,18 @@ const cli = meow(
 
 // Clear terminal and suppress warnings for clean display
 console.clear();
+
+// Setup Effect logger globally once
+const logger = Logger.make(createSimpleTUILogger().log);
+const loggerLayer = Logger.replace(Logger.defaultLogger, logger);
+
+// Apply global logger and log initialization
+Effect.runFork(
+  Effect.log("TUI logger initialized").pipe(
+    Logger.withMinimumLogLevel(LogLevel.Debug),
+    Effect.provide(loggerLayer),
+  ),
+);
 
 // If --log flag is provided, use structured logging
 if (cli.flags.log) {

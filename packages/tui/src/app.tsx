@@ -1,9 +1,9 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { Box, Text } from "ink";
 import { Effect, Logger, LogLevel } from "effect";
 import { NotebookUI } from "./notebook.tsx";
 import { useExitHandler } from "./utils/useExitHandler.ts";
-import { addLog, createSimpleTUILogger } from "./utils/simpleLogging.ts";
+import { addLog } from "./utils/simpleLogging.ts";
 
 type Props = {
   notebook: string | undefined;
@@ -16,25 +16,12 @@ function AppContent({ notebook }: Props) {
     },
   });
 
-  // Setup Effect logger
-  useEffect(() => {
-    const logger = Logger.make(createSimpleTUILogger().log);
-    const layer = Logger.replace(Logger.defaultLogger, logger);
-
-    // Log startup
-    const program = Effect.gen(function* () {
-      yield* Effect.log("TUI started");
-      if (notebook) {
-        yield* Effect.logInfo(`Connecting to notebook: ${notebook}`);
-      }
-    });
-
-    Effect.runFork(
-      program.pipe(
-        Logger.withMinimumLogLevel(LogLevel.Debug),
-        Effect.provide(layer),
-      ),
-    );
+  // Log startup once when component mounts
+  React.useEffect(() => {
+    addLog(LogLevel.Info, "TUI started");
+    if (notebook) {
+      addLog(LogLevel.Info, `Connecting to notebook: ${notebook}`);
+    }
   }, [notebook]);
 
   if (notebook) {
