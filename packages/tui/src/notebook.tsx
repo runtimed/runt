@@ -40,15 +40,9 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
   const authToken = Deno.env.get("AUTH_TOKEN");
 
   if (!isValidNotebookId(notebookId)) {
-    useEffect(() => {
-      const timer = setTimeout(() => {
-        console.error(
-          `Fatal error: Invalid notebook ID '${notebookId}'. Only alphanumeric characters, hyphens, and underscores are allowed.`,
-        );
-        exitApp();
-      }, 3000);
-      return () => clearTimeout(timer);
-    }, [exitApp]);
+    console.error(
+      `Fatal error: Invalid notebook ID '${notebookId}'. Only alphanumeric characters, hyphens, and underscores are allowed.`,
+    );
 
     return (
       <ErrorDisplay
@@ -60,15 +54,9 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
   }
 
   if (!syncUrl || !authToken) {
-    useEffect(() => {
-      const timer = setTimeout(() => {
-        console.error(
-          "Fatal configuration error: Missing required environment variables",
-        );
-        exitApp();
-      }, 3000);
-      return () => clearTimeout(timer);
-    }, [exitApp]);
+    console.error(
+      "Fatal configuration error: Missing required environment variables",
+    );
 
     return (
       <ErrorDisplay
@@ -107,13 +95,7 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
   );
 
   const renderError = (error: Error) => {
-    useEffect(() => {
-      const timer = setTimeout(() => {
-        console.error("Fatal LiveStore error:", error.message);
-        exitApp();
-      }, 3000);
-      return () => clearTimeout(timer);
-    }, [error, exitApp]);
+    console.error("Fatal LiveStore error:", error.message);
 
     return (
       <ErrorDisplay
