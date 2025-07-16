@@ -457,36 +457,28 @@ class RegisteredFunction:
         return result
 
 
-class FunctionRegistry:
-    def __init__(self) -> None:
-        self.registry = {}
-
-    def tool(self, func) -> Callable:
-        schema = FunctionInferrer.infer_from_function_reference(func).to_json_schema()
-        entry = RegisteredFunction(
-            name=func.__name__,
-            _func=func,
-            openai_tool_metadata=schema
-        )
-        self.registry[func.__name__] = entry
-
-        return func
-
-    @property
-    def tools(self) -> list:
-        return [func.openai_tool_metadata for func in self.registry.values()]
+_registry = {}
 
 
-registry = FunctionRegistry()
+def tool(func) -> Callable:
+    schema = FunctionInferrer.infer_from_function_reference(func).to_json_schema()
+    entry = RegisteredFunction(
+        name=func.__name__,
+        _func=func,
+        openai_tool_metadata=schema
+    )
+    _registry[func.__name__] = entry
+    return func
 
 
 def get_registered_tools():
     import json
-    return json.dumps(registry.tools, default=str)
+    tools = [func.openai_tool_metadata for func in _registry.values()]
+    return json.dumps(tools, default=str)
 
 
 def run_registered_tool(toolName: str, kwargs):
-    return registry.registry[toolName](**kwargs)
+    return _registry[toolName](**kwargs)
 
 
 # Export the configured shell for use by the worker
@@ -496,6 +488,6 @@ __all__ = [
     "js_execution_callback",
     "js_clear_callback",
     "setup_interrupt_patches",
-    "registry",
-    "get_registered_tools"
+    "get_registered_tools",
+    "run_registered_tool"
 ]
