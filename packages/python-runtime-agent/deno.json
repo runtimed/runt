@@ -2,7 +2,7 @@
   "name": "@runt/python-runtime-agent",
   "version": "0.6.3",
   "description": "Stub Python runtime agent for Runt platform.",
-  "license": "MIT",
+  "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
     "url": "https://github.com/runtimed/anode.git"

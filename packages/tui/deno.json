@@ -1,6 +1,8 @@
 {
   "name": "@runt/tui",
   "version": "0.1.0",
+  "description": "Terminal notebook viewer for Runt runtime agents",
+  "license": "BSD-3-Clause",
   "exports": "./mod.ts",
   "tasks": {
     "dev": "deno run --allow-net --allow-env --allow-read --allow-write --allow-sys --quiet src/cli.tsx",

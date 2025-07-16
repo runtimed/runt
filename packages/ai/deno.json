@@ -2,7 +2,7 @@
   "name": "@runt/ai",
   "version": "0.6.3",
   "description": "Runtime AI Clients",
-  "license": "MIT",
+  "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
     "url": "https://github.com/runtimed/anode.git"

@@ -2,7 +2,7 @@
   "name": "@runt/pyodide-runtime-agent",
   "version": "0.6.3",
   "description": "Python runtime agent using Pyodide with IPython integration",
-  "license": "MIT",
+  "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
     "url": "https://github.com/runtimed/anode.git"
