@@ -424,7 +424,7 @@ deno task test:coverage
 
 ## License
 
-MIT License - see the main Runt project for details.
+BSD-3-Clause License - see the main Runt project for details.
 
 ## Related Links
 
