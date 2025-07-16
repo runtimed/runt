@@ -20,7 +20,7 @@ on:
 
 env:
   DENO_VERSION: v2.x
-  BUILD_ORDER: '["schema","lib", "ai", "pyodide-runtime-agent", "python-runtime-agent"]'
+  BUILD_ORDER: '["schema","lib", "ai", "pyodide-runtime-agent", "python-runtime-agent", "tui"]'
 
 jobs:
   generate-build-order:
@@ -47,6 +47,8 @@ jobs:
               - 'packages/pyodide-runtime-agent/**'
             python-runtime-agent:
               - 'packages/python-runtime-agent/**'
+            tui:
+              - 'packages/tui/**'
             publish:
               - '.github/workflows/publish.yml'
 
