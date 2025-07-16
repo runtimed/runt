@@ -5,7 +5,7 @@ import { createLogger } from "@runt/lib";
 // Create logger for tool execution debugging
 const toolLogger = createLogger("ai-tools");
 
-interface NotebookTool {
+export interface NotebookTool {
   name: string;
   description: string;
   parameters: {
@@ -182,6 +182,7 @@ export async function handleToolCallWithResult(
     name: string;
     arguments: Record<string, unknown>;
   },
+  sendWorkerMessage?: (type: string, data: unknown) => Promise<unknown>,
 ): Promise<string> {
   const { name, arguments: args } = toolCall;
 
@@ -421,7 +422,36 @@ export async function handleToolCallWithResult(
     }
 
     default:
-      logger.warn("Unknown AI tool", { toolName: name });
-      throw new Error(`Unknown tool: ${name}`);
+      // Handle unknown tools via Python worker if available
+      console.log(`sendWorkerMessage: ${sendWorkerMessage}`);
+      if (sendWorkerMessage) {
+        logger.info("Calling registered Python tool via worker", {
+          toolName: name,
+          argsKeys: Object.keys(args),
+        });
+
+        try {
+          const result = await sendWorkerMessage("run_registered_tool", {
+            toolName: name,
+            args: JSON.stringify(args),
+          });
+
+          logger.info("Python tool executed successfully", {
+            toolName: name,
+            result,
+          });
+
+          return `Tool ${name} executed successfully: ${String(result)}`;
+        } catch (error) {
+          logger.error("Python tool execution failed", {
+            toolName: name,
+            error: String(error),
+          });
+          throw new Error(`Failed to execute tool ${name}: ${String(error)}`);
+        }
+      } else {
+        logger.warn("Unknown AI tool and no worker available", { toolName: name });
+        throw new Error(`Unknown tool: ${name}`);
+      }
   }
 }

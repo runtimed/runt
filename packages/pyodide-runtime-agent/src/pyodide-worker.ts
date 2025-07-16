@@ -68,6 +68,19 @@ self.addEventListener("message", async (event) => {
         break;
       }
 
+      case "get_registered_tools": {
+        const result = await pyodide!.runPythonAsync(`get_registered_tools()`);
+        let parsed = JSON.parse(result);
+        self.postMessage({ id, type: "response", data: parsed });
+        break;
+      }
+
+      case "run_registered_tool": {
+        const result = await pyodide!.runPythonAsync(`run_registered_tool("${data.toolName}", ${data.args})`);
+        self.postMessage({ id, type: "response", data: result });
+        break;
+      }
+
       default:
         throw new Error(`Unknown message type: ${type}`);
     }

@@ -336,11 +336,14 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         });
       }
 
-      // Create a modified context with the AI-specific abort signal
+      // Create a modified context with the AI-specific abort signal and bound sendWorkerMessage
       const aiContext = {
         ...context,
         abortSignal: aiAbortController.signal,
+        sendWorkerMessage: this.sendWorkerMessage.bind(this),
       };
+
+      const notebookTools = await this.sendWorkerMessage("get_registered_tools", {});
 
       try {
         return await executeAI(
@@ -349,6 +352,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           this.logger,
           this.store,
           this.config.sessionId,
+          notebookTools,
         );
       } finally {
         this.currentAIExecution = null;

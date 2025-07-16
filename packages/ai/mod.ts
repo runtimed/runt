@@ -20,6 +20,7 @@ import { createLogger } from "@runt/lib";
 
 import { OpenAIClient } from "./openai-client.ts";
 import { RuntOllamaClient } from "./ollama-client.ts";
+import type { NotebookTool } from "./tool-registry.ts";
 
 // Import and export AI-specific media utilities
 import {
@@ -459,6 +460,7 @@ export async function executeAI(
   logger: Logger,
   store: Store,
   sessionId: string,
+  notebookTools: NotebookTool[] = [],
 ): Promise<{ success: boolean; error?: string }> {
   const {
     cell,
@@ -466,6 +468,7 @@ export async function executeAI(
     result: _result,
     error,
     abortSignal,
+    sendWorkerMessage,
   } = context;
   const prompt = cell.source?.trim() || "";
 
@@ -490,7 +493,7 @@ export async function executeAI(
     });
 
     // Initialize AI clients based on provider
-    const openaiClient = new OpenAIClient();
+    const openaiClient = new OpenAIClient(undefined, notebookTools);
 
     // Configure Ollama client with environment-aware host detection
     const ollamaHost = Deno.env.get("OLLAMA_HOST") || "http://localhost:11434";
@@ -547,6 +550,7 @@ export async function executeAI(
                 sessionId,
                 cell,
                 toolCall,
+                context.sendWorkerMessage,
               );
             },
             onIteration: (iteration, messages) => {
@@ -665,6 +669,7 @@ The system will automatically pull models if they're not available locally.`;
               sessionId,
               cell,
               toolCall,
+              context.sendWorkerMessage,
             );
           },
           onIteration: (iteration, messages) => {
