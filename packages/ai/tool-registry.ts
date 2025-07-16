@@ -423,7 +423,6 @@ export async function handleToolCallWithResult(
 
     default:
       // Handle unknown tools via Python worker if available
-      console.log(`sendWorkerMessage: ${sendWorkerMessage}`);
       if (sendWorkerMessage) {
         logger.info("Calling registered Python tool via worker", {
           toolName: name,
