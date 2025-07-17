@@ -146,7 +146,7 @@ export function createCell(
     contentLength: content.length,
   });
 
-  // Create the new cell
+  // Create the new cell with explicit visibility settings
   store.commit(
     events.cellCreated({
       id: newCellId,
@@ -155,6 +155,16 @@ export function createCell(
       createdBy: `ai-assistant-${sessionId}`,
     }),
   );
+
+  // Ensure cell source is visible for code cells created by AI
+  if (cellType === "code") {
+    store.commit(
+      events.cellSourceVisibilityToggled({
+        id: newCellId,
+        sourceVisible: true,
+      }),
+    );
+  }
 
   // Set the cell source if provided
   if (content.length > 0) {
