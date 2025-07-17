@@ -440,7 +440,6 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       sourceVisible: Schema.Boolean,
-      toggledBy: Schema.optional(Schema.String),
       userId: Schema.optional(Schema.String),
     }),
   }),
@@ -450,7 +449,6 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       outputVisible: Schema.Boolean,
-      toggledBy: Schema.optional(Schema.String),
       userId: Schema.optional(Schema.String),
     }),
   }),
@@ -460,7 +458,6 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       aiContextVisible: Schema.Boolean,
-      toggledBy: Schema.optional(Schema.String),
       userId: Schema.optional(Schema.String),
     }),
   }),
@@ -880,31 +877,31 @@ const materializers = State.SQLite.materializers(events, {
     return ops;
   },
 
-  "v1.CellSourceVisibilityToggled": ({ id, sourceVisible, toggledBy }) => {
+  "v1.CellSourceVisibilityToggled": ({ id, sourceVisible, userId }) => {
     const ops = [];
     ops.push(tables.cells.update({ sourceVisible }).where({ id }));
-    if (toggledBy) {
-      ops.push(updatePresence(toggledBy, id));
+    if (userId) {
+      ops.push(updatePresence(userId, id));
     }
     return ops;
   },
 
-  "v1.CellOutputVisibilityToggled": ({ id, outputVisible, toggledBy }) => {
+  "v1.CellOutputVisibilityToggled": ({ id, outputVisible, userId }) => {
     const ops = [];
     ops.push(tables.cells.update({ outputVisible }).where({ id }));
-    if (toggledBy) {
-      ops.push(updatePresence(toggledBy, id));
+    if (userId) {
+      ops.push(updatePresence(userId, id));
     }
     return ops;
   },
 
   "v1.CellAiContextVisibilityToggled": (
-    { id, aiContextVisible, toggledBy },
+    { id, aiContextVisible, userId },
   ) => {
     const ops = [];
     ops.push(tables.cells.update({ aiContextVisible }).where({ id }));
-    if (toggledBy) {
-      ops.push(updatePresence(toggledBy, id));
+    if (userId) {
+      ops.push(updatePresence(userId, id));
     }
     return ops;
   },
