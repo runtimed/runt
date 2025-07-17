@@ -1,11 +1,4 @@
-import {
-  Events,
-  makeSchema,
-  Schema,
-  SessionIdSymbol,
-  State,
-  type Store as LiveStore,
-} from "@livestore/livestore";
+import { Events, Schema, SessionIdSymbol, State } from "@livestore/livestore";
 
 // Base generic types for MediaContainer system
 export type InlineContainer<T = unknown> = {
@@ -1332,12 +1325,6 @@ const materializers = State.SQLite.materializers(events, {
       .where({ id: cellId }),
 });
 
-const state = State.SQLite.makeState({ tables, materializers });
-
-export const schema = makeSchema({ events, state });
-
-export type Store = LiveStore<typeof schema>;
-
 // Type exports derived from the actual table definitions - full type inference works here!
 export type NotebookMetadataData = typeof tables.notebookMetadata.Type;
 export type CellData = typeof tables.cells.Type;
@@ -1511,3 +1498,11 @@ export const AI_TOOL_CALL_MIME_TYPE =
  */
 export const AI_TOOL_RESULT_MIME_TYPE =
   "application/vnd.anode.aitool.result+json" as const;
+
+// Pre 0.7.0 -- these types should get created in clients
+// const state = State.SQLite.makeState({ tables, materializers });
+// export const schema = makeSchema({ events, state });
+// export type Store = LiveStore<typeof schema>;
+
+// Export materializers so clients can create their own schema
+export { materializers };
