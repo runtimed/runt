@@ -362,14 +362,7 @@ export const tables = {
       id: State.SQLite.text({ primaryKey: true }),
       type: State.SQLite.text(), // "human" | "runtime_agent"
       displayName: State.SQLite.text(),
-
-      // Human-specific fields
-      email: State.SQLite.text({ nullable: true }),
       avatar: State.SQLite.text({ nullable: true }),
-      provider: State.SQLite.text({ nullable: true }), // "google" | "anaconda" | "local"
-
-      // Runtime agent fields
-      ownedBy: State.SQLite.text({ nullable: true }), // Which user/project owns this runtime agent
     },
   }),
 };
