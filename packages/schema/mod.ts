@@ -429,7 +429,6 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
-      changedBy: Schema.optional(Schema.String),
       actorId: Schema.optional(Schema.String),
     }),
   }),
@@ -438,7 +437,6 @@ export const events = {
     name: "v1.CellDeleted",
     schema: Schema.Struct({
       id: Schema.String,
-      deletedBy: Schema.optional(Schema.String),
       actorId: Schema.optional(Schema.String),
     }),
   }),
@@ -448,7 +446,6 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       newPosition: Schema.Number,
-      movedBy: Schema.optional(Schema.String),
       actorId: Schema.optional(Schema.String),
     }),
   }),
@@ -458,7 +455,6 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       sourceVisible: Schema.Boolean,
-      toggledBy: Schema.optional(Schema.String),
       actorId: Schema.optional(Schema.String),
     }),
   }),
@@ -468,7 +464,6 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       outputVisible: Schema.Boolean,
-      toggledBy: Schema.optional(Schema.String),
       actorId: Schema.optional(Schema.String),
     }),
   }),
@@ -478,7 +473,6 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       aiContextVisible: Schema.Boolean,
-      toggledBy: Schema.optional(Schema.String),
       actorId: Schema.optional(Schema.String),
     }),
   }),
@@ -871,68 +865,62 @@ const materializers = State.SQLite.materializers(events, {
     updatePresence(modifiedBy, id),
   ],
 
-  "v1.CellTypeChanged": ({ id, cellType, changedBy, actorId }) => {
+  "v1.CellTypeChanged": ({ id, cellType, actorId }) => {
     const ops = [];
     ops.push(tables.cells.update({ cellType }).where({ id }));
-    const actor = actorId || changedBy;
-    if (actor) {
-      ops.push(updatePresence(actor, id));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
     }
     return ops;
   },
 
-  "v1.CellDeleted": ({ id, deletedBy, actorId }) => {
+  "v1.CellDeleted": ({ id, actorId }) => {
     const ops = [];
     ops.push(tables.cells.delete().where({ id }));
-    const actor = actorId || deletedBy;
-    if (actor) {
-      ops.push(updatePresence(actor, id));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
     }
     return ops;
   },
 
-  "v1.CellMoved": ({ id, newPosition, movedBy, actorId }) => {
+  "v1.CellMoved": ({ id, newPosition, actorId }) => {
     const ops = [];
     ops.push(tables.cells.update({ position: newPosition }).where({ id }));
-    const actor = actorId || movedBy;
-    if (actor) {
-      ops.push(updatePresence(actor, id));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
     }
     return ops;
   },
 
   "v1.CellSourceVisibilityToggled": (
-    { id, sourceVisible, toggledBy, actorId },
+    { id, sourceVisible, actorId },
   ) => {
     const ops = [];
     ops.push(tables.cells.update({ sourceVisible }).where({ id }));
-    const actor = actorId || toggledBy;
-    if (actor) {
-      ops.push(updatePresence(actor, id));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
     }
     return ops;
   },
 
   "v1.CellOutputVisibilityToggled": (
-    { id, outputVisible, toggledBy, actorId },
+    { id, outputVisible, actorId },
   ) => {
     const ops = [];
     ops.push(tables.cells.update({ outputVisible }).where({ id }));
-    const actor = actorId || toggledBy;
-    if (actor) {
-      ops.push(updatePresence(actor, id));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
     }
     return ops;
   },
 
   "v1.CellAiContextVisibilityToggled": (
-    { id, aiContextVisible, toggledBy, actorId },
+    { id, aiContextVisible, actorId },
   ) => {
     const ops = [];
     ops.push(tables.cells.update({ aiContextVisible }).where({ id }));
-    const actor = actorId || toggledBy;
-    if (actor) {
-      ops.push(updatePresence(actor, id));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
     }
     return ops;
   },
