@@ -3,12 +3,17 @@ import { Box, Text } from "ink";
 import { LiveStoreProvider } from "@livestore/react";
 import { makeAdapter } from "@livestore/adapter-node";
 import { makeCfSync } from "@livestore/sync-cf";
-import { schema } from "@runt/schema";
+import { events, materializers, tables } from "@runt/schema";
+import { makeSchema, State } from "@livestore/livestore";
 import { NotebookRenderer } from "./components/notebook/NotebookRenderer.tsx";
 import { LoadingIndicator } from "./components/layout/LoadingIndicator.tsx";
 import { ErrorDisplay } from "./components/layout/ErrorDisplay.tsx";
 import { Colors } from "./utils/colors.ts";
 import { useExitHandler } from "./utils/useExitHandler.ts";
+
+// Create schema locally
+const state = State.SQLite.makeState({ tables, materializers });
+const schema = makeSchema({ events, state });
 
 interface NotebookProps {
   notebookId: string;
