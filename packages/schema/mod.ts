@@ -409,6 +409,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
+      changedBy: Schema.String,
     }),
   }),
 
@@ -416,6 +417,7 @@ export const events = {
     name: "v1.CellDeleted",
     schema: Schema.Struct({
       id: Schema.String,
+      deletedBy: Schema.String,
     }),
   }),
 
@@ -424,6 +426,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       newPosition: Schema.Number,
+      movedBy: Schema.String,
     }),
   }),
 
@@ -432,6 +435,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       sourceVisible: Schema.Boolean,
+      toggledBy: Schema.String,
     }),
   }),
 
@@ -440,6 +444,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       outputVisible: Schema.Boolean,
+      toggledBy: Schema.String,
     }),
   }),
 
@@ -448,6 +453,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       aiContextVisible: Schema.Boolean,
+      toggledBy: Schema.String,
     }),
   }),
 
@@ -825,25 +831,63 @@ const materializers = State.SQLite.materializers(events, {
       .onConflict("userId", "replace"),
   ],
 
-  "v1.CellSourceChanged": ({ id, source }) =>
+  "v1.CellSourceChanged": ({ id, source, modifiedBy }) => [
     tables.cells.update({ source }).where({ id }),
+    // Update presence based on cell source modification
+    tables.presence
+      .insert({ userId: modifiedBy, cellId: id })
+      .onConflict("userId", "replace"),
+  ],
 
-  "v1.CellTypeChanged": ({ id, cellType }) =>
+  "v1.CellTypeChanged": ({ id, cellType, changedBy }) => [
     tables.cells.update({ cellType }).where({ id }),
+    // Update presence based on cell type change
+    tables.presence
+      .insert({ userId: changedBy, cellId: id })
+      .onConflict("userId", "replace"),
+  ],
 
-  "v1.CellDeleted": ({ id }) => tables.cells.delete().where({ id }),
+  "v1.CellDeleted": ({ id, deletedBy }) => [
+    tables.cells.delete().where({ id }),
+    // Update presence based on cell deletion
+    tables.presence
+      .insert({ userId: deletedBy, cellId: id })
+      .onConflict("userId", "replace"),
+  ],
 
-  "v1.CellMoved": ({ id, newPosition }) =>
+  "v1.CellMoved": ({ id, newPosition, movedBy }) => [
     tables.cells.update({ position: newPosition }).where({ id }),
+    // Update presence based on cell movement
+    tables.presence
+      .insert({ userId: movedBy, cellId: id })
+      .onConflict("userId", "replace"),
+  ],
 
-  "v1.CellSourceVisibilityToggled": ({ id, sourceVisible }) =>
+  "v1.CellSourceVisibilityToggled": ({ id, sourceVisible, toggledBy }) => [
     tables.cells.update({ sourceVisible }).where({ id }),
+    // Update presence based on source visibility toggle
+    tables.presence
+      .insert({ userId: toggledBy, cellId: id })
+      .onConflict("userId", "replace"),
+  ],
 
-  "v1.CellOutputVisibilityToggled": ({ id, outputVisible }) =>
+  "v1.CellOutputVisibilityToggled": ({ id, outputVisible, toggledBy }) => [
     tables.cells.update({ outputVisible }).where({ id }),
+    // Update presence based on output visibility toggle
+    tables.presence
+      .insert({ userId: toggledBy, cellId: id })
+      .onConflict("userId", "replace"),
+  ],
 
-  "v1.CellAiContextVisibilityToggled": ({ id, aiContextVisible }) =>
+  "v1.CellAiContextVisibilityToggled": (
+    { id, aiContextVisible, toggledBy },
+  ) => [
     tables.cells.update({ aiContextVisible }).where({ id }),
+    // Update presence based on AI context visibility toggle
+    tables.presence
+      .insert({ userId: toggledBy, cellId: id })
+      .onConflict("userId", "replace"),
+  ],
 
   "v1.PresenceSet": ({ userId, cellId }) =>
     tables.presence.insert({ userId, cellId: cellId || null }).onConflict(
@@ -1219,14 +1263,23 @@ const materializers = State.SQLite.materializers(events, {
   },
 
   "v1.CellOutputsCleared": ({ cellId, wait, clearedBy }) => {
+    const presenceUpdate = tables.presence
+      .insert({ userId: clearedBy, cellId })
+      .onConflict("userId", "replace");
     if (wait) {
       // Store pending clear for wait=True
-      return tables.pendingClears
-        .insert({ cellId, clearedBy })
-        .onConflict("cellId", "replace");
+      return [
+        tables.pendingClears
+          .insert({ cellId, clearedBy })
+          .onConflict("cellId", "replace"),
+        presenceUpdate,
+      ];
     } else {
       // Immediate clear for wait=False
-      return tables.outputs.delete().where({ cellId });
+      return [
+        tables.outputs.delete().where({ cellId }),
+        presenceUpdate,
+      ];
     }
   },
 
