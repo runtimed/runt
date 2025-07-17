@@ -393,7 +393,6 @@ export const events = {
       cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
       position: Schema.Number,
       createdBy: Schema.String,
-      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -412,7 +411,6 @@ export const events = {
       id: Schema.String,
       cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
       changedBy: Schema.optional(Schema.String),
-      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -421,7 +419,6 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       deletedBy: Schema.optional(Schema.String),
-      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -431,7 +428,6 @@ export const events = {
       id: Schema.String,
       newPosition: Schema.Number,
       movedBy: Schema.optional(Schema.String),
-      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -441,7 +437,6 @@ export const events = {
       id: Schema.String,
       sourceVisible: Schema.Boolean,
       toggledBy: Schema.optional(Schema.String),
-      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -451,7 +446,6 @@ export const events = {
       id: Schema.String,
       outputVisible: Schema.Boolean,
       toggledBy: Schema.optional(Schema.String),
-      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -461,7 +455,6 @@ export const events = {
       id: Schema.String,
       aiContextVisible: Schema.Boolean,
       toggledBy: Schema.optional(Schema.String),
-      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -519,7 +512,6 @@ export const events = {
       cellId: Schema.String,
       executionCount: Schema.Number,
       requestedBy: Schema.String,
-      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -559,7 +551,6 @@ export const events = {
       queueId: Schema.String,
       cellId: Schema.String,
       cancelledBy: Schema.String,
-      userId: Schema.optional(Schema.String),
       reason: Schema.String,
     }),
   }),
@@ -834,7 +825,7 @@ const materializers = State.SQLite.materializers(events, {
       .onConflict("key", "replace"),
 
   // Cell materializers
-  "v1.CellCreated": ({ id, cellType, position, createdBy, userId }) => [
+  "v1.CellCreated": ({ id, cellType, position, createdBy }) => [
     tables.cells
       .insert({
         id,
@@ -844,7 +835,7 @@ const materializers = State.SQLite.materializers(events, {
       })
       .onConflict("id", "ignore"),
     // Update presence table
-    updatePresence(userId || createdBy, id),
+    updatePresence(createdBy, id),
   ],
 
   "v1.CellSourceChanged": ({ id, source, modifiedBy }) => [
@@ -853,68 +844,62 @@ const materializers = State.SQLite.materializers(events, {
     updatePresence(modifiedBy, id),
   ],
 
-  "v1.CellTypeChanged": ({ id, cellType, changedBy, userId }) => {
+  "v1.CellTypeChanged": ({ id, cellType, changedBy }) => {
     const ops = [];
     ops.push(tables.cells.update({ cellType }).where({ id }));
-    const user = userId || changedBy;
-    if (user) {
-      ops.push(updatePresence(user, id));
+    if (changedBy) {
+      ops.push(updatePresence(changedBy, id));
     }
     return ops;
   },
 
-  "v1.CellDeleted": ({ id, deletedBy, userId }) => {
+  "v1.CellDeleted": ({ id, deletedBy }) => {
     const ops = [];
     ops.push(tables.cells.delete().where({ id }));
-    const user = userId || deletedBy;
-    if (user) {
-      ops.push(updatePresence(user, id));
+    if (deletedBy) {
+      ops.push(updatePresence(deletedBy, id));
     }
     return ops;
   },
 
-  "v1.CellMoved": ({ id, newPosition, movedBy, userId }) => {
+  "v1.CellMoved": ({ id, newPosition, movedBy }) => {
     const ops = [];
     ops.push(tables.cells.update({ position: newPosition }).where({ id }));
-    const user = userId || movedBy;
-    if (user) {
-      ops.push(updatePresence(user, id));
+    if (movedBy) {
+      ops.push(updatePresence(movedBy, id));
     }
     return ops;
   },
 
   "v1.CellSourceVisibilityToggled": (
-    { id, sourceVisible, toggledBy, userId },
+    { id, sourceVisible, toggledBy },
   ) => {
     const ops = [];
     ops.push(tables.cells.update({ sourceVisible }).where({ id }));
-    const user = userId || toggledBy;
-    if (user) {
-      ops.push(updatePresence(user, id));
+    if (toggledBy) {
+      ops.push(updatePresence(toggledBy, id));
     }
     return ops;
   },
 
   "v1.CellOutputVisibilityToggled": (
-    { id, outputVisible, toggledBy, userId },
+    { id, outputVisible, toggledBy },
   ) => {
     const ops = [];
     ops.push(tables.cells.update({ outputVisible }).where({ id }));
-    const user = userId || toggledBy;
-    if (user) {
-      ops.push(updatePresence(user, id));
+    if (toggledBy) {
+      ops.push(updatePresence(toggledBy, id));
     }
     return ops;
   },
 
   "v1.CellAiContextVisibilityToggled": (
-    { id, aiContextVisible, toggledBy, userId },
+    { id, aiContextVisible, toggledBy },
   ) => {
     const ops = [];
     ops.push(tables.cells.update({ aiContextVisible }).where({ id }));
-    const user = userId || toggledBy;
-    if (user) {
-      ops.push(updatePresence(user, id));
+    if (toggledBy) {
+      ops.push(updatePresence(toggledBy, id));
     }
     return ops;
   },
@@ -962,7 +947,6 @@ const materializers = State.SQLite.materializers(events, {
     cellId,
     executionCount,
     requestedBy,
-    userId,
   }) => [
     tables.executionQueue
       .insert({
@@ -981,7 +965,7 @@ const materializers = State.SQLite.materializers(events, {
       })
       .where({ id: cellId }),
     // Update presence table
-    updatePresence(userId || requestedBy, cellId),
+    updatePresence(requestedBy, cellId),
   ],
 
   "v1.ExecutionAssigned": ({ queueId, runtimeSessionId }) =>
@@ -1033,7 +1017,7 @@ const materializers = State.SQLite.materializers(events, {
       .where({ id: cellId }),
   ],
 
-  "v1.ExecutionCancelled": ({ queueId, cellId, cancelledBy, userId }) => [
+  "v1.ExecutionCancelled": ({ queueId, cellId, cancelledBy }) => [
     // Update execution queue
     tables.executionQueue
       .update({
@@ -1047,7 +1031,7 @@ const materializers = State.SQLite.materializers(events, {
       })
       .where({ id: cellId }),
     // Update presence table
-    updatePresence(userId || cancelledBy, cellId),
+    updatePresence(cancelledBy, cellId),
   ],
 
   // Unified output system materializers with pending clear support
