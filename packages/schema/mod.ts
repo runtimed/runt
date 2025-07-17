@@ -411,7 +411,6 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
-      changedBy: Schema.optional(Schema.String),
       userId: Schema.optional(Schema.String),
     }),
   }),
@@ -420,7 +419,6 @@ export const events = {
     name: "v1.CellDeleted",
     schema: Schema.Struct({
       id: Schema.String,
-      deletedBy: Schema.optional(Schema.String),
       userId: Schema.optional(Schema.String),
     }),
   }),
@@ -430,7 +428,6 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       newPosition: Schema.Number,
-      movedBy: Schema.optional(Schema.String),
       userId: Schema.optional(Schema.String),
     }),
   }),
@@ -850,29 +847,29 @@ const materializers = State.SQLite.materializers(events, {
     updatePresence(modifiedBy, id),
   ],
 
-  "v1.CellTypeChanged": ({ id, cellType, changedBy }) => {
+  "v1.CellTypeChanged": ({ id, cellType, userId }) => {
     const ops = [];
     ops.push(tables.cells.update({ cellType }).where({ id }));
-    if (changedBy) {
-      ops.push(updatePresence(changedBy, id));
+    if (userId) {
+      ops.push(updatePresence(userId, id));
     }
     return ops;
   },
 
-  "v1.CellDeleted": ({ id, deletedBy }) => {
+  "v1.CellDeleted": ({ id, userId }) => {
     const ops = [];
     ops.push(tables.cells.delete().where({ id }));
-    if (deletedBy) {
-      ops.push(updatePresence(deletedBy, id));
+    if (userId) {
+      ops.push(updatePresence(userId, id));
     }
     return ops;
   },
 
-  "v1.CellMoved": ({ id, newPosition, movedBy }) => {
+  "v1.CellMoved": ({ id, newPosition, userId }) => {
     const ops = [];
     ops.push(tables.cells.update({ position: newPosition }).where({ id }));
-    if (movedBy) {
-      ops.push(updatePresence(movedBy, id));
+    if (userId) {
+      ops.push(updatePresence(userId, id));
     }
     return ops;
   },
