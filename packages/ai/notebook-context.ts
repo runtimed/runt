@@ -5,13 +5,20 @@
  * for AI execution, preserving conversation flow and tool call information.
  */
 
-import type { Store } from "@runt/schema";
+import type { Store } from "npm:@livestore/livestore";
+import { makeSchema, State } from "npm:@livestore/livestore";
 import {
   type CellData,
+  events,
+  materializers,
   type MediaContainer,
   type OutputData,
   tables,
 } from "@runt/schema";
+
+// Create schema locally
+const state = State.SQLite.makeState({ tables, materializers });
+const schema = makeSchema({ events, state });
 import type { CellContextData, NotebookContextData } from "./mod.ts";
 
 /**
@@ -22,7 +29,7 @@ import type { CellContextData, NotebookContextData } from "./mod.ts";
  * destructive string conversion in the runtime agent.
  */
 export function gatherNotebookContext(
-  store: Store,
+  store: Store<typeof schema>,
   currentCell: { id: string; position: number },
 ): NotebookContextData {
   // Query all cells in order

@@ -1,11 +1,4 @@
-import {
-  Events,
-  makeSchema,
-  Schema,
-  SessionIdSymbol,
-  State,
-  type Store as LiveStore,
-} from "@livestore/livestore";
+import { Events, Schema, SessionIdSymbol, State } from "@livestore/livestore";
 
 // Base generic types for MediaContainer system
 export type InlineContainer<T = unknown> = {
@@ -1511,8 +1504,5 @@ export const AI_TOOL_RESULT_MIME_TYPE =
 // export const schema = makeSchema({ events, state });
 // export type Store = LiveStore<typeof schema>;
 
-export function makeStore() {
-  const state = State.SQLite.makeState({ tables, materializers });
-  const schema = makeSchema({ events, state });
-  return schema;
-}
+// Export materializers so clients can create their own schema
+export { materializers };

@@ -7,8 +7,18 @@ import {
   type Store,
 } from "npm:@livestore/livestore";
 import { makeCfSync } from "npm:@livestore/sync-cf";
-import { events, type MediaContainer, schema, tables } from "@runt/schema";
+import {
+  events,
+  materializers,
+  type MediaContainer,
+  tables,
+} from "@runt/schema";
 import { createLogger } from "./logging.ts";
+import { makeSchema, State } from "npm:@livestore/livestore";
+
+// Create schema locally
+const state = State.SQLite.makeState({ tables, materializers });
+const schema = makeSchema({ events, state });
 import type {
   CancellationHandler,
   CellData,
