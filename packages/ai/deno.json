@@ -11,8 +11,8 @@
     ".": "./mod.ts"
   },
   "imports": {
-    "@runt/lib": "jsr:@runt/lib@^0.6.4",
-    "@runt/schema": "jsr:@runt/schema@^0.6.4",
+    "@runt/lib": "jsr:@runt/lib@^0.7.0",
+    "@runt/schema": "jsr:@runt/schema@^0.7.0",
     "npm:pyodide": "npm:pyodide@^0.27.7",
     "@std/async": "jsr:@std/async@^1.0.0",
     "npm:@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
