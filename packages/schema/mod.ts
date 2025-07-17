@@ -354,12 +354,24 @@ export const tables = {
       value: {},
     },
   }),
+
+  // Actors table for tracking who/what performs actions
+  actors: State.SQLite.table({
+    name: "actors",
+    columns: {
+      id: State.SQLite.text({ primaryKey: true }),
+      type: State.SQLite.text(), // "human" | "runtime_agent"
+      displayName: State.SQLite.text(),
+      avatar: State.SQLite.text({ nullable: true }),
+    },
+  }),
 };
 
 // Events describe notebook and cell changes
 // All events are scoped to a single notebook (storeId = notebookId)
 export const events = {
   // Notebook events (single notebook per store)
+  /** @deprecated  */
   notebookInitialized: Events.synced({
     name: "v1.NotebookInitialized",
     schema: Schema.Struct({
@@ -392,6 +404,7 @@ export const events = {
       cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
       position: Schema.Number,
       createdBy: Schema.String,
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -409,6 +422,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -416,6 +430,7 @@ export const events = {
     name: "v1.CellDeleted",
     schema: Schema.Struct({
       id: Schema.String,
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -424,6 +439,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       newPosition: Schema.Number,
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -432,6 +448,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       sourceVisible: Schema.Boolean,
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -440,6 +457,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       outputVisible: Schema.Boolean,
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -448,6 +466,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       aiContextVisible: Schema.Boolean,
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -505,6 +524,7 @@ export const events = {
       cellId: Schema.String,
       executionCount: Schema.Number,
       requestedBy: Schema.String,
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -544,6 +564,7 @@ export const events = {
       queueId: Schema.String,
       cellId: Schema.String,
       cancelledBy: Schema.String,
+      actorId: Schema.optional(Schema.String),
       reason: Schema.String,
     }),
   }),
@@ -769,9 +790,17 @@ function updateExistingDisplays(
   ];
 }
 
+// Shared helper function for updating presence
+function updatePresence(userId: string, cellId?: string) {
+  return tables.presence
+    .insert({ userId, cellId: cellId || null })
+    .onConflict("userId", "replace");
+}
+
 // Materializers map events to state changes
 const materializers = State.SQLite.materializers(events, {
   // Notebook materializers
+  /** @deprecated */
   "v1.NotebookInitialized": ({ id, title, ownerId }) => [
     // Legacy event - convert to metadata format
     tables.notebookMetadata
@@ -810,7 +839,7 @@ const materializers = State.SQLite.materializers(events, {
       .onConflict("key", "replace"),
 
   // Cell materializers
-  "v1.CellCreated": ({ id, cellType, position, createdBy }) =>
+  "v1.CellCreated": ({ id, cellType, position, createdBy, actorId }) => [
     tables.cells
       .insert({
         id,
@@ -819,32 +848,77 @@ const materializers = State.SQLite.materializers(events, {
         createdBy,
       })
       .onConflict("id", "ignore"),
+    // Update presence table
+    updatePresence(actorId || createdBy, id),
+  ],
 
-  "v1.CellSourceChanged": ({ id, source }) =>
+  "v1.CellSourceChanged": ({ id, source, modifiedBy }) => [
     tables.cells.update({ source }).where({ id }),
+    // Update presence based on cell source modification
+    updatePresence(modifiedBy, id),
+  ],
 
-  "v1.CellTypeChanged": ({ id, cellType }) =>
-    tables.cells.update({ cellType }).where({ id }),
+  "v1.CellTypeChanged": ({ id, cellType, actorId }) => {
+    const ops = [];
+    ops.push(tables.cells.update({ cellType }).where({ id }));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+    return ops;
+  },
 
-  "v1.CellDeleted": ({ id }) => tables.cells.delete().where({ id }),
+  "v1.CellDeleted": ({ id, actorId }) => {
+    const ops = [];
+    ops.push(tables.cells.delete().where({ id }));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+    return ops;
+  },
 
-  "v1.CellMoved": ({ id, newPosition }) =>
-    tables.cells.update({ position: newPosition }).where({ id }),
+  "v1.CellMoved": ({ id, newPosition, actorId }) => {
+    const ops = [];
+    ops.push(tables.cells.update({ position: newPosition }).where({ id }));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+    return ops;
+  },
 
-  "v1.CellSourceVisibilityToggled": ({ id, sourceVisible }) =>
-    tables.cells.update({ sourceVisible }).where({ id }),
+  "v1.CellSourceVisibilityToggled": (
+    { id, sourceVisible, actorId },
+  ) => {
+    const ops = [];
+    ops.push(tables.cells.update({ sourceVisible }).where({ id }));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+    return ops;
+  },
 
-  "v1.CellOutputVisibilityToggled": ({ id, outputVisible }) =>
-    tables.cells.update({ outputVisible }).where({ id }),
+  "v1.CellOutputVisibilityToggled": (
+    { id, outputVisible, actorId },
+  ) => {
+    const ops = [];
+    ops.push(tables.cells.update({ outputVisible }).where({ id }));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+    return ops;
+  },
 
-  "v1.CellAiContextVisibilityToggled": ({ id, aiContextVisible }) =>
-    tables.cells.update({ aiContextVisible }).where({ id }),
+  "v1.CellAiContextVisibilityToggled": (
+    { id, aiContextVisible, actorId },
+  ) => {
+    const ops = [];
+    ops.push(tables.cells.update({ aiContextVisible }).where({ id }));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+    return ops;
+  },
 
-  "v1.PresenceSet": ({ userId, cellId }) =>
-    tables.presence.insert({ userId, cellId: cellId || null }).onConflict(
-      "userId",
-      "replace",
-    ),
+  "v1.PresenceSet": ({ userId, cellId }) => updatePresence(userId, cellId),
 
   // Runtime lifecycle materializers
   "v1.RuntimeSessionStarted": ({
@@ -887,6 +961,7 @@ const materializers = State.SQLite.materializers(events, {
     cellId,
     executionCount,
     requestedBy,
+    actorId,
   }) => [
     tables.executionQueue
       .insert({
@@ -904,6 +979,8 @@ const materializers = State.SQLite.materializers(events, {
         executionCount,
       })
       .where({ id: cellId }),
+    // Update presence table
+    updatePresence(actorId || requestedBy, cellId),
   ],
 
   "v1.ExecutionAssigned": ({ queueId, runtimeSessionId }) =>
@@ -955,7 +1032,7 @@ const materializers = State.SQLite.materializers(events, {
       .where({ id: cellId }),
   ],
 
-  "v1.ExecutionCancelled": ({ queueId, cellId }) => [
+  "v1.ExecutionCancelled": ({ queueId, cellId, cancelledBy, actorId }) => [
     // Update execution queue
     tables.executionQueue
       .update({
@@ -968,6 +1045,8 @@ const materializers = State.SQLite.materializers(events, {
         executionState: "idle",
       })
       .where({ id: cellId }),
+    // Update presence table
+    updatePresence(actorId || cancelledBy, cellId),
   ],
 
   // Unified output system materializers with pending clear support
@@ -1206,15 +1285,25 @@ const materializers = State.SQLite.materializers(events, {
   },
 
   "v1.CellOutputsCleared": ({ cellId, wait, clearedBy }) => {
+    const ops = [];
     if (wait) {
       // Store pending clear for wait=True
-      return tables.pendingClears
-        .insert({ cellId, clearedBy })
-        .onConflict("cellId", "replace");
+      ops.push(
+        tables.pendingClears
+          .insert({ cellId, clearedBy })
+          .onConflict("cellId", "replace"),
+      );
     } else {
       // Immediate clear for wait=False
-      return tables.outputs.delete().where({ cellId });
+      ops.push(tables.outputs.delete().where({ cellId }));
     }
+
+    // Add presence update if user is provided
+    if (clearedBy) {
+      ops.push(updatePresence(clearedBy, cellId));
+    }
+
+    return ops;
   },
 
   // AI materializers
