@@ -42,6 +42,7 @@ export const NOTEBOOK_TOOLS: NotebookTool[] = [
           enum: ["code", "markdown", "ai", "sql"],
           description: "The type of cell to create",
         },
+        // CRITICAL: Parameter name 'source' is required by AI models - changing to 'content' breaks AI code cell creation
         source: {
           type: "string",
           description: "The content/source code for the cell",
@@ -54,6 +55,7 @@ export const NOTEBOOK_TOOLS: NotebookTool[] = [
           default: "after_current",
         },
       },
+      // CRITICAL: 'source' parameter is required by AI models - changing to 'content' breaks AI code cell creation
       required: ["cellType", "source"],
     },
   },
@@ -69,11 +71,13 @@ export const NOTEBOOK_TOOLS: NotebookTool[] = [
           description:
             "The actual cell ID from the context (e.g., 'cell-1234567890-abc'), not a position number",
         },
+        // CRITICAL: Parameter name 'source' is required by AI models - changing to 'content' breaks AI code cell modification
         source: {
           type: "string",
           description: "The new content/source code for the cell",
         },
       },
+      // CRITICAL: 'source' parameter is required by AI models - changing to 'content' breaks AI code cell modification
       required: ["cellId", "source"],
     },
   },
@@ -127,6 +131,7 @@ export function createCell(
   args: Record<string, unknown>,
 ) {
   const cellType = String(args.cellType || "code");
+  // CRITICAL: AI models pass code content in 'source' parameter - changing this breaks AI code cell creation
   const content = String(args.source || args.content || "");  // Check source first, then content
   const position = String(args.position || "after_current");
 
@@ -144,8 +149,6 @@ export function createCell(
     cellType,
     position: newPosition,
     contentLength: content.length,
-    content: content, // Debug: show actual content
-    rawArgs: args, // Debug: show raw arguments
   });
 
   // Create the new cell
@@ -201,6 +204,7 @@ export async function handleToolCallWithResult(
 
     case "modify_cell": {
       const cellId = String(args.cellId || "");
+      // CRITICAL: AI models pass code content in 'source' parameter - changing this breaks AI code cell modification
       const content = String(args.source || args.content || "");
 
       if (!cellId) {
