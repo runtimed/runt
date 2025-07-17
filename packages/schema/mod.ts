@@ -409,7 +409,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
-      changedBy: Schema.String,
+      changedBy: Schema.optional(Schema.String),
     }),
   }),
 
@@ -417,7 +417,7 @@ export const events = {
     name: "v1.CellDeleted",
     schema: Schema.Struct({
       id: Schema.String,
-      deletedBy: Schema.String,
+      deletedBy: Schema.optional(Schema.String),
     }),
   }),
 
@@ -426,7 +426,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       newPosition: Schema.Number,
-      movedBy: Schema.String,
+      movedBy: Schema.optional(Schema.String),
     }),
   }),
 
@@ -435,7 +435,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       sourceVisible: Schema.Boolean,
-      toggledBy: Schema.String,
+      toggledBy: Schema.optional(Schema.String),
     }),
   }),
 
@@ -444,7 +444,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       outputVisible: Schema.Boolean,
-      toggledBy: Schema.String,
+      toggledBy: Schema.optional(Schema.String),
     }),
   }),
 
@@ -453,7 +453,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       aiContextVisible: Schema.Boolean,
-      toggledBy: Schema.String,
+      toggledBy: Schema.optional(Schema.String),
     }),
   }),
 
@@ -839,55 +839,83 @@ const materializers = State.SQLite.materializers(events, {
       .onConflict("userId", "replace"),
   ],
 
-  "v1.CellTypeChanged": ({ id, cellType, changedBy }) => [
-    tables.cells.update({ cellType }).where({ id }),
-    // Update presence based on cell type change
-    tables.presence
-      .insert({ userId: changedBy, cellId: id })
-      .onConflict("userId", "replace"),
-  ],
+  "v1.CellTypeChanged": ({ id, cellType, changedBy }) => {
+    const ops = [tables.cells.update({ cellType }).where({ id })];
+    if (changedBy) {
+      ops.push(
+        tables.presence
+          .insert({ userId: changedBy, cellId: id })
+          .onConflict("userId", "replace") as any,
+      );
+    }
+    return ops;
+  },
 
-  "v1.CellDeleted": ({ id, deletedBy }) => [
-    tables.cells.delete().where({ id }),
-    // Update presence based on cell deletion
-    tables.presence
-      .insert({ userId: deletedBy, cellId: id })
-      .onConflict("userId", "replace"),
-  ],
+  "v1.CellDeleted": ({ id, deletedBy }) => {
+    const ops = [tables.cells.delete().where({ id })];
+    if (deletedBy) {
+      ops.push(
+        tables.presence
+          .insert({ userId: deletedBy, cellId: id })
+          .onConflict("userId", "replace") as any,
+      );
+    }
+    return ops;
+  },
 
-  "v1.CellMoved": ({ id, newPosition, movedBy }) => [
-    tables.cells.update({ position: newPosition }).where({ id }),
-    // Update presence based on cell movement
-    tables.presence
-      .insert({ userId: movedBy, cellId: id })
-      .onConflict("userId", "replace"),
-  ],
+  "v1.CellMoved": ({ id, newPosition, movedBy }) => {
+    const ops = [
+      tables.cells.update({ position: newPosition }).where({ id }),
+    ];
+    if (movedBy) {
+      ops.push(
+        tables.presence
+          .insert({ userId: movedBy, cellId: id })
+          .onConflict("userId", "replace") as any,
+      );
+    }
+    return ops;
+  },
 
-  "v1.CellSourceVisibilityToggled": ({ id, sourceVisible, toggledBy }) => [
-    tables.cells.update({ sourceVisible }).where({ id }),
-    // Update presence based on source visibility toggle
-    tables.presence
-      .insert({ userId: toggledBy, cellId: id })
-      .onConflict("userId", "replace"),
-  ],
+  "v1.CellSourceVisibilityToggled": ({ id, sourceVisible, toggledBy }) => {
+    const ops = [tables.cells.update({ sourceVisible }).where({ id })];
+    if (toggledBy) {
+      ops.push(
+        tables.presence
+          .insert({ userId: toggledBy, cellId: id })
+          .onConflict("userId", "replace") as any,
+      );
+    }
+    return ops;
+  },
 
-  "v1.CellOutputVisibilityToggled": ({ id, outputVisible, toggledBy }) => [
-    tables.cells.update({ outputVisible }).where({ id }),
-    // Update presence based on output visibility toggle
-    tables.presence
-      .insert({ userId: toggledBy, cellId: id })
-      .onConflict("userId", "replace"),
-  ],
+  "v1.CellOutputVisibilityToggled": ({ id, outputVisible, toggledBy }) => {
+    const ops = [tables.cells.update({ outputVisible }).where({ id })];
+    if (toggledBy) {
+      ops.push(
+        tables.presence
+          .insert({ userId: toggledBy, cellId: id })
+          .onConflict("userId", "replace") as any,
+      );
+    }
+    return ops;
+  },
 
   "v1.CellAiContextVisibilityToggled": (
     { id, aiContextVisible, toggledBy },
-  ) => [
-    tables.cells.update({ aiContextVisible }).where({ id }),
-    // Update presence based on AI context visibility toggle
-    tables.presence
-      .insert({ userId: toggledBy, cellId: id })
-      .onConflict("userId", "replace"),
-  ],
+  ) => {
+    const ops = [
+      tables.cells.update({ aiContextVisible }).where({ id }),
+    ];
+    if (toggledBy) {
+      ops.push(
+        tables.presence
+          .insert({ userId: toggledBy, cellId: id })
+          .onConflict("userId", "replace") as any,
+      );
+    }
+    return ops;
+  },
 
   "v1.PresenceSet": ({ userId, cellId }) =>
     tables.presence.insert({ userId, cellId: cellId || null }).onConflict(
@@ -1263,24 +1291,29 @@ const materializers = State.SQLite.materializers(events, {
   },
 
   "v1.CellOutputsCleared": ({ cellId, wait, clearedBy }) => {
-    const presenceUpdate = tables.presence
-      .insert({ userId: clearedBy, cellId })
-      .onConflict("userId", "replace");
+    const ops = [];
     if (wait) {
       // Store pending clear for wait=True
-      return [
+      ops.push(
         tables.pendingClears
           .insert({ cellId, clearedBy })
           .onConflict("cellId", "replace"),
-        presenceUpdate,
-      ];
+      );
     } else {
       // Immediate clear for wait=False
-      return [
-        tables.outputs.delete().where({ cellId }),
-        presenceUpdate,
-      ];
+      ops.push(tables.outputs.delete().where({ cellId }));
     }
+
+    // Add presence update if user is provided
+    if (clearedBy) {
+      ops.push(
+        tables.presence
+          .insert({ userId: clearedBy, cellId })
+          .onConflict("userId", "replace") as any,
+      );
+    }
+
+    return ops;
   },
 
   // AI materializers
