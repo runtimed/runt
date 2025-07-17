@@ -840,62 +840,65 @@ const materializers = State.SQLite.materializers(events, {
   ],
 
   "v1.CellTypeChanged": ({ id, cellType, changedBy }) => {
-    const ops = [tables.cells.update({ cellType }).where({ id })];
+    const ops = [];
+    ops.push(tables.cells.update({ cellType }).where({ id }));
     if (changedBy) {
       ops.push(
         tables.presence
           .insert({ userId: changedBy, cellId: id })
-          .onConflict("userId", "replace") as any,
+          .onConflict("userId", "replace"),
       );
     }
     return ops;
   },
 
   "v1.CellDeleted": ({ id, deletedBy }) => {
-    const ops = [tables.cells.delete().where({ id })];
+    const ops = [];
+    ops.push(tables.cells.delete().where({ id }));
     if (deletedBy) {
       ops.push(
         tables.presence
           .insert({ userId: deletedBy, cellId: id })
-          .onConflict("userId", "replace") as any,
+          .onConflict("userId", "replace"),
       );
     }
     return ops;
   },
 
   "v1.CellMoved": ({ id, newPosition, movedBy }) => {
-    const ops = [
-      tables.cells.update({ position: newPosition }).where({ id }),
-    ];
+    const ops = [];
+    ops.push(tables.cells.update({ position: newPosition }).where({ id }));
     if (movedBy) {
       ops.push(
         tables.presence
           .insert({ userId: movedBy, cellId: id })
-          .onConflict("userId", "replace") as any,
+          .onConflict("userId", "replace"),
       );
     }
     return ops;
   },
 
   "v1.CellSourceVisibilityToggled": ({ id, sourceVisible, toggledBy }) => {
-    const ops = [tables.cells.update({ sourceVisible }).where({ id })];
+    const ops = [];
+    ops.push(tables.cells.update({ sourceVisible }).where({ id }));
     if (toggledBy) {
       ops.push(
         tables.presence
           .insert({ userId: toggledBy, cellId: id })
-          .onConflict("userId", "replace") as any,
+          .onConflict("userId", "replace"),
       );
     }
     return ops;
   },
 
   "v1.CellOutputVisibilityToggled": ({ id, outputVisible, toggledBy }) => {
-    const ops = [tables.cells.update({ outputVisible }).where({ id })];
+    const ops = [];
+    ops.push(tables.cells.update({ outputVisible }).where({ id }));
     if (toggledBy) {
       ops.push(
         tables.presence
           .insert({ userId: toggledBy, cellId: id })
-          .onConflict("userId", "replace") as any,
+          .onConflict("userId", "replace"),
       );
     }
     return ops;
@@ -904,14 +907,13 @@ const materializers = State.SQLite.materializers(events, {
   "v1.CellAiContextVisibilityToggled": (
     { id, aiContextVisible, toggledBy },
   ) => {
-    const ops = [
-      tables.cells.update({ aiContextVisible }).where({ id }),
-    ];
+    const ops = [];
+    ops.push(tables.cells.update({ aiContextVisible }).where({ id }));
     if (toggledBy) {
       ops.push(
         tables.presence
           .insert({ userId: toggledBy, cellId: id })
-          .onConflict("userId", "replace") as any,
+          .onConflict("userId", "replace"),
       );
     }
     return ops;
@@ -1309,7 +1311,7 @@ const materializers = State.SQLite.materializers(events, {
       ops.push(
         tables.presence
           .insert({ userId: clearedBy, cellId })
-          .onConflict("userId", "replace") as any,
+          .onConflict("userId", "replace"),
       );
     }
 
