@@ -1,6 +1,6 @@
 {
   "name": "@runt/lib",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "description": "Runtime agent library for building Anode runtime agents",
   "license": "BSD-3-Clause",
   "repository": {

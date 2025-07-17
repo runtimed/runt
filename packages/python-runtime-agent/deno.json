@@ -1,6 +1,6 @@
 {
   "name": "@runt/python-runtime-agent",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "description": "Stub Python runtime agent for Runt platform.",
   "license": "BSD-3-Clause",
   "repository": {
