@@ -411,6 +411,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
+      changedBy: Schema.optional(Schema.String),
       userId: Schema.optional(Schema.String),
     }),
   }),
@@ -419,6 +420,7 @@ export const events = {
     name: "v1.CellDeleted",
     schema: Schema.Struct({
       id: Schema.String,
+      deletedBy: Schema.optional(Schema.String),
       userId: Schema.optional(Schema.String),
     }),
   }),
@@ -428,6 +430,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       newPosition: Schema.Number,
+      movedBy: Schema.optional(Schema.String),
       userId: Schema.optional(Schema.String),
     }),
   }),
@@ -437,6 +440,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       sourceVisible: Schema.Boolean,
+      toggledBy: Schema.optional(Schema.String),
       userId: Schema.optional(Schema.String),
     }),
   }),
@@ -446,6 +450,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       outputVisible: Schema.Boolean,
+      toggledBy: Schema.optional(Schema.String),
       userId: Schema.optional(Schema.String),
     }),
   }),
@@ -455,6 +460,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       aiContextVisible: Schema.Boolean,
+      toggledBy: Schema.optional(Schema.String),
       userId: Schema.optional(Schema.String),
     }),
   }),
@@ -847,58 +853,68 @@ const materializers = State.SQLite.materializers(events, {
     updatePresence(modifiedBy, id),
   ],
 
-  "v1.CellTypeChanged": ({ id, cellType, userId }) => {
+  "v1.CellTypeChanged": ({ id, cellType, changedBy, userId }) => {
     const ops = [];
     ops.push(tables.cells.update({ cellType }).where({ id }));
-    if (userId) {
-      ops.push(updatePresence(userId, id));
+    const user = userId || changedBy;
+    if (user) {
+      ops.push(updatePresence(user, id));
     }
     return ops;
   },
 
-  "v1.CellDeleted": ({ id, userId }) => {
+  "v1.CellDeleted": ({ id, deletedBy, userId }) => {
     const ops = [];
     ops.push(tables.cells.delete().where({ id }));
-    if (userId) {
-      ops.push(updatePresence(userId, id));
+    const user = userId || deletedBy;
+    if (user) {
+      ops.push(updatePresence(user, id));
     }
     return ops;
   },
 
-  "v1.CellMoved": ({ id, newPosition, userId }) => {
+  "v1.CellMoved": ({ id, newPosition, movedBy, userId }) => {
     const ops = [];
     ops.push(tables.cells.update({ position: newPosition }).where({ id }));
-    if (userId) {
-      ops.push(updatePresence(userId, id));
+    const user = userId || movedBy;
+    if (user) {
+      ops.push(updatePresence(user, id));
     }
     return ops;
   },
 
-  "v1.CellSourceVisibilityToggled": ({ id, sourceVisible, userId }) => {
+  "v1.CellSourceVisibilityToggled": (
+    { id, sourceVisible, toggledBy, userId },
+  ) => {
     const ops = [];
     ops.push(tables.cells.update({ sourceVisible }).where({ id }));
-    if (userId) {
-      ops.push(updatePresence(userId, id));
+    const user = userId || toggledBy;
+    if (user) {
+      ops.push(updatePresence(user, id));
     }
     return ops;
   },
 
-  "v1.CellOutputVisibilityToggled": ({ id, outputVisible, userId }) => {
+  "v1.CellOutputVisibilityToggled": (
+    { id, outputVisible, toggledBy, userId },
+  ) => {
     const ops = [];
     ops.push(tables.cells.update({ outputVisible }).where({ id }));
-    if (userId) {
-      ops.push(updatePresence(userId, id));
+    const user = userId || toggledBy;
+    if (user) {
+      ops.push(updatePresence(user, id));
     }
     return ops;
   },
 
   "v1.CellAiContextVisibilityToggled": (
-    { id, aiContextVisible, userId },
+    { id, aiContextVisible, toggledBy, userId },
   ) => {
     const ops = [];
     ops.push(tables.cells.update({ aiContextVisible }).where({ id }));
-    if (userId) {
-      ops.push(updatePresence(userId, id));
+    const user = userId || toggledBy;
+    if (user) {
+      ops.push(updatePresence(user, id));
     }
     return ops;
   },
