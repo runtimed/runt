@@ -791,7 +791,7 @@ function updatePresence(userId: string, cellId?: string) {
 }
 
 // Materializers map events to state changes
-const materializers = State.SQLite.materializers(events, {
+export const materializers = State.SQLite.materializers(events, {
   // Notebook materializers
   /** @deprecated */
   "v1.NotebookInitialized": ({ id, title, ownerId }) => [
@@ -1499,10 +1499,7 @@ export const AI_TOOL_CALL_MIME_TYPE =
 export const AI_TOOL_RESULT_MIME_TYPE =
   "application/vnd.anode.aitool.result+json" as const;
 
-// Pre 0.7.0 -- these types should get created in clients
+// Pre 0.7.1 -- these types should get created in clients
 // const state = State.SQLite.makeState({ tables, materializers });
 // export const schema = makeSchema({ events, state });
 // export type Store = LiveStore<typeof schema>;
-
-// Export materializers so clients can create their own schema
-export { materializers };
