@@ -8,6 +8,52 @@ real-time collaboration, and streaming output support. It provides granular,
 type-safe events for rich display capabilities and is implemented with a focus
 on stability and extensibility.
 
+## ⚠️ CRITICAL: RUNTIME PROCESS MANAGEMENT
+
+**THE #1 CAUSE OF EXECUTION HANGS: Multiple Runtime Sessions**
+
+### BEFORE DOING ANYTHING WITH RUNTIMES:
+
+```bash
+# 1. Check what's already running
+ps aux | grep -E "(pyodide-runtime-agent|deno|pnpm)" | grep -v grep
+screen -ls
+lsof -i :8787 -i :5173
+
+# 2. Kill EVERYTHING first
+pkill -f "pyodide-runtime-agent"
+pkill -f "deno run"
+```
+
+### THE BREAKTHROUGH SOLUTION:
+
+**Use `nohup` instead of screen sessions for runtime processes!**
+
+✅ **Correct approach (PROVEN TO WORK):**
+
+```bash
+# Start runtime with nohup - persists across commands
+nohup bash -c "source .env && NOTEBOOK_ID=notebook-test GROQ_API_KEY=\$GROQ_API_KEY deno run --allow-all --env-file=.env packages/pyodide-runtime-agent/src/mod.ts" > runtime.log 2>&1 &
+
+# Check it's working
+tail -f runtime.log
+ps aux | grep deno | grep -v grep
+```
+
+❌ **What causes session conflicts:**
+
+- Starting new runtime without killing old processes
+- Using screen sessions incorrectly (they persist and restart processes)
+- Reusing notebook IDs (inherits corrupted session state)
+
+### STRICT RULES:
+
+1. **NEVER** start runtime without: `pkill -f "pyodide-runtime-agent"`
+2. **ALWAYS** use unique notebook IDs: `notebook-$(date +%s)-test`
+3. **ALWAYS** verify single session in UI before testing
+4. **PREFER** nohup over screen for runtime processes
+5. **READ** CRITICAL_MISTAKE_PATTERN.md and RUNTIME_SESSION_CONFLICT_ANALYSIS.md
+
 ## Project Overview
 
 Runt is a TypeScript/Deno library for building runtime agents that connect to

@@ -95,33 +95,62 @@ export class RuntimeAgent {
 
       // Register runtime session
       // Displace any existing active sessions for this notebook
-      const existingSessions = this.store.query(
-        tables.runtimeSessions.select().where({ isActive: true }),
-      );
+      try {
+        const existingSessions = this.store.query(
+          tables.runtimeSessions.select().where({ isActive: true }),
+        );
 
-      for (const session of existingSessions) {
-        this.store.commit(events.runtimeSessionTerminated({
-          sessionId: session.sessionId,
-          reason: "displaced",
-        }));
+        for (const session of existingSessions) {
+          try {
+            this.store.commit(events.runtimeSessionTerminated({
+              sessionId: session.sessionId,
+              reason: "displaced",
+            }));
+          } catch (error) {
+            // Mask LiveStore errors to prevent interference with runtime execution
+            logger.debug("LiveStore commit failed for session termination", {
+              error: error instanceof Error ? error.message : String(error),
+              sessionId: session.sessionId,
+            });
+          }
+        }
+      } catch (error) {
+        // Mask LiveStore errors to prevent interference with runtime execution
+        logger.debug("LiveStore query failed for existing sessions", {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
 
       // Start session with "starting" status
-      this.store.commit(events.runtimeSessionStarted({
-        sessionId: this.config.sessionId,
-        runtimeId: this.config.runtimeId,
-        runtimeType: this.config.runtimeType,
-        capabilities: this.capabilities,
-      }));
+      try {
+        this.store.commit(events.runtimeSessionStarted({
+          sessionId: this.config.sessionId,
+          runtimeId: this.config.runtimeId,
+          runtimeType: this.config.runtimeType,
+          capabilities: this.capabilities,
+        }));
+      } catch (error) {
+        // Mask LiveStore errors to prevent interference with runtime execution
+        logger.debug("LiveStore commit failed for session start", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
 
       // Set up reactive queries and subscriptions
       this.setupSubscriptions();
 
       // Mark session as ready
-      this.store.commit(events.runtimeSessionStatusChanged({
-        sessionId: this.config.sessionId,
-        status: "ready",
-      }));
+      try {
+        this.store.commit(events.runtimeSessionStatusChanged({
+          sessionId: this.config.sessionId,
+          status: "ready",
+        }));
+      } catch (error) {
+        // Mask LiveStore errors to prevent interference with runtime execution
+        logger.debug("LiveStore commit failed for session ready", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
 
       await this.handlers.onConnected?.();
       logger.info("Runtime agent connected and ready");
@@ -337,12 +366,20 @@ export class RuntimeAgent {
             const logger = createLogger(`${this.config.runtimeType}-agent`);
 
             // Log cell count for sync debugging
-            const allCells = this.store.query(tables.cells.select());
-            logger.info("Runtime sync status", {
-              pendingExecutions: entries.length,
-              totalCells: allCells.length,
-              cellIds: allCells.map((c) => c.id),
-            });
+            try {
+              const allCells = this.store.query(tables.cells.select());
+              logger.info("Runtime sync status", {
+                pendingExecutions: entries.length,
+                totalCells: allCells.length,
+                cellIds: allCells.map((c) => c.id),
+              });
+            } catch (error) {
+              // Mask LiveStore errors to prevent interference with runtime execution
+              logger.debug("LiveStore query failed for sync status", {
+                error: error instanceof Error ? error.message : String(error),
+                pendingExecutions: entries.length,
+              });
+            }
 
             logger.debug("Pending executions", {
               count: entries.length,
@@ -351,10 +388,23 @@ export class RuntimeAgent {
           }
 
           setTimeout(() => {
-            const activeRuntimes = this.store.query(activeRuntimesQuery$);
-            const ourRuntime = activeRuntimes.find((r: RuntimeSessionData) =>
-              r.sessionId === this.config.sessionId
-            );
+            let activeRuntimes: readonly RuntimeSessionData[] = [];
+            let ourRuntime: RuntimeSessionData | undefined;
+
+            try {
+              activeRuntimes = this.store.query(activeRuntimesQuery$);
+              ourRuntime = activeRuntimes.find((r: RuntimeSessionData) =>
+                r.sessionId === this.config.sessionId
+              );
+            } catch (error) {
+              // Mask LiveStore errors to prevent interference with runtime execution
+              const logger = createLogger(`${this.config.runtimeType}-agent`);
+              logger.debug("LiveStore query failed for active runtimes", {
+                error: error instanceof Error ? error.message : String(error),
+                sessionId: this.config.sessionId,
+              });
+              return;
+            }
 
             if (!ourRuntime) return;
 
@@ -485,10 +535,24 @@ export class RuntimeAgent {
     const executionStartTime = new Date();
 
     // Get cell data
-    const cells = this.store.query(
-      tables.cells.select().where({ id: queueEntry.cellId }),
-    );
-    const cell = cells[0] as CellData;
+    let cell: CellData;
+    try {
+      const cells = this.store.query(
+        tables.cells.select().where({ id: queueEntry.cellId }),
+      );
+      cell = cells[0] as CellData;
+    } catch (error) {
+      // Mask LiveStore errors but still need to handle missing cell
+      const logger = createLogger(`${this.config.runtimeType}-agent`);
+      logger.debug("LiveStore query failed for cell data", {
+        error: error instanceof Error ? error.message : String(error),
+        cellId: queueEntry.cellId,
+      });
+      this.activeExecutions.delete(queueEntry.id);
+      throw new Error(
+        `Failed to query cell ${queueEntry.cellId}: LiveStore error`,
+      );
+    }
 
     if (!cell) {
       this.activeExecutions.delete(queueEntry.id);
@@ -516,44 +580,71 @@ export class RuntimeAgent {
       // Output emission methods for real-time streaming
       stdout: (text: string) => {
         if (text) {
-          this.store.commit(events.terminalOutputAdded({
-            id: crypto.randomUUID(),
-            cellId: cell.id,
-            position: outputPosition++,
-            content: {
-              type: "inline",
-              data: text,
-            },
-            streamName: "stdout",
-          }));
+          try {
+            this.store.commit(events.terminalOutputAdded({
+              id: crypto.randomUUID(),
+              cellId: cell.id,
+              position: outputPosition++,
+              content: {
+                type: "inline",
+                data: text,
+              },
+              streamName: "stdout",
+            }));
+          } catch (error) {
+            // Mask LiveStore errors to prevent interference with runtime execution
+            const logger = createLogger(`${this.config.runtimeType}-agent`);
+            logger.debug("LiveStore commit failed for stdout output", {
+              error: error instanceof Error ? error.message : String(error),
+              cellId: cell.id,
+            });
+          }
         }
       },
 
       // Append to existing terminal output (for streaming)
       appendTerminal: (outputId: string, text: string) => {
         if (text) {
-          this.store.commit(events.terminalOutputAppended({
-            outputId,
-            content: {
-              type: "inline",
-              data: text,
-            },
-          }));
+          try {
+            this.store.commit(events.terminalOutputAppended({
+              outputId,
+              content: {
+                type: "inline",
+                data: text,
+              },
+            }));
+          } catch (error) {
+            // Mask LiveStore errors to prevent interference with runtime execution
+            const logger = createLogger(`${this.config.runtimeType}-agent`);
+            logger.debug("LiveStore commit failed for appendTerminal output", {
+              error: error instanceof Error ? error.message : String(error),
+              outputId,
+            });
+          }
         }
       },
 
       stderr: (text: string) => {
         if (text) {
-          this.store.commit(events.terminalOutputAdded({
-            id: crypto.randomUUID(),
-            cellId: cell.id,
-            position: outputPosition++,
-            content: {
-              type: "inline",
-              data: text,
-            },
-            streamName: "stderr",
-          }));
+          try {
+            this.store.commit(events.terminalOutputAdded({
+              id: crypto.randomUUID(),
+              cellId: cell.id,
+              position: outputPosition++,
+              content: {
+                type: "inline",
+                data: text,
+              },
+              streamName: "stderr",
+            }));
+          } catch (error) {
+            // Mask LiveStore errors to prevent interference with runtime execution
+            const logger = createLogger(`${this.config.runtimeType}-agent`);
+            logger.debug("LiveStore commit failed for stderr output", {
+              error: error instanceof Error ? error.message : String(error),
+              cellId: cell.id,
+            });
+          }
         }
       },
 
@@ -576,13 +667,23 @@ export class RuntimeAgent {
           };
         }
 
-        this.store.commit(events.multimediaDisplayOutputAdded({
-          id: crypto.randomUUID(),
-          cellId: cell.id,
-          position: outputPosition++,
-          representations,
-          displayId,
-        }));
+        try {
+          this.store.commit(events.multimediaDisplayOutputAdded({
+            id: crypto.randomUUID(),
+            cellId: cell.id,
+            position: outputPosition++,
+            representations,
+            displayId,
+          }));
+        } catch (error) {
+          // Mask LiveStore errors to prevent interference with runtime execution
+          const logger = createLogger(`${this.config.runtimeType}-agent`);
+          logger.debug("LiveStore commit failed for display output", {
+            error: error instanceof Error ? error.message : String(error),
+            cellId: cell.id,
+            displayId,
+          });
+        }
       },
 
       updateDisplay: (
@@ -604,10 +705,19 @@ export class RuntimeAgent {
           };
         }
 
-        this.store.commit(events.multimediaDisplayOutputUpdated({
-          displayId,
-          representations,
-        }));
+        try {
+          this.store.commit(events.multimediaDisplayOutputUpdated({
+            displayId,
+            representations,
+          }));
+        } catch (error) {
+          // Mask LiveStore errors to prevent interference with runtime execution
+          const logger = createLogger(`${this.config.runtimeType}-agent`);
+          logger.debug("LiveStore commit failed for updateDisplay output", {
+            error: error instanceof Error ? error.message : String(error),
+            displayId,
+          });
+        }
       },
 
       result: (
@@ -628,64 +738,111 @@ export class RuntimeAgent {
           };
         }
 
-        this.store.commit(events.multimediaResultOutputAdded({
-          id: crypto.randomUUID(),
-          cellId: cell.id,
-          position: outputPosition++,
-          representations,
-          executionCount: queueEntry.executionCount,
-        }));
+        try {
+          this.store.commit(events.multimediaResultOutputAdded({
+            id: crypto.randomUUID(),
+            cellId: cell.id,
+            position: outputPosition++,
+            representations,
+            executionCount: queueEntry.executionCount,
+          }));
+        } catch (error) {
+          // Mask LiveStore errors to prevent interference with runtime execution
+          const logger = createLogger(`${this.config.runtimeType}-agent`);
+          logger.debug("LiveStore commit failed for result output", {
+            error: error instanceof Error ? error.message : String(error),
+            cellId: cell.id,
+          });
+        }
       },
 
       error: (ename: string, evalue: string, traceback: string[]) => {
-        this.store.commit(events.errorOutputAdded({
-          id: crypto.randomUUID(),
-          cellId: cell.id,
-          position: outputPosition++,
-          content: {
-            type: "inline",
-            data: {
-              ename,
-              evalue,
-              traceback,
+        try {
+          this.store.commit(events.errorOutputAdded({
+            id: crypto.randomUUID(),
+            cellId: cell.id,
+            position: outputPosition++,
+            content: {
+              type: "inline",
+              data: {
+                ename,
+                evalue,
+                traceback,
+              },
             },
-          },
-        }));
+          }));
+        } catch (error) {
+          // Mask LiveStore errors to prevent interference with runtime execution
+          const logger = createLogger(`${this.config.runtimeType}-agent`);
+          logger.debug("LiveStore commit failed for error output", {
+            error: error instanceof Error ? error.message : String(error),
+            cellId: cell.id,
+            ename,
+          });
+        }
       },
 
       // Markdown output methods for AI responses
       markdown: (content: string, metadata?: Record<string, unknown>) => {
         const outputId = crypto.randomUUID();
-        this.store.commit(events.markdownOutputAdded({
-          id: outputId,
-          cellId: cell.id,
-          position: outputPosition++,
-          content: {
-            type: "inline",
-            data: content,
-            metadata,
-          },
-        }));
+        try {
+          this.store.commit(events.markdownOutputAdded({
+            id: outputId,
+            cellId: cell.id,
+            position: outputPosition++,
+            content: {
+              type: "inline",
+              data: content,
+              metadata,
+            },
+          }));
+        } catch (error) {
+          // Mask LiveStore errors to prevent interference with runtime execution
+          const logger = createLogger(`${this.config.runtimeType}-agent`);
+          logger.debug("LiveStore commit failed for markdown output", {
+            error: error instanceof Error ? error.message : String(error),
+            cellId: cell.id,
+            outputId,
+          });
+        }
         return outputId;
       },
 
       // Append to existing markdown output (for streaming AI responses)
       appendMarkdown: (outputId: string, content: string) => {
-        this.store.commit(events.markdownOutputAppended({
-          outputId,
-          content: {
-            type: "inline",
-            data: content,
-          },
-        }));
+        try {
+          this.store.commit(events.markdownOutputAppended({
+            outputId,
+            content: {
+              type: "inline",
+              data: content,
+            },
+          }));
+        } catch (error) {
+          // Mask LiveStore errors to prevent interference with runtime execution
+          const logger = createLogger(`${this.config.runtimeType}-agent`);
+          logger.debug("LiveStore commit failed for appendMarkdown output", {
+            error: error instanceof Error ? error.message : String(error),
+            outputId,
+          });
+        }
       },
 
       clear: (wait: boolean = false) => {
-        this.store.commit(events.cellOutputsCleared({
-          cellId: cell.id,
-          wait,
-          clearedBy: `runtime-${this.config.runtimeId}`,
-        }));
+        try {
+          this.store.commit(events.cellOutputsCleared({
+            cellId: cell.id,
+            wait,
+            clearedBy: `runtime-${this.config.runtimeId}`,
+          }));
+        } catch (error) {
+          // Mask LiveStore errors to prevent interference with runtime execution
+          const logger = createLogger(`${this.config.runtimeType}-agent`);
+          logger.debug("LiveStore commit failed for clear output", {
+            error: error instanceof Error ? error.message : String(error),
+            cellId: cell.id,
+          });
+        }
 
         if (!wait) {
           outputPosition = 0;
@@ -695,12 +852,22 @@ export class RuntimeAgent {
 
     try {
       // Mark execution as started
-      this.store.commit(events.executionStarted({
-        queueId: queueEntry.id,
-        cellId: queueEntry.cellId,
-        runtimeSessionId: this.config.sessionId,
-        startedAt: executionStartTime,
-      }));
+      try {
+        this.store.commit(events.executionStarted({
+          queueId: queueEntry.id,
+          cellId: queueEntry.cellId,
+          runtimeSessionId: this.config.sessionId,
+          startedAt: executionStartTime,
+        }));
+      } catch (error) {
+        // Mask LiveStore errors to prevent interference with runtime execution
+        const logger = createLogger(`${this.config.runtimeType}-agent`);
+        logger.debug("LiveStore commit failed for executionStarted", {
+          error: error instanceof Error ? error.message : String(error),
+          queueId: queueEntry.id,
+          cellId: queueEntry.cellId,
+        });
+      }
 
       // Clear previous outputs (immediate clear)
       context.clear(false);
@@ -717,14 +884,24 @@ export class RuntimeAgent {
       const executionDurationMs = executionEndTime.getTime() -
         executionStartTime.getTime();
 
-      this.store.commit(events.executionCompleted({
-        queueId: queueEntry.id,
-        cellId: queueEntry.cellId,
-        status: result.success ? "success" : "error",
-        error: result.error,
-        completedAt: executionEndTime,
-        executionDurationMs,
-      }));
+      try {
+        this.store.commit(events.executionCompleted({
+          queueId: queueEntry.id,
+          cellId: queueEntry.cellId,
+          status: result.success ? "success" : "error",
+          error: result.error,
+          completedAt: executionEndTime,
+          executionDurationMs,
+        }));
+      } catch (error) {
+        // Mask LiveStore errors to prevent interference with runtime execution
+        const logger = createLogger(`${this.config.runtimeType}-agent`);
+        logger.debug("LiveStore commit failed for executionCompleted", {
+          error: error instanceof Error ? error.message : String(error),
+          queueId: queueEntry.id,
+          cellId: queueEntry.cellId,
+        });
+      }
 
       logger.debug("Execution completed", {
         executionId: queueEntry.id,
