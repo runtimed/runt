@@ -393,6 +393,7 @@ export const events = {
       cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
       position: Schema.Number,
       createdBy: Schema.String,
+      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -411,6 +412,7 @@ export const events = {
       id: Schema.String,
       cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
       changedBy: Schema.optional(Schema.String),
+      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -419,6 +421,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       deletedBy: Schema.optional(Schema.String),
+      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -428,6 +431,7 @@ export const events = {
       id: Schema.String,
       newPosition: Schema.Number,
       movedBy: Schema.optional(Schema.String),
+      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -437,6 +441,7 @@ export const events = {
       id: Schema.String,
       sourceVisible: Schema.Boolean,
       toggledBy: Schema.optional(Schema.String),
+      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -446,6 +451,7 @@ export const events = {
       id: Schema.String,
       outputVisible: Schema.Boolean,
       toggledBy: Schema.optional(Schema.String),
+      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -455,6 +461,7 @@ export const events = {
       id: Schema.String,
       aiContextVisible: Schema.Boolean,
       toggledBy: Schema.optional(Schema.String),
+      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -512,6 +519,7 @@ export const events = {
       cellId: Schema.String,
       executionCount: Schema.Number,
       requestedBy: Schema.String,
+      userId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -551,6 +559,7 @@ export const events = {
       queueId: Schema.String,
       cellId: Schema.String,
       cancelledBy: Schema.String,
+      userId: Schema.optional(Schema.String),
       reason: Schema.String,
     }),
   }),
@@ -818,7 +827,7 @@ const materializers = State.SQLite.materializers(events, {
       .onConflict("key", "replace"),
 
   // Cell materializers
-  "v1.CellCreated": ({ id, cellType, position, createdBy }) => [
+  "v1.CellCreated": ({ id, cellType, position, createdBy, userId }) => [
     tables.cells
       .insert({
         id,
@@ -827,9 +836,9 @@ const materializers = State.SQLite.materializers(events, {
         createdBy,
       })
       .onConflict("id", "ignore"),
-    // Update presence based on cell creation
+    // Update presence table
     tables.presence
-      .insert({ userId: createdBy, cellId: id })
+      .insert({ userId: userId || createdBy, cellId: id })
       .onConflict("userId", "replace"),
   ],
 
@@ -968,6 +977,7 @@ const materializers = State.SQLite.materializers(events, {
     cellId,
     executionCount,
     requestedBy,
+    userId,
   }) => [
     tables.executionQueue
       .insert({
@@ -985,9 +995,9 @@ const materializers = State.SQLite.materializers(events, {
         executionCount,
       })
       .where({ id: cellId }),
-    // Update presence based on execution request
+    // Update presence table
     tables.presence
-      .insert({ userId: requestedBy, cellId })
+      .insert({ userId: userId || requestedBy, cellId })
       .onConflict("userId", "replace"),
   ],
 
@@ -1040,7 +1050,7 @@ const materializers = State.SQLite.materializers(events, {
       .where({ id: cellId }),
   ],
 
-  "v1.ExecutionCancelled": ({ queueId, cellId, cancelledBy }) => [
+  "v1.ExecutionCancelled": ({ queueId, cellId, cancelledBy, userId }) => [
     // Update execution queue
     tables.executionQueue
       .update({
@@ -1053,9 +1063,9 @@ const materializers = State.SQLite.materializers(events, {
         executionState: "idle",
       })
       .where({ id: cellId }),
-    // Update presence based on execution cancellation
+    // Update presence table
     tables.presence
-      .insert({ userId: cancelledBy, cellId })
+      .insert({ userId: userId || cancelledBy, cellId })
       .onConflict("userId", "replace"),
   ],
 
