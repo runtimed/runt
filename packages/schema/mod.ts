@@ -810,7 +810,7 @@ const materializers = State.SQLite.materializers(events, {
       .onConflict("key", "replace"),
 
   // Cell materializers
-  "v1.CellCreated": ({ id, cellType, position, createdBy }) =>
+  "v1.CellCreated": ({ id, cellType, position, createdBy }) => [
     tables.cells
       .insert({
         id,
@@ -819,6 +819,11 @@ const materializers = State.SQLite.materializers(events, {
         createdBy,
       })
       .onConflict("id", "ignore"),
+    // Update presence based on cell creation
+    tables.presence
+      .insert({ userId: createdBy, cellId: id })
+      .onConflict("userId", "replace"),
+  ],
 
   "v1.CellSourceChanged": ({ id, source }) =>
     tables.cells.update({ source }).where({ id }),
@@ -904,6 +909,10 @@ const materializers = State.SQLite.materializers(events, {
         executionCount,
       })
       .where({ id: cellId }),
+    // Update presence based on execution request
+    tables.presence
+      .insert({ userId: requestedBy, cellId })
+      .onConflict("userId", "replace"),
   ],
 
   "v1.ExecutionAssigned": ({ queueId, runtimeSessionId }) =>
@@ -955,7 +964,7 @@ const materializers = State.SQLite.materializers(events, {
       .where({ id: cellId }),
   ],
 
-  "v1.ExecutionCancelled": ({ queueId, cellId }) => [
+  "v1.ExecutionCancelled": ({ queueId, cellId, cancelledBy }) => [
     // Update execution queue
     tables.executionQueue
       .update({
@@ -968,6 +977,10 @@ const materializers = State.SQLite.materializers(events, {
         executionState: "idle",
       })
       .where({ id: cellId }),
+    // Update presence based on execution cancellation
+    tables.presence
+      .insert({ userId: cancelledBy, cellId })
+      .onConflict("userId", "replace"),
   ],
 
   // Unified output system materializers with pending clear support
