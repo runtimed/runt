@@ -36,3 +36,8 @@ const cells = store.query(tables.cells.select().where({ cellType: "code" }));
 - Materializers must be pure functions.
 - Events are immutable once added.
 - Schema changes must be backward compatible.
+
+## Why both deno.json and package.json?
+
+`package.json` is used for local syncing; `deno.json` is for publishing the
+package.

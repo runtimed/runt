@@ -1,7 +1,13 @@
-import { type CellData, events, type Store, tables } from "@runt/schema";
+import { type CellData, events, materializers, tables } from "@runt/schema";
 import type { Logger } from "@runt/lib";
+import type { Store } from "npm:@livestore/livestore";
+import { makeSchema, State } from "npm:@livestore/livestore";
 import { createLogger } from "@runt/lib";
 import { getMCPClient } from "./mcp-client.ts";
+
+// Create schema locally
+const state = State.SQLite.makeState({ tables, materializers });
+const schema = makeSchema({ events, state });
 
 // Create logger for tool execution debugging
 const toolLogger = createLogger("ai-tools");
@@ -132,7 +138,7 @@ export async function getAllTools(): Promise<NotebookTool[]> {
 export const NOTEBOOK_TOOLS_EXPORT = NOTEBOOK_TOOLS;
 
 function calculateNewCellPosition(
-  store: Store,
+  store: Store<typeof schema>,
   currentCell: CellData,
   placement: string,
 ): number {
@@ -156,7 +162,7 @@ function calculateNewCellPosition(
 }
 
 export function createCell(
-  store: Store,
+  store: Store<typeof schema>,
   logger: Logger,
   sessionId: string,
   currentCell: CellData,
@@ -215,7 +221,7 @@ export function createCell(
  * Handle tool calls from AI with result return
  */
 export async function handleToolCallWithResult(
-  store: Store,
+  store: Store<typeof schema>,
   logger: Logger,
   sessionId: string,
   currentCell: CellData,
