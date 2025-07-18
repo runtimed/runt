@@ -445,6 +445,10 @@ from typing import Any
 from typing import Callable
 
 
+class ToolNotFoundError(Exception):
+    pass
+
+
 @dataclass
 class RegisteredFunction:
     name: str
@@ -491,6 +495,8 @@ def get_registered_tools():
 
 
 def run_registered_tool(toolName: str, kwargs):
+    if toolName not in _tool_registry:
+        raise ToolNotFoundError(f"Tool {toolName} not found")
     return _tool_registry[toolName](**kwargs)
 
 
