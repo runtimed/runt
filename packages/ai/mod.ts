@@ -26,6 +26,9 @@ const schema = makeSchema({ events, state });
 
 import { OpenAIClient } from "./openai-client.ts";
 import { RuntOllamaClient } from "./ollama-client.ts";
+import type { NotebookTool } from "./tool-registry.ts";
+
+export type { NotebookTool };
 
 // Import and export AI-specific media utilities
 import {
@@ -459,12 +462,17 @@ const DEFAULT_MODELS = {
   ollama: "llama3.1",
 } as const;
 
+export type AIExecutionContext = ExecutionContext & {
+  sendWorkerMessage?: (type: string, data: unknown) => Promise<unknown>;
+};
+
 export async function executeAI(
-  context: ExecutionContext,
+  context: AIExecutionContext,
   notebookContext: NotebookContextData,
   logger: Logger,
   store: Store<typeof schema>,
   sessionId: string,
+  notebookTools: NotebookTool[] = [],
 ): Promise<{ success: boolean; error?: string }> {
   const {
     cell,
@@ -496,7 +504,7 @@ export async function executeAI(
     });
 
     // Initialize AI clients based on provider
-    const openaiClient = new OpenAIClient();
+    const openaiClient = new OpenAIClient(undefined, notebookTools);
 
     // Configure Ollama client with environment-aware host detection
     const ollamaHost = Deno.env.get("OLLAMA_HOST") || "http://localhost:11434";
@@ -553,6 +561,7 @@ export async function executeAI(
                 sessionId,
                 cell,
                 toolCall,
+                context.sendWorkerMessage,
               );
             },
             onIteration: (iteration, messages) => {
@@ -671,6 +680,7 @@ The system will automatically pull models if they're not available locally.`;
               sessionId,
               cell,
               toolCall,
+              context.sendWorkerMessage,
             );
           },
           onIteration: (iteration, messages) => {
