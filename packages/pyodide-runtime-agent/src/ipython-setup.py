@@ -458,7 +458,7 @@ class RegisteredFunction:
         return result
 
 
-_registry = {}
+_tool_registry = {}
 
 
 def tool(func) -> Callable:
@@ -480,18 +480,18 @@ def tool(func) -> Callable:
         _func=func,
         openai_tool_metadata=schema
     )
-    _registry[func.__name__] = entry
+    _tool_registry[func.__name__] = entry
     return func
 
 
 def get_registered_tools():
     import json
-    tools = [func.openai_tool_metadata for func in _registry.values()]
+    tools = [func.openai_tool_metadata for func in _tool_registry.values()]
     return json.dumps(tools, default=str)
 
 
 def run_registered_tool(toolName: str, kwargs):
-    return _registry[toolName](**kwargs)
+    return _tool_registry[toolName](**kwargs)
 
 
 # Export the configured shell for use by the worker
