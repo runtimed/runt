@@ -1,6 +1,6 @@
 {
   "name": "@runt/python-runtime-agent",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Stub Python runtime agent for Runt platform.",
   "license": "BSD-3-Clause",
   "repository": {
@@ -14,8 +14,8 @@
     "pyrunt": "./mod.ts"
   },
   "imports": {
-    "@runt/lib": "jsr:@runt/lib@^0.7.1",
-    "@runt/schema": "jsr:@runt/schema@^0.7.1"
+    "@runt/lib": "jsr:@runt/lib@^0.7.2",
+    "@runt/schema": "jsr:@runt/schema@^0.7.2"
   },
   "tasks": {
     "test": "deno test --allow-all",
