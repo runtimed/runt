@@ -694,6 +694,16 @@ export const events = {
 
   // UI state
   uiStateSet: tables.uiState.set,
+
+  actorProfileSet: Events.synced({
+    name: "v1.ActorProfileSet",
+    schema: Schema.Struct({
+      id: Schema.String,
+      type: Schema.Literal("human", "runtime_agent"),
+      displayName: Schema.String,
+      avatar: Schema.optional(Schema.String),
+    }),
+  }),
 };
 
 // Helper function to select primary representation from multimedia data
@@ -1323,6 +1333,16 @@ export const materializers = State.SQLite.materializers(events, {
         sqlResultVariable: resultVariable ?? null,
       })
       .where({ id: cellId }),
+
+  "v1.ActorProfileSet": ({ id, type, displayName, avatar }) =>
+    tables.actors
+      .insert({
+        id,
+        type,
+        displayName,
+        avatar: avatar ?? null,
+      })
+      .onConflict("id", "replace"),
 });
 
 // Type exports derived from the actual table definitions - full type inference works here!
