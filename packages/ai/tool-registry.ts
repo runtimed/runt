@@ -1,6 +1,7 @@
 import { type CellData, events, type Store, tables } from "@runt/schema";
 import type { Logger } from "@runt/lib";
 import { createLogger } from "@runt/lib";
+import { getMCPClient } from "./mcp-client.ts";
 
 // Create logger for tool execution debugging
 const toolLogger = createLogger("ai-tools");
@@ -23,7 +24,7 @@ interface ToolParameter {
 }
 
 // Define available notebook tools
-export const NOTEBOOK_TOOLS: NotebookTool[] = [
+const NOTEBOOK_TOOLS: NotebookTool[] = [
   {
     name: "create_cell",
     description:
@@ -88,6 +89,47 @@ export const NOTEBOOK_TOOLS: NotebookTool[] = [
     },
   },
 ];
+
+/**
+ * Get all available tools including both notebook tools and MCP tools
+ */
+export async function getAllTools(): Promise<NotebookTool[]> {
+  try {
+    const mcpClient = await getMCPClient();
+    const mcpTools = mcpClient.getTools();
+    
+    // Convert MCP tools to notebook tool format
+    const convertedMcpTools: NotebookTool[] = mcpTools.map((mcpTool) => ({
+      name: mcpTool.name,
+      description: mcpTool.description,
+      parameters: {
+        type: mcpTool.parameters.type,
+        properties: Object.fromEntries(
+          Object.entries(mcpTool.parameters.properties || {}).map(([key, value]) => [
+            key,
+            {
+              type: (value as Record<string, unknown>)?.type as string || "string",
+              description: (value as Record<string, unknown>)?.description as string,
+              enum: (value as Record<string, unknown>)?.enum as string[],
+              default: (value as Record<string, unknown>)?.default as string,
+            } as ToolParameter
+          ])
+        ),
+        required: mcpTool.parameters.required || [],
+      },
+    }));
+    
+    return [...NOTEBOOK_TOOLS, ...convertedMcpTools];
+  } catch (error) {
+    toolLogger.warn("Failed to get MCP tools, using only notebook tools", { error: String(error) });
+    return [...NOTEBOOK_TOOLS];
+  }
+}
+
+/**
+ * Get only the notebook tools (for backward compatibility)
+ */
+export const NOTEBOOK_TOOLS_EXPORT = NOTEBOOK_TOOLS;
 
 function calculateNewCellPosition(
   store: Store,
@@ -185,6 +227,29 @@ export async function handleToolCallWithResult(
 ): Promise<string> {
   const { name, arguments: args } = toolCall;
 
+  // Handle MCP tools first (with mcp__ prefix)
+  if (name.startsWith("mcp__")) {
+    try {
+      // Transform name from mcp__<servername>__<toolname> to <servername>:<toolname>
+      const transformedName = name.slice(5).replace('__', ':'); // Remove 'mcp__' prefix and replace first '__' with ':'
+
+      logger.info("Calling MCP tool", { toolName: name, transformedName, args });
+      const mcpClient = await getMCPClient();
+      const result = await mcpClient.callTool(transformedName, args);
+      
+      logger.info("MCP tool executed successfully", {
+        toolName: name,
+        resultLength: result.length,
+      });
+      
+      return result;
+    } catch (error) {
+      logger.error("MCP tool execution failed", { toolName: name, error });
+      throw new Error(`MCP tool execution failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // Handle built-in notebook tools
   switch (name) {
     case "create_cell": {
       return createCell(store, logger, sessionId, currentCell, args);

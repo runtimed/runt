@@ -7,7 +7,7 @@ import {
 } from "@runt/lib";
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
 
-import { NOTEBOOK_TOOLS } from "./tool-registry.ts";
+import { getAllTools } from "./tool-registry.ts";
 
 // Define message types inline to avoid import issues
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
@@ -328,6 +328,9 @@ export class RuntOpenAIClient {
       return;
     }
 
+    // Get all available tools (notebook + MCP) at the start
+    const allTools = enableTools ? await getAllTools() : [];
+
     const conversationMessages: ChatMessage[] = messages;
 
     let iteration = 0;
@@ -357,8 +360,8 @@ export class RuntOpenAIClient {
         this.logger.info(`Agentic iteration ${iteration + 1}/${maxIterations}`);
 
         // Prepare tools if enabled
-        const tools = enableTools
-          ? NOTEBOOK_TOOLS.map((tool) => ({
+        const tools = enableTools && allTools.length > 0
+          ? allTools.map((tool) => ({
             type: "function" as const,
             function: {
               name: tool.name,
