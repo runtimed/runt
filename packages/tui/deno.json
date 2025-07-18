@@ -1,0 +1,45 @@
+{
+  "name": "@runt/tui",
+  "version": "0.7.3",
+  "description": "Terminal notebook viewer for Runt runtime agents",
+  "license": "BSD-3-Clause",
+  "exports": "./mod.ts",
+  "tasks": {
+    "dev": "deno run --allow-net --allow-env --allow-read --allow-write --allow-sys --quiet src/cli.tsx",
+    "test": "deno test --allow-env --allow-net --allow-read --allow-write --allow-sys",
+    "check": "deno check mod.ts src/*.ts",
+    "fmt": "deno fmt",
+    "lint": "deno lint"
+  },
+  "imports": {
+    "@runt/schema": "jsr:@runt/schema@^0.7.3",
+    "@runt/lib": "jsr:@runt/lib@^0.7.3",
+    "@runt/ai": "jsr:@runt/ai@^0.7.3",
+    "@inkjs/ui": "npm:@inkjs/ui@^2.0.0",
+    "@livestore/adapter-node": "npm:@livestore/adapter-node@^0.3.1",
+    "@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
+    "@livestore/react": "npm:@livestore/react@^0.3.1",
+    "@livestore/sync-cf": "npm:@livestore/sync-cf@^0.3.1",
+    "effect": "npm:effect@~3.15.2",
+    "dotenv": "npm:dotenv@^16.4.5",
+    "ink": "npm:ink@^6.0.1",
+    "ink-link": "npm:ink-link@^4.0.0",
+    "lowlight": "npm:lowlight@^3.3.0",
+    "meow": "npm:meow@^11.0.0",
+    "react": "npm:react@19.1.0",
+    "string-width": "npm:string-width@^7.2.0",
+    "@types/react": "npm:@types/react@19.1.0",
+    "chalk": "npm:chalk@^5.2.0",
+    "react/jsx-runtime": "npm:react@19.1.0/jsx-runtime"
+  },
+  "compilerOptions": {
+    "jsx": "react",
+    "strict": false,
+    "noImplicitAny": false,
+    "lib": ["dom", "dom.iterable", "es2022", "deno.ns"]
+  },
+  "publish": {
+    "include": ["mod.ts", "src/", "README.md", "LICENSE"],
+    "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
+  }
+}

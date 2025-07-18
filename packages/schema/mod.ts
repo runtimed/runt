@@ -1,11 +1,4 @@
-import {
-  Events,
-  makeSchema,
-  Schema,
-  SessionIdSymbol,
-  State,
-  type Store as LiveStore,
-} from "@livestore/livestore";
+import { Events, Schema, SessionIdSymbol, State } from "@livestore/livestore";
 
 // Base generic types for MediaContainer system
 export type InlineContainer<T = unknown> = {
@@ -74,12 +67,12 @@ export const KNOWN_MIME_TYPES = [
   ...AI_TOOL_MIME_TYPES,
 ] as const;
 
-export type TextMimeType = typeof TEXT_MIME_TYPES[number];
-export type ApplicationMimeType = typeof APPLICATION_MIME_TYPES[number];
-export type ImageMimeType = typeof IMAGE_MIME_TYPES[number];
-export type JupyterMimeType = typeof JUPYTER_MIME_TYPES[number];
-export type AiToolMimeType = typeof AI_TOOL_MIME_TYPES[number];
-export type KnownMimeType = typeof KNOWN_MIME_TYPES[number];
+export type TextMimeType = (typeof TEXT_MIME_TYPES)[number];
+export type ApplicationMimeType = (typeof APPLICATION_MIME_TYPES)[number];
+export type ImageMimeType = (typeof IMAGE_MIME_TYPES)[number];
+export type JupyterMimeType = (typeof JUPYTER_MIME_TYPES)[number];
+export type AiToolMimeType = (typeof AI_TOOL_MIME_TYPES)[number];
+export type KnownMimeType = (typeof KNOWN_MIME_TYPES)[number];
 
 /**
  * Type guard to check if a MIME type is a known text format
@@ -116,9 +109,7 @@ export function isJupyterMimeType(
 /**
  * Type guard to check if a MIME type is an AI tool format
  */
-export function isAiToolMimeType(
-  mimeType: string,
-): mimeType is AiToolMimeType {
+export function isAiToolMimeType(mimeType: string): mimeType is AiToolMimeType {
   return (AI_TOOL_MIME_TYPES as readonly string[]).includes(mimeType);
 }
 
@@ -172,6 +163,14 @@ export const tables = {
       id: State.SQLite.text({ primaryKey: true }),
       // Update column name or value to test schema changes
       version: State.SQLite.text({ default: "1" }),
+    },
+  }),
+
+  presence: State.SQLite.table({
+    name: "presence",
+    columns: {
+      userId: State.SQLite.text({ primaryKey: true }),
+      cellId: State.SQLite.text({ nullable: true }),
     },
   }),
 
@@ -348,12 +347,24 @@ export const tables = {
       value: {},
     },
   }),
+
+  // Actors table for tracking who/what performs actions
+  actors: State.SQLite.table({
+    name: "actors",
+    columns: {
+      id: State.SQLite.text({ primaryKey: true }),
+      type: State.SQLite.text(), // "human" | "runtime_agent"
+      displayName: State.SQLite.text(),
+      avatar: State.SQLite.text({ nullable: true }),
+    },
+  }),
 };
 
 // Events describe notebook and cell changes
 // All events are scoped to a single notebook (storeId = notebookId)
 export const events = {
   // Notebook events (single notebook per store)
+  /** @deprecated  */
   notebookInitialized: Events.synced({
     name: "v1.NotebookInitialized",
     schema: Schema.Struct({
@@ -386,6 +397,7 @@ export const events = {
       cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
       position: Schema.Number,
       createdBy: Schema.String,
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -403,6 +415,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -410,6 +423,7 @@ export const events = {
     name: "v1.CellDeleted",
     schema: Schema.Struct({
       id: Schema.String,
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -418,6 +432,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       newPosition: Schema.Number,
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -426,6 +441,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       sourceVisible: Schema.Boolean,
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -434,6 +450,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       outputVisible: Schema.Boolean,
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -442,6 +459,7 @@ export const events = {
     schema: Schema.Struct({
       id: Schema.String,
       aiContextVisible: Schema.Boolean,
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -458,6 +476,14 @@ export const events = {
         canExecuteAi: Schema.Boolean,
         availableAiModels: Schema.optional(Schema.Any),
       }),
+    }),
+  }),
+
+  presenceSet: Events.synced({
+    name: "v1.PresenceSet",
+    schema: Schema.Struct({
+      userId: Schema.String,
+      cellId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -491,6 +517,7 @@ export const events = {
       cellId: Schema.String,
       executionCount: Schema.Number,
       requestedBy: Schema.String,
+      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -530,6 +557,7 @@ export const events = {
       queueId: Schema.String,
       cellId: Schema.String,
       cancelledBy: Schema.String,
+      actorId: Schema.optional(Schema.String),
       reason: Schema.String,
     }),
   }),
@@ -666,6 +694,16 @@ export const events = {
 
   // UI state
   uiStateSet: tables.uiState.set,
+
+  actorProfileSet: Events.synced({
+    name: "v1.ActorProfileSet",
+    schema: Schema.Struct({
+      id: Schema.String,
+      type: Schema.Literal("human", "runtime_agent"),
+      displayName: Schema.String,
+      avatar: Schema.optional(Schema.String),
+    }),
+  }),
 };
 
 // Helper function to select primary representation from multimedia data
@@ -742,77 +780,148 @@ function updateExistingDisplays(
   const data = container.type === "inline" ? String(container.data || "") : "";
 
   return [
-    tables.outputs.update({
-      data,
-      mimeType,
-      representations,
-    }).where({
-      displayId,
-      outputType: "multimedia_display",
-    }),
+    tables.outputs
+      .update({
+        data,
+        mimeType,
+        representations,
+      })
+      .where({
+        displayId,
+        outputType: "multimedia_display",
+      }),
   ];
 }
 
+// Shared helper function for updating presence
+function updatePresence(userId: string, cellId?: string) {
+  return tables.presence
+    .insert({ userId, cellId: cellId || null })
+    .onConflict("userId", "replace");
+}
+
 // Materializers map events to state changes
-const materializers = State.SQLite.materializers(events, {
+export const materializers = State.SQLite.materializers(events, {
   // Notebook materializers
-  "v1.NotebookInitialized": (
-    { id, title, ownerId },
-  ) => [
+  /** @deprecated */
+  "v1.NotebookInitialized": ({ id, title, ownerId }) => [
     // Legacy event - convert to metadata format
-    tables.notebookMetadata.insert({
-      key: "title",
-      value: title,
-    }).onConflict("key", "replace"),
-    tables.notebookMetadata.insert({
-      key: "ownerId",
-      value: ownerId,
-    }).onConflict("key", "replace"),
-    tables.debug.insert({
-      id,
-    }).onConflict("id", "replace"),
+    tables.notebookMetadata
+      .insert({
+        key: "title",
+        value: title,
+      })
+      .onConflict("key", "replace"),
+    tables.notebookMetadata
+      .insert({
+        key: "ownerId",
+        value: ownerId,
+      })
+      .onConflict("key", "replace"),
+    tables.debug
+      .insert({
+        id,
+      })
+      .onConflict("id", "replace"),
   ],
 
   "v1.NotebookTitleChanged": ({ title }) =>
-    tables.notebookMetadata.insert({
-      key: "title",
-      value: title,
-    }).onConflict("key", "replace"),
+    tables.notebookMetadata
+      .insert({
+        key: "title",
+        value: title,
+      })
+      .onConflict("key", "replace"),
 
   "v1.NotebookMetadataSet": ({ key, value }) =>
-    tables.notebookMetadata.insert({
-      key,
-      value,
-    }).onConflict("key", "replace"),
+    tables.notebookMetadata
+      .insert({
+        key,
+        value,
+      })
+      .onConflict("key", "replace"),
 
   // Cell materializers
-  "v1.CellCreated": ({ id, cellType, position, createdBy }) =>
-    tables.cells.insert({
-      id,
-      cellType,
-      position,
-      createdBy,
-    }).onConflict("id", "ignore"),
+  "v1.CellCreated": ({ id, cellType, position, createdBy, actorId }) => [
+    tables.cells
+      .insert({
+        id,
+        cellType,
+        position,
+        createdBy,
+      })
+      .onConflict("id", "ignore"),
+    // Update presence table
+    updatePresence(actorId || createdBy, id),
+  ],
 
-  "v1.CellSourceChanged": ({ id, source }) =>
+  "v1.CellSourceChanged": ({ id, source, modifiedBy }) => [
     tables.cells.update({ source }).where({ id }),
+    // Update presence based on cell source modification
+    updatePresence(modifiedBy, id),
+  ],
 
-  "v1.CellTypeChanged": ({ id, cellType }) =>
-    tables.cells.update({ cellType }).where({ id }),
+  "v1.CellTypeChanged": ({ id, cellType, actorId }) => {
+    const ops = [];
+    ops.push(tables.cells.update({ cellType }).where({ id }));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+    return ops;
+  },
 
-  "v1.CellDeleted": ({ id }) => tables.cells.delete().where({ id }),
+  "v1.CellDeleted": ({ id, actorId }) => {
+    const ops = [];
+    ops.push(tables.cells.delete().where({ id }));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+    return ops;
+  },
 
-  "v1.CellMoved": ({ id, newPosition }) =>
-    tables.cells.update({ position: newPosition }).where({ id }),
+  "v1.CellMoved": ({ id, newPosition, actorId }) => {
+    const ops = [];
+    ops.push(tables.cells.update({ position: newPosition }).where({ id }));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+    return ops;
+  },
 
-  "v1.CellSourceVisibilityToggled": ({ id, sourceVisible }) =>
-    tables.cells.update({ sourceVisible }).where({ id }),
+  "v1.CellSourceVisibilityToggled": (
+    { id, sourceVisible, actorId },
+  ) => {
+    const ops = [];
+    ops.push(tables.cells.update({ sourceVisible }).where({ id }));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+    return ops;
+  },
 
-  "v1.CellOutputVisibilityToggled": ({ id, outputVisible }) =>
-    tables.cells.update({ outputVisible }).where({ id }),
+  "v1.CellOutputVisibilityToggled": (
+    { id, outputVisible, actorId },
+  ) => {
+    const ops = [];
+    ops.push(tables.cells.update({ outputVisible }).where({ id }));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+    return ops;
+  },
 
-  "v1.CellAiContextVisibilityToggled": ({ id, aiContextVisible }) =>
-    tables.cells.update({ aiContextVisible }).where({ id }),
+  "v1.CellAiContextVisibilityToggled": (
+    { id, aiContextVisible, actorId },
+  ) => {
+    const ops = [];
+    ops.push(tables.cells.update({ aiContextVisible }).where({ id }));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+    return ops;
+  },
+
+  "v1.PresenceSet": ({ userId, cellId }) => updatePresence(userId, cellId),
 
   // Runtime lifecycle materializers
   "v1.RuntimeSessionStarted": ({
@@ -821,16 +930,18 @@ const materializers = State.SQLite.materializers(events, {
     runtimeType,
     capabilities,
   }) =>
-    tables.runtimeSessions.insert({
-      sessionId,
-      runtimeId,
-      runtimeType,
-      status: "starting",
-      canExecuteCode: capabilities.canExecuteCode,
-      canExecuteSql: capabilities.canExecuteSql,
-      canExecuteAi: capabilities.canExecuteAi,
-      availableAiModels: capabilities.availableAiModels || null,
-    }).onConflict("sessionId", "replace"),
+    tables.runtimeSessions
+      .insert({
+        sessionId,
+        runtimeId,
+        runtimeType,
+        status: "starting",
+        canExecuteCode: capabilities.canExecuteCode,
+        canExecuteSql: capabilities.canExecuteSql,
+        canExecuteAi: capabilities.canExecuteAi,
+        availableAiModels: capabilities.availableAiModels || null,
+      })
+      .onConflict("sessionId", "replace"),
 
   "v1.RuntimeSessionStatusChanged": ({ sessionId, status }) =>
     tables.runtimeSessions
@@ -853,14 +964,17 @@ const materializers = State.SQLite.materializers(events, {
     cellId,
     executionCount,
     requestedBy,
+    actorId,
   }) => [
-    tables.executionQueue.insert({
-      id: queueId,
-      cellId,
-      executionCount,
-      requestedBy,
-      status: "pending",
-    }).onConflict("id", "ignore"),
+    tables.executionQueue
+      .insert({
+        id: queueId,
+        cellId,
+        executionCount,
+        requestedBy,
+        status: "pending",
+      })
+      .onConflict("id", "ignore"),
     // Update cell execution state
     tables.cells
       .update({
@@ -868,6 +982,8 @@ const materializers = State.SQLite.materializers(events, {
         executionCount,
       })
       .where({ id: cellId }),
+    // Update presence table
+    updatePresence(actorId || requestedBy, cellId),
   ],
 
   "v1.ExecutionAssigned": ({ queueId, runtimeSessionId }) =>
@@ -919,7 +1035,7 @@ const materializers = State.SQLite.materializers(events, {
       .where({ id: cellId }),
   ],
 
-  "v1.ExecutionCancelled": ({ queueId, cellId }) => [
+  "v1.ExecutionCancelled": ({ queueId, cellId, cancelledBy, actorId }) => [
     // Update execution queue
     tables.executionQueue
       .update({
@@ -932,6 +1048,8 @@ const materializers = State.SQLite.materializers(events, {
         executionState: "idle",
       })
       .where({ id: cellId }),
+    // Update presence table
+    updatePresence(actorId || cancelledBy, cellId),
   ],
 
   // Unified output system materializers with pending clear support
@@ -951,37 +1069,33 @@ const materializers = State.SQLite.materializers(events, {
 
     // If displayId provided, update all existing displays with same ID first
     if (displayId) {
-      ops.push(
-        ...updateExistingDisplays(
-          displayId,
-          representations,
-          ctx,
-        ),
-      );
+      ops.push(...updateExistingDisplays(displayId, representations, ctx));
     }
 
     // Always create new output (core behavior of "Added" event)
     const primaryRep = selectPrimaryRepresentation(representations);
     const primaryData = primaryRep
-      ? (primaryRep.container.type === "inline"
+      ? primaryRep.container.type === "inline"
         ? String(primaryRep.container.data || "")
-        : "")
+        : ""
       : "";
     const primaryMimeType = primaryRep ? primaryRep.mimeType : "text/plain";
 
     ops.push(
-      tables.outputs.insert({
-        id,
-        cellId,
-        outputType: "multimedia_display",
-        position,
-        displayId: displayId || null,
-        data: primaryData,
-        artifactId: null,
-        mimeType: primaryMimeType,
-        metadata: null,
-        representations,
-      }).onConflict("id", "replace"),
+      tables.outputs
+        .insert({
+          id,
+          cellId,
+          outputType: "multimedia_display",
+          position,
+          displayId: displayId || null,
+          data: primaryData,
+          artifactId: null,
+          mimeType: primaryMimeType,
+          metadata: null,
+          representations,
+        })
+        .onConflict("id", "replace"),
     );
     return ops;
   },
@@ -991,11 +1105,7 @@ const materializers = State.SQLite.materializers(events, {
     ctx,
   ) => {
     // Only update existing displays - no new output creation
-    return updateExistingDisplays(
-      displayId,
-      representations,
-      ctx,
-    );
+    return updateExistingDisplays(displayId, representations, ctx);
   },
 
   "v1.MultimediaResultOutputAdded": (
@@ -1034,18 +1144,20 @@ const materializers = State.SQLite.materializers(events, {
     }
 
     ops.push(
-      tables.outputs.insert({
-        id,
-        cellId,
-        outputType: "multimedia_result",
-        position,
-        executionCount,
-        data: primaryData,
-        artifactId: null,
-        mimeType: primaryMimeType,
-        metadata: null,
-        representations,
-      }).onConflict("id", "replace"),
+      tables.outputs
+        .insert({
+          id,
+          cellId,
+          outputType: "multimedia_result",
+          position,
+          executionCount,
+          data: primaryData,
+          artifactId: null,
+          mimeType: primaryMimeType,
+          metadata: null,
+          representations,
+        })
+        .onConflict("id", "replace"),
     );
     return ops;
   },
@@ -1065,18 +1177,20 @@ const materializers = State.SQLite.materializers(events, {
     }
 
     ops.push(
-      tables.outputs.insert({
-        id,
-        cellId,
-        outputType: "terminal",
-        position,
-        streamName,
-        data: content.type === "inline" ? String(content.data) : null,
-        artifactId: content.type === "artifact" ? content.artifactId : null,
-        mimeType: "text/plain",
-        metadata: content.metadata || null,
-        representations: null,
-      }).onConflict("id", "replace"),
+      tables.outputs
+        .insert({
+          id,
+          cellId,
+          outputType: "terminal",
+          position,
+          streamName,
+          data: content.type === "inline" ? String(content.data) : null,
+          artifactId: content.type === "artifact" ? content.artifactId : null,
+          mimeType: "text/plain",
+          metadata: content.metadata || null,
+          representations: null,
+        })
+        .onConflict("id", "replace"),
     );
     return ops;
   },
@@ -1094,9 +1208,7 @@ const materializers = State.SQLite.materializers(events, {
     const concatenatedData = (existingOutput.data || "") + newContent;
 
     return [
-      tables.outputs
-        .update({ data: concatenatedData })
-        .where({ id: outputId }),
+      tables.outputs.update({ data: concatenatedData }).where({ id: outputId }),
     ];
   },
 
@@ -1112,17 +1224,19 @@ const materializers = State.SQLite.materializers(events, {
     }
 
     ops.push(
-      tables.outputs.insert({
-        id,
-        cellId,
-        outputType: "markdown",
-        position,
-        data: content.type === "inline" ? String(content.data) : null,
-        artifactId: content.type === "artifact" ? content.artifactId : null,
-        mimeType: "text/markdown",
-        metadata: content.metadata || null,
-        representations: null,
-      }).onConflict("id", "replace"),
+      tables.outputs
+        .insert({
+          id,
+          cellId,
+          outputType: "markdown",
+          position,
+          data: content.type === "inline" ? String(content.data) : null,
+          artifactId: content.type === "artifact" ? content.artifactId : null,
+          mimeType: "text/markdown",
+          metadata: content.metadata || null,
+          representations: null,
+        })
+        .onConflict("id", "replace"),
     );
     return ops;
   },
@@ -1140,9 +1254,7 @@ const materializers = State.SQLite.materializers(events, {
     const concatenatedData = (existingOutput.data || "") + newContent;
 
     return [
-      tables.outputs
-        .update({ data: concatenatedData })
-        .where({ id: outputId }),
+      tables.outputs.update({ data: concatenatedData }).where({ id: outputId }),
     ];
   },
 
@@ -1158,32 +1270,43 @@ const materializers = State.SQLite.materializers(events, {
     }
 
     ops.push(
-      tables.outputs.insert({
-        id,
-        cellId,
-        outputType: "error",
-        position,
-        data: content.type === "inline" ? JSON.stringify(content.data) : null,
-        artifactId: content.type === "artifact" ? content.artifactId : null,
-        mimeType: "application/json",
-        metadata: content.metadata || null,
-        representations: null,
-      }).onConflict("id", "replace"),
+      tables.outputs
+        .insert({
+          id,
+          cellId,
+          outputType: "error",
+          position,
+          data: content.type === "inline" ? JSON.stringify(content.data) : null,
+          artifactId: content.type === "artifact" ? content.artifactId : null,
+          mimeType: "application/json",
+          metadata: content.metadata || null,
+          representations: null,
+        })
+        .onConflict("id", "replace"),
     );
     return ops;
   },
 
   "v1.CellOutputsCleared": ({ cellId, wait, clearedBy }) => {
+    const ops = [];
     if (wait) {
       // Store pending clear for wait=True
-      return tables.pendingClears.insert({ cellId, clearedBy }).onConflict(
-        "cellId",
-        "replace",
+      ops.push(
+        tables.pendingClears
+          .insert({ cellId, clearedBy })
+          .onConflict("cellId", "replace"),
       );
     } else {
       // Immediate clear for wait=False
-      return tables.outputs.delete().where({ cellId });
+      ops.push(tables.outputs.delete().where({ cellId }));
     }
+
+    // Add presence update if user is provided
+    if (clearedBy) {
+      ops.push(updatePresence(clearedBy, cellId));
+    }
+
+    return ops;
   },
 
   // AI materializers
@@ -1210,13 +1333,17 @@ const materializers = State.SQLite.materializers(events, {
         sqlResultVariable: resultVariable ?? null,
       })
       .where({ id: cellId }),
+
+  "v1.ActorProfileSet": ({ id, type, displayName, avatar }) =>
+    tables.actors
+      .insert({
+        id,
+        type,
+        displayName,
+        avatar: avatar ?? null,
+      })
+      .onConflict("id", "replace"),
 });
-
-const state = State.SQLite.makeState({ tables, materializers });
-
-export const schema = makeSchema({ events, state });
-
-export type Store = LiveStore<typeof schema>;
 
 // Type exports derived from the actual table definitions - full type inference works here!
 export type NotebookMetadataData = typeof tables.notebookMetadata.Type;
@@ -1324,11 +1451,7 @@ export function isErrorOutput(data: unknown): data is ErrorOutputData {
 }
 
 export function isRichOutput(data: unknown): data is RichOutputData {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    !isErrorOutput(data)
-  );
+  return typeof data === "object" && data !== null && !isErrorOutput(data);
 }
 
 /**
@@ -1379,7 +1502,7 @@ export function isAiToolResultData(data: unknown): data is AiToolResultData {
     "tool_call_id" in data &&
     "status" in data &&
     typeof (data as AiToolResultData).tool_call_id === "string" &&
-    (typeof (data as AiToolResultData).status === "string") &&
+    typeof (data as AiToolResultData).status === "string" &&
     ["success", "error"].includes((data as AiToolResultData).status)
   );
 }
@@ -1395,3 +1518,8 @@ export const AI_TOOL_CALL_MIME_TYPE =
  */
 export const AI_TOOL_RESULT_MIME_TYPE =
   "application/vnd.anode.aitool.result+json" as const;
+
+// Pre 0.7.1 -- these types should get created in clients
+// const state = State.SQLite.makeState({ tables, materializers });
+// export const schema = makeSchema({ events, state });
+// export type Store = LiveStore<typeof schema>;

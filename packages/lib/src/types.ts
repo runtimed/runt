@@ -5,12 +5,13 @@
 // and adding runtime-specific extensions.
 
 import type { Store } from "npm:@livestore/livestore";
-import type {
-  CellData,
-  ExecutionQueueData,
-  OutputType,
-  schema,
-} from "@runt/schema";
+import type { CellData, ExecutionQueueData, OutputType } from "@runt/schema";
+import { events, materializers, tables } from "@runt/schema";
+import { makeSchema, State } from "npm:@livestore/livestore";
+
+// Create schema locally
+const state = State.SQLite.makeState({ tables, materializers });
+const schema = makeSchema({ events, state });
 
 /**
  * Raw output data format accepted by context.display() methods

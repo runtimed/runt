@@ -29,6 +29,9 @@ jobs:
       - name: Type check
         run: deno task check
 
+      - name: Type check TUI
+        run: deno task check:tui
+
   test:
     name: Tests
     runs-on: ubuntu-latest

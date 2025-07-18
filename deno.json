@@ -4,19 +4,22 @@
     "./packages/schema",
     "./packages/lib",
     "./packages/pyodide-runtime-agent",
-    "./packages/python-runtime-agent"
+    "./packages/python-runtime-agent",
+    "./packages/tui"
   ],
   "imports": {
     "@runt/ai": "./packages/ai/mod.ts",
     "@runt/schema": "./packages/schema/mod.ts",
     "@runt/lib": "./packages/lib/mod.ts",
     "@runt/pyodide-runtime-agent": "./packages/pyodide-runtime-agent/src/mod.ts",
-    "@runt/python-runtime-agent": "./packages/python-runtime-agent/mod.ts"
+    "@runt/python-runtime-agent": "./packages/python-runtime-agent/mod.ts",
+    "@runt/tui": "./packages/tui/mod.ts"
   },
   "lint": {
     "rules": {
       "exclude": ["no-slow-types"]
-    }
+    },
+    "exclude": ["packages/tui/"]
   },
   "lock": false,
   "tasks": {
@@ -30,12 +33,14 @@
     "test:pyodide": "RUNT_LOG_LEVEL=ERROR RUNT_DISABLE_CONSOLE_LOGS=true deno test --allow-env --allow-net --allow-read --allow-write --allow-sys packages/pyodide-runtime-agent/test/",
     "test:pyodide:integration": "RUNT_LOG_LEVEL=ERROR RUNT_DISABLE_CONSOLE_LOGS=true deno test --allow-env --allow-net --allow-read --allow-write --allow-sys packages/pyodide-runtime-agent/test/in-memory-integration.test.ts",
     "integration": "RUNT_LOG_LEVEL=ERROR RUNT_DISABLE_CONSOLE_LOGS=true deno test --allow-env --allow-net --allow-read --allow-write --allow-sys packages/pyodide-runtime-agent/test/simple-integration.test.ts packages/pyodide-runtime-agent/test/in-memory-integration.test.ts",
-    "check": "deno check packages/*/mod.ts packages/*/src/*.ts",
+    "check": "deno check $(find packages -name '*.ts' -not -path '*/tui/*' | tr '\n' ' ')",
+    "check:tui": "deno check packages/tui/mod.ts $(find packages/tui -name '*.ts' -o -name '*.tsx' | tr '\n' ' ') --config packages/tui/deno.json",
     "fmt": "deno fmt",
     "fmt:check": "deno fmt --check",
     "lint": "deno lint",
     "ci": "deno task fmt:check && deno task lint && deno task check && deno task test",
-    "publish:dry-run": "cd packages/schema && deno publish --dry-run --allow-slow-types && cd ../lib && deno publish --dry-run --allow-slow-types && cd ../pyodide-runtime-agent && deno publish --dry-run --allow-slow-types",
+    "ci:full": "deno task fmt:check && deno task lint && deno task check && deno task check:tui && deno task test",
+    "publish:dry-run": "cd packages/schema && deno publish --dry-run --allow-slow-types && cd ../lib && deno publish --dry-run --allow-slow-types && cd ../pyodide-runtime-agent && deno publish --dry-run --allow-slow-types && cd ../tui && deno publish --dry-run --allow-slow-types",
     "install:reload": "deno install --reload"
   }
 }
