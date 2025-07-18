@@ -22,6 +22,8 @@ import { OpenAIClient } from "./openai-client.ts";
 import { RuntOllamaClient } from "./ollama-client.ts";
 import type { NotebookTool } from "./tool-registry.ts";
 
+export type { NotebookTool };
+
 // Import and export AI-specific media utilities
 import {
   type AIMediaBundle,
@@ -454,8 +456,12 @@ const DEFAULT_MODELS = {
   ollama: "llama3.1",
 } as const;
 
+export type AIExecutionContext = ExecutionContext & {
+  sendWorkerMessage?: (type: string, data: unknown) => Promise<unknown>;
+};
+
 export async function executeAI(
-  context: ExecutionContext,
+  context: AIExecutionContext,
   notebookContext: NotebookContextData,
   logger: Logger,
   store: Store,
@@ -468,7 +474,6 @@ export async function executeAI(
     result: _result,
     error,
     abortSignal,
-    sendWorkerMessage,
   } = context;
   const prompt = cell.source?.trim() || "";
 

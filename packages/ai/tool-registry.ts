@@ -449,7 +449,9 @@ export async function handleToolCallWithResult(
           throw new Error(`Failed to execute tool ${name}: ${String(error)}`);
         }
       } else {
-        logger.warn("Unknown AI tool and no worker available", { toolName: name });
+        logger.warn("Unknown AI tool and no worker available", {
+          toolName: name,
+        });
         throw new Error(`Unknown tool: ${name}`);
       }
   }

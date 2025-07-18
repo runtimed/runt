@@ -24,6 +24,7 @@ import {
   ensureTextPlainFallback,
   executeAI,
   gatherNotebookContext,
+  type NotebookTool,
 } from "@runt/ai";
 
 /**
@@ -343,7 +344,10 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         sendWorkerMessage: this.sendWorkerMessage.bind(this),
       };
 
-      const notebookTools = await this.sendWorkerMessage("get_registered_tools", {});
+      const notebookTools = await this.sendWorkerMessage(
+        "get_registered_tools",
+        {},
+      ) as NotebookTool[];
 
       try {
         return await executeAI(
