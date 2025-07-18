@@ -90,6 +90,7 @@ export class RuntimeAgent {
           runtime: true,
           runtimeId: this.config.runtimeId,
           sessionId: this.config.sessionId,
+          clientId: this.config.runtimeId,
         },
       });
 
