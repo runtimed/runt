@@ -1,6 +1,6 @@
 {
   "name": "@runt/tui",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Terminal notebook viewer for Runt runtime agents",
   "license": "BSD-3-Clause",
   "exports": "./mod.ts",
@@ -12,9 +12,9 @@
     "lint": "deno lint"
   },
   "imports": {
-    "@runt/schema": "jsr:@runt/schema@^0.7.1",
-    "@runt/lib": "jsr:@runt/lib@^0.7.1",
-    "@runt/ai": "jsr:@runt/ai@^0.7.1",
+    "@runt/schema": "jsr:@runt/schema@^0.7.2",
+    "@runt/lib": "jsr:@runt/lib@^0.7.2",
+    "@runt/ai": "jsr:@runt/ai@^0.7.2",
     "@inkjs/ui": "npm:@inkjs/ui@^2.0.0",
     "@livestore/adapter-node": "npm:@livestore/adapter-node@^0.3.1",
     "@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
