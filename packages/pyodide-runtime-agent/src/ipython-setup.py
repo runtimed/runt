@@ -433,15 +433,16 @@ js_clear_callback = default_clear_callback
 # Set up interrupt patches
 setup_interrupt_patches()
 
+# Setup tool registry
+
 import micropip
 
-await micropip.install("openai-function-calling")
 
-from openai_function_calling import FunctionInferrer
-from typing import Callable
+import json
+import warnings
 from dataclasses import dataclass
 from typing import Any
-import json
+from typing import Callable
 
 
 @dataclass
@@ -461,7 +462,19 @@ _registry = {}
 
 
 def tool(func) -> Callable:
-    schema = FunctionInferrer.infer_from_function_reference(func).to_json_schema()
+    try:
+        await micropip.install("openai-function-calling")
+        from openai_function_calling import FunctionInferrer
+    except Exception as e:
+        warnings.warn(f"Failed to install openai-function-calling: {e}")
+        return func
+
+    try:
+        schema = FunctionInferrer.infer_from_function_reference(func).to_json_schema()
+    except Exception as e:
+        warnings.warn(f"Failed to infer function schema: {e}")
+        return func
+
     entry = RegisteredFunction(
         name=func.__name__,
         _func=func,
