@@ -358,6 +358,22 @@ export const tables = {
       avatar: State.SQLite.text({ nullable: true }),
     },
   }),
+
+  // Tool approvals for AI tool calls
+  toolApprovals: State.SQLite.table({
+    name: "toolApprovals",
+    columns: {
+      toolCallId: State.SQLite.text({ primaryKey: true }),
+      cellId: State.SQLite.text(),
+      toolName: State.SQLite.text(),
+      status: State.SQLite.text({
+        schema: Schema.Literal("pending", "approved_once", "approved_always", "denied"),
+      }),
+      approvedBy: State.SQLite.text({ nullable: true }),
+      requestedAt: State.SQLite.datetime(),
+      respondedAt: State.SQLite.datetime({ nullable: true }),
+    },
+  }),
 };
 
 // Events describe notebook and cell changes
@@ -702,6 +718,28 @@ export const events = {
       type: Schema.Literal("human", "runtime_agent"),
       displayName: Schema.String,
       avatar: Schema.optional(Schema.String),
+    }),
+  }),
+
+  // Tool approval events
+  toolApprovalRequested: Events.synced({
+    name: "v1.ToolApprovalRequested",
+    schema: Schema.Struct({
+      toolCallId: Schema.String,
+      cellId: Schema.String,
+      toolName: Schema.String,
+      arguments: Schema.Record({ key: Schema.String, value: Schema.Any }),
+      requestedAt: Schema.Date,
+    }),
+  }),
+
+  toolApprovalResponded: Events.synced({
+    name: "v1.ToolApprovalResponded",
+    schema: Schema.Struct({
+      toolCallId: Schema.String,
+      status: Schema.Literal("approved_once", "approved_always", "denied"),
+      approvedBy: Schema.String,
+      respondedAt: Schema.Date,
     }),
   }),
 };
@@ -1343,6 +1381,29 @@ export const materializers = State.SQLite.materializers(events, {
         avatar: avatar ?? null,
       })
       .onConflict("id", "replace"),
+
+  // Tool approval materializers
+  "v1.ToolApprovalRequested": ({ toolCallId, cellId, toolName, arguments: args, requestedAt }) =>
+    tables.toolApprovals
+      .insert({
+        toolCallId,
+        cellId,
+        toolName,
+        status: "pending",
+        approvedBy: null,
+        requestedAt,
+        respondedAt: null,
+      })
+      .onConflict("toolCallId", "replace"),
+
+  "v1.ToolApprovalResponded": ({ toolCallId, status, approvedBy, respondedAt }) =>
+    tables.toolApprovals
+      .update({
+        status,
+        approvedBy,
+        respondedAt,
+      })
+      .where({ toolCallId }),
 });
 
 // Type exports derived from the actual table definitions - full type inference works here!

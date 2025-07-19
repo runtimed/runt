@@ -233,6 +233,94 @@ export async function handleToolCallWithResult(
 ): Promise<string> {
   const { name, arguments: args } = toolCall;
 
+  // Check if tool requires approval - all tools require approval
+  const requiresApproval = true;
+  
+  if (requiresApproval) {
+    // Check if we already have an approval for this specific tool call
+    let existingApproval = store.query(
+      tables.toolApprovals.select().where({ toolCallId: toolCall.id }),
+    )[0];
+
+    // If no specific approval, check for a blanket "always" approval for this tool
+    if (!existingApproval) {
+      const alwaysApprovals = store.query(
+        tables.toolApprovals.select().where({ 
+          toolName: name, 
+          status: "approved_always" 
+        }),
+      );
+      
+      if (alwaysApprovals.length > 0) {
+        // Use the blanket approval
+        existingApproval = alwaysApprovals[0];
+      }
+    }
+
+    if (!existingApproval || existingApproval.status === "pending") {
+      // Request approval if we don't have one
+      if (!existingApproval) {
+        logger.info("Requesting tool approval", { toolName: name, toolCallId: toolCall.id });
+        
+        store.commit(
+          events.toolApprovalRequested({
+            toolCallId: toolCall.id,
+            cellId: currentCell.id,
+            toolName: name,
+            arguments: args,
+            requestedAt: new Date(),
+          }),
+        );
+      }
+
+      // Wait for approval with polling
+      const approvalPromise = new Promise<string>((resolve, reject) => {
+        const cleanup = () => {
+          if (timeout) clearTimeout(timeout);
+          if (pollInterval) clearInterval(pollInterval);
+        };
+
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error(`Tool approval timeout after 60 seconds for ${name}`));
+        }, 60000); // 60 second timeout
+
+        // Poll for approval status
+        const pollInterval = setInterval(() => {
+          const approval = store.query(
+            tables.toolApprovals.select().where({ toolCallId: toolCall.id }),
+          )[0];
+
+          if (approval && approval.status !== "pending") {
+            cleanup();
+
+            if (approval.status === "denied") {
+              reject(new Error(`Tool call denied by user: ${name}`));
+              return;
+            }
+
+            if (approval.status === "approved_once" || approval.status === "approved_always") {
+              resolve("approved");
+              return;
+            }
+          }
+        }, 500); // Poll every 500ms
+      });
+
+      try {
+        await approvalPromise;
+      } catch (error) {
+        logger.error("Tool approval failed", { toolName: name, error });
+        throw error;
+      }
+    } else if (existingApproval.status === "denied") {
+      logger.warn("Tool call denied by previous approval", { toolName: name });
+      throw new Error(`Tool call denied: ${name}`);
+    }
+
+    logger.info("Tool approved, proceeding with execution", { toolName: name });
+  }
+
   // Handle MCP tools first (with mcp__ prefix)
   if (name.startsWith("mcp__")) {
     try {
