@@ -5,7 +5,7 @@
  * Handles PNG image processing and submission to the existing artifact backend.
  */
 
-import { encodeBase64, decodeBase64 } from "@std/encoding/base64";
+import { decodeBase64, encodeBase64 } from "@std/encoding/base64";
 
 export interface ArtifactSubmissionOptions {
   notebookId: string;
@@ -29,7 +29,7 @@ export class ArtifactClient {
    */
   async submitPng(
     pngData: Uint8Array,
-    options: ArtifactSubmissionOptions
+    options: ArtifactSubmissionOptions,
   ): Promise<ArtifactSubmissionResult> {
     if (!this.isPngData(pngData)) {
       throw new Error("Invalid PNG data: missing PNG header");
@@ -46,7 +46,7 @@ export class ArtifactClient {
    */
   async submitPngFromBase64(
     base64Data: string,
-    options: ArtifactSubmissionOptions
+    options: ArtifactSubmissionOptions,
   ): Promise<ArtifactSubmissionResult> {
     try {
       const pngData = decodeBase64(base64Data);
@@ -62,10 +62,10 @@ export class ArtifactClient {
    */
   async submitArtifact(
     data: Uint8Array,
-    options: ArtifactSubmissionOptions
+    options: ArtifactSubmissionOptions,
   ): Promise<ArtifactSubmissionResult> {
     const url = `${this.baseUrl}/api/artifacts`;
-    
+
     const headers: Record<string, string> = {
       "authorization": `Bearer ${options.authToken}`,
       "x-notebook-id": options.notebookId,
@@ -83,8 +83,12 @@ export class ArtifactClient {
       });
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: "Unknown error" }));
-        throw new Error(`Artifact submission failed: ${error.error || response.statusText}`);
+        const error = await response.json().catch(() => ({
+          error: "Unknown error",
+        }));
+        throw new Error(
+          `Artifact submission failed: ${error.error || response.statusText}`,
+        );
       }
 
       const result = await response.json();
@@ -102,10 +106,10 @@ export class ArtifactClient {
    */
   async retrieveArtifact(artifactId: string): Promise<Uint8Array> {
     const url = `${this.baseUrl}/api/artifacts/${artifactId}`;
-    
+
     try {
       const response = await fetch(url);
-      
+
       if (!response.ok) {
         if (response.status === 404) {
           throw new Error(`Artifact not found: ${artifactId}`);
@@ -128,7 +132,7 @@ export class ArtifactClient {
    */
   async retrievePngAsBase64(artifactId: string): Promise<string> {
     const data = await this.retrieveArtifact(artifactId);
-    
+
     if (!this.isPngData(data)) {
       throw new Error(`Artifact ${artifactId} is not a valid PNG image`);
     }
@@ -148,16 +152,16 @@ export class ArtifactClient {
    */
   private isPngData(data: Uint8Array): boolean {
     if (data.length < 8) return false;
-    
+
     // PNG signature: 89 50 4E 47 0D 0A 1A 0A
     const pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-    
+
     for (let i = 0; i < 8; i++) {
       if (data[i] !== pngSignature[i]) {
         return false;
       }
     }
-    
+
     return true;
   }
 }
@@ -180,7 +184,7 @@ export class PngProcessor {
    */
   async processPngData(
     source: Uint8Array | string,
-    options: ArtifactSubmissionOptions
+    options: ArtifactSubmissionOptions,
   ): Promise<ArtifactSubmissionResult> {
     if (typeof source === "string") {
       // Assume base64 encoded
@@ -195,12 +199,14 @@ export class PngProcessor {
    * Validate PNG dimensions and file size
    */
   validatePng(data: Uint8Array, maxSizeBytes: number = 10 * 1024 * 1024): void {
-    if (!this.client['isPngData'](data)) {
+    if (!this.client["isPngData"](data)) {
       throw new Error("Invalid PNG data");
     }
 
     if (data.length > maxSizeBytes) {
-      throw new Error(`PNG file too large: ${data.length} bytes (max: ${maxSizeBytes})`);
+      throw new Error(
+        `PNG file too large: ${data.length} bytes (max: ${maxSizeBytes})`,
+      );
     }
 
     // Could add more validation here:
