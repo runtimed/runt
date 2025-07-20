@@ -5,6 +5,7 @@ import { makeAdapter } from "@livestore/adapter-node";
 import { makeCfSync } from "@livestore/sync-cf";
 import { events, materializers, tables } from "@runt/schema";
 import { makeSchema, State } from "@livestore/livestore";
+import { useStore } from "@livestore/react";
 import { NotebookRenderer } from "./components/notebook/NotebookRenderer.tsx";
 import { LoadingIndicator } from "./components/layout/LoadingIndicator.tsx";
 import { ErrorDisplay } from "./components/layout/ErrorDisplay.tsx";
@@ -23,6 +24,7 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
   const cleanupRef = useRef<(() => void) | null>(null);
   const errorCountRef = useRef(0);
   const lastErrorTimeRef = useRef(0);
+  const presenceAnnouncedRef = useRef(false);
   const { exitApp } = useExitHandler({
     onExit: () => {
       console.log("Exiting due to fatal error...");
@@ -166,11 +168,46 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
       renderError={renderError}
       renderShutdown={renderShutdown}
     >
-      <NotebookRenderer
+      <NotebookWithPresence
         notebookId={notebookId}
         syncUrl={syncUrl}
+        presenceAnnouncedRef={presenceAnnouncedRef}
       />
     </LiveStoreProvider>
+  );
+};
+
+const NotebookWithPresence: React.FC<{
+  notebookId: string;
+  syncUrl: string;
+  presenceAnnouncedRef: React.MutableRefObject<boolean>;
+}> = ({ notebookId, syncUrl, presenceAnnouncedRef }) => {
+  const { store } = useStore();
+
+  // Announce presence when TUI connects
+  React.useEffect(() => {
+    if (!presenceAnnouncedRef.current && store) {
+      console.log("📍 Announcing TUI presence...");
+      try {
+        store.commit(
+          events.presenceSet({
+            userId: "tui-client",
+            cellId: undefined, // TUI doesn't focus on specific cells
+          }),
+        );
+        presenceAnnouncedRef.current = true;
+        console.log("✅ TUI presence announced");
+      } catch (error) {
+        console.error("❌ Failed to announce TUI presence:", error);
+      }
+    }
+  }, [store, presenceAnnouncedRef]);
+
+  return (
+    <NotebookRenderer
+      notebookId={notebookId}
+      syncUrl={syncUrl}
+    />
   );
 };
 
