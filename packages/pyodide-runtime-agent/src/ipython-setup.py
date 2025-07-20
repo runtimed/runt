@@ -25,8 +25,8 @@ from IPython.core.history import HistoryManager
 import matplotlib
 import matplotlib.pyplot as plt
 
-# Configure matplotlib for rich SVG output
-matplotlib.use("svg")
+# Configure matplotlib for jupyter-style inline output
+matplotlib.use("module://matplotlib_pyodide.html5_canvas_backend")
 plt.rcParams["figure.dpi"] = 100
 plt.rcParams["savefig.dpi"] = 100
 plt.rcParams["figure.facecolor"] = "white"
@@ -199,31 +199,43 @@ shell = InteractiveShell.instance(
 # Override history manager
 shell.history_manager = LiteHistoryManager(shell=shell, parent=shell)
 
-# Enhanced matplotlib show function with SVG capture
+# Enhanced matplotlib show function with inline image capture
 _original_show = plt.show
 
 
 def _capture_matplotlib_show(block=None):
-    """Capture matplotlib plots as SVG and send via display system"""
+    """Capture matplotlib plots as images and send via display system"""
     if plt.get_fignums():
         fig = plt.gcf()
-        svg_buffer = io.StringIO()
+        img_buffer = io.BytesIO()
 
         try:
             fig.savefig(
-                svg_buffer,
-                format="svg",
+                img_buffer,
+                format="png",
                 bbox_inches="tight",
                 facecolor="white",
                 edgecolor="none",
+                dpi=plt.rcParams["savefig.dpi"]
             )
-            svg_content = svg_buffer.getvalue()
-            svg_buffer.close()
+            img_content = img_buffer.getvalue()
+            img_buffer.close()
 
-            # Use IPython's display system
-            from IPython.display import display, SVG
+            # Send raw image data directly via display system
+            display_data = {
+                "image/png": img_content,  # Raw bytes, not base64
+            }
+            
+            metadata = {
+                "image/png": {
+                    "width": fig.get_figwidth() * fig.dpi,
+                    "height": fig.get_figheight() * fig.dpi,
+                }
+            }
 
-            display(SVG(svg_content))
+            # Use IPython's display system with raw data
+            from IPython.display import display
+            display(display_data, raw=True, metadata=metadata)
 
             plt.clf()
         except Exception as e:
