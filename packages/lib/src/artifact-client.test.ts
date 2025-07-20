@@ -2,7 +2,7 @@
  * Tests for the Artifact Client
  */
 
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { encodeBase64 } from "@std/encoding/base64";
 import { ArtifactClient, createArtifactClient, PngProcessor } from "./artifact-client.ts";
 
@@ -274,8 +274,8 @@ Deno.test("PngProcessor", async (t) => {
     const client = createArtifactClient();
     const processor = new PngProcessor(client);
     
-    assertRejects(
-      () => Promise.resolve(processor.validatePng(invalidPngData)),
+    assertThrows(
+      () => processor.validatePng(invalidPngData),
       Error,
       "Invalid PNG data"
     );
@@ -285,8 +285,8 @@ Deno.test("PngProcessor", async (t) => {
     const client = createArtifactClient();
     const processor = new PngProcessor(client);
     
-    assertRejects(
-      () => Promise.resolve(processor.validatePng(validPngData, 10)), // 10 byte limit
+    assertThrows(
+      () => processor.validatePng(validPngData, 10), // 10 byte limit
       Error,
       "PNG file too large"
     );

@@ -52,7 +52,8 @@ export class ArtifactClient {
       const pngData = decodeBase64(base64Data);
       return this.submitPng(pngData, options);
     } catch (error) {
-      throw new Error(`Failed to decode base64 PNG data: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to decode base64 PNG data: ${message}`);
     }
   }
 

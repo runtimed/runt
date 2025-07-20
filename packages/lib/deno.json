@@ -16,6 +16,11 @@
   "imports": {
     "@runt/schema": "jsr:@runt/schema@^0.7.3",
     "@std/cli": "jsr:@std/cli@^1.0.0",
+    "@std/assert": "jsr:@std/assert@^1.0.0",
+    "@std/crypto": "jsr:@std/crypto@^1.0.0",
+    "@std/encoding": "jsr:@std/encoding@^1.0.0",
+    "@std/fs": "jsr:@std/fs@^1.0.0",
+    "@std/path": "jsr:@std/path@^1.0.0",
     "npm:@livestore/adapter-node": "npm:@livestore/adapter-node@^0.3.1",
     "npm:@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
     "npm:@livestore/sync-cf": "npm:@livestore/sync-cf@^0.3.1",
