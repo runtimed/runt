@@ -338,12 +338,20 @@ export class RuntimeAgent {
             const logger = createLogger(`${this.config.runtimeType}-agent`);
 
             // Log cell count for sync debugging
-            const allCells = this.store.query(tables.cells.select());
-            logger.info("Runtime sync status", {
-              pendingExecutions: entries.length,
-              totalCells: allCells.length,
-              cellIds: allCells.map((c) => c.id),
-            });
+            try {
+              const allCells = this.store.query(tables.cells.select());
+              logger.info("Runtime sync status", {
+                pendingExecutions: entries.length,
+                totalCells: allCells.length,
+                cellIds: allCells.map((c) => c.id),
+              });
+            } catch (error) {
+              // Mask LiveStore errors to prevent interference with runtime execution
+              logger.debug("LiveStore query failed for sync status", {
+                error: error instanceof Error ? error.message : String(error),
+                pendingExecutions: entries.length,
+              });
+            }
 
             logger.debug("Pending executions", {
               count: entries.length,
@@ -352,24 +360,33 @@ export class RuntimeAgent {
           }
 
           setTimeout(() => {
-            const activeRuntimes = this.store.query(activeRuntimesQuery$);
-            const ourRuntime = activeRuntimes.find((r: RuntimeSessionData) =>
-              r.sessionId === this.config.sessionId
-            );
+            let activeRuntimes: readonly RuntimeSessionData[] = [];
+            let ourRuntime: RuntimeSessionData | undefined;
+
+            try {
+              activeRuntimes = this.store.query(activeRuntimesQuery$);
+              ourRuntime = activeRuntimes.find((r: RuntimeSessionData) =>
+                r.sessionId === this.config.sessionId
+              );
+            } catch (error) {
+              // Mask LiveStore errors to prevent interference with runtime execution
+              const logger = createLogger(`${this.config.runtimeType}-agent`);
+              logger.debug("LiveStore query failed for active runtimes", {
+                error: error instanceof Error ? error.message : String(error),
+                sessionId: this.config.sessionId,
+              });
+              return;
+            }
 
             if (!ourRuntime) return;
 
             // Try to claim first pending execution
             const firstPending = entries[0];
             if (firstPending && firstPending.status === "pending") {
-              try {
-                this.store.commit(events.executionAssigned({
-                  queueId: firstPending.id,
-                  runtimeSessionId: this.config.sessionId,
-                }));
-              } catch (_error) {
-                // Silently fail - another runtime may have claimed it
-              }
+              this.store.commit(events.executionAssigned({
+                queueId: firstPending.id,
+                runtimeSessionId: this.config.sessionId,
+              }));
             }
           }, 0);
         },
@@ -486,10 +503,24 @@ export class RuntimeAgent {
     const executionStartTime = new Date();
 
     // Get cell data
-    const cells = this.store.query(
-      tables.cells.select().where({ id: queueEntry.cellId }),
-    );
-    const cell = cells[0] as CellData;
+    let cell: CellData;
+    try {
+      const cells = this.store.query(
+        tables.cells.select().where({ id: queueEntry.cellId }),
+      );
+      cell = cells[0] as CellData;
+    } catch (error) {
+      // Mask LiveStore errors but still need to handle missing cell
+      const logger = createLogger(`${this.config.runtimeType}-agent`);
+      logger.debug("LiveStore query failed for cell data", {
+        error: error instanceof Error ? error.message : String(error),
+        cellId: queueEntry.cellId,
+      });
+      this.activeExecutions.delete(queueEntry.id);
+      throw new Error(
+        `Failed to query cell ${queueEntry.cellId}: LiveStore error`,
+      );
+    }
 
     if (!cell) {
       this.activeExecutions.delete(queueEntry.id);
@@ -672,21 +703,39 @@ export class RuntimeAgent {
 
       // Append to existing markdown output (for streaming AI responses)
       appendMarkdown: (outputId: string, content: string) => {
-        this.store.commit(events.markdownOutputAppended({
-          outputId,
-          content: {
-            type: "inline",
-            data: content,
-          },
-        }));
+        try {
+          this.store.commit(events.markdownOutputAppended({
+            outputId,
+            content: {
+              type: "inline",
+              data: content,
+            },
+          }));
+        } catch (error) {
+          // Mask LiveStore errors to prevent interference with runtime execution
+          const logger = createLogger(`${this.config.runtimeType}-agent`);
+          logger.debug("LiveStore commit failed for appendMarkdown output", {
+            error: error instanceof Error ? error.message : String(error),
+            outputId,
+          });
+        }
       },
 
       clear: (wait: boolean = false) => {
-        this.store.commit(events.cellOutputsCleared({
-          cellId: cell.id,
-          wait,
-          clearedBy: `runtime-${this.config.runtimeId}`,
-        }));
+        try {
+          this.store.commit(events.cellOutputsCleared({
+            cellId: cell.id,
+            wait,
+            clearedBy: `runtime-${this.config.runtimeId}`,
+          }));
+        } catch (error) {
+          // Mask LiveStore errors to prevent interference with runtime execution
+          const logger = createLogger(`${this.config.runtimeType}-agent`);
+          logger.debug("LiveStore commit failed for clear output", {
+            error: error instanceof Error ? error.message : String(error),
+            cellId: cell.id,
+          });
+        }
 
         if (!wait) {
           outputPosition = 0;
@@ -696,12 +745,22 @@ export class RuntimeAgent {
 
     try {
       // Mark execution as started
-      this.store.commit(events.executionStarted({
-        queueId: queueEntry.id,
-        cellId: queueEntry.cellId,
-        runtimeSessionId: this.config.sessionId,
-        startedAt: executionStartTime,
-      }));
+      try {
+        this.store.commit(events.executionStarted({
+          queueId: queueEntry.id,
+          cellId: queueEntry.cellId,
+          runtimeSessionId: this.config.sessionId,
+          startedAt: executionStartTime,
+        }));
+      } catch (error) {
+        // Mask LiveStore errors to prevent interference with runtime execution
+        const logger = createLogger(`${this.config.runtimeType}-agent`);
+        logger.debug("LiveStore commit failed for executionStarted", {
+          error: error instanceof Error ? error.message : String(error),
+          queueId: queueEntry.id,
+          cellId: queueEntry.cellId,
+        });
+      }
 
       // Clear previous outputs (immediate clear)
       context.clear(false);
@@ -718,14 +777,24 @@ export class RuntimeAgent {
       const executionDurationMs = executionEndTime.getTime() -
         executionStartTime.getTime();
 
-      this.store.commit(events.executionCompleted({
-        queueId: queueEntry.id,
-        cellId: queueEntry.cellId,
-        status: result.success ? "success" : "error",
-        error: result.error,
-        completedAt: executionEndTime,
-        executionDurationMs,
-      }));
+      try {
+        this.store.commit(events.executionCompleted({
+          queueId: queueEntry.id,
+          cellId: queueEntry.cellId,
+          status: result.success ? "success" : "error",
+          error: result.error,
+          completedAt: executionEndTime,
+          executionDurationMs,
+        }));
+      } catch (error) {
+        // Mask LiveStore errors to prevent interference with runtime execution
+        const logger = createLogger(`${this.config.runtimeType}-agent`);
+        logger.debug("LiveStore commit failed for executionCompleted", {
+          error: error instanceof Error ? error.message : String(error),
+          queueId: queueEntry.id,
+          cellId: queueEntry.cellId,
+        });
+      }
 
       logger.debug("Execution completed", {
         executionId: queueEntry.id,

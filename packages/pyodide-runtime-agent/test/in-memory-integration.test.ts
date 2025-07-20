@@ -66,7 +66,7 @@ Deno.test({
     await t.step("can execute Python code and get results", async () => {
       if (!agent) throw new Error("Agent not started");
 
-      console.log("📊 Testing complete execution pipeline...");
+      // Testing complete execution pipeline
 
       // Create notebook
       const notebookId = agent.config.notebookId;
@@ -104,7 +104,7 @@ Deno.test({
         requestedBy: "test-user",
       }));
 
-      console.log("📊 Waiting for agent to process execution...");
+      // Waiting for agent to process execution
 
       // Wait for execution to complete
       await delay(3000);
@@ -118,12 +118,12 @@ Deno.test({
         tables.outputs.select().where({ cellId }),
       ));
 
-      console.log(`📊 Queue status: ${queueEntries[0]?.status}`);
-      console.log(`📊 Outputs found: ${outputs.length}`);
+      // Queue status: ${queueEntries[0]?.status}
+      // Outputs found: ${outputs.length}
 
       if (outputs.length > 0) {
-        console.log(`📊 Output type: ${outputs[0]?.outputType}`);
-        console.log(`📊 Output data: ${JSON.stringify(outputs[0]?.data)}`);
+        // Output type: ${outputs[0]?.outputType}
+        // Output data: ${JSON.stringify(outputs[0]?.data)}
       }
 
       // Verify execution worked in pure in-memory mode
@@ -150,7 +150,7 @@ Deno.test({
         "3 * 7 should equal 21",
       );
 
-      console.log("✅ Complete integration test successful!");
+      // Complete integration test successful
     });
   } finally {
     // Always cleanup

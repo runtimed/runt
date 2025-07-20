@@ -1,5 +1,5 @@
 import stripAnsi from "strip-ansi";
-import type OpenAI from "@openai/openai";
+import OpenAI from "@openai/openai";
 
 import type {
   AiModel,
@@ -425,6 +425,43 @@ export async function discoverAvailableAiModels(): Promise<AiModel[]> {
     );
   }
 
+  // Discover Groq models
+  if (Deno.env.get("GROQ_API_KEY")) {
+    const groqModels: AiModel[] = [
+      {
+        provider: "groq",
+        name: "moonshotai/kimi-k2-instruct",
+        displayName: "Kimi K2 Instruct",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "llama3-8b-8192",
+        displayName: "Llama 3.1 8B",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "llama3-70b-8192",
+        displayName: "Llama 3.1 70B",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "mixtral-8x7b-32768",
+        displayName: "Mixtral 8x7B",
+        capabilities: ["completion", "tools"],
+      },
+      {
+        provider: "groq",
+        name: "gemma2-9b-it",
+        displayName: "Gemma 2 9B",
+        capabilities: ["completion", "tools"],
+      },
+    ];
+    allModels.push(...groqModels);
+  }
+
   // Discover Ollama models
   const ollamaHost = Deno.env.get("OLLAMA_HOST") || "http://localhost:11434";
   const ollamaClient = new RuntOllamaClient({
@@ -633,6 +670,199 @@ The system will automatically pull models if they're not available locally.`;
           "anode/ollama_host": ollamaHost,
         });
       }
+    } else if (provider === "groq") {
+      // Use Groq provider with OpenAI-compatible client
+      const groqClient = new OpenAI({
+        apiKey: Deno.env.get("GROQ_API_KEY"),
+        baseURL: "https://api.groq.com/openai/v1",
+      });
+
+      const conversationMessages = buildConversationMessages(
+        notebookContext,
+        "You are an AI assistant in a collaborative notebook environment. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You can also execute code yourself using tool calls. Use the visible outputs and your execution capabilities to help analyze data and answer questions.",
+        prompt,
+      );
+
+      logger.debug("Conversation messages for Groq", {
+        cellId: cell.id,
+        messageCount: conversationMessages.length,
+        provider: "groq",
+        model,
+      });
+
+      const generateAgenticResponse = async (
+        messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+        options: {
+          model: string;
+          provider: string;
+          enableTools: boolean;
+          currentCellId: string;
+          maxIterations: number;
+          interruptSignal: AbortSignal;
+          onToolCall?: (
+            toolCall: OpenAI.Chat.Completions.ChatCompletionMessageToolCall,
+          ) => Promise<unknown>;
+        },
+      ) => {
+        const tools = [
+          {
+            type: "function" as const,
+            function: {
+              name: "create_cell",
+              description: "Create a new code cell in the notebook",
+              parameters: {
+                type: "object",
+                properties: {
+                  cellType: {
+                    type: "string",
+                    enum: ["code", "markdown"],
+                    description: "Type of cell to create",
+                  },
+                  source: {
+                    type: "string",
+                    description: "Content for the new cell",
+                  },
+                  afterCellId: {
+                    type: "string",
+                    description: "ID of cell to insert after (optional)",
+                  },
+                },
+                required: ["cellType", "source"],
+              },
+            },
+          },
+          {
+            type: "function" as const,
+            function: {
+              name: "modify_cell",
+              description: "Modify an existing cell's content",
+              parameters: {
+                type: "object",
+                properties: {
+                  cellId: {
+                    type: "string",
+                    description: "ID of the cell to modify",
+                  },
+                  source: {
+                    type: "string",
+                    description: "New content for the cell",
+                  },
+                },
+                required: ["cellId", "source"],
+              },
+            },
+          },
+          {
+            type: "function" as const,
+            function: {
+              name: "execute_cell",
+              description: "Execute a code cell",
+              parameters: {
+                type: "object",
+                properties: {
+                  cellId: {
+                    type: "string",
+                    description: "ID of the cell to execute",
+                  },
+                },
+                required: ["cellId"],
+              },
+            },
+          },
+        ];
+
+        for (
+          let iteration = 0;
+          iteration < options.maxIterations;
+          iteration++
+        ) {
+          if (options.interruptSignal.aborted) {
+            logger.info("Groq conversation interrupted", {
+              iteration,
+              cellId: cell.id,
+            });
+            break;
+          }
+
+          const completion = await groqClient.chat.completions.create({
+            model: options.model,
+            messages,
+            ...(options.enableTools && { tools }),
+            temperature: 0.7,
+          });
+
+          const message = completion.choices[0]?.message;
+          if (!message) {
+            break;
+          }
+
+          // Add assistant message to conversation
+          messages.push(message);
+
+          // Handle tool calls
+          if (message.tool_calls && message.tool_calls.length > 0) {
+            const toolResults = [];
+
+            for (const toolCall of message.tool_calls) {
+              if (options.onToolCall) {
+                const result = await options.onToolCall(toolCall);
+                toolResults.push({
+                  tool_call_id: toolCall.id,
+                  role: "tool" as const,
+                  content: JSON.stringify(result),
+                });
+              }
+            }
+
+            // Add tool results to conversation
+            messages.push(...toolResults);
+
+            // Continue the conversation
+            continue;
+          }
+
+          // If no tool calls, output the response and end
+          if (message.content) {
+            context.result(message.content, {
+              "text/markdown": message.content,
+            });
+          }
+          break;
+        }
+      };
+
+      await generateAgenticResponse(
+        conversationMessages,
+        {
+          model,
+          provider: "groq",
+          enableTools: true,
+          currentCellId: cell.id,
+          maxIterations: 10,
+          interruptSignal: abortSignal,
+          onToolCall: async (toolCall) => {
+            logger.info("AI requested tool call", {
+              toolName: toolCall.function?.name,
+              cellId: cell.id,
+            });
+            return await handleToolCallWithResult(
+              store,
+              logger,
+              sessionId,
+              cell,
+              {
+                id: toolCall.id,
+                name: toolCall.function?.name || "",
+                arguments: toolCall.function?.arguments
+                  ? JSON.parse(toolCall.function.arguments)
+                  : {},
+              },
+            );
+          },
+        },
+      );
+
+      logger.info("Groq conversation completed");
     } else if (
       openaiClient.isReady() &&
       (provider === "openai" || !provider)
