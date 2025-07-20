@@ -1,5 +1,31 @@
 import { Events, Schema, SessionIdSymbol, State } from "@livestore/livestore";
 
+/**
+ * CLIENT AUTHENTICATION PATTERNS
+ *
+ * The LiveStore sync backend validates client connections using authToken and clientId.
+ * Different client types use different authentication patterns:
+ *
+ * SERVICE CLIENTS (runtime: true):
+ * - Runtime agents: clientId = runtimeId (e.g. "python-runtime-123")
+ * - Notebook runners: clientId = "automation-client" (headless execution)
+ * - TUI clients: clientId = "tui-client" (terminal interface)
+ * - Service clients use AUTH_TOKEN for authentication
+ * - ClientId must be non-numeric to prevent user impersonation
+ *
+ * USER CLIENTS (runtime: false/undefined):
+ * - Regular users: clientId = authenticated user ID (numeric Google ID)
+ * - Anonymous users: clientId = "anonymous-user"
+ * - User clients use Google OAuth tokens for authentication
+ * - ClientId must match authenticated user ID
+ *
+ * PRESENCE DISPLAY:
+ * - Runtime agents: Bot icon with runtimeType label
+ * - Notebook runners: Play icon (headless execution you can monitor)
+ * - TUI clients: Terminal icon (terminal interface)
+ * - Regular users: User avatar/initials
+ */
+
 // Base generic types for MediaContainer system
 export type InlineContainer<T = unknown> = {
   type: "inline";
