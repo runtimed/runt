@@ -8,6 +8,7 @@ import {
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
 
 import { getAllTools } from "./tool-registry.ts";
+import type { NotebookTool } from "./tool-registry.ts";
 
 // Define message types inline to avoid import issues
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
@@ -64,12 +65,14 @@ export class RuntOpenAIClient {
   private client: OpenAI | null = null;
   private isConfigured = false;
   private logger = createLogger("openai-client");
+  private notebookTools: NotebookTool[];
 
-  constructor(config?: OpenAIConfig) {
+  constructor(config?: OpenAIConfig, notebookTools: NotebookTool[] = []) {
     // Don't configure immediately to avoid early initialization logs
     if (config) {
       this.configure(config);
     }
+    this.notebookTools = [...notebookTools];
   }
 
   configure(config?: OpenAIConfig) {
@@ -328,8 +331,7 @@ export class RuntOpenAIClient {
       return;
     }
 
-    // Get all available tools (notebook + MCP) at the start
-    const allTools = enableTools ? await getAllTools() : [];
+
 
     const conversationMessages: ChatMessage[] = messages;
 
@@ -360,8 +362,18 @@ export class RuntOpenAIClient {
         this.logger.info(`Agentic iteration ${iteration + 1}/${maxIterations}`);
 
         // Prepare tools if enabled
-        const tools = enableTools && allTools.length > 0
-          ? allTools.map((tool) => ({
+        let all_tools: NotebookTool[] = [];
+        if (enableTools) {
+          // Get all available tools (notebook + MCP)
+          all_tools = await getAllTools();
+          // Add any notebook-specific tools from constructor
+          if (this.notebookTools.length > 0) {
+            all_tools = [...this.notebookTools, ...all_tools];
+          }
+        }
+        
+        const tools = enableTools && all_tools.length > 0
+          ? all_tools.map((tool) => ({
             type: "function" as const,
             function: {
               name: tool.name,
@@ -383,6 +395,7 @@ export class RuntOpenAIClient {
           messages: filteredMessages,
           ...(this.supportsCustomTemperature(model) ? { temperature } : {}),
           stream: true,
+          user: "me",
           ...(tools ? { tools } : {}),
           ...(enableTools && tools ? { tool_choice: "auto" as const } : {}),
         };

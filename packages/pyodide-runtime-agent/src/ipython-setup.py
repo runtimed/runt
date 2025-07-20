@@ -433,6 +433,62 @@ js_clear_callback = default_clear_callback
 # Set up interrupt patches
 setup_interrupt_patches()
 
+# Setup tool registry
+import json
+import warnings
+from dataclasses import dataclass
+from typing import Any
+from typing import Callable
+
+import micropip
+await micropip.install("openai-function-calling")
+
+class ToolNotFoundError(Exception):
+    pass
+
+
+@dataclass
+class RegisteredFunction:
+    name: str
+    openai_tool_metadata: dict
+    _func: Callable
+
+    def __call__(self, *args, **kwargs) -> Any:
+        result = self._func(*args, **kwargs)
+        if not isinstance(result, str):
+            result = json.dumps(result, default=str)
+        return result
+
+
+_tool_registry = {}
+
+
+def tool(func) -> Callable:
+    from openai_function_calling import FunctionInferrer
+
+    schema = FunctionInferrer.infer_from_function_reference(func).to_json_schema()
+
+    entry = RegisteredFunction(
+        name=func.__name__,
+        _func=func,
+        openai_tool_metadata=schema
+    )
+    _tool_registry[func.__name__] = entry
+    return func
+
+
+def get_registered_tools():
+    import json
+    tools = [func.openai_tool_metadata for func in _tool_registry.values()]
+    return json.dumps(tools, default=str)
+
+
+def run_registered_tool(toolName: str, kwargs):
+    if toolName not in _tool_registry:
+        raise ToolNotFoundError(f"Tool {toolName} not found")
+    return _tool_registry[toolName](**kwargs)
+
+
 # Export the configured shell for use by the worker
 __all__ = [
     "shell",
@@ -440,4 +496,6 @@ __all__ = [
     "js_execution_callback",
     "js_clear_callback",
     "setup_interrupt_patches",
+    "get_registered_tools",
+    "run_registered_tool"
 ]
