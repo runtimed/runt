@@ -157,7 +157,11 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
       adapter={adapter}
       storeId={notebookId}
       batchUpdates={batchUpdates}
-      syncPayload={{ authToken }}
+      syncPayload={{
+        authToken,
+        runtime: true,
+        clientId: "tui-client",
+      }}
       renderLoading={renderLoading}
       renderError={renderError}
       renderShutdown={renderShutdown}
