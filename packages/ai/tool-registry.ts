@@ -132,7 +132,7 @@ export function createCell(
 ) {
   const cellType = String(args.cellType || "code");
   // CRITICAL: AI models pass code content in 'source' parameter - changing this breaks AI code cell creation
-  const content = String(args.source || args.content || "");  // Check source first, then content
+  const content = String(args.source || args.content || ""); // Check source first, then content
   const position = String(args.position || "after_current");
 
   // Calculate position for new cell
