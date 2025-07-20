@@ -35,7 +35,7 @@ export class ArtifactClient {
       throw new Error("Invalid PNG data: missing PNG header");
     }
 
-    return this.submitArtifact(pngData, {
+    return await this.submitArtifact(pngData, {
       ...options,
       mimeType: "image/png",
     });
@@ -50,7 +50,7 @@ export class ArtifactClient {
   ): Promise<ArtifactSubmissionResult> {
     try {
       const pngData = decodeBase64(base64Data);
-      return this.submitPng(pngData, options);
+      return await this.submitPng(pngData, options);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to decode base64 PNG data: ${message}`);
@@ -184,10 +184,10 @@ export class PngProcessor {
   ): Promise<ArtifactSubmissionResult> {
     if (typeof source === "string") {
       // Assume base64 encoded
-      return this.client.submitPngFromBase64(source, options);
+      return await this.client.submitPngFromBase64(source, options);
     } else {
       // Raw binary data
-      return this.client.submitPng(source, options);
+      return await this.client.submitPng(source, options);
     }
   }
 

@@ -4,7 +4,7 @@
 
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { encodeBase64 } from "@std/encoding/base64";
-import { ArtifactClient, createArtifactClient, PngProcessor } from "./artifact-client.ts";
+import { createArtifactClient, PngProcessor } from "./artifact-client.ts";
 
 // Valid PNG signature + minimal IHDR chunk
 const validPngData = new Uint8Array([
@@ -28,13 +28,13 @@ const mockSubmissionOptions = {
 const originalFetch = globalThis.fetch;
 
 function mockFetch(responses: Record<string, Response>) {
-  globalThis.fetch = async (input: string | URL | Request) => {
+  globalThis.fetch = (input: string | URL | Request) => {
     const url = typeof input === "string" ? input : input.toString();
     const response = responses[url];
     if (!response) {
       throw new Error(`Unexpected fetch to: ${url}`);
     }
-    return response;
+    return Promise.resolve(response);
   };
 }
 
