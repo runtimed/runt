@@ -1,5 +1,5 @@
 import stripAnsi from "strip-ansi";
-import OpenAI from "@openai/openai";
+import type OpenAI from "@openai/openai";
 
 import type {
   AiModel,
@@ -671,11 +671,22 @@ The system will automatically pull models if they're not available locally.`;
         });
       }
     } else if (provider === "groq") {
-      // Use Groq provider with OpenAI-compatible client
-      const groqClient = new OpenAI({
-        apiKey: Deno.env.get("GROQ_API_KEY"),
+      // Use Groq provider with RuntOpenAIClient configured for Groq
+      const groqApiKey = Deno.env.get("GROQ_API_KEY");
+      if (!groqApiKey) {
+        context.display({
+          "text/markdown":
+            "# Groq Configuration Required\n\nGroq API key not found. Please set `GROQ_API_KEY` environment variable.",
+          "text/plain":
+            "Groq API key not found. Please set GROQ_API_KEY environment variable.",
+        });
+        return { success: false, error: "Groq API key not configured" };
+      }
+
+      const groqClient = new OpenAIClient({
+        apiKey: groqApiKey,
         baseURL: "https://api.groq.com/openai/v1",
-      });
+      }, notebookTools);
 
       const conversationMessages = buildConversationMessages(
         notebookContext,
@@ -690,149 +701,9 @@ The system will automatically pull models if they're not available locally.`;
         model,
       });
 
-      const generateAgenticResponse = async (
-        messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-        options: {
-          model: string;
-          provider: string;
-          enableTools: boolean;
-          currentCellId: string;
-          maxIterations: number;
-          interruptSignal: AbortSignal;
-          onToolCall?: (
-            toolCall: OpenAI.Chat.Completions.ChatCompletionMessageToolCall,
-          ) => Promise<unknown>;
-        },
-      ) => {
-        const tools = [
-          {
-            type: "function" as const,
-            function: {
-              name: "create_cell",
-              description: "Create a new code cell in the notebook",
-              parameters: {
-                type: "object",
-                properties: {
-                  cellType: {
-                    type: "string",
-                    enum: ["code", "markdown"],
-                    description: "Type of cell to create",
-                  },
-                  source: {
-                    type: "string",
-                    description: "Content for the new cell",
-                  },
-                  afterCellId: {
-                    type: "string",
-                    description: "ID of cell to insert after (optional)",
-                  },
-                },
-                required: ["cellType", "source"],
-              },
-            },
-          },
-          {
-            type: "function" as const,
-            function: {
-              name: "modify_cell",
-              description: "Modify an existing cell's content",
-              parameters: {
-                type: "object",
-                properties: {
-                  cellId: {
-                    type: "string",
-                    description: "ID of the cell to modify",
-                  },
-                  source: {
-                    type: "string",
-                    description: "New content for the cell",
-                  },
-                },
-                required: ["cellId", "source"],
-              },
-            },
-          },
-          {
-            type: "function" as const,
-            function: {
-              name: "execute_cell",
-              description: "Execute a code cell",
-              parameters: {
-                type: "object",
-                properties: {
-                  cellId: {
-                    type: "string",
-                    description: "ID of the cell to execute",
-                  },
-                },
-                required: ["cellId"],
-              },
-            },
-          },
-        ];
-
-        for (
-          let iteration = 0;
-          iteration < options.maxIterations;
-          iteration++
-        ) {
-          if (options.interruptSignal.aborted) {
-            logger.info("Groq conversation interrupted", {
-              iteration,
-              cellId: cell.id,
-            });
-            break;
-          }
-
-          const completion = await groqClient.chat.completions.create({
-            model: options.model,
-            messages,
-            ...(options.enableTools && { tools }),
-            temperature: 0.7,
-          });
-
-          const message = completion.choices[0]?.message;
-          if (!message) {
-            break;
-          }
-
-          // Add assistant message to conversation
-          messages.push(message);
-
-          // Handle tool calls
-          if (message.tool_calls && message.tool_calls.length > 0) {
-            const toolResults = [];
-
-            for (const toolCall of message.tool_calls) {
-              if (options.onToolCall) {
-                const result = await options.onToolCall(toolCall);
-                toolResults.push({
-                  tool_call_id: toolCall.id,
-                  role: "tool" as const,
-                  content: JSON.stringify(result),
-                });
-              }
-            }
-
-            // Add tool results to conversation
-            messages.push(...toolResults);
-
-            // Continue the conversation
-            continue;
-          }
-
-          // If no tool calls, output the response and end
-          if (message.content) {
-            context.result(message.content, {
-              "text/markdown": message.content,
-            });
-          }
-          break;
-        }
-      };
-
-      await generateAgenticResponse(
+      await groqClient.generateAgenticResponse(
         conversationMessages,
+        context,
         {
           model,
           provider: "groq",
@@ -842,7 +713,7 @@ The system will automatically pull models if they're not available locally.`;
           interruptSignal: abortSignal,
           onToolCall: async (toolCall) => {
             logger.info("AI requested tool call", {
-              toolName: toolCall.function?.name,
+              toolName: toolCall.name,
               cellId: cell.id,
             });
             return await handleToolCallWithResult(
@@ -850,14 +721,27 @@ The system will automatically pull models if they're not available locally.`;
               logger,
               sessionId,
               cell,
-              {
-                id: toolCall.id,
-                name: toolCall.function?.name || "",
-                arguments: toolCall.function?.arguments
-                  ? JSON.parse(toolCall.function.arguments)
-                  : {},
-              },
+              toolCall,
+              context.sendWorkerMessage,
             );
+          },
+          onIteration: (iteration, messages) => {
+            // Check if execution was cancelled
+            if (abortSignal.aborted) {
+              logger.info("AI conversation interrupted", {
+                iteration,
+                cellId: cell.id,
+              });
+              return Promise.resolve(false);
+            }
+
+            logger.info("AI conversation iteration", {
+              iteration: iteration + 1,
+              messageCount: messages.length,
+              cellId: cell.id,
+            });
+
+            return Promise.resolve(true);
           },
         },
       );
