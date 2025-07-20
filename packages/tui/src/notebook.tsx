@@ -11,6 +11,8 @@ import { LoadingIndicator } from "./components/layout/LoadingIndicator.tsx";
 import { ErrorDisplay } from "./components/layout/ErrorDisplay.tsx";
 import { Colors } from "./utils/colors.ts";
 import { useExitHandler } from "./utils/useExitHandler.ts";
+import { addLog } from "./utils/simpleLogging.ts";
+import { LogLevel } from "effect";
 
 // Create schema locally
 const state = State.SQLite.makeState({ tables, materializers });
@@ -27,7 +29,7 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
   const presenceAnnouncedRef = useRef(false);
   const { exitApp } = useExitHandler({
     onExit: () => {
-      console.log("Exiting due to fatal error...");
+      addLog(LogLevel.Info, "Exiting due to fatal error...");
     },
   });
 
@@ -37,7 +39,7 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
 
   useEffect(() => {
     const cleanup = () => {
-      console.log("Cleaning up LiveStore connection...");
+      addLog(LogLevel.Debug, "Cleaning up LiveStore connection...");
     };
 
     cleanupRef.current = cleanup;
@@ -49,7 +51,8 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
   const authToken = Deno.env.get("AUTH_TOKEN");
 
   if (!isValidNotebookId(notebookId)) {
-    console.error(
+    addLog(
+      LogLevel.Error,
       `Fatal error: Invalid notebook ID '${notebookId}'. Only alphanumeric characters, hyphens, and underscores are allowed.`,
     );
 
@@ -63,7 +66,8 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
   }
 
   if (!syncUrl || !authToken) {
-    console.error(
+    addLog(
+      LogLevel.Error,
       "Fatal configuration error: Missing required environment variables",
     );
 
@@ -115,14 +119,15 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
     errorCountRef.current += 1;
     lastErrorTimeRef.current = now;
 
-    console.error(
-      `Fatal LiveStore error (${errorCountRef.current}):`,
-      error.message,
+    addLog(
+      LogLevel.Error,
+      `Fatal LiveStore error (${errorCountRef.current}): ${error.message}`,
     );
 
     // If we've had more than 3 errors in 10 seconds, exit to prevent loop
     if (errorCountRef.current > 3) {
-      console.error(
+      addLog(
+        LogLevel.Error,
         "Too many LiveStore errors, exiting to prevent restart loop",
       );
       setTimeout(() => exitApp(), 1000);
@@ -187,7 +192,7 @@ const NotebookWithPresence: React.FC<{
   // Announce presence when TUI connects
   React.useEffect(() => {
     if (!presenceAnnouncedRef.current && store) {
-      console.log("📍 Announcing TUI presence...");
+      addLog(LogLevel.Debug, "📍 Announcing TUI presence...");
       try {
         store.commit(
           events.presenceSet({
@@ -196,9 +201,9 @@ const NotebookWithPresence: React.FC<{
           }),
         );
         presenceAnnouncedRef.current = true;
-        console.log("✅ TUI presence announced");
+        addLog(LogLevel.Debug, "✅ TUI presence announced");
       } catch (error) {
-        console.error("❌ Failed to announce TUI presence:", error);
+        addLog(LogLevel.Error, `❌ Failed to announce TUI presence: ${error}`);
       }
     }
   }, [store, presenceAnnouncedRef]);
