@@ -3,7 +3,13 @@
   "version": "0.8.0",
   "description": "Terminal notebook viewer for Runt runtime agents",
   "license": "BSD-3-Clause",
-  "exports": "./mod.ts",
+  "exports": {
+    ".": "./mod.ts",
+    "./cli": "./src/cli.tsx"
+  },
+  "bin": {
+    "runt-tui": "./src/cli.tsx"
+  },
   "tasks": {
     "dev": "deno run --allow-net --allow-env --allow-read --allow-write --allow-sys --quiet src/cli.tsx",
     "test": "deno test --allow-env --allow-net --allow-read --allow-write --allow-sys",
