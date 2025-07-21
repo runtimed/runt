@@ -12,6 +12,7 @@ import type { RuntimeAgentOptions, RuntimeCapabilities } from "./types.ts";
  */
 export const DEFAULT_CONFIG = {
   syncUrl: "wss://anode-docworker.rgbkrk.workers.dev",
+  imageArtifactThresholdBytes: 1024 * 1024, // 1MB threshold for uploading images as artifacts
 } as const;
 
 /**
@@ -26,6 +27,7 @@ export class RuntimeConfig {
   public readonly capabilities: RuntimeCapabilities;
   public readonly sessionId: string;
   public readonly environmentOptions: RuntimeAgentOptions["environmentOptions"];
+  public readonly imageArtifactThresholdBytes: number;
 
   constructor(options: RuntimeAgentOptions) {
     this.runtimeId = options.runtimeId;
@@ -35,6 +37,8 @@ export class RuntimeConfig {
     this.notebookId = options.notebookId;
     this.capabilities = options.capabilities;
     this.environmentOptions = options.environmentOptions;
+    this.imageArtifactThresholdBytes = options.imageArtifactThresholdBytes ??
+      DEFAULT_CONFIG.imageArtifactThresholdBytes;
 
     // Generate unique session ID
     this.sessionId = `${this.runtimeType}-${this.runtimeId}-${Date.now()}-${

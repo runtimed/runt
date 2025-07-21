@@ -92,9 +92,18 @@ export function extractMediaData(container: MediaContainer): unknown {
   if (container.type === "inline") {
     return container.data;
   } else if (container.type === "artifact") {
-    // For artifacts, we'd need to fetch from storage
-    // For now, return a placeholder
-    return `[Artifact: ${container.artifactId}]`;
+    // For artifacts, show the URL where it can be accessed
+    const artifactUrl =
+      `https://api.conductor.run/api/artifacts/${container.artifactId}`;
+
+    // Include size information if available
+    const sizeInfo = container.metadata?.originalSizeBytes
+      ? ` (${
+        Math.round(Number(container.metadata.originalSizeBytes) / 1024)
+      }KB)`
+      : "";
+
+    return `[Image Artifact${sizeInfo}]: ${artifactUrl}`;
   }
   return null;
 }
