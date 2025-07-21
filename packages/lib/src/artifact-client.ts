@@ -22,7 +22,8 @@ export interface ArtifactSubmissionResult {
  * Client for interacting with the anode artifact service
  */
 export class ArtifactClient {
-  constructor(private baseUrl: string = "https://api.conductor.run") {}
+  // TODO: Make artifact service URL configuration more general for @runt/lib package
+  constructor(private baseUrl: string = "https://api.runt.run") {}
 
   /**
    * Submit PNG image data to the artifact service

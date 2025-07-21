@@ -9,6 +9,8 @@ import {
 import { makeCfSync } from "npm:@livestore/sync-cf";
 import {
   events,
+  type ImageMimeType,
+  isImageMimeType,
   materializers,
   type MediaContainer,
   tables,
@@ -32,6 +34,11 @@ import type {
   RuntimeSessionData,
 } from "./types.ts";
 import type { RuntimeConfig } from "./config.ts";
+import {
+  ArtifactClient,
+  type ArtifactSubmissionOptions,
+} from "./artifact-client.ts";
+import { decodeBase64 } from "@std/encoding/base64";
 
 /**
  * Base RuntimeAgent class providing LiveStore integration and execution management
@@ -45,12 +52,17 @@ export class RuntimeAgent {
   private activeExecutions = new Map<string, AbortController>();
   private cancellationHandlers: CancellationHandler[] = [];
   private signalHandlers = new Map<string, () => void>();
+  private artifactClient: ArtifactClient;
 
   constructor(
     public config: RuntimeConfig,
     private capabilities: RuntimeCapabilities,
     private handlers: RuntimeAgentEventHandlers = {},
-  ) {}
+  ) {
+    // Convert sync URL to artifact service URL
+    const artifactBaseUrl = this.getArtifactServiceUrl(config.syncUrl);
+    this.artifactClient = new ArtifactClient(artifactBaseUrl);
+  }
 
   /**
    * Start the runtime agent - connects to LiveStore and begins processing
@@ -589,7 +601,7 @@ export class RuntimeAgent {
         }
       },
 
-      display: (
+      display: async (
         data: RawOutputData,
         metadata?: Record<string, unknown>,
         displayId?: string,
@@ -601,11 +613,20 @@ export class RuntimeAgent {
         > = {};
 
         for (const [mimeType, content] of Object.entries(data)) {
-          representations[mimeType] = {
-            type: "inline",
-            data: content, // Keep JSON objects as-is, don't stringify
-            metadata: metadata?.[mimeType] as Record<string, unknown>,
-          };
+          // Process images with size-based artifact upload
+          if (isImageMimeType(mimeType)) {
+            representations[mimeType] = await this.processImageContent(
+              mimeType,
+              content,
+              metadata?.[mimeType] as Record<string, unknown>,
+            );
+          } else {
+            representations[mimeType] = {
+              type: "inline",
+              data: content,
+              metadata: metadata?.[mimeType] as Record<string, unknown>,
+            };
+          }
         }
 
         this.store.commit(events.multimediaDisplayOutputAdded({
@@ -617,7 +638,7 @@ export class RuntimeAgent {
         }));
       },
 
-      updateDisplay: (
+      updateDisplay: async (
         displayId: string,
         data: RawOutputData,
         metadata?: Record<string, unknown>,
@@ -629,11 +650,20 @@ export class RuntimeAgent {
         > = {};
 
         for (const [mimeType, content] of Object.entries(data)) {
-          representations[mimeType] = {
-            type: "inline",
-            data: content, // Keep JSON objects as-is, don't stringify
-            metadata: metadata?.[mimeType] as Record<string, unknown>,
-          };
+          // Process images with size-based artifact upload
+          if (isImageMimeType(mimeType)) {
+            representations[mimeType] = await this.processImageContent(
+              mimeType,
+              content,
+              metadata?.[mimeType] as Record<string, unknown>,
+            );
+          } else {
+            representations[mimeType] = {
+              type: "inline",
+              data: content,
+              metadata: metadata?.[mimeType] as Record<string, unknown>,
+            };
+          }
         }
 
         this.store.commit(events.multimediaDisplayOutputUpdated({
@@ -642,7 +672,7 @@ export class RuntimeAgent {
         }));
       },
 
-      result: (
+      result: async (
         data: RawOutputData,
         metadata?: Record<string, unknown>,
       ) => {
@@ -653,11 +683,20 @@ export class RuntimeAgent {
         > = {};
 
         for (const [mimeType, content] of Object.entries(data)) {
-          representations[mimeType] = {
-            type: "inline",
-            data: content, // Keep JSON objects as-is for Altair plots, etc.
-            metadata: metadata?.[mimeType] as Record<string, unknown>,
-          };
+          // Process images with size-based artifact upload
+          if (isImageMimeType(mimeType)) {
+            representations[mimeType] = await this.processImageContent(
+              mimeType,
+              content,
+              metadata?.[mimeType] as Record<string, unknown>,
+            );
+          } else {
+            representations[mimeType] = {
+              type: "inline",
+              data: content,
+              metadata: metadata?.[mimeType] as Record<string, unknown>,
+            };
+          }
         }
 
         this.store.commit(events.multimediaResultOutputAdded({
@@ -903,6 +942,104 @@ export class RuntimeAgent {
       }
     }
     this.signalHandlers.clear();
+  }
+
+  /**
+   * Process image content and upload to artifact service if above size threshold
+   */
+  private async processImageContent(
+    mimeType: ImageMimeType,
+    content: unknown,
+    metadata?: Record<string, unknown>,
+  ): Promise<MediaContainer> {
+    // Only process PNG images for now
+    if (mimeType !== "image/png" || typeof content !== "string") {
+      return {
+        type: "inline",
+        data: content,
+        metadata,
+      };
+    }
+
+    try {
+      // Decode base64 to check size
+      const imageData = decodeBase64(content);
+      const imageSizeBytes = imageData.length;
+
+      // If image is below threshold, keep inline
+      if (imageSizeBytes <= this.config.imageArtifactThresholdBytes) {
+        return {
+          type: "inline",
+          data: content,
+          metadata,
+        };
+      }
+
+      // Upload large image as artifact
+      const submissionOptions: ArtifactSubmissionOptions = {
+        notebookId: this.config.notebookId,
+        authToken: this.config.authToken,
+        mimeType,
+        filename: `image_${Date.now()}.png`,
+      };
+
+      // TODO: Support multipart uploads for large images in the future
+      const result = await this.artifactClient.submitPng(
+        imageData,
+        submissionOptions,
+      );
+
+      return {
+        type: "artifact",
+        artifactId: result.artifactId,
+        metadata: {
+          ...metadata,
+          originalSizeBytes: imageSizeBytes,
+          uploadedAt: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      // If artifact upload fails, fall back to inline
+      const logger = createLogger("runtime-agent");
+      logger.warn(
+        "Failed to upload image as artifact, falling back to inline",
+        {
+          error: error instanceof Error ? error.message : String(error),
+          mimeType,
+          imageSize: typeof content === "string" ? content.length : "unknown",
+        },
+      );
+
+      return {
+        type: "inline",
+        data: content,
+        metadata,
+      };
+    }
+  }
+
+  /**
+   * Convert sync URL to artifact service URL
+   * Transforms WebSocket URLs to HTTP(S) URLs for the artifact service
+   */
+  private getArtifactServiceUrl(syncUrl: string): string {
+    try {
+      const url = new URL(syncUrl);
+      // Convert wss:// to https:// and ws:// to http://
+      const protocol = url.protocol === "wss:" ? "https:" : "http:";
+      return `${protocol}//${url.host}`;
+    } catch (error) {
+      // Fallback to default if URL parsing fails
+      const logger = createLogger("runtime-agent");
+      logger.warn(
+        "Failed to parse sync URL for artifact service, using default",
+        {
+          syncUrl,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return "https://api.runt.run";
+    }
   }
 
   /**

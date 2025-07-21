@@ -73,7 +73,7 @@ Deno.test("ArtifactClient", async (t) => {
     const client = createArtifactClient();
     assertEquals(
       client.getArtifactUrl("test-id"),
-      "https://api.conductor.run/api/artifacts/test-id",
+      "https://api.runt.run/api/artifacts/test-id",
     );
   });
 
@@ -89,7 +89,7 @@ Deno.test("ArtifactClient", async (t) => {
     const expectedResponse = { artifactId: "test-notebook/abc123" };
 
     mockFetch({
-      "https://api.conductor.run/api/artifacts": new Response(
+      "https://api.runt.run/api/artifacts": new Response(
         JSON.stringify(expectedResponse),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
@@ -113,7 +113,7 @@ Deno.test("ArtifactClient", async (t) => {
     const base64Data = encodeBase64(validPngData);
 
     mockFetch({
-      "https://api.conductor.run/api/artifacts": new Response(
+      "https://api.runt.run/api/artifacts": new Response(
         JSON.stringify(expectedResponse),
         { status: 200 },
       ),
@@ -155,7 +155,7 @@ Deno.test("ArtifactClient", async (t) => {
 
   await t.step("should handle submission errors", async () => {
     mockFetch({
-      "https://api.conductor.run/api/artifacts": new Response(
+      "https://api.runt.run/api/artifacts": new Response(
         JSON.stringify({ error: "Unauthorized" }),
         { status: 401 },
       ),
@@ -176,7 +176,7 @@ Deno.test("ArtifactClient", async (t) => {
 
   await t.step("should retrieve artifact data", async () => {
     mockFetch({
-      "https://api.conductor.run/api/artifacts/test-id": new Response(
+      "https://api.runt.run/api/artifacts/test-id": new Response(
         validPngData,
         { status: 200, headers: { "Content-Type": "image/png" } },
       ),
@@ -196,7 +196,7 @@ Deno.test("ArtifactClient", async (t) => {
     const expected = encodeBase64(validPngData);
 
     mockFetch({
-      "https://api.conductor.run/api/artifacts/test-id": new Response(
+      "https://api.runt.run/api/artifacts/test-id": new Response(
         validPngData,
         { status: 200 },
       ),
@@ -214,7 +214,7 @@ Deno.test("ArtifactClient", async (t) => {
 
   await t.step("should handle retrieval errors", async () => {
     mockFetch({
-      "https://api.conductor.run/api/artifacts/nonexistent": new Response(
+      "https://api.runt.run/api/artifacts/nonexistent": new Response(
         JSON.stringify({ error: "Not Found" }),
         { status: 404 },
       ),
@@ -239,7 +239,7 @@ Deno.test("ArtifactClient", async (t) => {
       const textData = new TextEncoder().encode("Hello World");
 
       mockFetch({
-        "https://api.conductor.run/api/artifacts/text-id": new Response(
+        "https://api.runt.run/api/artifacts/text-id": new Response(
           textData,
           { status: 200 },
         ),
@@ -265,7 +265,7 @@ Deno.test("PngProcessor", async (t) => {
     const expectedResponse = { artifactId: "test-notebook/xyz789" };
 
     mockFetch({
-      "https://api.conductor.run/api/artifacts": new Response(
+      "https://api.runt.run/api/artifacts": new Response(
         JSON.stringify(expectedResponse),
         { status: 200 },
       ),
@@ -290,7 +290,7 @@ Deno.test("PngProcessor", async (t) => {
     const base64Data = encodeBase64(validPngData);
 
     mockFetch({
-      "https://api.conductor.run/api/artifacts": new Response(
+      "https://api.runt.run/api/artifacts": new Response(
         JSON.stringify(expectedResponse),
         { status: 200 },
       ),
