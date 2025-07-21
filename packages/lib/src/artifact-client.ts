@@ -22,6 +22,7 @@ export interface ArtifactSubmissionResult {
  * Client for interacting with the anode artifact service
  */
 export class ArtifactClient {
+  // TODO: Make artifact service URL configuration more general for @runt/lib package
   constructor(private baseUrl: string = "https://api.conductor.run") {}
 
   /**

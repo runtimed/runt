@@ -57,10 +57,10 @@ const mockRuntimeOptions: RuntimeAgentOptions = {
     canExecuteSql: false,
     canExecuteAi: false,
   },
-  syncUrl: "wss://test.example.com",
+  syncUrl: "wss://test.runt.run",
   authToken: "test-token",
   notebookId: "test-notebook",
-  imageArtifactThresholdBytes: 1024 * 1024, // 1MB threshold
+  imageArtifactThresholdBytes: 32 * 1024, // 32KB threshold
   environmentOptions: {},
 };
 
@@ -105,7 +105,7 @@ Deno.test("RuntimeAgent Artifact Upload", async (t) => {
     const expectedResponse = { artifactId: "test-notebook/large-image" };
 
     mockFetch({
-      "https://api.conductor.run/api/artifacts": new Response(
+      "https://test.runt.run/api/artifacts": new Response(
         JSON.stringify(expectedResponse),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
@@ -136,7 +136,7 @@ Deno.test("RuntimeAgent Artifact Upload", async (t) => {
 
   await t.step("should fall back to inline on upload failure", async () => {
     mockFetch({
-      "https://api.conductor.run/api/artifacts": new Response(
+      "https://test.runt.run/api/artifacts": new Response(
         JSON.stringify({ error: "Server Error" }),
         { status: 500 },
       ),
@@ -209,7 +209,7 @@ Deno.test("RuntimeAgent Artifact Upload", async (t) => {
     const expectedResponse = { artifactId: "test-notebook/threshold-test" };
 
     mockFetch({
-      "https://api.conductor.run/api/artifacts": new Response(
+      "https://test.runt.run/api/artifacts": new Response(
         JSON.stringify(expectedResponse),
         { status: 200 },
       ),

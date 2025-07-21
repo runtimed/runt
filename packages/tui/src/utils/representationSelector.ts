@@ -93,6 +93,7 @@ export function extractMediaData(container: MediaContainer): unknown {
     return container.data;
   } else if (container.type === "artifact") {
     // For artifacts, show the URL where it can be accessed
+    // TODO: Use sync URL domain instead of hardcoded api.conductor.run
     const artifactUrl =
       `https://api.conductor.run/api/artifacts/${container.artifactId}`;
 
