@@ -53,13 +53,19 @@ function createMockExecutionContext(): {
         data: data as Record<string, unknown>,
         metadata,
       });
+      return Promise.resolve();
     },
 
-    updateDisplay: (displayId: string, data: unknown, metadata?: unknown) => {
+    updateDisplay: (
+      displayId: string,
+      data: unknown,
+      metadata?: unknown,
+    ) => {
       outputs.push({
         type: "updateDisplay",
         data: { displayId, data, metadata },
       });
+      return Promise.resolve();
     },
 
     result: (data: unknown, metadata?: unknown) => {
@@ -68,6 +74,7 @@ function createMockExecutionContext(): {
         data: data as Record<string, unknown>,
         metadata,
       });
+      return Promise.resolve();
     },
 
     error: (name: string, message: string, traceback: string[]) => {

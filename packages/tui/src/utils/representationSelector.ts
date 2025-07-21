@@ -93,9 +93,9 @@ export function extractMediaData(container: MediaContainer): unknown {
     return container.data;
   } else if (container.type === "artifact") {
     // For artifacts, show the URL where it can be accessed
-    // TODO: Use sync URL domain instead of hardcoded api.conductor.run
+    // TODO: Use sync URL domain instead of hardcoded api.runt.run
     const artifactUrl =
-      `https://api.conductor.run/api/artifacts/${container.artifactId}`;
+      `https://api.runt.run/api/artifacts/${container.artifactId}`;
 
     // Include size information if available
     const sizeInfo = container.metadata?.originalSizeBytes

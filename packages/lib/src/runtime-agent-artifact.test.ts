@@ -2,11 +2,21 @@
  * Tests for size-based artifact upload functionality in RuntimeAgent
  */
 
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import { encodeBase64 } from "@std/encoding/base64";
 import { RuntimeAgent } from "./runtime-agent.ts";
 import { RuntimeConfig } from "./config.ts";
 import type { RuntimeAgentOptions } from "./types.ts";
+import type { ImageMimeType, MediaContainer } from "@runt/schema";
+
+// Testing interface to access private methods
+interface RuntimeAgentWithTestMethods {
+  processImageContent(
+    mimeType: ImageMimeType,
+    content: unknown,
+    metadata?: Record<string, unknown>,
+  ): Promise<MediaContainer>;
+}
 
 // Valid PNG signature + minimal IHDR chunk
 const validPngData = new Uint8Array([
@@ -90,14 +100,17 @@ Deno.test("RuntimeAgent Artifact Upload", async (t) => {
     const smallPngBase64 = encodeBase64(validPngData);
 
     // Access the private method for testing
-    const result = await (agent as any).processImageContent(
-      "image/png",
-      smallPngBase64,
-      { test: "metadata" },
-    );
+    const result = await (agent as unknown as RuntimeAgentWithTestMethods)
+      .processImageContent(
+        "image/png",
+        smallPngBase64,
+        { test: "metadata" },
+      );
 
     assertEquals(result.type, "inline");
-    assertEquals(result.data, smallPngBase64);
+    if (result.type === "inline") {
+      assertEquals(result.data, smallPngBase64);
+    }
     assertEquals(result.metadata?.test, "metadata");
   });
 
@@ -118,14 +131,17 @@ Deno.test("RuntimeAgent Artifact Upload", async (t) => {
       const largePngBase64 = encodeBase64(largePngData);
 
       // Access the private method for testing
-      const result = await (agent as any).processImageContent(
-        "image/png",
-        largePngBase64,
-        { test: "metadata" },
-      );
+      const result = await (agent as unknown as RuntimeAgentWithTestMethods)
+        .processImageContent(
+          "image/png",
+          largePngBase64,
+          { test: "metadata" },
+        );
 
       assertEquals(result.type, "artifact");
-      assertEquals(result.artifactId, "test-notebook/large-image");
+      if (result.type === "artifact") {
+        assertEquals(result.artifactId, "test-notebook/large-image");
+      }
       assertEquals(result.metadata?.test, "metadata");
       assertEquals(result.metadata?.originalSizeBytes, largePngData.length);
       assertEquals(typeof result.metadata?.uploadedAt, "string");
@@ -149,15 +165,18 @@ Deno.test("RuntimeAgent Artifact Upload", async (t) => {
       const largePngBase64 = encodeBase64(largePngData);
 
       // Access the private method for testing
-      const result = await (agent as any).processImageContent(
-        "image/png",
-        largePngBase64,
-        { test: "metadata" },
-      );
+      const result = await (agent as unknown as RuntimeAgentWithTestMethods)
+        .processImageContent(
+          "image/png" as ImageMimeType,
+          largePngBase64,
+          { test: "metadata" },
+        );
 
       // Should fall back to inline when upload fails
       assertEquals(result.type, "inline");
-      assertEquals(result.data, largePngBase64);
+      if (result.type === "inline") {
+        assertEquals(result.data, largePngBase64);
+      }
       assertEquals(result.metadata?.test, "metadata");
     } finally {
       restoreFetch();
@@ -171,14 +190,17 @@ Deno.test("RuntimeAgent Artifact Upload", async (t) => {
     const jpegData = "fake-jpeg-data";
 
     // Access the private method for testing
-    const result = await (agent as any).processImageContent(
-      "image/jpeg",
-      jpegData,
-      { test: "metadata" },
-    );
+    const result = await (agent as unknown as RuntimeAgentWithTestMethods)
+      .processImageContent(
+        "image/jpeg" as ImageMimeType,
+        jpegData,
+        { test: "metadata" },
+      );
 
     assertEquals(result.type, "inline");
-    assertEquals(result.data, jpegData);
+    if (result.type === "inline") {
+      assertEquals(result.data, jpegData);
+    }
     assertEquals(result.metadata?.test, "metadata");
   });
 
@@ -189,14 +211,17 @@ Deno.test("RuntimeAgent Artifact Upload", async (t) => {
     const objectData = { width: 100, height: 200 };
 
     // Access the private method for testing
-    const result = await (agent as any).processImageContent(
-      "image/png",
-      objectData,
-      { test: "metadata" },
-    );
+    const result = await (agent as unknown as RuntimeAgentWithTestMethods)
+      .processImageContent(
+        "image/png" as ImageMimeType,
+        objectData,
+        { test: "metadata" },
+      );
 
     assertEquals(result.type, "inline");
-    assertEquals(result.data, objectData);
+    if (result.type === "inline") {
+      assertEquals(result.data, objectData);
+    }
     assertEquals(result.metadata?.test, "metadata");
   });
 
@@ -222,15 +247,18 @@ Deno.test("RuntimeAgent Artifact Upload", async (t) => {
       const smallPngBase64 = encodeBase64(validPngData); // This is > 10 bytes when decoded
 
       // Access the private method for testing
-      const result = await (agent as any).processImageContent(
-        "image/png",
-        smallPngBase64,
-        {},
-      );
+      const result = await (agent as unknown as RuntimeAgentWithTestMethods)
+        .processImageContent(
+          "image/png" as ImageMimeType,
+          smallPngBase64,
+          { test: "metadata" },
+        );
 
       // Should upload as artifact due to small threshold
       assertEquals(result.type, "artifact");
-      assertEquals(result.artifactId, "test-notebook/threshold-test");
+      if (result.type === "artifact") {
+        assertEquals(result.artifactId, "test-notebook/threshold-test");
+      }
     } finally {
       restoreFetch();
     }

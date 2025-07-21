@@ -9,7 +9,8 @@ import {
 import { makeCfSync } from "npm:@livestore/sync-cf";
 import {
   events,
-  IMAGE_MIME_TYPES,
+  type ImageMimeType,
+  isImageMimeType,
   materializers,
   type MediaContainer,
   tables,
@@ -613,7 +614,7 @@ export class RuntimeAgent {
 
         for (const [mimeType, content] of Object.entries(data)) {
           // Process images with size-based artifact upload
-          if (IMAGE_MIME_TYPES.includes(mimeType as any)) {
+          if (isImageMimeType(mimeType)) {
             representations[mimeType] = await this.processImageContent(
               mimeType,
               content,
@@ -650,7 +651,7 @@ export class RuntimeAgent {
 
         for (const [mimeType, content] of Object.entries(data)) {
           // Process images with size-based artifact upload
-          if (IMAGE_MIME_TYPES.includes(mimeType as any)) {
+          if (isImageMimeType(mimeType)) {
             representations[mimeType] = await this.processImageContent(
               mimeType,
               content,
@@ -683,7 +684,7 @@ export class RuntimeAgent {
 
         for (const [mimeType, content] of Object.entries(data)) {
           // Process images with size-based artifact upload
-          if (IMAGE_MIME_TYPES.includes(mimeType as any)) {
+          if (isImageMimeType(mimeType)) {
             representations[mimeType] = await this.processImageContent(
               mimeType,
               content,
@@ -947,7 +948,7 @@ export class RuntimeAgent {
    * Process image content and upload to artifact service if above size threshold
    */
   private async processImageContent(
-    mimeType: string,
+    mimeType: ImageMimeType,
     content: unknown,
     metadata?: Record<string, unknown>,
   ): Promise<MediaContainer> {
@@ -1037,7 +1038,7 @@ export class RuntimeAgent {
           error: error instanceof Error ? error.message : String(error),
         },
       );
-      return "https://api.conductor.run";
+      return "https://api.runt.run";
     }
   }
 

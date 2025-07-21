@@ -36,6 +36,7 @@ Deno.test("ExecutionContext - method signatures", () => {
 
     display: (data, metadata, displayId) => {
       outputs.push({ type: "display", data: { data, metadata, displayId } });
+      return Promise.resolve();
     },
 
     updateDisplay: (displayId, data, metadata) => {
@@ -43,10 +44,12 @@ Deno.test("ExecutionContext - method signatures", () => {
         type: "updateDisplay",
         data: { displayId, data, metadata },
       });
+      return Promise.resolve();
     },
 
     result: (data, metadata) => {
       outputs.push({ type: "result", data: { data, metadata } });
+      return Promise.resolve();
     },
 
     error: (ename, evalue, traceback) => {
@@ -148,9 +151,9 @@ Deno.test("ExecutionContext - empty string handling", () => {
       if (text) outputs.push(`stderr:${text}`);
     },
 
-    display: () => {},
-    updateDisplay: () => {},
-    result: () => {},
+    display: () => Promise.resolve(),
+    updateDisplay: () => Promise.resolve(),
+    result: () => Promise.resolve(),
     error: () => {},
     clear: () => {},
     appendTerminal: () => {},
@@ -193,9 +196,9 @@ Deno.test("ExecutionContext - streaming methods", () => {
 
     stdout: () => {},
     stderr: () => {},
-    display: () => {},
-    updateDisplay: () => {},
-    result: () => {},
+    display: () => Promise.resolve(),
+    updateDisplay: () => Promise.resolve(),
+    result: () => Promise.resolve(),
     error: () => {},
     clear: () => {},
 
@@ -251,9 +254,9 @@ Deno.test("ExecutionContext - clear with wait parameter", () => {
 
     stdout: () => {},
     stderr: () => {},
-    display: () => {},
-    updateDisplay: () => {},
-    result: () => {},
+    display: () => Promise.resolve(),
+    updateDisplay: () => Promise.resolve(),
+    result: () => Promise.resolve(),
     error: () => {},
     appendTerminal: () => {},
     markdown: () => "mock-markdown-id",

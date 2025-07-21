@@ -23,7 +23,7 @@ export interface ArtifactSubmissionResult {
  */
 export class ArtifactClient {
   // TODO: Make artifact service URL configuration more general for @runt/lib package
-  constructor(private baseUrl: string = "https://api.conductor.run") {}
+  constructor(private baseUrl: string = "https://api.runt.run") {}
 
   /**
    * Submit PNG image data to the artifact service

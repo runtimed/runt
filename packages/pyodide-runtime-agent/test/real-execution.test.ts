@@ -96,19 +96,25 @@ function createTestExecutionContext(code: string): {
     },
     stdout: (text: string) => outputs.push({ type: "stdout", data: text }),
     stderr: (text: string) => outputs.push({ type: "stderr", data: text }),
-    result: (data: RawOutputData, metadata?: Record<string, unknown>) =>
-      outputs.push({ type: "result", data, metadata: metadata || undefined }),
+    result: (data: RawOutputData, metadata?: Record<string, unknown>) => {
+      outputs.push({ type: "result", data, metadata: metadata || undefined });
+      return Promise.resolve();
+    },
     display: (
       data: RawOutputData,
       metadata?: Record<string, unknown>,
-    ) =>
-      outputs.push({ type: "display", data, metadata: metadata || undefined }),
+    ) => {
+      outputs.push({ type: "display", data, metadata: metadata || undefined });
+      return Promise.resolve();
+    },
     updateDisplay: (
       _displayId: string,
       data: RawOutputData,
       metadata?: Record<string, unknown>,
-    ) =>
-      outputs.push({ type: "display", data, metadata: metadata || undefined }),
+    ) => {
+      outputs.push({ type: "display", data, metadata: metadata || undefined });
+      return Promise.resolve();
+    },
     error: (ename: string, evalue: string, traceback: string[]) =>
       outputs.push({ type: "error", data: { ename, evalue, traceback } }),
     clear: () => outputs.push({ type: "clear", data: null }),
