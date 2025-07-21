@@ -4,8 +4,8 @@
   "description": "Terminal notebook viewer for Runt runtime agents",
   "license": "BSD-3-Clause",
   "exports": {
-    ".": "./mod.ts",
-    "./cli": "./src/cli.tsx"
+    ".": "./src/cli.tsx",
+    "./mod": "./mod.ts"
   },
   "bin": {
     "runt-tui": "./src/cli.tsx"
