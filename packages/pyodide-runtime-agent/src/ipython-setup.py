@@ -237,10 +237,10 @@ def _capture_matplotlib_show(block=None):
                 }
             }
 
-            # Use IPython's display system
+            # Use IPython's display system with raw=True for multimedia payload
             from IPython.display import display
 
-            display(display_data, metadata=metadata)
+            display(display_data, raw=True, metadata=metadata)
 
             plt.clf()
         except Exception as e:
