@@ -25,8 +25,8 @@ from IPython.core.history import HistoryManager
 import matplotlib
 import matplotlib.pyplot as plt
 
-# Configure matplotlib for jupyter-style inline output
-matplotlib.use("module://matplotlib_pyodide.html5_canvas_backend")
+# Configure matplotlib for headless PNG output (works in Deno workers)
+matplotlib.use("Agg")
 plt.rcParams["figure.dpi"] = 100
 plt.rcParams["savefig.dpi"] = 100
 plt.rcParams["figure.facecolor"] = "white"
@@ -216,16 +216,20 @@ def _capture_matplotlib_show(block=None):
                 bbox_inches="tight",
                 facecolor="white",
                 edgecolor="none",
-                dpi=plt.rcParams["savefig.dpi"]
+                dpi=plt.rcParams["savefig.dpi"],
             )
             img_content = img_buffer.getvalue()
             img_buffer.close()
 
-            # Send raw image data directly via display system
+            # Encode as base64 for consistent image handling throughout the pipeline
+            import base64
+
+            img_base64 = base64.b64encode(img_content).decode("utf-8")
+
             display_data = {
-                "image/png": img_content,  # Raw bytes, not base64
+                "image/png": img_base64,  # Base64 encoded for consistency
             }
-            
+
             metadata = {
                 "image/png": {
                     "width": fig.get_figwidth() * fig.dpi,
@@ -233,15 +237,17 @@ def _capture_matplotlib_show(block=None):
                 }
             }
 
-            # Use IPython's display system with raw data
+            # Use IPython's display system
             from IPython.display import display
-            display(display_data, raw=True, metadata=metadata)
+
+            display(display_data, metadata=metadata)
 
             plt.clf()
         except Exception as e:
             print(f"Error capturing plot: {e}")
 
-    return _original_show(block=block) if block is not None else _original_show()
+    # Don't call original show since Agg backend is non-interactive
+    return None
 
 
 # Replace matplotlib show with our enhanced version
@@ -453,7 +459,9 @@ from typing import Any
 from typing import Callable
 
 import micropip
+
 await micropip.install("openai-function-calling")
+
 
 class ToolNotFoundError(Exception):
     pass
@@ -481,9 +489,7 @@ def tool(func) -> Callable:
     schema = FunctionInferrer.infer_from_function_reference(func).to_json_schema()
 
     entry = RegisteredFunction(
-        name=func.__name__,
-        _func=func,
-        openai_tool_metadata=schema
+        name=func.__name__, _func=func, openai_tool_metadata=schema
     )
     _tool_registry[func.__name__] = entry
     return func
@@ -491,6 +497,7 @@ def tool(func) -> Callable:
 
 def get_registered_tools():
     import json
+
     tools = [func.openai_tool_metadata for func in _tool_registry.values()]
     return json.dumps(tools, default=str)
 
@@ -509,5 +516,5 @@ __all__ = [
     "js_clear_callback",
     "setup_interrupt_patches",
     "get_registered_tools",
-    "run_registered_tool"
+    "run_registered_tool",
 ]
