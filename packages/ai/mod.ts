@@ -405,8 +405,10 @@ const getDefaultModel = (provider: string): string => {
 /**
  * Execute AI prompts using OpenAI, Ollama, or other providers
  */
-// Export the AI clients for external use
+// Export the AI clients and MCP client for external use
 export { OpenAIClient, RuntOllamaClient };
+export { closeMCPClient, getMCPClient, MCPClient } from "./mcp-client.ts";
+export { getAllTools } from "./tool-registry.ts";
 
 /**
  * Discover available AI models from all configured providers

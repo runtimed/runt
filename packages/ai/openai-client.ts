@@ -7,7 +7,7 @@ import {
 } from "@runt/lib";
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
 
-import { NOTEBOOK_TOOLS } from "./tool-registry.ts";
+import { getAllTools } from "./tool-registry.ts";
 import type { NotebookTool } from "./tool-registry.ts";
 
 // Define message types inline to avoid import issues
@@ -360,13 +360,17 @@ export class RuntOpenAIClient {
         this.logger.info(`Agentic iteration ${iteration + 1}/${maxIterations}`);
 
         // Prepare tools if enabled
-        let all_tools: NotebookTool[];
-        if (this.notebookTools.length > 0) {
-          all_tools = [...this.notebookTools, ...NOTEBOOK_TOOLS];
-        } else {
-          all_tools = [...NOTEBOOK_TOOLS];
+        let all_tools: NotebookTool[] = [];
+        if (enableTools) {
+          // Get all available tools (notebook + MCP)
+          all_tools = await getAllTools();
+          // Add any notebook-specific tools from constructor
+          if (this.notebookTools.length > 0) {
+            all_tools = [...this.notebookTools, ...all_tools];
+          }
         }
-        const tools = enableTools
+
+        const tools = enableTools && all_tools.length > 0
           ? all_tools.map((tool) => ({
             type: "function" as const,
             function: {
