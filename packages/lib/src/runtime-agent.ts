@@ -9,6 +9,8 @@ import {
 import { makeCfSync } from "npm:@livestore/sync-cf";
 import {
   events,
+  type ImageMimeType,
+  isImageMimeType,
   materializers,
   type MediaContainer,
   tables,
@@ -32,6 +34,11 @@ import type {
   RuntimeSessionData,
 } from "./types.ts";
 import type { RuntimeConfig } from "./config.ts";
+import {
+  ArtifactClient,
+  type ArtifactSubmissionOptions,
+} from "./artifact-client.ts";
+import { decodeBase64 } from "@std/encoding/base64";
 
 /**
  * Base RuntimeAgent class providing LiveStore integration and execution management
@@ -45,12 +52,17 @@ export class RuntimeAgent {
   private activeExecutions = new Map<string, AbortController>();
   private cancellationHandlers: CancellationHandler[] = [];
   private signalHandlers = new Map<string, () => void>();
+  private artifactClient: ArtifactClient;
 
   constructor(
     public config: RuntimeConfig,
     private capabilities: RuntimeCapabilities,
     private handlers: RuntimeAgentEventHandlers = {},
-  ) {}
+  ) {
+    // Convert sync URL to artifact service URL
+    const artifactBaseUrl = this.getArtifactServiceUrl(config.syncUrl);
+    this.artifactClient = new ArtifactClient(artifactBaseUrl);
+  }
 
   /**
    * Start the runtime agent - connects to LiveStore and begins processing
@@ -338,12 +350,20 @@ export class RuntimeAgent {
             const logger = createLogger(`${this.config.runtimeType}-agent`);
 
             // Log cell count for sync debugging
-            const allCells = this.store.query(tables.cells.select());
-            logger.info("Runtime sync status", {
-              pendingExecutions: entries.length,
-              totalCells: allCells.length,
-              cellIds: allCells.map((c) => c.id),
-            });
+            try {
+              const allCells = this.store.query(tables.cells.select());
+              logger.info("Runtime sync status", {
+                pendingExecutions: entries.length,
+                totalCells: allCells.length,
+                cellIds: allCells.map((c) => c.id),
+              });
+            } catch (error) {
+              // Mask LiveStore errors to prevent interference with runtime execution
+              logger.debug("LiveStore query failed for sync status", {
+                error: error instanceof Error ? error.message : String(error),
+                pendingExecutions: entries.length,
+              });
+            }
 
             logger.debug("Pending executions", {
               count: entries.length,
@@ -352,24 +372,33 @@ export class RuntimeAgent {
           }
 
           setTimeout(() => {
-            const activeRuntimes = this.store.query(activeRuntimesQuery$);
-            const ourRuntime = activeRuntimes.find((r: RuntimeSessionData) =>
-              r.sessionId === this.config.sessionId
-            );
+            let activeRuntimes: readonly RuntimeSessionData[] = [];
+            let ourRuntime: RuntimeSessionData | undefined;
+
+            try {
+              activeRuntimes = this.store.query(activeRuntimesQuery$);
+              ourRuntime = activeRuntimes.find((r: RuntimeSessionData) =>
+                r.sessionId === this.config.sessionId
+              );
+            } catch (error) {
+              // Mask LiveStore errors to prevent interference with runtime execution
+              const logger = createLogger(`${this.config.runtimeType}-agent`);
+              logger.debug("LiveStore query failed for active runtimes", {
+                error: error instanceof Error ? error.message : String(error),
+                sessionId: this.config.sessionId,
+              });
+              return;
+            }
 
             if (!ourRuntime) return;
 
             // Try to claim first pending execution
             const firstPending = entries[0];
             if (firstPending && firstPending.status === "pending") {
-              try {
-                this.store.commit(events.executionAssigned({
-                  queueId: firstPending.id,
-                  runtimeSessionId: this.config.sessionId,
-                }));
-              } catch (_error) {
-                // Silently fail - another runtime may have claimed it
-              }
+              this.store.commit(events.executionAssigned({
+                queueId: firstPending.id,
+                runtimeSessionId: this.config.sessionId,
+              }));
             }
           }, 0);
         },
@@ -486,10 +515,24 @@ export class RuntimeAgent {
     const executionStartTime = new Date();
 
     // Get cell data
-    const cells = this.store.query(
-      tables.cells.select().where({ id: queueEntry.cellId }),
-    );
-    const cell = cells[0] as CellData;
+    let cell: CellData;
+    try {
+      const cells = this.store.query(
+        tables.cells.select().where({ id: queueEntry.cellId }),
+      );
+      cell = cells[0] as CellData;
+    } catch (error) {
+      // Mask LiveStore errors but still need to handle missing cell
+      const logger = createLogger(`${this.config.runtimeType}-agent`);
+      logger.debug("LiveStore query failed for cell data", {
+        error: error instanceof Error ? error.message : String(error),
+        cellId: queueEntry.cellId,
+      });
+      this.activeExecutions.delete(queueEntry.id);
+      throw new Error(
+        `Failed to query cell ${queueEntry.cellId}: LiveStore error`,
+      );
+    }
 
     if (!cell) {
       this.activeExecutions.delete(queueEntry.id);
@@ -558,7 +601,7 @@ export class RuntimeAgent {
         }
       },
 
-      display: (
+      display: async (
         data: RawOutputData,
         metadata?: Record<string, unknown>,
         displayId?: string,
@@ -570,11 +613,20 @@ export class RuntimeAgent {
         > = {};
 
         for (const [mimeType, content] of Object.entries(data)) {
-          representations[mimeType] = {
-            type: "inline",
-            data: content, // Keep JSON objects as-is, don't stringify
-            metadata: metadata?.[mimeType] as Record<string, unknown>,
-          };
+          // Process images with size-based artifact upload
+          if (isImageMimeType(mimeType)) {
+            representations[mimeType] = await this.processImageContent(
+              mimeType,
+              content,
+              metadata?.[mimeType] as Record<string, unknown>,
+            );
+          } else {
+            representations[mimeType] = {
+              type: "inline",
+              data: content,
+              metadata: metadata?.[mimeType] as Record<string, unknown>,
+            };
+          }
         }
 
         this.store.commit(events.multimediaDisplayOutputAdded({
@@ -586,7 +638,7 @@ export class RuntimeAgent {
         }));
       },
 
-      updateDisplay: (
+      updateDisplay: async (
         displayId: string,
         data: RawOutputData,
         metadata?: Record<string, unknown>,
@@ -598,11 +650,20 @@ export class RuntimeAgent {
         > = {};
 
         for (const [mimeType, content] of Object.entries(data)) {
-          representations[mimeType] = {
-            type: "inline",
-            data: content, // Keep JSON objects as-is, don't stringify
-            metadata: metadata?.[mimeType] as Record<string, unknown>,
-          };
+          // Process images with size-based artifact upload
+          if (isImageMimeType(mimeType)) {
+            representations[mimeType] = await this.processImageContent(
+              mimeType,
+              content,
+              metadata?.[mimeType] as Record<string, unknown>,
+            );
+          } else {
+            representations[mimeType] = {
+              type: "inline",
+              data: content,
+              metadata: metadata?.[mimeType] as Record<string, unknown>,
+            };
+          }
         }
 
         this.store.commit(events.multimediaDisplayOutputUpdated({
@@ -611,7 +672,7 @@ export class RuntimeAgent {
         }));
       },
 
-      result: (
+      result: async (
         data: RawOutputData,
         metadata?: Record<string, unknown>,
       ) => {
@@ -622,11 +683,20 @@ export class RuntimeAgent {
         > = {};
 
         for (const [mimeType, content] of Object.entries(data)) {
-          representations[mimeType] = {
-            type: "inline",
-            data: content, // Keep JSON objects as-is for Altair plots, etc.
-            metadata: metadata?.[mimeType] as Record<string, unknown>,
-          };
+          // Process images with size-based artifact upload
+          if (isImageMimeType(mimeType)) {
+            representations[mimeType] = await this.processImageContent(
+              mimeType,
+              content,
+              metadata?.[mimeType] as Record<string, unknown>,
+            );
+          } else {
+            representations[mimeType] = {
+              type: "inline",
+              data: content,
+              metadata: metadata?.[mimeType] as Record<string, unknown>,
+            };
+          }
         }
 
         this.store.commit(events.multimediaResultOutputAdded({
@@ -672,21 +742,39 @@ export class RuntimeAgent {
 
       // Append to existing markdown output (for streaming AI responses)
       appendMarkdown: (outputId: string, content: string) => {
-        this.store.commit(events.markdownOutputAppended({
-          outputId,
-          content: {
-            type: "inline",
-            data: content,
-          },
-        }));
+        try {
+          this.store.commit(events.markdownOutputAppended({
+            outputId,
+            content: {
+              type: "inline",
+              data: content,
+            },
+          }));
+        } catch (error) {
+          // Mask LiveStore errors to prevent interference with runtime execution
+          const logger = createLogger(`${this.config.runtimeType}-agent`);
+          logger.debug("LiveStore commit failed for appendMarkdown output", {
+            error: error instanceof Error ? error.message : String(error),
+            outputId,
+          });
+        }
       },
 
       clear: (wait: boolean = false) => {
-        this.store.commit(events.cellOutputsCleared({
-          cellId: cell.id,
-          wait,
-          clearedBy: `runtime-${this.config.runtimeId}`,
-        }));
+        try {
+          this.store.commit(events.cellOutputsCleared({
+            cellId: cell.id,
+            wait,
+            clearedBy: `runtime-${this.config.runtimeId}`,
+          }));
+        } catch (error) {
+          // Mask LiveStore errors to prevent interference with runtime execution
+          const logger = createLogger(`${this.config.runtimeType}-agent`);
+          logger.debug("LiveStore commit failed for clear output", {
+            error: error instanceof Error ? error.message : String(error),
+            cellId: cell.id,
+          });
+        }
 
         if (!wait) {
           outputPosition = 0;
@@ -696,12 +784,22 @@ export class RuntimeAgent {
 
     try {
       // Mark execution as started
-      this.store.commit(events.executionStarted({
-        queueId: queueEntry.id,
-        cellId: queueEntry.cellId,
-        runtimeSessionId: this.config.sessionId,
-        startedAt: executionStartTime,
-      }));
+      try {
+        this.store.commit(events.executionStarted({
+          queueId: queueEntry.id,
+          cellId: queueEntry.cellId,
+          runtimeSessionId: this.config.sessionId,
+          startedAt: executionStartTime,
+        }));
+      } catch (error) {
+        // Mask LiveStore errors to prevent interference with runtime execution
+        const logger = createLogger(`${this.config.runtimeType}-agent`);
+        logger.debug("LiveStore commit failed for executionStarted", {
+          error: error instanceof Error ? error.message : String(error),
+          queueId: queueEntry.id,
+          cellId: queueEntry.cellId,
+        });
+      }
 
       // Clear previous outputs (immediate clear)
       context.clear(false);
@@ -718,14 +816,24 @@ export class RuntimeAgent {
       const executionDurationMs = executionEndTime.getTime() -
         executionStartTime.getTime();
 
-      this.store.commit(events.executionCompleted({
-        queueId: queueEntry.id,
-        cellId: queueEntry.cellId,
-        status: result.success ? "success" : "error",
-        error: result.error,
-        completedAt: executionEndTime,
-        executionDurationMs,
-      }));
+      try {
+        this.store.commit(events.executionCompleted({
+          queueId: queueEntry.id,
+          cellId: queueEntry.cellId,
+          status: result.success ? "success" : "error",
+          error: result.error,
+          completedAt: executionEndTime,
+          executionDurationMs,
+        }));
+      } catch (error) {
+        // Mask LiveStore errors to prevent interference with runtime execution
+        const logger = createLogger(`${this.config.runtimeType}-agent`);
+        logger.debug("LiveStore commit failed for executionCompleted", {
+          error: error instanceof Error ? error.message : String(error),
+          queueId: queueEntry.id,
+          cellId: queueEntry.cellId,
+        });
+      }
 
       logger.debug("Execution completed", {
         executionId: queueEntry.id,
@@ -834,6 +942,104 @@ export class RuntimeAgent {
       }
     }
     this.signalHandlers.clear();
+  }
+
+  /**
+   * Process image content and upload to artifact service if above size threshold
+   */
+  private async processImageContent(
+    mimeType: ImageMimeType,
+    content: unknown,
+    metadata?: Record<string, unknown>,
+  ): Promise<MediaContainer> {
+    // Only process PNG images for now
+    if (mimeType !== "image/png" || typeof content !== "string") {
+      return {
+        type: "inline",
+        data: content,
+        metadata,
+      };
+    }
+
+    try {
+      // Decode base64 to check size
+      const imageData = decodeBase64(content);
+      const imageSizeBytes = imageData.length;
+
+      // If image is below threshold, keep inline
+      if (imageSizeBytes <= this.config.imageArtifactThresholdBytes) {
+        return {
+          type: "inline",
+          data: content,
+          metadata,
+        };
+      }
+
+      // Upload large image as artifact
+      const submissionOptions: ArtifactSubmissionOptions = {
+        notebookId: this.config.notebookId,
+        authToken: this.config.authToken,
+        mimeType,
+        filename: `image_${Date.now()}.png`,
+      };
+
+      // TODO: Support multipart uploads for large images in the future
+      const result = await this.artifactClient.submitPng(
+        imageData,
+        submissionOptions,
+      );
+
+      return {
+        type: "artifact",
+        artifactId: result.artifactId,
+        metadata: {
+          ...metadata,
+          originalSizeBytes: imageSizeBytes,
+          uploadedAt: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      // If artifact upload fails, fall back to inline
+      const logger = createLogger("runtime-agent");
+      logger.warn(
+        "Failed to upload image as artifact, falling back to inline",
+        {
+          error: error instanceof Error ? error.message : String(error),
+          mimeType,
+          imageSize: typeof content === "string" ? content.length : "unknown",
+        },
+      );
+
+      return {
+        type: "inline",
+        data: content,
+        metadata,
+      };
+    }
+  }
+
+  /**
+   * Convert sync URL to artifact service URL
+   * Transforms WebSocket URLs to HTTP(S) URLs for the artifact service
+   */
+  private getArtifactServiceUrl(syncUrl: string): string {
+    try {
+      const url = new URL(syncUrl);
+      // Convert wss:// to https:// and ws:// to http://
+      const protocol = url.protocol === "wss:" ? "https:" : "http:";
+      return `${protocol}//${url.host}`;
+    } catch (error) {
+      // Fallback to default if URL parsing fails
+      const logger = createLogger("runtime-agent");
+      logger.warn(
+        "Failed to parse sync URL for artifact service, using default",
+        {
+          syncUrl,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return "https://api.runt.run";
+    }
   }
 
   /**

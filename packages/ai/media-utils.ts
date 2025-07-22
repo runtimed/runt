@@ -86,6 +86,19 @@ export function toAIMediaBundle(richOutput: RichOutputData): AIMediaBundle {
       const container = richOutput[imageType];
       if (container.type === "inline") {
         result[imageType] = container.data;
+      } else if (container.type === "artifact") {
+        // For artifacts, include a reference that AI can understand
+        // The AI can request the artifact URL if needed
+        result[imageType] = `[Image artifact: ${container.artifactId}]`;
+
+        // Also add metadata if available for context
+        if (container.metadata?.originalSizeBytes) {
+          result[`${imageType}:metadata`] = {
+            artifactId: container.artifactId,
+            sizeBytes: container.metadata.originalSizeBytes,
+            type: "artifact",
+          };
+        }
       }
     }
   }

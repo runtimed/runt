@@ -427,6 +427,43 @@ export async function discoverAvailableAiModels(): Promise<AiModel[]> {
     );
   }
 
+  // Discover Groq models
+  if (Deno.env.get("GROQ_API_KEY")) {
+    const groqModels: AiModel[] = [
+      {
+        provider: "groq",
+        name: "moonshotai/kimi-k2-instruct",
+        displayName: "Kimi K2 Instruct",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "llama3-8b-8192",
+        displayName: "Llama 3.1 8B",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "llama3-70b-8192",
+        displayName: "Llama 3.1 70B",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "mixtral-8x7b-32768",
+        displayName: "Mixtral 8x7B",
+        capabilities: ["completion", "tools"],
+      },
+      {
+        provider: "groq",
+        name: "gemma2-9b-it",
+        displayName: "Gemma 2 9B",
+        capabilities: ["completion", "tools"],
+      },
+    ];
+    allModels.push(...groqModels);
+  }
+
   // Discover Ollama models
   const ollamaHost = Deno.env.get("OLLAMA_HOST") || "http://localhost:11434";
   const ollamaClient = new RuntOllamaClient({
@@ -635,6 +672,83 @@ The system will automatically pull models if they're not available locally.`;
           "anode/ollama_host": ollamaHost,
         });
       }
+    } else if (provider === "groq") {
+      // Use Groq provider with RuntOpenAIClient configured for Groq
+      const groqApiKey = Deno.env.get("GROQ_API_KEY");
+      if (!groqApiKey) {
+        context.display({
+          "text/markdown":
+            "# Groq Configuration Required\n\nGroq API key not found. Please set `GROQ_API_KEY` environment variable.",
+          "text/plain":
+            "Groq API key not found. Please set GROQ_API_KEY environment variable.",
+        });
+        return { success: false, error: "Groq API key not configured" };
+      }
+
+      const groqClient = new OpenAIClient({
+        apiKey: groqApiKey,
+        baseURL: "https://api.groq.com/openai/v1",
+      }, notebookTools);
+
+      const conversationMessages = buildConversationMessages(
+        notebookContext,
+        "You are an AI assistant in a collaborative notebook environment. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You can also execute code yourself using tool calls. Use the visible outputs and your execution capabilities to help analyze data and answer questions.",
+        prompt,
+      );
+
+      logger.debug("Conversation messages for Groq", {
+        cellId: cell.id,
+        messageCount: conversationMessages.length,
+        provider: "groq",
+        model,
+      });
+
+      await groqClient.generateAgenticResponse(
+        conversationMessages,
+        context,
+        {
+          model,
+          provider: "groq",
+          enableTools: true,
+          currentCellId: cell.id,
+          maxIterations: 10,
+          interruptSignal: abortSignal,
+          onToolCall: async (toolCall) => {
+            logger.info("AI requested tool call", {
+              toolName: toolCall.name,
+              cellId: cell.id,
+            });
+            return await handleToolCallWithResult(
+              store,
+              logger,
+              sessionId,
+              cell,
+              toolCall,
+              context.sendWorkerMessage,
+            );
+          },
+          onIteration: (iteration, messages) => {
+            // Check if execution was cancelled
+            if (abortSignal.aborted) {
+              logger.info("AI conversation interrupted", {
+                iteration,
+                cellId: cell.id,
+              });
+              return Promise.resolve(false);
+            }
+
+            logger.info("AI conversation iteration", {
+              iteration: iteration + 1,
+              messageCount: messages.length,
+              cellId: cell.id,
+            });
+
+            return Promise.resolve(true);
+          },
+        },
+      );
+
+      logger.info("Groq conversation completed");
     } else if (
       openaiClient.isReady() &&
       (provider === "openai" || !provider)

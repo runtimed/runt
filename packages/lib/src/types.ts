@@ -37,6 +37,8 @@ export interface RuntimeAgentOptions {
   readonly authToken: string;
   /** Notebook ID to connect to */
   readonly notebookId: string;
+  /** Threshold in bytes for uploading images as artifacts (default: 1MB) */
+  readonly imageArtifactThresholdBytes?: number;
   /** Environment-related options for the runtime */
   readonly environmentOptions: Readonly<{
     /** Path to the python executable to use (default: "python3") */
@@ -122,15 +124,18 @@ export interface ExecutionContext {
     data: RawOutputData,
     metadata?: Record<string, unknown>,
     displayId?: string,
-  ) => void;
+  ) => Promise<void>;
   /** Update existing display data by display ID */
   updateDisplay: (
     displayId: string,
     data: RawOutputData,
     metadata?: Record<string, unknown>,
-  ) => void;
+  ) => Promise<void>;
   /** Emit execution result (final output) */
-  result: (data: RawOutputData, metadata?: Record<string, unknown>) => void;
+  result: (
+    data: RawOutputData,
+    metadata?: Record<string, unknown>,
+  ) => Promise<void>;
   /** Emit error output */
   error: (ename: string, evalue: string, traceback: string[]) => void;
   /** Clear all previous outputs for this cell */

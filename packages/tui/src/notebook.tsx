@@ -5,11 +5,14 @@ import { makeAdapter } from "@livestore/adapter-node";
 import { makeCfSync } from "@livestore/sync-cf";
 import { events, materializers, tables } from "@runt/schema";
 import { makeSchema, State } from "@livestore/livestore";
+import { useStore } from "@livestore/react";
 import { NotebookRenderer } from "./components/notebook/NotebookRenderer.tsx";
 import { LoadingIndicator } from "./components/layout/LoadingIndicator.tsx";
 import { ErrorDisplay } from "./components/layout/ErrorDisplay.tsx";
 import { Colors } from "./utils/colors.ts";
 import { useExitHandler } from "./utils/useExitHandler.ts";
+import { addLog } from "./utils/simpleLogging.ts";
+import { LogLevel } from "effect";
 
 // Create schema locally
 const state = State.SQLite.makeState({ tables, materializers });
@@ -23,9 +26,10 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
   const cleanupRef = useRef<(() => void) | null>(null);
   const errorCountRef = useRef(0);
   const lastErrorTimeRef = useRef(0);
+  const presenceAnnouncedRef = useRef(false);
   const { exitApp } = useExitHandler({
     onExit: () => {
-      console.log("Exiting due to fatal error...");
+      addLog(LogLevel.Info, "Exiting due to fatal error...");
     },
   });
 
@@ -35,7 +39,7 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
 
   useEffect(() => {
     const cleanup = () => {
-      console.log("Cleaning up LiveStore connection...");
+      addLog(LogLevel.Debug, "Cleaning up LiveStore connection...");
     };
 
     cleanupRef.current = cleanup;
@@ -47,7 +51,8 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
   const authToken = Deno.env.get("AUTH_TOKEN");
 
   if (!isValidNotebookId(notebookId)) {
-    console.error(
+    addLog(
+      LogLevel.Error,
       `Fatal error: Invalid notebook ID '${notebookId}'. Only alphanumeric characters, hyphens, and underscores are allowed.`,
     );
 
@@ -61,7 +66,8 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
   }
 
   if (!syncUrl || !authToken) {
-    console.error(
+    addLog(
+      LogLevel.Error,
       "Fatal configuration error: Missing required environment variables",
     );
 
@@ -113,14 +119,15 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
     errorCountRef.current += 1;
     lastErrorTimeRef.current = now;
 
-    console.error(
-      `Fatal LiveStore error (${errorCountRef.current}):`,
-      error.message,
+    addLog(
+      LogLevel.Error,
+      `Fatal LiveStore error (${errorCountRef.current}): ${error.message}`,
     );
 
     // If we've had more than 3 errors in 10 seconds, exit to prevent loop
     if (errorCountRef.current > 3) {
-      console.error(
+      addLog(
+        LogLevel.Error,
         "Too many LiveStore errors, exiting to prevent restart loop",
       );
       setTimeout(() => exitApp(), 1000);
@@ -157,16 +164,55 @@ const NotebookWrapper: React.FC<NotebookProps> = ({ notebookId }) => {
       adapter={adapter}
       storeId={notebookId}
       batchUpdates={batchUpdates}
-      syncPayload={{ authToken }}
+      syncPayload={{
+        authToken,
+        runtime: true,
+        clientId: "tui-client",
+      }}
       renderLoading={renderLoading}
       renderError={renderError}
       renderShutdown={renderShutdown}
     >
-      <NotebookRenderer
+      <NotebookWithPresence
         notebookId={notebookId}
         syncUrl={syncUrl}
+        presenceAnnouncedRef={presenceAnnouncedRef}
       />
     </LiveStoreProvider>
+  );
+};
+
+const NotebookWithPresence: React.FC<{
+  notebookId: string;
+  syncUrl: string;
+  presenceAnnouncedRef: React.MutableRefObject<boolean>;
+}> = ({ notebookId, syncUrl, presenceAnnouncedRef }) => {
+  const { store } = useStore();
+
+  // Announce presence when TUI connects
+  React.useEffect(() => {
+    if (!presenceAnnouncedRef.current && store) {
+      addLog(LogLevel.Debug, "📍 Announcing TUI presence...");
+      try {
+        store.commit(
+          events.presenceSet({
+            userId: "tui-client",
+            cellId: undefined, // TUI doesn't focus on specific cells
+          }),
+        );
+        presenceAnnouncedRef.current = true;
+        addLog(LogLevel.Debug, "✅ TUI presence announced");
+      } catch (error) {
+        addLog(LogLevel.Error, `❌ Failed to announce TUI presence: ${error}`);
+      }
+    }
+  }, [store, presenceAnnouncedRef]);
+
+  return (
+    <NotebookRenderer
+      notebookId={notebookId}
+      syncUrl={syncUrl}
+    />
   );
 };
 
