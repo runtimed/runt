@@ -61,7 +61,7 @@ export class MCPClient {
   private async loadConfig(): Promise<MCPConfig> {
     try {
       const homeDir = Deno.env.get("HOME") || Deno.env.get("USERPROFILE") || "";
-      const configPath = join(homeDir, ".anode", "mcp.json");
+      const configPath = join(homeDir, ".runt", "mcp.json");
 
       try {
         const configText = await Deno.readTextFile(configPath);

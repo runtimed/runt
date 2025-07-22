@@ -19,16 +19,16 @@ built-in notebook tools. These tools can include:
 
 ### 1. Create MCP Configuration File
 
-Create a configuration file at `~/.anode/mcp.json`:
+Create a configuration file at `~/.runt/mcp.json`:
 
 ```bash
-mkdir -p ~/.anode
-touch ~/.anode/mcp.json
+mkdir -p ~/.runt
+touch ~/.runt/mcp.json
 ```
 
 ### 2. Configure MCP Servers
 
-Edit `~/.anode/mcp.json` to configure your desired MCP servers. Here's a
+Edit `~/.runt/mcp.json` to configure your desired MCP servers. Here's a
 comprehensive example showing all supported server types:
 
 ```json
@@ -168,7 +168,7 @@ alongside built-in notebook tools. Tools are named with the format
 
 The system automatically:
 
-1. Reads configuration from `~/.anode/mcp.json`
+1. Reads configuration from `~/.runt/mcp.json`
 2. Connects to configured MCP servers
 3. Discovers available tools from each server
 4. Makes tools available to AI assistants
