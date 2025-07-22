@@ -241,7 +241,7 @@ export async function handleToolCallWithResult(
   const { name, arguments: args } = toolCall;
 
   // Check if tool requires approval - only external tools require approval
-  const isBuiltInTool = NOTEBOOK_TOOLS.some(tool => tool.name === name);
+  const isBuiltInTool = NOTEBOOK_TOOLS.some((tool) => tool.name === name);
   const requiresApproval = !isBuiltInTool;
 
   if (requiresApproval) {
