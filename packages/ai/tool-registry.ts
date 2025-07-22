@@ -240,8 +240,9 @@ export async function handleToolCallWithResult(
 ): Promise<string> {
   const { name, arguments: args } = toolCall;
 
-  // Check if tool requires approval - all tools require approval
-  const requiresApproval = true;
+  // Check if tool requires approval - only external tools require approval
+  const isBuiltInTool = NOTEBOOK_TOOLS.some((tool) => tool.name === name);
+  const requiresApproval = !isBuiltInTool;
 
   if (requiresApproval) {
     // Check if we already have an approval for this specific tool call
