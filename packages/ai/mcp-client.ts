@@ -1,7 +1,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { CallToolResultSchema, ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolResultSchema,
+  ListToolsResultSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { createLogger } from "@runt/lib";
 import { join } from "@std/path";
 
@@ -46,7 +49,9 @@ export class MCPClient {
       await this.connectToServers(config);
       await this.discoverTools();
       this.isInitialized = true;
-      logger.info(`MCP client initialized with ${this.tools.length} tools from ${this.clients.size} servers`);
+      logger.info(
+        `MCP client initialized with ${this.tools.length} tools from ${this.clients.size} servers`,
+      );
     } catch (error) {
       logger.warn("Failed to initialize MCP client", { error: String(error) });
       // Don't throw - allow the system to work without MCP
@@ -57,24 +62,28 @@ export class MCPClient {
     try {
       const homeDir = Deno.env.get("HOME") || Deno.env.get("USERPROFILE") || "";
       const configPath = join(homeDir, ".anode", "mcp.json");
-      
+
       try {
         const configText = await Deno.readTextFile(configPath);
         const config = JSON.parse(configText) as MCPConfig;
-        
+
         if (!config.mcpServers || typeof config.mcpServers !== "object") {
-          throw new Error("Invalid config: missing or invalid 'mcpServers' object");
+          throw new Error(
+            "Invalid config: missing or invalid 'mcpServers' object",
+          );
         }
-        
+
         logger.info(`Loaded MCP config from ${configPath}`, {
           serverCount: Object.keys(config.mcpServers).length,
-          servers: Object.keys(config.mcpServers)
+          servers: Object.keys(config.mcpServers),
         });
-        
+
         return config;
       } catch (error) {
         if (error instanceof Deno.errors.NotFound) {
-          logger.info(`MCP config file not found at ${configPath}, using empty configuration`);
+          logger.info(
+            `MCP config file not found at ${configPath}, using empty configuration`,
+          );
           return { mcpServers: {} };
         }
         throw error;
@@ -93,13 +102,16 @@ export class MCPClient {
         } catch (error) {
           logger.error(`Failed to connect to MCP server ${serverName}`, error);
         }
-      }
+      },
     );
 
     await Promise.allSettled(connectionPromises);
   }
 
-  private async connectToServer(serverName: string, config: MCPServerConfig): Promise<void> {
+  private async connectToServer(
+    serverName: string,
+    config: MCPServerConfig,
+  ): Promise<void> {
     logger.info(`Connecting to MCP server: ${serverName}`, {
       hasCommand: !!config.command,
       hasUrl: !!config.url,
@@ -112,10 +124,13 @@ export class MCPClient {
       if (config.command) {
         // Stdio transport for command-based servers
         // Parse the command string into command and arguments
-        const commandParts = config.command.split(' ');
+        const commandParts = config.command.split(" ");
         const command = commandParts[0];
+        if (!command) {
+          throw new Error(`Invalid command specified for server ${serverName}`);
+        }
         const commandArgs = commandParts.slice(1);
-        
+
         transport = new StdioClientTransport({
           command: command,
           args: commandArgs.concat(config.args || []),
@@ -125,7 +140,9 @@ export class MCPClient {
         // SSE transport for URL-based servers
         transport = new SSEClientTransport(new URL(config.url));
       } else {
-        throw new Error(`Server ${serverName} must specify either 'command' or 'url'`);
+        throw new Error(
+          `Server ${serverName} must specify either 'command' or 'url'`,
+        );
       }
 
       client = new Client(
@@ -137,12 +154,12 @@ export class MCPClient {
           capabilities: {
             tools: {},
           },
-        }
+        },
       );
 
       await client.connect(transport);
       this.clients.set(serverName, client);
-      
+
       logger.info(`Successfully connected to MCP server: ${serverName}`);
     } catch (error) {
       logger.error(`Failed to connect to MCP server ${serverName}`, error);
@@ -150,7 +167,9 @@ export class MCPClient {
         try {
           await transport.close();
         } catch (closeError) {
-          logger.debug(`Error closing transport for ${serverName}`, { error: String(closeError) });
+          logger.debug(`Error closing transport for ${serverName}`, {
+            error: String(closeError),
+          });
         }
       }
       throw error;
@@ -165,7 +184,7 @@ export class MCPClient {
         try {
           const response = await client.listTools();
           const tools = ListToolsResultSchema.parse(response).tools;
-          
+
           for (const tool of tools) {
             this.tools.push({
               name: `mcp__${serverName}__${tool.name}`,
@@ -178,14 +197,20 @@ export class MCPClient {
               serverName,
             });
           }
-          
-          logger.info(`Discovered ${tools.length} tools from server ${serverName}`, {
-            tools: tools.map(t => t.name)
-          });
+
+          logger.info(
+            `Discovered ${tools.length} tools from server ${serverName}`,
+            {
+              tools: tools.map((t) => t.name),
+            },
+          );
         } catch (error) {
-          logger.error(`Failed to discover tools from server ${serverName}`, error);
+          logger.error(
+            `Failed to discover tools from server ${serverName}`,
+            error,
+          );
         }
-      }
+      },
     );
 
     await Promise.allSettled(discoveryPromises);
@@ -195,7 +220,10 @@ export class MCPClient {
     return [...this.tools];
   }
 
-  async callTool(toolName: string, args: Record<string, unknown>): Promise<string> {
+  async callTool(
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<string> {
     if (!this.isInitialized) {
       throw new Error("MCP client not initialized");
     }
@@ -203,7 +231,9 @@ export class MCPClient {
     // Parse server name and tool name
     const colonIndex = toolName.indexOf(":");
     if (colonIndex === -1) {
-      throw new Error(`Invalid MCP tool name format: ${toolName}. Expected format: serverName:toolName`);
+      throw new Error(
+        `Invalid MCP tool name format: ${toolName}. Expected format: serverName:toolName`,
+      );
     }
 
     const serverName = toolName.substring(0, colonIndex);
@@ -215,7 +245,10 @@ export class MCPClient {
     }
 
     try {
-      logger.info(`Calling MCP tool ${actualToolName} on server ${serverName}`, { args });
+      logger.info(
+        `Calling MCP tool ${actualToolName} on server ${serverName}`,
+        { args },
+      );
 
       const response = await client.callTool({
         name: actualToolName,
@@ -223,23 +256,34 @@ export class MCPClient {
       });
 
       const result = CallToolResultSchema.parse(response);
-      
+
       // Process the tool result content
       if (result.content && result.content.length > 0) {
         const content = result.content[0];
+        if (!content) {
+          return `Tool ${toolName} executed successfully`;
+        }
         if (content.type === "text") {
-          return content.text;
+          return (content as { text: string }).text;
         } else if (content.type === "image") {
           return `[Image result from ${toolName}]`;
         } else if (content.type === "resource") {
-          return `[Resource result from ${toolName}: ${content.resource?.uri || "unknown"}]`;
+          const resource =
+            (content as { resource?: { uri?: string } }).resource;
+          return `[Resource result from ${toolName}: ${
+            resource?.uri || "unknown"
+          }]`;
         }
       }
 
       return `Tool ${toolName} executed successfully`;
     } catch (error) {
       logger.error(`Error calling MCP tool ${toolName}`, error);
-      throw new Error(`MCP tool call failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `MCP tool call failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 
@@ -251,7 +295,7 @@ export class MCPClient {
         } catch (error) {
           logger.debug("Error closing MCP client", { error: String(error) });
         }
-      }
+      },
     );
 
     await Promise.allSettled(closePromises);
@@ -278,4 +322,4 @@ export async function closeMCPClient(): Promise<void> {
     await mcpClient.close();
     mcpClient = null;
   }
-} 
+}

@@ -103,7 +103,7 @@ export async function getAllTools(): Promise<NotebookTool[]> {
   try {
     const mcpClient = await getMCPClient();
     const mcpTools = mcpClient.getTools();
-    
+
     // Convert MCP tools to notebook tool format
     const convertedMcpTools: NotebookTool[] = mcpTools.map((mcpTool) => ({
       name: mcpTool.name,
@@ -111,23 +111,29 @@ export async function getAllTools(): Promise<NotebookTool[]> {
       parameters: {
         type: mcpTool.parameters.type,
         properties: Object.fromEntries(
-          Object.entries(mcpTool.parameters.properties || {}).map(([key, value]) => [
+          Object.entries(mcpTool.parameters.properties || {}).map((
+            [key, value],
+          ) => [
             key,
             {
-              type: (value as Record<string, unknown>)?.type as string || "string",
-              description: (value as Record<string, unknown>)?.description as string,
+              type: (value as Record<string, unknown>)?.type as string ||
+                "string",
+              description: (value as Record<string, unknown>)
+                ?.description as string,
               enum: (value as Record<string, unknown>)?.enum as string[],
               default: (value as Record<string, unknown>)?.default as string,
-            } as ToolParameter
-          ])
+            } as ToolParameter,
+          ]),
         ),
         required: mcpTool.parameters.required || [],
       },
     }));
-    
+
     return [...NOTEBOOK_TOOLS, ...convertedMcpTools];
   } catch (error) {
-    toolLogger.warn("Failed to get MCP tools, using only notebook tools", { error: String(error) });
+    toolLogger.warn("Failed to get MCP tools, using only notebook tools", {
+      error: String(error),
+    });
     return [...NOTEBOOK_TOOLS];
   }
 }
@@ -236,7 +242,7 @@ export async function handleToolCallWithResult(
 
   // Check if tool requires approval - all tools require approval
   const requiresApproval = true;
-  
+
   if (requiresApproval) {
     // Check if we already have an approval for this specific tool call
     let existingApproval = store.query(
@@ -246,12 +252,12 @@ export async function handleToolCallWithResult(
     // If no specific approval, check for a blanket "always" approval for this tool
     if (!existingApproval) {
       const alwaysApprovals = store.query(
-        tables.toolApprovals.select().where({ 
-          toolName: name, 
-          status: "approved_always" 
+        tables.toolApprovals.select().where({
+          toolName: name,
+          status: "approved_always",
         }),
       );
-      
+
       if (alwaysApprovals.length > 0) {
         // Use the blanket approval
         existingApproval = alwaysApprovals[0];
@@ -261,8 +267,11 @@ export async function handleToolCallWithResult(
     if (!existingApproval || existingApproval.status === "pending") {
       // Request approval if we don't have one
       if (!existingApproval) {
-        logger.info("Requesting tool approval", { toolName: name, toolCallId: toolCall.id });
-        
+        logger.info("Requesting tool approval", {
+          toolName: name,
+          toolCallId: toolCall.id,
+        });
+
         store.commit(
           events.toolApprovalRequested({
             toolCallId: toolCall.id,
@@ -283,7 +292,9 @@ export async function handleToolCallWithResult(
 
         const timeout = setTimeout(() => {
           cleanup();
-          reject(new Error(`Tool approval timeout after 60 seconds for ${name}`));
+          reject(
+            new Error(`Tool approval timeout after 60 seconds for ${name}`),
+          );
         }, 60000); // 60 second timeout
 
         // Poll for approval status
@@ -300,7 +311,10 @@ export async function handleToolCallWithResult(
               return;
             }
 
-            if (approval.status === "approved_once" || approval.status === "approved_always") {
+            if (
+              approval.status === "approved_once" ||
+              approval.status === "approved_always"
+            ) {
               resolve("approved");
               return;
             }
@@ -326,21 +340,29 @@ export async function handleToolCallWithResult(
   if (name.startsWith("mcp__")) {
     try {
       // Transform name from mcp__<servername>__<toolname> to <servername>:<toolname>
-      const transformedName = name.slice(5).replace('__', ':'); // Remove 'mcp__' prefix and replace first '__' with ':'
+      const transformedName = name.slice(5).replace("__", ":"); // Remove 'mcp__' prefix and replace first '__' with ':'
 
-      logger.info("Calling MCP tool", { toolName: name, transformedName, args });
+      logger.info("Calling MCP tool", {
+        toolName: name,
+        transformedName,
+        args,
+      });
       const mcpClient = await getMCPClient();
       const result = await mcpClient.callTool(transformedName, args);
-      
+
       logger.info("MCP tool executed successfully", {
         toolName: name,
         resultLength: result.length,
       });
-      
+
       return result;
     } catch (error) {
       logger.error("MCP tool execution failed", { toolName: name, error });
-      throw new Error(`MCP tool execution failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `MCP tool execution failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 

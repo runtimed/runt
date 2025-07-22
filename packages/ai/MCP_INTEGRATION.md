@@ -1,10 +1,12 @@
 # MCP (Model Context Protocol) Integration
 
-The AI package now supports MCP (Model Context Protocol) integration, allowing you to extend AI capabilities with external tools and services.
+The AI package now supports MCP (Model Context Protocol) integration, allowing
+you to extend AI capabilities with external tools and services.
 
 ## Overview
 
-MCP integration allows your AI assistants to access additional tools beyond the built-in notebook tools. These tools can include:
+MCP integration allows your AI assistants to access additional tools beyond the
+built-in notebook tools. These tools can include:
 
 - File system operations
 - Web search capabilities
@@ -26,7 +28,8 @@ touch ~/.anode/mcp.json
 
 ### 2. Configure MCP Servers
 
-Edit `~/.anode/mcp.json` to configure your desired MCP servers. Here's a comprehensive example showing all supported server types:
+Edit `~/.anode/mcp.json` to configure your desired MCP servers. Here's a
+comprehensive example showing all supported server types:
 
 ```json
 {
@@ -64,7 +67,7 @@ Edit `~/.anode/mcp.json` to configure your desired MCP servers. Here's a compreh
     "sqlite": {
       "command": "npx -y @modelcontextprotocol/server-sqlite",
       "args": ["/path/to/database.db"],
-      "name": "SQLite Server", 
+      "name": "SQLite Server",
       "description": "Query SQLite databases"
     },
     "custom-sse-server": {
@@ -115,23 +118,29 @@ For servers that use Server-Sent Events:
 Here are some popular official MCP servers you can use:
 
 ### Filesystem Access
+
 ```bash
 npm install -g @modelcontextprotocol/server-filesystem
 ```
 
 ### Web Search (Brave)
+
 ```bash
 npm install -g @modelcontextprotocol/server-brave-search
 ```
+
 Requires: `BRAVE_API_KEY` environment variable
 
 ### GitHub Integration
+
 ```bash
 npm install -g @modelcontextprotocol/server-github
 ```
+
 Requires: `GITHUB_PERSONAL_ACCESS_TOKEN` environment variable
 
 ### Database Access
+
 ```bash
 # PostgreSQL
 npm install -g @modelcontextprotocol/server-postgres
@@ -142,7 +151,9 @@ npm install -g @modelcontextprotocol/server-sqlite
 
 ## Usage
 
-Once configured, MCP tools are automatically available to AI assistants alongside built-in notebook tools. Tools are named with the format `serverName:toolName`.
+Once configured, MCP tools are automatically available to AI assistants
+alongside built-in notebook tools. Tools are named with the format
+`serverName:toolName`.
 
 ### Example Usage
 
@@ -156,6 +167,7 @@ Once configured, MCP tools are automatically available to AI assistants alongsid
 ### Tool Discovery
 
 The system automatically:
+
 1. Reads configuration from `~/.anode/mcp.json`
 2. Connects to configured MCP servers
 3. Discovers available tools from each server
@@ -164,6 +176,7 @@ The system automatically:
 ### Tool Execution
 
 When an AI assistant calls an MCP tool:
+
 1. The tool name is parsed to extract server and tool names
 2. The appropriate MCP server is located
 3. The tool is executed with the provided arguments
@@ -187,6 +200,7 @@ When an AI assistant calls an MCP tool:
 ### Server Connection Issues
 
 Check server logs and ensure:
+
 - Required packages are installed globally
 - Environment variables are set correctly
 - File paths and permissions are correct
@@ -196,7 +210,8 @@ Check server logs and ensure:
 When using full paths in the `command` array, ensure:
 
 1. **File exists**: The executable file exists at the specified path
-2. **Permissions**: The file has execute permissions (`chmod +x /path/to/executable`)
+2. **Permissions**: The file has execute permissions
+   (`chmod +x /path/to/executable`)
 3. **Correct format**: Use proper string and args format:
    ```json
    {
@@ -210,13 +225,17 @@ When using full paths in the `command` array, ensure:
 
 #### Common Path Issues
 
-- **Permission denied**: Check file permissions with `ls -la /path/to/executable`
-- **File not found**: Verify the path exists with `which executable-name` or `ls /path/to/executable`
-- **Empty path**: Ensure the command string is not empty and contains a valid executable path
+- **Permission denied**: Check file permissions with
+  `ls -la /path/to/executable`
+- **File not found**: Verify the path exists with `which executable-name` or
+  `ls /path/to/executable`
+- **Empty path**: Ensure the command string is not empty and contains a valid
+  executable path
 
 ### Tool Discovery Problems
 
 Verify:
+
 - Server configuration syntax in `mcp.json`
 - Server startup and connection success
 - Tool compatibility with MCP specification
@@ -229,4 +248,6 @@ Verify:
 
 ## Examples
 
-The configuration section above provides a complete example with multiple server types and configurations covering filesystem access, web search, GitHub integration, database access, and custom SSE servers. 
+The configuration section above provides a complete example with multiple server
+types and configurations covering filesystem access, web search, GitHub
+integration, database access, and custom SSE servers.

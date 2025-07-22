@@ -331,8 +331,6 @@ export class RuntOpenAIClient {
       return;
     }
 
-
-
     const conversationMessages: ChatMessage[] = messages;
 
     let iteration = 0;
@@ -371,7 +369,7 @@ export class RuntOpenAIClient {
             all_tools = [...this.notebookTools, ...all_tools];
           }
         }
-        
+
         const tools = enableTools && all_tools.length > 0
           ? all_tools.map((tool) => ({
             type: "function" as const,

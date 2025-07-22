@@ -367,7 +367,12 @@ export const tables = {
       cellId: State.SQLite.text(),
       toolName: State.SQLite.text(),
       status: State.SQLite.text({
-        schema: Schema.Literal("pending", "approved_once", "approved_always", "denied"),
+        schema: Schema.Literal(
+          "pending",
+          "approved_once",
+          "approved_always",
+          "denied",
+        ),
       }),
       approvedBy: State.SQLite.text({ nullable: true }),
       requestedAt: State.SQLite.datetime(),
@@ -1383,7 +1388,9 @@ export const materializers = State.SQLite.materializers(events, {
       .onConflict("id", "replace"),
 
   // Tool approval materializers
-  "v1.ToolApprovalRequested": ({ toolCallId, cellId, toolName, arguments: args, requestedAt }) =>
+  "v1.ToolApprovalRequested": (
+    { toolCallId, cellId, toolName, arguments: _args, requestedAt },
+  ) =>
     tables.toolApprovals
       .insert({
         toolCallId,
@@ -1396,7 +1403,9 @@ export const materializers = State.SQLite.materializers(events, {
       })
       .onConflict("toolCallId", "replace"),
 
-  "v1.ToolApprovalResponded": ({ toolCallId, status, approvedBy, respondedAt }) =>
+  "v1.ToolApprovalResponded": (
+    { toolCallId, status, approvedBy, respondedAt },
+  ) =>
     tables.toolApprovals
       .update({
         status,

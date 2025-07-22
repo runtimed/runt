@@ -407,7 +407,7 @@ const getDefaultModel = (provider: string): string => {
  */
 // Export the AI clients and MCP client for external use
 export { OpenAIClient, RuntOllamaClient };
-export { MCPClient, getMCPClient, closeMCPClient } from "./mcp-client.ts";
+export { closeMCPClient, getMCPClient, MCPClient } from "./mcp-client.ts";
 export { getAllTools } from "./tool-registry.ts";
 
 /**
