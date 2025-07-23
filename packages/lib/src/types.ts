@@ -141,7 +141,12 @@ export interface ExecutionContext {
   /** Clear all previous outputs for this cell */
   clear: (wait?: boolean) => void;
   /** Append text to existing terminal output (for streaming) */
-  appendTerminal: (outputId: string, text: string) => void;
+  appendTerminal: (
+    outputId: string,
+    delta: string,
+    id: string,
+    sequenceNumber: number,
+  ) => void;
   /** Emit markdown content (for AI responses) */
   markdown: (content: string, metadata?: Record<string, unknown>) => string;
   /** Append to existing markdown output (for streaming AI responses) */
