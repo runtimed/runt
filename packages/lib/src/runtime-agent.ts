@@ -577,17 +577,17 @@ export class RuntimeAgent {
       appendTerminal: (
         outputId: string,
         delta: string,
-        id: string,
         sequenceNumber: number,
       ) => {
-        if (delta) {
-          this.store.commit(events.terminalOutputAppended2({
-            outputId,
-            delta,
-            id,
-            sequenceNumber,
-          }));
-        }
+        const id = crypto.randomUUID();
+        this.store.commit(events.terminalOutputAppended2({
+          outputId,
+          delta,
+          id,
+          sequenceNumber,
+        }));
+
+        return id;
       },
 
       stderr: (text: string) => {
@@ -745,23 +745,19 @@ export class RuntimeAgent {
       },
 
       // Append to existing markdown output (for streaming AI responses)
-      appendMarkdown: (outputId: string, content: string) => {
-        try {
-          this.store.commit(events.markdownOutputAppended({
-            outputId,
-            content: {
-              type: "inline",
-              data: content,
-            },
-          }));
-        } catch (error) {
-          // Mask LiveStore errors to prevent interference with runtime execution
-          const logger = createLogger(`${this.config.runtimeType}-agent`);
-          logger.debug("LiveStore commit failed for appendMarkdown output", {
-            error: error instanceof Error ? error.message : String(error),
-            outputId,
-          });
-        }
+      appendMarkdown: (
+        outputId: string,
+        delta: string,
+        sequenceNumber: number,
+      ) => {
+        const id = crypto.randomUUID();
+        this.store.commit(events.markdownOutputAppended2({
+          id,
+          outputId,
+          delta,
+          sequenceNumber,
+        }));
+        return id;
       },
 
       clear: (wait: boolean = false) => {

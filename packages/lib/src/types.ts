@@ -144,13 +144,16 @@ export interface ExecutionContext {
   appendTerminal: (
     outputId: string,
     delta: string,
-    id: string,
     sequenceNumber: number,
   ) => void;
   /** Emit markdown content (for AI responses) */
   markdown: (content: string, metadata?: Record<string, unknown>) => string;
   /** Append to existing markdown output (for streaming AI responses) */
-  appendMarkdown: (outputId: string, content: string) => void;
+  appendMarkdown: (
+    outputId: string,
+    delta: string,
+    sequenceNumber: number,
+  ) => void;
 }
 
 /**
