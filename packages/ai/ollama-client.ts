@@ -382,6 +382,8 @@ export class RuntOllamaClient {
         }> = [];
         let markdownOutputId: string | null = null;
 
+        let sequenceNumber = 0;
+
         // Stream the response
         for await (const chunk of response) {
           const message = chunk.message;
@@ -401,8 +403,13 @@ export class RuntOllamaClient {
               });
             } else {
               // Append to existing markdown output
-              context.appendMarkdown(markdownOutputId, message.content);
+              context.appendMarkdown(
+                markdownOutputId,
+                message.content,
+                sequenceNumber,
+              );
             }
+            sequenceNumber++;
             content += message.content;
           }
 

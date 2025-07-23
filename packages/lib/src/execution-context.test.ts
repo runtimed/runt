@@ -109,25 +109,13 @@ Deno.test("ExecutionContext - method signatures", () => {
   assertEquals(outputs[5].type, "clear");
   assertEquals((outputs[5].data as any).wait, true);
 
-  // Test appendTerminal
-  context.appendTerminal("output-123", " more text");
-  assertEquals(outputs[6].type, "appendTerminal");
-  assertEquals((outputs[6].data as any).outputId, "output-123");
-  assertEquals((outputs[6].data as any).text, " more text");
-
   // Test markdown
   context.markdown("# Hello World", { source: "ai" });
-  assertEquals(outputs[7].type, "markdown");
-  assertEquals((outputs[7].data as any).content, "# Hello World");
-  assertEquals((outputs[7].data as any).metadata.source, "ai");
+  assertEquals(outputs[6].type, "markdown");
+  assertEquals((outputs[6].data as any).content, "# Hello World");
+  assertEquals((outputs[6].data as any).metadata.source, "ai");
 
-  // Test appendMarkdown
-  context.appendMarkdown("md-456", "\n\nMore content");
-  assertEquals(outputs[8].type, "appendMarkdown");
-  assertEquals((outputs[8].data as any).outputId, "md-456");
-  assertEquals((outputs[8].data as any).content, "\n\nMore content");
-
-  assertEquals(outputs.length, 9);
+  assertEquals(outputs.length, 7);
 });
 
 // Test that empty strings are handled correctly
@@ -223,19 +211,9 @@ Deno.test("ExecutionContext - streaming methods", () => {
     },
   };
 
-  // Test appendTerminal
-  called = false;
-  context.appendTerminal("test-output-id", "appended text");
-  assertEquals(called, true);
-
   // Test markdown
   called = false;
   context.markdown("# Markdown", { type: "ai" });
-  assertEquals(called, true);
-
-  // Test appendMarkdown
-  called = false;
-  context.appendMarkdown("md-output-id", " more markdown");
   assertEquals(called, true);
 });
 

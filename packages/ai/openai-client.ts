@@ -414,6 +414,7 @@ export class RuntOpenAIClient {
           function: { name: string; arguments: string };
         }> = [];
         let markdownOutputId: string | null = null;
+        let sequenceNumber = 0;
 
         // Stream the response
         for await (
@@ -438,7 +439,11 @@ export class RuntOpenAIClient {
               });
             } else {
               // Append to existing markdown output
-              context.appendMarkdown(markdownOutputId, delta.content);
+              context.appendMarkdown(
+                markdownOutputId,
+                delta.content,
+                sequenceNumber++,
+              );
             }
             content += delta.content;
           }

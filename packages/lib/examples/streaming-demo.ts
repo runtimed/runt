@@ -199,12 +199,15 @@ class StreamingDemoAgent {
         const markdownId = markdown("🤖 AI Assistant is thinking");
         await this.delay(300);
 
+        let sequenceNumber = 0;
+
         // Simulate typing dots using markdown append
         for (let i = 0; i < 3; i++) {
-          appendMarkdown(markdownId, ".");
+          sequenceNumber++;
+          appendMarkdown(markdownId, ".", sequenceNumber);
           await this.delay(100);
         }
-        appendMarkdown(markdownId, "\n\n");
+        appendMarkdown(markdownId, "\n\n", sequenceNumber++);
 
         // Stream the response content token by token to simulate real AI streaming
         const fullResponse =
@@ -228,7 +231,8 @@ This creates a much better user experience! ✨`;
         const tokens = this.tokenizeText(fullResponse);
 
         for (const token of tokens) {
-          appendMarkdown(markdownId, token);
+          sequenceNumber++;
+          appendMarkdown(markdownId, token, sequenceNumber);
           // Vary the delay to simulate realistic AI token generation
           const delay = token.includes("\n") ? 50 : Math.random() * 30 + 20;
           await this.delay(delay);
@@ -238,6 +242,7 @@ This creates a much better user experience! ✨`;
         appendMarkdown(
           markdownId,
           "\n---\n\n*Streaming markdown demonstration complete!*",
+          sequenceNumber++,
         );
 
         return { success: true };
@@ -276,12 +281,14 @@ This creates a much better user experience! ✨`;
         );
         await this.delay(300);
 
+        let sequenceNumber = 0;
+
         // Simulate typing dots
         for (let i = 0; i < 3; i++) {
-          appendMarkdown(markdownId, ".");
+          appendMarkdown(markdownId, ".", sequenceNumber++);
           await this.delay(150);
         }
-        appendMarkdown(markdownId, "\n\n");
+        appendMarkdown(markdownId, "\n\n", sequenceNumber++);
 
         // Stream realistic AI response content
         const aiResponse =
@@ -320,7 +327,7 @@ This creates an **excellent developer experience** for building interactive appl
         // Stream token by token with realistic delays
         const tokens = this.tokenizeText(aiResponse);
         for (const token of tokens) {
-          appendMarkdown(markdownId, token);
+          appendMarkdown(markdownId, token, sequenceNumber++);
 
           // Realistic AI streaming delays
           let delay = 30; // Base delay
@@ -338,6 +345,7 @@ This creates an **excellent developer experience** for building interactive appl
         appendMarkdown(
           markdownId,
           "\n\n---\n*✨ Streaming complete! Try other demos to see more features.*",
+          sequenceNumber++,
         );
 
         return { success: true };
