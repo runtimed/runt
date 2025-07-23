@@ -686,7 +686,6 @@ export const events = {
       outputId: Schema.String,
       delta: Schema.String,
       sequenceNumber: Schema.Number,
-      content: MediaRepresentationSchema,
     }),
   }),
 

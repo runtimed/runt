@@ -574,14 +574,18 @@ export class RuntimeAgent {
       },
 
       // Append to existing terminal output (for streaming)
-      appendTerminal: (outputId: string, text: string) => {
-        if (text) {
-          this.store.commit(events.terminalOutputAppended({
+      appendTerminal: (
+        outputId: string,
+        delta: string,
+        id: string,
+        sequenceNumber: number,
+      ) => {
+        if (delta) {
+          this.store.commit(events.terminalOutputAppended2({
             outputId,
-            content: {
-              type: "inline",
-              data: text,
-            },
+            delta,
+            id,
+            sequenceNumber,
           }));
         }
       },
