@@ -111,11 +111,11 @@ Deno.test("ExecutionContext - method signatures", () => {
 
   // Test markdown
   context.markdown("# Hello World", { source: "ai" });
-  assertEquals(outputs[7].type, "markdown");
-  assertEquals((outputs[7].data as any).content, "# Hello World");
-  assertEquals((outputs[7].data as any).metadata.source, "ai");
+  assertEquals(outputs[6].type, "markdown");
+  assertEquals((outputs[6].data as any).content, "# Hello World");
+  assertEquals((outputs[6].data as any).metadata.source, "ai");
 
-  assertEquals(outputs.length, 9);
+  assertEquals(outputs.length, 7);
 });
 
 // Test that empty strings are handled correctly
