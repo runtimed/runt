@@ -252,6 +252,16 @@ export const tables = {
     },
   }),
 
+  outputDeltas: State.SQLite.table({
+    name: "output_deltas",
+    columns: {
+      id: State.SQLite.text({ primaryKey: true }),
+      outputId: State.SQLite.text(),
+      delta: State.SQLite.text({ default: "" }),
+      sequenceNumber: State.SQLite.integer(),
+    },
+  }),
+
   outputs: State.SQLite.table({
     name: "outputs",
     columns: {
@@ -660,10 +670,22 @@ export const events = {
     }),
   }),
 
+  /** @deprecated  */
   terminalOutputAppended: Events.synced({
     name: "v1.TerminalOutputAppended",
     schema: Schema.Struct({
       outputId: Schema.String,
+      content: MediaRepresentationSchema,
+    }),
+  }),
+
+  terminalOutputAppended2: Events.synced({
+    name: "v2.TerminalOutputAppended",
+    schema: Schema.Struct({
+      id: Schema.String,
+      outputId: Schema.String,
+      delta: Schema.String,
+      sequenceNumber: Schema.Number,
       content: MediaRepresentationSchema,
     }),
   }),
@@ -678,11 +700,22 @@ export const events = {
     }),
   }),
 
+  /** @deprecated  */
   markdownOutputAppended: Events.synced({
     name: "v1.MarkdownOutputAppended",
     schema: Schema.Struct({
       outputId: Schema.String,
       content: MediaRepresentationSchema,
+    }),
+  }),
+
+  markdownOutputAppended2: Events.synced({
+    name: "v2.MarkdownOutputAppended",
+    schema: Schema.Struct({
+      id: Schema.String,
+      outputId: Schema.String,
+      delta: Schema.String,
+      sequenceNumber: Schema.Number,
     }),
   }),
 
@@ -1281,6 +1314,17 @@ export const materializers = State.SQLite.materializers(events, {
     ];
   },
 
+  "v2.TerminalOutputAppended": (
+    { outputId, delta, id, sequenceNumber },
+  ) => {
+    return tables.outputDeltas.insert({
+      id,
+      outputId,
+      delta,
+      sequenceNumber,
+    });
+  },
+
   "v1.MarkdownOutputAdded": ({ id, cellId, position, content }, ctx) => {
     const ops = [];
     // Check for pending clears
@@ -1310,6 +1354,7 @@ export const materializers = State.SQLite.materializers(events, {
     return ops;
   },
 
+  /**@deprecated */
   "v1.MarkdownOutputAppended": ({ outputId, content }, ctx) => {
     const existingOutput = ctx.query(
       tables.outputs.select().where({ id: outputId }).limit(1),
@@ -1325,6 +1370,15 @@ export const materializers = State.SQLite.materializers(events, {
     return [
       tables.outputs.update({ data: concatenatedData }).where({ id: outputId }),
     ];
+  },
+
+  "v2.MarkdownOutputAppended": ({ id, outputId, delta, sequenceNumber }) => {
+    return tables.outputDeltas.insert({
+      id,
+      outputId,
+      delta,
+      sequenceNumber,
+    });
   },
 
   "v1.ErrorOutputAdded": ({ id, cellId, position, content }, ctx) => {
