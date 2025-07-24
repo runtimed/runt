@@ -134,7 +134,7 @@ export class MCPClient {
         transport = new StdioClientTransport({
           command: command,
           args: commandArgs.concat(config.args || []),
-          env: config.env || {},
+          env: { ...Deno.env.toObject(), ...(config.env || {}) },
         });
       } else if (config.url) {
         // SSE transport for URL-based servers
