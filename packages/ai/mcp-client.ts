@@ -9,7 +9,6 @@ import { createLogger } from "@runt/lib";
 import { join } from "@std/path";
 
 const logger = createLogger("mcp-client");
-
 interface MCPServerConfig {
   command?: string;
   args?: string[];
@@ -23,6 +22,81 @@ interface MCPConfig {
   mcpServers: Record<string, MCPServerConfig>;
 }
 
+function assertIsMCPConfig(val: unknown): asserts val is MCPConfig {
+  if (
+    typeof val !== "object" ||
+    val === null ||
+    !("mcpServers" in val)
+  ) {
+    throw new Error("Invalid config: missing 'mcpServers'");
+  }
+
+  const servers = val.mcpServers;
+  if (
+    typeof servers !== "object" ||
+    servers === null ||
+    Array.isArray(servers)
+  ) {
+    throw new Error("Invalid 'mcpServers': must be an object");
+  }
+
+  for (const [key, server] of Object.entries(servers)) {
+    if (
+      typeof server !== "object" ||
+      server === null ||
+      "name" in server &&
+        typeof server.name !== "string"
+    ) {
+      throw new Error(
+        `Invalid MCPServerConfig at key '${key}': must have a string 'name'`,
+      );
+    }
+
+    if ("command" in server && typeof server.command !== "string") {
+      throw new Error(`Invalid 'command' in '${key}': must be a string`);
+    }
+
+    if ("args" in server && !Array.isArray(server.args)) {
+      throw new Error(
+        `Invalid 'args' in '${key}': must be an array of strings`,
+      );
+    } else if (
+      "args" in server &&
+      Array.isArray(server.args) &&
+      !server.args.every((arg: unknown) => typeof arg === "string")
+    ) {
+      throw new Error(`Invalid 'args' in '${key}': all items must be strings`);
+    }
+
+    if ("env" in server && typeof server.env !== "object") {
+      throw new Error(`Invalid 'env' in '${key}': must be an object`);
+    } else if (
+      "env" in server &&
+      typeof server.env === "object" &&
+      server.env !== null
+    ) {
+      for (const [envKey, envVal] of Object.entries(server.env)) {
+        if (typeof envVal !== "string") {
+          throw new Error(
+            `Invalid 'env' in '${key}': key '${envKey}' must map to a string`,
+          );
+        }
+      }
+    }
+
+    if ("url" in server && typeof server.url !== "string") {
+      throw new Error(`Invalid 'url' in '${key}': must be a string`);
+    }
+
+    if (
+      "description" in server &&
+      typeof server.description !== "string"
+    ) {
+      throw new Error(`Invalid 'description' in '${key}': must be a string`);
+    }
+  }
+}
+
 interface MCPTool {
   name: string;
   description: string;
@@ -34,6 +108,9 @@ interface MCPTool {
   serverName: string;
 }
 
+const fileExists = (path: string): Promise<boolean> =>
+  Deno.stat(path).then(() => true).catch(() => false);
+
 export class MCPClient {
   private clients = new Map<string, Client>();
   private tools: MCPTool[] = [];
@@ -44,54 +121,42 @@ export class MCPClient {
       return;
     }
 
-    try {
-      const config = await this.loadConfig();
-      await this.connectToServers(config);
-      await this.discoverTools();
-      this.isInitialized = true;
-      logger.info(
-        `MCP client initialized with ${this.tools.length} tools from ${this.clients.size} servers`,
-      );
-    } catch (error) {
-      logger.warn("Failed to initialize MCP client", { error: String(error) });
-      // Don't throw - allow the system to work without MCP
-    }
+    const config = await this.loadConfig();
+    await this.connectToServers(config);
+    await this.discoverTools();
+    this.isInitialized = true;
+    logger.info(
+      `MCP client initialized with ${this.tools.length} tools from ${this.clients.size} servers`,
+    );
   }
 
   private async loadConfig(): Promise<MCPConfig> {
-    try {
-      const homeDir = Deno.env.get("HOME") || Deno.env.get("USERPROFILE") || "";
-      const configPath = join(homeDir, ".runt", "mcp.json");
+    const homeDir = Deno.env.get("HOME") || Deno.env.get("USERPROFILE") || "";
+    const configPath = join(homeDir, ".runt", "mcp.json");
 
-      try {
-        const configText = await Deno.readTextFile(configPath);
-        const config = JSON.parse(configText) as MCPConfig;
-
-        if (!config.mcpServers || typeof config.mcpServers !== "object") {
-          throw new Error(
-            "Invalid config: missing or invalid 'mcpServers' object",
-          );
-        }
-
-        logger.info(`Loaded MCP config from ${configPath}`, {
-          serverCount: Object.keys(config.mcpServers).length,
-          servers: Object.keys(config.mcpServers),
-        });
-
-        return config;
-      } catch (error) {
-        if (error instanceof Deno.errors.NotFound) {
-          logger.info(
-            `MCP config file not found at ${configPath}, using empty configuration`,
-          );
-          return { mcpServers: {} };
-        }
-        throw error;
-      }
-    } catch (error) {
-      logger.error("Error loading MCP config", error);
+    // Check if file exists, if not then return empty config
+    if (!(await fileExists(configPath))) {
+      logger.info(`MCP config file not found at ${configPath}`);
       return { mcpServers: {} };
     }
+
+    const config: MCPConfig = await Deno.readTextFile(configPath).then(
+      (txt) => {
+        const config = JSON.parse(txt);
+        assertIsMCPConfig(config);
+        return config;
+      },
+    ).catch((error) => {
+      logger.error(error);
+      return { mcpServers: {} };
+    });
+
+    logger.info(`Loaded MCP config from ${configPath}`, {
+      serverCount: Object.keys(config.mcpServers).length,
+      servers: Object.keys(config.mcpServers),
+    });
+
+    return config;
   }
 
   private async connectToServers(config: MCPConfig): Promise<void> {
@@ -147,7 +212,7 @@ export class MCPClient {
 
       client = new Client(
         {
-          name: "anode-ai",
+          name: "runt-ai",
           version: "1.0.0",
         },
         {
