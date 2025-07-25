@@ -172,6 +172,60 @@ Deno.test("AI Media Utils - ensureTextPlainFallback", async (t) => {
     const result = ensureTextPlainFallback(bundle);
     assertEquals(result["text/plain"], "");
   });
+
+  await t.step(
+    "should skip image mime types when generating text/plain fallback",
+    () => {
+      const bundle: AIMediaBundle = {
+        "image/png":
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAI/0VWoJQAAAABJRU5ErkJggg==",
+        "application/json": { some: "data" },
+      };
+
+      const result = ensureTextPlainFallback(bundle);
+
+      // Should use JSON data, not image base64
+      assertEquals(result["text/plain"], '{\n  "some": "data"\n}');
+      assertEquals(
+        result["image/png"],
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAI/0VWoJQAAAABJRU5ErkJggg==",
+      );
+    },
+  );
+
+  await t.step("should prefer text content over image content", () => {
+    const bundle: AIMediaBundle = {
+      "image/png":
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAI/0VWoJQAAAABJRU5ErkJggg==",
+      "custom/format": "Some readable text content",
+    };
+
+    const result = ensureTextPlainFallback(bundle);
+
+    // Should use the readable text, not the image base64
+    assertEquals(result["text/plain"], "Some readable text content");
+    assertEquals(
+      result["image/png"],
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAI/0VWoJQAAAABJRU5ErkJggg==",
+    );
+  });
+
+  await t.step(
+    "should default to empty string when only images present",
+    () => {
+      const bundle: AIMediaBundle = {
+        "image/png":
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAI/0VWoJQAAAABJRU5ErkJggg==",
+        "image/jpeg":
+          "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k=",
+      };
+
+      const result = ensureTextPlainFallback(bundle);
+
+      // Should default to empty string since no non-image content
+      assertEquals(result["text/plain"], "");
+    },
+  );
 });
 
 Deno.test("AI Media Utils - toAIContext", async (t) => {

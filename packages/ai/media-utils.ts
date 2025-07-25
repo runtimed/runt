@@ -134,20 +134,29 @@ export function ensureTextPlainFallback(bundle: AIMediaBundle): AIMediaBundle {
     // Markdown is readable as plain text
     result["text/plain"] = result["text/markdown"];
   } else {
-    // Use first available string content
-    const firstStringValue = Object.values(result).find(
-      (value): value is string => typeof value === "string",
-    );
+    // Use first available string content, but skip image mime types
+    const firstStringValue = Object.entries(result).find(
+      ([mimeType, value]) => {
+        // Skip image mime types to avoid using base64 data as text
+        if (IMAGE_MIME_TYPES.includes(mimeType)) {
+          return false;
+        }
+        return typeof value === "string";
+      },
+    )?.[1] as string | undefined;
+
     if (firstStringValue) {
       result["text/plain"] = firstStringValue;
     } else {
-      // Last resort: JSON stringify first available content
-      const firstEntry = Object.entries(result)[0];
-      if (firstEntry && firstEntry[1] != null) {
+      // Last resort: JSON stringify first available non-image content
+      const firstNonImageEntry = Object.entries(result).find(
+        ([mimeType]) => !IMAGE_MIME_TYPES.includes(mimeType),
+      );
+      if (firstNonImageEntry && firstNonImageEntry[1] != null) {
         try {
-          result["text/plain"] = JSON.stringify(firstEntry[1], null, 2);
+          result["text/plain"] = JSON.stringify(firstNonImageEntry[1], null, 2);
         } catch {
-          result["text/plain"] = String(firstEntry[1]);
+          result["text/plain"] = String(firstNonImageEntry[1]);
         }
       } else {
         result["text/plain"] = "";

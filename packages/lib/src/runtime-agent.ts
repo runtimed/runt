@@ -633,6 +633,9 @@ export class RuntimeAgent {
           }
         }
 
+        // Add text representations for image artifacts
+        this.generateTextRepresentationsForArtifacts(representations);
+
         this.store.commit(events.multimediaDisplayOutputAdded({
           id: crypto.randomUUID(),
           cellId: cell.id,
@@ -670,6 +673,9 @@ export class RuntimeAgent {
           }
         }
 
+        // Add text representations for image artifacts
+        this.generateTextRepresentationsForArtifacts(representations);
+
         this.store.commit(events.multimediaDisplayOutputUpdated({
           displayId,
           representations,
@@ -702,6 +708,9 @@ export class RuntimeAgent {
             };
           }
         }
+
+        // Add text representations for image artifacts
+        this.generateTextRepresentationsForArtifacts(representations);
 
         this.store.commit(events.multimediaResultOutputAdded({
           id: crypto.randomUUID(),
@@ -1015,6 +1024,45 @@ export class RuntimeAgent {
         data: content,
         metadata,
       };
+    }
+  }
+
+  /**
+   * Generate appropriate text representations for image artifacts
+   */
+  private generateTextRepresentationsForArtifacts(
+    representations: Record<string, MediaContainer>,
+  ): void {
+    // Check for image artifacts and add text representations
+    for (const [mimeType, container] of Object.entries(representations)) {
+      if (isImageMimeType(mimeType) && container.type === "artifact") {
+        // Don't override existing text representations
+        if (!representations["text/plain"]) {
+          const artifactUrl = this.artifactClient.getArtifactUrl(
+            container.artifactId,
+          );
+          const extension = mimeType.split("/")[1]?.toUpperCase() || "Image";
+          representations["text/plain"] = {
+            type: "inline",
+            data: `${extension} artifact: ${artifactUrl}`,
+            metadata: { generatedFor: mimeType },
+          };
+        }
+
+        if (!representations["text/markdown"]) {
+          const artifactUrl = this.artifactClient.getArtifactUrl(
+            container.artifactId,
+          );
+          const extension = mimeType.split("/")[1]?.toUpperCase() || "Image";
+          const filename = container.metadata?.filename ||
+            `${extension.toLowerCase()}_${container.artifactId}`;
+          representations["text/markdown"] = {
+            type: "inline",
+            data: `![${filename}](${artifactUrl})`,
+            metadata: { generatedFor: mimeType },
+          };
+        }
+      }
     }
   }
 
