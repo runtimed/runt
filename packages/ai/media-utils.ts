@@ -6,7 +6,11 @@
  * the flexibility to extend with custom AI-specific transformations.
  */
 
-import { IMAGE_MIME_TYPES, type MediaContainer } from "@runt/schema";
+import {
+  IMAGE_MIME_TYPES,
+  isImageMimeType,
+  type MediaContainer,
+} from "@runt/schema";
 
 /**
  * Media bundle interface for AI processing
@@ -138,7 +142,7 @@ export function ensureTextPlainFallback(bundle: AIMediaBundle): AIMediaBundle {
     const firstStringValue = Object.entries(result).find(
       ([mimeType, value]) => {
         // Skip image mime types to avoid using base64 data as text
-        if (IMAGE_MIME_TYPES.includes(mimeType)) {
+        if (isImageMimeType(mimeType)) {
           return false;
         }
         return typeof value === "string";
@@ -150,7 +154,7 @@ export function ensureTextPlainFallback(bundle: AIMediaBundle): AIMediaBundle {
     } else {
       // Last resort: JSON stringify first available non-image content
       const firstNonImageEntry = Object.entries(result).find(
-        ([mimeType]) => !IMAGE_MIME_TYPES.includes(mimeType),
+        ([mimeType]) => !isImageMimeType(mimeType),
       );
       if (firstNonImageEntry && firstNonImageEntry[1] != null) {
         try {

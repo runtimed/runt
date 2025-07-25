@@ -5,7 +5,12 @@
 
 import { parseArgs } from "@std/cli/parse-args";
 import { createLogger } from "./logging.ts";
-import type { RuntimeAgentOptions, RuntimeCapabilities } from "./types.ts";
+import type {
+  IArtifactClient,
+  RuntimeAgentOptions,
+  RuntimeCapabilities,
+} from "./types.ts";
+import { ArtifactClient } from "./artifact-client.ts";
 
 /**
  * Default configuration values
@@ -28,6 +33,7 @@ export class RuntimeConfig {
   public readonly sessionId: string;
   public readonly environmentOptions: RuntimeAgentOptions["environmentOptions"];
   public readonly imageArtifactThresholdBytes: number;
+  public readonly artifactClient: IArtifactClient;
 
   constructor(options: RuntimeAgentOptions) {
     this.runtimeId = options.runtimeId;
@@ -40,10 +46,38 @@ export class RuntimeConfig {
     this.imageArtifactThresholdBytes = options.imageArtifactThresholdBytes ??
       DEFAULT_CONFIG.imageArtifactThresholdBytes;
 
+    // Use injected artifact client or create default one
+    this.artifactClient = options.artifactClient ??
+      new ArtifactClient(this.getArtifactServiceUrl(options.syncUrl));
+
     // Generate unique session ID
     this.sessionId = `${this.runtimeType}-${this.runtimeId}-${Date.now()}-${
-      Math.random().toString(36).slice(2)
+      Math.random().toString(36).substring(2, 15)
     }`;
+  }
+
+  /**
+   * Convert sync URL to artifact service URL
+   * Transforms WebSocket URLs to HTTP(S) URLs for the artifact service
+   */
+  private getArtifactServiceUrl(syncUrl: string): string {
+    try {
+      const url = new URL(syncUrl);
+      // Convert wss:// to https:// and ws:// to http://
+      const protocol = url.protocol === "wss:" ? "https:" : "http:";
+      return `${protocol}//${url.host}`;
+    } catch (error) {
+      // Fallback to default if URL parsing fails
+      const logger = createLogger("runtime-config");
+      logger.warn(
+        "Failed to parse sync URL for artifact service, using default",
+        {
+          syncUrl,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return "https://api.runt.run";
+    }
   }
 
   /**
