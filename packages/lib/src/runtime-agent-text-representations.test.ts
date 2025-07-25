@@ -255,88 +255,11 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
 
       await agent.start();
 
-      // Create a larger valid PNG that will exceed the 10-byte threshold
-      // Start with the valid black pixel PNG data and pad it to make it larger
-      const validPngBytes = new Uint8Array([
-        0x89,
-        0x50,
-        0x4E,
-        0x47,
-        0x0D,
-        0x0A,
-        0x1A,
-        0x0A, // PNG signature
-        0x00,
-        0x00,
-        0x00,
-        0x0D,
-        0x49,
-        0x48,
-        0x44,
-        0x52, // IHDR chunk start
-        0x00,
-        0x00,
-        0x00,
-        0x01,
-        0x00,
-        0x00,
-        0x00,
-        0x01, // 1x1 image
-        0x08,
-        0x02,
-        0x00,
-        0x00,
-        0x00,
-        0x90,
-        0x77,
-        0x53,
-        0xDE, // IHDR data + CRC
-        0x00,
-        0x00,
-        0x00,
-        0x0C,
-        0x49,
-        0x44,
-        0x41,
-        0x54, // IDAT chunk start
-        0x08,
-        0x99,
-        0x01,
-        0x01,
-        0x00,
-        0x03,
-        0x00,
-        0xFC,
-        0xFF,
-        0x00,
-        0x00,
-        0x00, // IDAT data
-        0x02,
-        0x00,
-        0x01,
-        0x73,
-        0x75,
-        0x01,
-        0x18, // IDAT CRC
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x49,
-        0x45,
-        0x4E,
-        0x44,
-        0xAE,
-        0x42,
-        0x60,
-        0x82, // IEND chunk
-      ]);
-
-      // Pad with additional bytes to make it larger than 10 bytes (it's already ~60 bytes)
-      const largeImageBase64 = encodeBase64(validPngBytes);
+      const blackPixelBase64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAI9jINmGwAAAABJRU5ErkJggg==";
 
       const representations: RawOutputData = {
-        "image/png": largeImageBase64,
+        "image/png": blackPixelBase64,
       };
 
       agent.onExecution(async (execCtx) => {
@@ -406,11 +329,11 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
       // Check that URLs are properly constructed
       assertEquals(
         plainText,
-        "PNG artifact: https://artifacts.test/test-artifact-success-123",
+        "image/png artifact: https://artifacts.test/test-artifact-success-123",
       );
       assertEquals(
         markdownText,
-        "![png_test-artifact-success-123](https://artifacts.test/test-artifact-success-123)",
+        "![Artifact_test_artifact_success_123image_png](https://artifacts.test/test-artifact-success-123)",
       );
 
       // Clean up to prevent resource leaks
