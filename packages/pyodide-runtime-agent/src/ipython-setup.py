@@ -24,9 +24,7 @@ import time
 import builtins
 import signal
 
-
 import micropip
-
 
 from IPython.core.interactiveshell import InteractiveShell
 from IPython.core.displayhook import DisplayHook
@@ -34,6 +32,7 @@ from IPython.core.displaypub import DisplayPublisher
 from IPython.core.history import HistoryManager
 import matplotlib
 import matplotlib.pyplot as plt
+
 
 # Configure matplotlib for headless PNG output (works in Deno workers)
 matplotlib.use("Agg")
@@ -338,7 +337,6 @@ async def bootstrap_micropip_packages():
     """Note: this _must_ be run on start of this ipython session"""
     try:
         await micropip.install("seaborn")
-        await micropip.install("openai-function-calling")
 
         print("Installed seaborn via micropip")
     except Exception as e:
