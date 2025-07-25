@@ -8,7 +8,6 @@ import type {
   RuntimeCapabilities,
 } from "./types.ts";
 import { queryDb, Schema, sql } from "npm:@livestore/livestore";
-import { encodeBase64 } from "@std/encoding/base64";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
