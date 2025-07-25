@@ -15,10 +15,22 @@ const cli = meow(
 		--notebook Notebook ID to render
 		--log      Use structured logging instead of TUI (default: false)
 
-	Key Bindings
-		↑/↓        Navigate between cells
-		L          Toggle debug logs visibility
-		Ctrl+C     Exit (press twice to force quit)
+	Command Mode (default - Jupyter-like)
+		↑/↓ or j/k     Navigate between cells
+		Enter or i     Edit selected cell
+		r              Run cell and create new cell below (like Shift+Enter)
+		R              Run cell and stay on same cell (like Ctrl+Enter)
+		a              Insert cell above current cell
+		b              Insert cell below current cell  
+		dd             Delete cell (press d twice)
+		L              Toggle debug logs visibility
+		Ctrl+C         Exit (press twice to force quit)
+		
+	Edit Mode (when editing cell content)
+		ESC            Save changes and return to command mode
+		Ctrl+R         Execute cell and create new cell (backup)
+		Ctrl+E         Execute cell without creating new cell (backup)
+		Ctrl+C         Cancel editing without saving
 
 	Examples
 	  $ runt tui --notebook=my-notebook-id

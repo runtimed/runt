@@ -105,10 +105,16 @@ export const Footer: React.FC<FooterProps> = ({
       )}
 
       {!showLogs && (
-        <Box marginTop={1} height={8}>
+        <Box marginTop={1} height={8} flexDirection="column">
           <Text color={Colors.UI.metadata} dimColor>
             Press L to show debug logs
           </Text>
+          <Box marginTop={1}>
+            <Text color={Colors.UI.metadata} dimColor>
+              COMMAND: j/k Navigate • Enter Edit • r Run&Next • R Run Only • a/b
+              New Above/Below • dd Delete • L Logs
+            </Text>
+          </Box>
         </Box>
       )}
     </Box>
