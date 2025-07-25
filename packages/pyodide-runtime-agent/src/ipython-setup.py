@@ -17,6 +17,16 @@ import os
 import sys
 import io
 import json
+from dataclasses import dataclass
+from typing import Any
+from typing import Callable
+import time
+import builtins
+import signal
+
+
+import micropip
+
 
 from IPython.core.interactiveshell import InteractiveShell
 from IPython.core.displayhook import DisplayHook
@@ -325,10 +335,10 @@ def default_clear_callback(wait=False):
 
 
 async def bootstrap_micropip_packages():
+    """Note: this _must_ be run on start of this ipython session"""
     try:
-        import micropip
-
         await micropip.install("seaborn")
+        await micropip.install("openai-function-calling")
 
         print("Installed seaborn via micropip")
     except Exception as e:
@@ -336,13 +346,7 @@ async def bootstrap_micropip_packages():
 
 
 def setup_interrupt_patches():
-    """Patch Python functions to make them interrupt-aware"""
-    import time
-    import builtins
-    import signal
-    import sys
-    import threading
-
+    """Patch Python functions to make them interrupt-aware. NOTE: This is largely fixed in newer pyodide releases, but we're stuck with this as those releases don't support pyarrow, duckdb, and other binary builds at this time."""
     # Store original functions
     _original_sleep = time.sleep
     _original_input = builtins.input if hasattr(builtins, "input") else None
@@ -383,6 +387,7 @@ def setup_interrupt_patches():
             raise
         except Exception as e:
             # Don't spam errors, just continue
+            print(f"Error checking interrupt: {e}", flush=True)
             pass
 
     def interrupt_aware_sleep(duration):
@@ -450,17 +455,6 @@ js_clear_callback = default_clear_callback
 
 # Set up interrupt patches
 setup_interrupt_patches()
-
-# Setup tool registry
-import json
-import warnings
-from dataclasses import dataclass
-from typing import Any
-from typing import Callable
-
-import micropip
-
-await micropip.install("openai-function-calling")
 
 
 class ToolNotFoundError(Exception):

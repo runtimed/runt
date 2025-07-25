@@ -1,10 +1,9 @@
 import { assertEquals } from "@std/assert";
 import { RuntimeAgent } from "./runtime-agent.ts";
 import { RuntimeConfig } from "./config.ts";
-import type { InlineContainer, MediaContainer } from "@runt/schema";
+import type { MediaContainer } from "@runt/schema";
 import type { RuntimeCapabilities } from "./types.ts";
 import { queryDb, Schema, sql } from "npm:@livestore/livestore";
-import { assert } from "@std/assert/assert";
 
 Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
   await t.step(
