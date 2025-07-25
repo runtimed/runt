@@ -1030,18 +1030,19 @@ export class RuntimeAgent {
   private generateTextRepresentationsForArtifacts(
     representations: Record<string, MediaContainer>,
   ): void {
-    // Check for image artifacts and add text representations
     for (const [mimeType, container] of Object.entries(representations)) {
       if (isImageMimeType(mimeType) && container.type === "artifact") {
-        // Don't override existing text representations
+        // NOTE: This will use the "last" artifact to set in the text/plain representation
+        //       without regard for the display order of the receiving client(s).
+        //
+        //       However, this is mainly a fallback for clients that do not support images/html.
         if (!representations["text/plain"]) {
           const artifactUrl = this.artifactClient.getArtifactUrl(
             container.artifactId,
           );
-          const extension = mimeType.split("/")[1]?.toUpperCase() || "Image";
           representations["text/plain"] = {
             type: "inline",
-            data: `${extension} artifact: ${artifactUrl}`,
+            data: `${mimeType} artifact: ${artifactUrl}`,
             metadata: { generatedFor: mimeType },
           };
         }
@@ -1050,12 +1051,16 @@ export class RuntimeAgent {
           const artifactUrl = this.artifactClient.getArtifactUrl(
             container.artifactId,
           );
-          const extension = mimeType.split("/")[1]?.toUpperCase() || "Image";
-          const filename = container.metadata?.filename ||
-            `${extension.toLowerCase()}_${container.artifactId}`;
+
+          // Convert name shown to something displayable in markdown (escapsing as necessary) relying on
+          // the mimetype and or artifact ID
+          const name = "Artifact_" +
+            container.artifactId.replace(/[^a-zA-Z0-9]/g, "_") +
+            mimeType.replace(/[^a-zA-Z0-9]/g, "_");
+
           representations["text/markdown"] = {
             type: "inline",
-            data: `![${filename}](${artifactUrl})`,
+            data: `![${name}](${artifactUrl})`,
             metadata: { generatedFor: mimeType },
           };
         }
