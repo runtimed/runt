@@ -13,6 +13,7 @@ interface CellProps {
   showMetadata?: boolean;
   compact?: boolean;
   isSelected?: boolean;
+  mode?: "command" | "edit";
 }
 
 export const Cell: React.FC<CellProps> = ({
@@ -21,6 +22,7 @@ export const Cell: React.FC<CellProps> = ({
   showMetadata = true,
   compact = false,
   isSelected = false,
+  mode = "command",
 }) => {
   const getCellTypeColor = (cellType: string) => {
     return (
@@ -166,7 +168,9 @@ export const Cell: React.FC<CellProps> = ({
       flexDirection="column"
       marginBottom={2}
       borderStyle="round"
-      borderColor={isSelected ? Colors.UI.success : Colors.UI.border}
+      borderColor={isSelected
+        ? (mode === "edit" ? Colors.UI.warning : Colors.UI.success)
+        : Colors.UI.border}
       borderLeft={false}
       borderRight={false}
       paddingX={0}
