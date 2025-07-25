@@ -22,22 +22,21 @@ import { makeSchema, State } from "npm:@livestore/livestore";
 const state = State.SQLite.makeState({ tables, materializers });
 const schema = makeSchema({ events, state });
 import type {
+  ArtifactSubmissionOptions,
   CancellationHandler,
   CellData,
   ExecutionContext,
   ExecutionHandler,
   ExecutionQueueData,
   ExecutionResult,
+  IArtifactClient,
   RawOutputData,
   RuntimeAgentEventHandlers,
   RuntimeCapabilities,
   RuntimeSessionData,
 } from "./types.ts";
 import type { RuntimeConfig } from "./config.ts";
-import {
-  ArtifactClient,
-  type ArtifactSubmissionOptions,
-} from "./artifact-client.ts";
+
 import { decodeBase64 } from "@std/encoding/base64";
 
 /**
@@ -52,16 +51,14 @@ export class RuntimeAgent {
   private activeExecutions = new Map<string, AbortController>();
   private cancellationHandlers: CancellationHandler[] = [];
   private signalHandlers = new Map<string, () => void>();
-  private artifactClient: ArtifactClient;
+  private artifactClient: IArtifactClient;
 
   constructor(
     public config: RuntimeConfig,
     private capabilities: RuntimeCapabilities,
     private handlers: RuntimeAgentEventHandlers = {},
   ) {
-    // Convert sync URL to artifact service URL
-    const artifactBaseUrl = this.getArtifactServiceUrl(config.syncUrl);
-    this.artifactClient = new ArtifactClient(artifactBaseUrl);
+    this.artifactClient = config.artifactClient;
   }
 
   /**
@@ -633,6 +630,9 @@ export class RuntimeAgent {
           }
         }
 
+        // Add text representations for image artifacts
+        this.generateTextRepresentationsForArtifacts(representations);
+
         this.store.commit(events.multimediaDisplayOutputAdded({
           id: crypto.randomUUID(),
           cellId: cell.id,
@@ -670,6 +670,9 @@ export class RuntimeAgent {
           }
         }
 
+        // Add text representations for image artifacts
+        this.generateTextRepresentationsForArtifacts(representations);
+
         this.store.commit(events.multimediaDisplayOutputUpdated({
           displayId,
           representations,
@@ -702,6 +705,9 @@ export class RuntimeAgent {
             };
           }
         }
+
+        // Add text representations for image artifacts
+        this.generateTextRepresentationsForArtifacts(representations);
 
         this.store.commit(events.multimediaResultOutputAdded({
           id: crypto.randomUUID(),
@@ -984,7 +990,7 @@ export class RuntimeAgent {
       };
 
       // TODO: Support multipart uploads for large images in the future
-      const result = await this.artifactClient.submitPng(
+      const result = await this.artifactClient.submitContent(
         imageData,
         submissionOptions,
       );
@@ -1019,26 +1025,46 @@ export class RuntimeAgent {
   }
 
   /**
-   * Convert sync URL to artifact service URL
-   * Transforms WebSocket URLs to HTTP(S) URLs for the artifact service
+   * Generate appropriate text representations for image artifacts
    */
-  private getArtifactServiceUrl(syncUrl: string): string {
-    try {
-      const url = new URL(syncUrl);
-      // Convert wss:// to https:// and ws:// to http://
-      const protocol = url.protocol === "wss:" ? "https:" : "http:";
-      return `${protocol}//${url.host}`;
-    } catch (error) {
-      // Fallback to default if URL parsing fails
-      const logger = createLogger("runtime-agent");
-      logger.warn(
-        "Failed to parse sync URL for artifact service, using default",
-        {
-          syncUrl,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
-      return "https://api.runt.run";
+  private generateTextRepresentationsForArtifacts(
+    representations: Record<string, MediaContainer>,
+  ): void {
+    for (const [mimeType, container] of Object.entries(representations)) {
+      if (isImageMimeType(mimeType) && container.type === "artifact") {
+        // NOTE: This will use the "last" artifact to set in the text/plain representation
+        //       without regard for the display order of the receiving client(s).
+        //
+        //       However, this is mainly a fallback for clients that do not support images/html.
+        if (!representations["text/plain"]) {
+          const artifactUrl = this.artifactClient.getArtifactUrl(
+            container.artifactId,
+          );
+          representations["text/plain"] = {
+            type: "inline",
+            data: `${mimeType} artifact: ${artifactUrl}`,
+            metadata: { generatedFor: mimeType },
+          };
+        }
+
+        if (!representations["text/markdown"]) {
+          const artifactUrl = this.artifactClient.getArtifactUrl(
+            container.artifactId,
+          );
+
+          // Convert name shown to something displayable in markdown (escapsing as necessary) relying on
+          // the mimetype and or artifact ID
+          const name = "Artifact_" +
+            container.artifactId.replace(/[^a-zA-Z0-9]/g, "_") +
+            mimeType.replace(/[^a-zA-Z0-9]/g, "_");
+
+          representations["text/markdown"] = {
+            type: "inline",
+            data: `![${name}](${artifactUrl})`,
+            metadata: { generatedFor: mimeType },
+          };
+        }
+      }
     }
   }
 

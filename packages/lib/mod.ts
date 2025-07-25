@@ -38,10 +38,13 @@ export * from "./src/media/mod.ts";
 // Artifact service client for submitting artifacts to anode
 export {
   ArtifactClient,
-  type ArtifactSubmissionOptions,
-  type ArtifactSubmissionResult,
   createArtifactClient,
   PngProcessor,
 } from "./src/artifact-client.ts";
+
+export type {
+  ArtifactSubmissionOptions,
+  ArtifactSubmissionResult,
+} from "./src/types.ts";
 
 export { runner } from "./src/runtime-runner.ts";

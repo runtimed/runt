@@ -22,6 +22,33 @@ export interface RawOutputData {
 }
 
 /**
+ * Interface for artifact client dependency injection
+ */
+export interface IArtifactClient {
+  /** Submit content data to artifact service */
+  submitContent(
+    data: Uint8Array,
+    options: ArtifactSubmissionOptions,
+  ): Promise<ArtifactSubmissionResult>;
+
+  /** Get artifact URL by ID */
+  getArtifactUrl(artifactId: string): string;
+}
+
+/** Artifact submission options */
+export interface ArtifactSubmissionOptions {
+  notebookId: string;
+  authToken: string;
+  mimeType?: string;
+  filename?: string;
+}
+
+/** Artifact submission result */
+export interface ArtifactSubmissionResult {
+  artifactId: string;
+}
+
+/**
  * Configuration options for runtime agents
  */
 export interface RuntimeAgentOptions {
@@ -39,6 +66,8 @@ export interface RuntimeAgentOptions {
   readonly notebookId: string;
   /** Threshold in bytes for uploading images as artifacts (default: 1MB) */
   readonly imageArtifactThresholdBytes?: number;
+  /** Artifact client for dependency injection (optional) */
+  readonly artifactClient?: IArtifactClient;
   /** Environment-related options for the runtime */
   readonly environmentOptions: Readonly<{
     /** Path to the python executable to use (default: "python3") */

@@ -6,24 +6,30 @@
  */
 
 import { decodeBase64, encodeBase64 } from "@std/encoding/base64";
-
-export interface ArtifactSubmissionOptions {
-  notebookId: string;
-  authToken: string;
-  mimeType?: string;
-  filename?: string;
-}
-
-export interface ArtifactSubmissionResult {
-  artifactId: string;
-}
+import type {
+  ArtifactSubmissionOptions,
+  ArtifactSubmissionResult,
+  IArtifactClient,
+} from "./types.ts";
 
 /**
  * Client for interacting with the anode artifact service
  */
-export class ArtifactClient {
+export class ArtifactClient implements IArtifactClient {
   // TODO: Make artifact service URL configuration more general for @runt/lib package
   constructor(private baseUrl: string = "https://api.runt.run") {}
+
+  /**
+   * Submit content data to artifact service
+   */
+  async submitContent(
+    data: Uint8Array,
+    options: ArtifactSubmissionOptions,
+  ): Promise<ArtifactSubmissionResult> {
+    // For now, delegate to PNG-specific implementation
+    // TODO: Generalize to handle any content type
+    return await this.submitPng(data, options);
+  }
 
   /**
    * Submit PNG image data to the artifact service
