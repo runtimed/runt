@@ -16,7 +16,7 @@ from IPython.core.displayhook import DisplayHook
 
 
 class RichDisplayPublisher(DisplayPublisher):
-    """Display publisher for rich output handling"""
+    """Enhanced display publisher for rich IPython output handling"""
 
     def __init__(self, shell=None, *args, **kwargs):
         super(RichDisplayPublisher, self).__init__(shell=shell, *args, **kwargs)
@@ -31,25 +31,16 @@ class RichDisplayPublisher(DisplayPublisher):
         transient=None,
         update=False,
     ):
-        """Enhanced publish with rich data handling"""
+        """Publish with JavaScript callback, letting IPython handle formatting"""
+        # First let IPython handle the normal publish flow
+        super().publish(data, metadata, source, transient=transient, update=update)
+
+        # Then call our JavaScript callback if available
         if self.js_callback:
             try:
-                # Make data serializable
-                serializable_data = self._make_serializable(data)
-                serializable_metadata = self._make_serializable(metadata)
-                serializable_transient = self._make_serializable(transient)
-
-                self.js_callback(
-                    serializable_data,
-                    serializable_metadata,
-                    serializable_transient,
-                    update,
-                )
+                self.js_callback(data, metadata, transient, update)
             except Exception as e:
                 print(f"Error in display callback: {e}")
-                import traceback
-
-                traceback.print_exc()
 
     def clear_output(self, wait=False):
         """Clear output with JavaScript callback"""
@@ -59,45 +50,9 @@ class RichDisplayPublisher(DisplayPublisher):
             except Exception as e:
                 print(f"Error in clear callback: {e}")
 
-    def _make_serializable(self, obj):
-        """Convert complex Python objects to JSON-serializable format"""
-        if obj is None:
-            return None
-
-        if isinstance(obj, (str, int, float, bool)):
-            return obj
-
-        if isinstance(obj, (list, tuple)):
-            return [self._make_serializable(item) for item in obj]
-
-        if isinstance(obj, dict):
-            result = {}
-            for key, value in obj.items():
-                try:
-                    # Ensure key is string
-                    str_key = str(key)
-                    result[str_key] = self._make_serializable(value)
-                except Exception as e:
-                    print(f"Warning: Could not serialize key {key}: {e}")
-                    result[str(key)] = f"<unserializable: {type(value).__name__}>"
-            return result
-
-        # Handle bytes objects (common in image data)
-        if isinstance(obj, bytes):
-            try:
-                return base64.b64encode(obj).decode("ascii")
-            except Exception:
-                return f"<binary data: {len(obj)} bytes>"
-
-        # For other objects, try to convert to string representation
-        try:
-            return str(obj)
-        except Exception:
-            return f"<unserializable: {type(obj).__name__}>"
-
 
 class RichDisplayHook(DisplayHook):
-    """Enhanced display hook with rich output formatting"""
+    """Enhanced display hook that uses IPython's built-in formatting"""
 
     def __init__(self, shell=None, cache_size=1000, **kwargs):
         super(RichDisplayHook, self).__init__(
@@ -106,91 +61,18 @@ class RichDisplayHook(DisplayHook):
         self.js_callback = None
 
     def __call__(self, result):
-        """Process execution results with rich formatting"""
+        """Process execution results using IPython's display system"""
         if result is not None:
-            try:
-                # Convert result to serializable format
-                serializable_result = self._make_serializable(result)
+            # Let IPython handle the normal display flow first
+            super().__call__(result)
 
-                if self.js_callback:
-                    # Get execution count from shell if available
+            # Then call our JavaScript callback if available
+            if self.js_callback:
+                try:
                     execution_count = getattr(self.shell, "execution_count", 0)
-                    self.js_callback(execution_count, serializable_result, None)
-
-                # Also store in shell's output history if available
-                if self.shell:
-                    self.shell.user_ns["_"] = result
-
-            except Exception as e:
-                print(f"Error in display hook: {e}")
-                import traceback
-
-                traceback.print_exc()
-
-    def _handle_dict_serialization(self, obj):
-        """Handle dictionary serialization with error handling"""
-        result = {}
-        for key, value in obj.items():
-            try:
-                str_key = str(key)
-                result[str_key] = self._make_serializable(value)
-            except Exception as e:
-                print(f"Warning: Could not serialize key {key}: {e}")
-                result[str(key)] = f"<unserializable: {type(value).__name__}>"
-        return result
-
-    def _handle_bytes_serialization(self, obj):
-        """Handle bytes object serialization"""
-        try:
-            return base64.b64encode(obj).decode("ascii")
-        except Exception:
-            return f"<binary data: {len(obj)} bytes>"
-
-    def _handle_scientific_objects(self, obj):
-        """Handle pandas/numpy objects"""
-        # Try pandas DataFrame/Series
-        if hasattr(obj, "to_dict"):
-            try:
-                return self._make_serializable(obj.to_dict())
-            except Exception:
-                pass
-
-        # Try numpy arrays
-        if hasattr(obj, "tolist"):
-            try:
-                return self._make_serializable(obj.tolist())
-            except Exception:
-                pass
-
-        return None
-
-    def _make_serializable(self, obj):
-        """Convert complex Python objects to JSON-serializable format"""
-        if obj is None:
-            return None
-
-        if isinstance(obj, (str, int, float, bool)):
-            return obj
-
-        if isinstance(obj, (list, tuple)):
-            return [self._make_serializable(item) for item in obj]
-
-        if isinstance(obj, dict):
-            return self._handle_dict_serialization(obj)
-
-        if isinstance(obj, bytes):
-            return self._handle_bytes_serialization(obj)
-
-        # Handle scientific computing objects
-        scientific_result = self._handle_scientific_objects(obj)
-        if scientific_result is not None:
-            return scientific_result
-
-        # For other objects, try string representation
-        try:
-            return str(obj)
-        except Exception:
-            return f"<unserializable: {type(obj).__name__}>"
+                    self.js_callback(execution_count, result, None)
+                except Exception as e:
+                    print(f"Error in display hook callback: {e}")
 
 
 def _capture_matplotlib_show():
