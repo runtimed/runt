@@ -199,7 +199,16 @@ async function initializePyodide(
   });
 
   // Load our Python bootstrap file - bootstrap packages are already available
-  await setupIPythonEnvironment();
+  try {
+    await setupIPythonEnvironment();
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    self.postMessage({
+      type: "log",
+      data: `Failed to setup IPython environment: ${errorMessage}`,
+    });
+    throw new Error(`IPython setup failed: ${errorMessage}`);
+  }
 
   // Load remaining packages in background after IPython is ready
   if (remainingPackages.length > 0) {
@@ -299,10 +308,56 @@ async function setupIPythonEnvironment(): Promise<void> {
     },
   ];
 
-  for (const { src, dest } of packageFiles) {
-    const content = await fetch(new URL(src, import.meta.url))
-      .then((response) => response.text());
-    pyodide!.FS.writeFile(dest, content);
+  try {
+    for (const { src, dest } of packageFiles) {
+      self.postMessage({
+        type: "log",
+        data: `Loading Python file: ${src}`,
+      });
+
+      const fullUrl = new URL(src, import.meta.url);
+      self.postMessage({
+        type: "log",
+        data: `Full URL: ${fullUrl.href}`,
+      });
+
+      const content = await fetch(fullUrl)
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(
+              `Failed to fetch ${src} (${fullUrl.href}): ${response.status} ${response.statusText}`,
+            );
+          }
+          return response.text();
+        });
+      pyodide!.FS.writeFile(dest, content);
+    }
+    self.postMessage({
+      type: "log",
+      data: "All Python package files loaded successfully",
+    });
+  } catch (error) {
+    let errorMessage: string;
+    if (error instanceof Error) {
+      errorMessage = `${error.name}: ${error.message}`;
+      if (error.stack) {
+        errorMessage += `\nStack: ${error.stack}`;
+      }
+    } else if (typeof error === "object" && error !== null) {
+      try {
+        errorMessage = JSON.stringify(error, null, 2);
+      } catch {
+        errorMessage = String(error);
+      }
+    } else {
+      errorMessage = String(error);
+    }
+
+    self.postMessage({
+      type: "log",
+      data: `Failed to load Python package files: ${errorMessage}`,
+    });
+    throw new Error(`Python package file loading failed: ${errorMessage}`);
   }
 
   // Add package to Python path and import with step-by-step logging
