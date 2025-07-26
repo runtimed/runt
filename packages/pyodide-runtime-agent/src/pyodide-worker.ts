@@ -181,6 +181,32 @@ async function initializePyodide(
         data: { type: "stderr", text },
       });
     },
+    fsInit: async (FS, info) => {
+      // Preload Python modules as proper files in the filesystem
+      self.postMessage({
+        type: "log",
+        data: "Preloading Python modules into filesystem",
+      });
+
+      // Load registry.py and write to site-packages
+      const registryCode = await fetch(
+        new URL("./registry.py", import.meta.url),
+      ).then((response) => response.text());
+
+      // Load ipython-setup.py and write to site-packages
+      const ipythonSetupCode = await fetch(
+        new URL("./ipython-setup.py", import.meta.url),
+      ).then((response) => response.text());
+
+      // Write files to site-packages so they can be imported
+      FS.writeFile(`${info.sitePackages}/registry.py`, registryCode);
+      FS.writeFile(`${info.sitePackages}/ipython_setup.py`, ipythonSetupCode);
+
+      self.postMessage({
+        type: "log",
+        data: "Python modules preloaded successfully",
+      });
+    },
   });
 
   // Set up interrupt buffer
@@ -276,30 +302,31 @@ async function initializePyodide(
 async function setupIPythonEnvironment(): Promise<void> {
   self.postMessage({
     type: "log",
-    data: "Loading IPython environment from bootstrap file",
+    data: "Loading IPython environment from preloaded modules",
   });
 
   // Install pydantic first (required by registry.py)
   await pyodide!.loadPackage("pydantic");
 
-  // Load registry.py first
-  const registryCode = await fetch(
-    new URL("./registry.py", import.meta.url),
-  ).then((response) => response.text());
-
-  await pyodide!.runPythonAsync(registryCode);
-
-  // Get the Python bootstrap code
-  const pythonBootstrap = await fetch(
-    new URL("./ipython-setup.py", import.meta.url),
-  ).then((response) => response.text());
-
-  // Execute the bootstrap code
-  await pyodide!.runPythonAsync(pythonBootstrap);
+  // Import and execute the IPython setup module
+  // The registry module will be imported properly from within ipython_setup
+  await pyodide!.runPythonAsync(`
+import ipython_setup
+# Initialize the complete IPython environment
+ipython_setup.initialize_ipython_environment()
+# Make shell, tool functions, and display callbacks available globally for user code execution
+globals()['shell'] = ipython_setup.shell
+globals()['get_registered_tools'] = ipython_setup.get_registered_tools
+globals()['run_registered_tool'] = ipython_setup.run_registered_tool
+globals()['tool'] = ipython_setup.tool
+globals()['js_display_callback'] = ipython_setup.js_display_callback
+globals()['js_execution_callback'] = ipython_setup.js_execution_callback
+globals()['js_clear_callback'] = ipython_setup.js_clear_callback
+`);
 
   self.postMessage({
     type: "log",
-    data: "IPython environment loaded successfully",
+    data: "IPython environment loaded successfully from modules",
   });
 
   // Install micropip packages in background without blocking
@@ -310,7 +337,9 @@ async function setupIPythonEnvironment(): Promise<void> {
   if (!isTest) {
     // Use setTimeout to isolate from execution pipeline
     setTimeout(() => {
-      pyodide!.runPythonAsync(`await bootstrap_micropip_packages()`).then(
+      pyodide!.runPythonAsync(
+        `await ipython_setup.bootstrap_micropip_packages()`,
+      ).then(
         () => {
           self.postMessage({
             type: "log",

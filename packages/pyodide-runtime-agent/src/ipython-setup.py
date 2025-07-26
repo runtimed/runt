@@ -17,14 +17,20 @@ import os
 import sys
 import io
 import json
-from dataclasses import dataclass
-from typing import Any
 from typing import Callable
 import time
 import builtins
 import signal
 
 import micropip
+
+# Import the function registry system
+from registry import (
+    FunctionRegistry,
+    FunctionError,
+    FunctionArgumentError,
+    UnknownFunctionError,
+)
 
 from IPython.core.interactiveshell import InteractiveShell
 from IPython.core.displayhook import DisplayHook
@@ -289,8 +295,7 @@ def setup_rich_formatters():
         pass  # NumPy not available
 
 
-# Apply rich formatters
-setup_rich_formatters()
+# Rich formatters will be applied when setup_rich_formatters() is called
 
 
 def format_exception(exc_type, exc_value, exc_traceback):
@@ -454,12 +459,19 @@ js_display_callback = default_display_callback
 js_execution_callback = default_execution_callback
 js_clear_callback = default_clear_callback
 
-# Set up interrupt patches
-setup_interrupt_patches()
+# Interrupt patches will be applied when setup_interrupt_patches() is called
 
 
-# Import the new function registry system (loaded globally by worker)
-# Classes are available from registry.py loaded earlier
+def initialize_ipython_environment():
+    """Initialize the complete IPython environment with all setup functions"""
+    # Apply rich formatters
+    setup_rich_formatters()
+
+    # Set up interrupt patches
+    setup_interrupt_patches()
+
+
+# Create the function registry instance
 _function_registry = FunctionRegistry()
 
 
@@ -548,7 +560,10 @@ __all__ = [
     "js_display_callback",
     "js_execution_callback",
     "js_clear_callback",
+    "initialize_ipython_environment",
+    "setup_rich_formatters",
     "setup_interrupt_patches",
+    "bootstrap_micropip_packages",
     "get_registered_tools",
     "run_registered_tool",
     "tool",
