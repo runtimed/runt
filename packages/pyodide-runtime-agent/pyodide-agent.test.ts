@@ -1,12 +1,14 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
+import { PyodideRuntimeAgent } from "./src/pyodide-agent.ts";
 import {
+  getBootstrapPackages,
   getCacheConfig,
   getCacheDir,
   getEssentialPackages,
   getOnDemandPackages,
   getPreloadPackages,
-  PyodideRuntimeAgent,
-} from "./src/mod.ts";
+  isFirstRun,
+} from "./src/cache-utils.ts";
 import { withQuietConsole } from "../lib/test/test-config.ts";
 
 // Configure test environment for quiet logging

@@ -18,7 +18,15 @@ import {
   KNOWN_MIME_TYPES,
   type KnownMimeType,
 } from "@runt/schema";
-import { getEssentialPackages } from "./cache-utils.ts";
+import {
+  getBootstrapPackages,
+  getCacheConfig,
+  getCacheDir,
+  getEssentialPackages,
+  getOnDemandPackages,
+  getPreloadPackages,
+  isFirstRun,
+} from "./cache-utils.ts";
 import {
   discoverAvailableAiModels,
   ensureTextPlainFallback,
