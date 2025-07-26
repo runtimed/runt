@@ -9,7 +9,7 @@ import { delay } from "jsr:@std/async/delay";
 import { crypto } from "jsr:@std/crypto";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 import { events, tables } from "@runt/schema";
-import { queryDb } from "npm:@livestore/livestore";
+
 import { withQuietConsole } from "../../lib/test/test-config.ts";
 
 // Configure test environment for quiet logging
@@ -20,7 +20,7 @@ Deno.test({
   name: "PyodideRuntimeAgent - Complete Integration",
   sanitizeOps: false, // Agent uses signal handlers for shutdown
   sanitizeResources: false, // Agent creates background processes
-  ignore: true, // Skip temporarily due to execution timing issues
+  ignore: false, // Re-enabled after fixing queryDb usage
 }, async (t) => {
   let agent: PyodideRuntimeAgent | undefined;
 
@@ -110,21 +110,13 @@ Deno.test({
       await delay(3000);
 
       // Check results
-      const queueEntries = agent.store.query(queryDb(
+      const queueEntries = agent.store.query(
         tables.executionQueue.select().where({ cellId }),
-      ));
+      );
 
-      const outputs = agent.store.query(queryDb(
+      const outputs = agent.store.query(
         tables.outputs.select().where({ cellId }),
-      ));
-
-      // Queue status: ${queueEntries[0]?.status}
-      // Outputs found: ${outputs.length}
-
-      if (outputs.length > 0) {
-        // Output type: ${outputs[0]?.outputType}
-        // Output data: ${JSON.stringify(outputs[0]?.data)}
-      }
+      );
 
       // Verify execution worked in pure in-memory mode
       assertEquals(queueEntries.length, 1, "Should have queue entry");
@@ -133,15 +125,24 @@ Deno.test({
         "completed",
         "Should be completed",
       );
-      assertEquals(outputs.length, 1, "Should have one output");
       assertEquals(
-        outputs[0]?.outputType,
+        outputs.length >= 1,
+        true,
+        "Should have at least one output",
+      );
+      // Find the result output (there may be multiple outputs including terminal/status)
+      const resultOutput = outputs.find((o) =>
+        o.outputType === "multimedia_result"
+      );
+      assertExists(resultOutput, "Should have multimedia_result output");
+      assertEquals(
+        resultOutput.outputType,
         "multimedia_result",
         "Should be multimedia_result",
       );
 
       // Verify the arithmetic result - check representations for multimedia output
-      const outputData = outputs[0]?.representations as {
+      const outputData = resultOutput.representations as {
         "text/plain": { type: "inline"; data: string };
       };
       assertEquals(
