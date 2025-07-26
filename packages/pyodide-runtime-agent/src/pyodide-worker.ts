@@ -79,11 +79,11 @@ self.addEventListener("message", async (event) => {
         try {
           // Pass arguments as JSON string directly to registry
           pyodide!.globals.set(
-            "tool_args_json",
+            "kwargs_string",
             JSON.stringify(data.args || {}),
           );
           const result = await pyodide!.runPythonAsync(`
-await run_registered_tool("${data.toolName}", tool_args_json)
+await run_registered_tool("${data.toolName}", kwargs_string)
           `.trim());
           self.postMessage({ id, type: "response", data: result });
         } catch (error) {

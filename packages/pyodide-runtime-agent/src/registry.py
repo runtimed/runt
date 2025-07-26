@@ -338,11 +338,18 @@ class FunctionRegistry:
 
 
 def extract_arguments(name: str, function: Callable, arguments: Optional[str]) -> dict:
+    print(
+        f"[DEBUG extract_arguments] name={name}, arguments={arguments!r}, type={type(arguments)}"
+    )
     dict_arguments = {}
     if arguments is not None and arguments != "":
         try:
             dict_arguments = json.loads(arguments)
-        except json.JSONDecodeError:
+            print(
+                f"[DEBUG extract_arguments] After JSON parsing: dict_arguments={dict_arguments!r}, type={type(dict_arguments)}"
+            )
+        except json.JSONDecodeError as e:
+            print(f"[DEBUG extract_arguments] JSON decode error: {e}")
             raise FunctionArgumentError(
                 f"Invalid Function call on {name}. Arguments must be a valid JSON object"
             )
@@ -351,6 +358,9 @@ def extract_arguments(name: str, function: Callable, arguments: Optional[str]) -
 
     for param_name, param in inspect.signature(function).parameters.items():
         param_type = param.annotation
+        print(
+            f"[DEBUG extract_arguments] Processing param {param_name}, dict_arguments type={type(dict_arguments)}"
+        )
         arg_value = dict_arguments.get(param_name)
 
         # Check if parameter type is a subclass of BaseModel and deserialize JSON into Pydantic model

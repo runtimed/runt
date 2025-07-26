@@ -614,7 +614,7 @@ export async function handleToolCallWithResult(
         try {
           const result = await sendWorkerMessage("run_registered_tool", {
             toolName: name,
-            args: JSON.stringify(args),
+            args: args,
           });
 
           logger.info("Python tool executed successfully", {

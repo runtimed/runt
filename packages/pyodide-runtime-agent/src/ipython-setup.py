@@ -508,11 +508,11 @@ def get_registered_tools():
     return result
 
 
-async def run_registered_tool(toolName: str, arguments_json: str):
+async def run_registered_tool(toolName: str, kwargs_string: str):
     """Run a registered tool by name"""
     try:
         # Pass JSON string directly to registry
-        result = await _function_registry.call(toolName, arguments_json)
+        result = await _function_registry.call(toolName, kwargs_string)
 
         # Ensure result is JSON serializable string
         if not isinstance(result, str):
