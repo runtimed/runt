@@ -19,7 +19,7 @@ async def bootstrap_micropip_packages():
         await micropip.install("pydantic")
         print("Installed pydantic via micropip")
 
-        # Install seaborn for enhanced plotting capabilities
+        # Install seaborn for plotting capabilities
         await micropip.install("seaborn")
         print("Installed seaborn via micropip")
 

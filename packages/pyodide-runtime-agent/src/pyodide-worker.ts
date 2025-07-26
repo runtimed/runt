@@ -1,4 +1,4 @@
-// Enhanced Pyodide Web Worker
+// Pyodide Web Worker
 //
 // This worker runs Pyodide with IPython display formatting loaded from
 // a separate Python file, but executes user code directly through Pyodide
@@ -124,7 +124,7 @@ async function initializePyodide(
 ): Promise<void> {
   self.postMessage({
     type: "log",
-    data: "Loading Pyodide with enhanced display support",
+    data: "Loading Pyodide with display support",
   });
 
   // Store interrupt buffer
@@ -311,7 +311,7 @@ async function initializePyodide(
 
   self.postMessage({
     type: "log",
-    data: "Enhanced Pyodide worker initialized successfully",
+    data: "Pyodide worker initialized successfully",
   });
 }
 
@@ -720,7 +720,7 @@ function ensureSerializable(obj: unknown): unknown {
 }
 
 /**
- * Format Python errors with enhanced information
+ * Format Python errors with information
  */
 function formatPythonError(error: unknown): {
   ename: string;
@@ -805,8 +805,8 @@ function formatPythonError(error: unknown): {
   };
 }
 
-// Log that enhanced worker is ready
+// Log that worker is ready
 self.postMessage({
   type: "log",
-  data: "Enhanced Pyodide worker ready with serialization-safe output",
+  data: "Pyodide worker ready with serialization-safe output",
 });

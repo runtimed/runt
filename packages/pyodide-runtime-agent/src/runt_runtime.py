@@ -2,7 +2,7 @@
 Runt Runtime - Pseudo-IPython sandbox environment for Pyodide-based execution
 
 This module provides a sandbox environment that mimics IPython functionality
-with rich display support, function registry, and enhanced output handling
+with rich display support, function registry, and output handling
 for use in Pyodide workers. It's designed to demonstrate runt working with
 a nice interactive Python environment.
 

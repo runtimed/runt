@@ -16,7 +16,7 @@ from IPython.core.displayhook import DisplayHook
 
 
 class RichDisplayPublisher(DisplayPublisher):
-    """Enhanced display publisher for rich output handling"""
+    """Display publisher for rich output handling"""
 
     def __init__(self, shell=None, *args, **kwargs):
         super(RichDisplayPublisher, self).__init__(shell=shell, *args, **kwargs)
@@ -194,7 +194,7 @@ class RichDisplayHook(DisplayHook):
 
 
 def _capture_matplotlib_show():
-    """Enhanced matplotlib show function with inline image capture"""
+    """Matplotlib show function with inline image capture"""
     import matplotlib.pyplot as plt
 
     # Store original show function
@@ -278,7 +278,7 @@ def setup_rich_formatters():
     try:
         # Set up matplotlib integration
         _capture_matplotlib_show()
-        print("Enhanced matplotlib display support enabled")
+        print("Matplotlib display support enabled")
     except ImportError:
         print("Matplotlib not available, skipping plot capture setup")
 
@@ -291,7 +291,7 @@ def setup_rich_formatters():
         pd.set_option("display.max_rows", 100)
         pd.set_option("display.width", None)
         pd.set_option("display.max_colwidth", 50)
-        print("Enhanced pandas display support enabled")
+        print("Pandas options set")
     except ImportError:
         pass  # Pandas not available
 
@@ -301,7 +301,7 @@ def setup_rich_formatters():
 
         # Configure numpy display options
         np.set_printoptions(threshold=100, edgeitems=3, linewidth=120)
-        print("Enhanced numpy display support enabled")
+        print("Numpy display support enabled")
     except ImportError:
         pass  # NumPy not available
 
