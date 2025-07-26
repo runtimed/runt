@@ -305,15 +305,68 @@ async function setupIPythonEnvironment(): Promise<void> {
     pyodide!.FS.writeFile(dest, content);
   }
 
-  // Add package to Python path and import
-  await pyodide!.runPythonAsync(`
+  // Add package to Python path and import with step-by-step logging
+  try {
+    // Step 1: Add to sys.path
+    self.postMessage({
+      type: "log",
+      data: "Step 1: Adding runt_runtime to Python path",
+    });
+    await pyodide!.runPythonAsync(`
 import sys
 if '/' not in sys.path:
     sys.path.insert(0, '/')
-
-# Import the runt_runtime package (this executes ipython_setup.py for side effects)
-import runt_runtime
+print("Python path updated")
 `);
+
+    // Step 2: Test individual module imports
+    self.postMessage({
+      type: "log",
+      data: "Step 2: Testing individual module imports",
+    });
+    await pyodide!.runPythonAsync(`
+try:
+    from runt_runtime.registry import FunctionRegistry
+    print("Successfully imported registry module")
+except Exception as e:
+    print(f"Failed to import registry: {e}")
+    import traceback
+    traceback.print_exc()
+`);
+
+    await pyodide!.runPythonAsync(`
+try:
+    from runt_runtime.interrupts import setup_interrupt_patches
+    print("Successfully imported interrupts module")
+except Exception as e:
+    print(f"Failed to import interrupts: {e}")
+    import traceback
+    traceback.print_exc()
+`);
+
+    // Step 3: Import full package
+    self.postMessage({
+      type: "log",
+      data: "Step 3: Importing full runt_runtime package",
+    });
+    await pyodide!.runPythonAsync(`
+try:
+    import runt_runtime
+    print("Successfully imported runt_runtime package")
+except Exception as e:
+    print(f"Failed to import runt_runtime package: {e}")
+    import traceback
+    traceback.print_exc()
+    raise
+`);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    self.postMessage({
+      type: "log",
+      data: `Failed during Python package setup: ${errorMessage}`,
+    });
+    throw new Error(`Python package import failed: ${errorMessage}`);
+  }
 
   self.postMessage({
     type: "log",
