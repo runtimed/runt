@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useQuery, useStore } from "@livestore/react";
 import { queryDb } from "@livestore/livestore";
-import { events, type OutputData, tables } from "@runt/schema";
+import { type CellType, events, type OutputData, tables } from "@runt/schema";
 import { Colors } from "../../utils/colors.ts";
 import { Header } from "../layout/Header.tsx";
 import { Footer } from "../layout/Footer.tsx";
@@ -46,6 +46,9 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     ? titleMetadata[0]?.value || "Untitled Notebook"
     : "Untitled Notebook";
 
+  // Cell type cycling order: code → markdown → ai → sql → code
+  const cellTypeOrder: CellType[] = ["code", "markdown", "ai", "sql"];
+
   // Helper functions for cell operations
   const createNewCell = () => {
     if (!store) return;
@@ -67,6 +70,67 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
 
     // Select the new cell
     setSelectedCellIndex(cells.length);
+  };
+
+  const createCellWithType = (
+    cellType: CellType,
+    position: "above" | "below",
+  ) => {
+    if (!store || cells.length === 0) return;
+
+    const selectedCell = cells[selectedCellIndex];
+    const newCellId = `cell-${Date.now()}`;
+
+    let newPosition: number;
+    let newSelectionIndex = selectedCellIndex;
+
+    if (position === "above") {
+      newPosition = selectedCellIndex > 0
+        ? (cells[selectedCellIndex - 1].position + selectedCell.position) / 2
+        : selectedCell.position - 1;
+      // Don't change selection - new cell is above
+    } else {
+      // position === "below"
+      newPosition = selectedCellIndex < cells.length - 1
+        ? (selectedCell.position + cells[selectedCellIndex + 1].position) / 2
+        : selectedCell.position + 1;
+      newSelectionIndex = selectedCellIndex + 1;
+    }
+
+    store.commit(
+      events.cellCreated({
+        id: newCellId,
+        cellType,
+        position: newPosition,
+        createdBy: "tui-client",
+        actorId: "tui-client",
+      }),
+    );
+
+    if (position === "below") {
+      setSelectedCellIndex(newSelectionIndex);
+    }
+  };
+
+  const cycleCellType = () => {
+    if (!store || cells.length === 0) return;
+
+    const selectedCell = cells[selectedCellIndex];
+    if (!selectedCell) return;
+
+    const currentTypeIndex = cellTypeOrder.indexOf(
+      selectedCell.cellType as CellType,
+    );
+    const nextTypeIndex = (currentTypeIndex + 1) % cellTypeOrder.length;
+    const nextCellType = cellTypeOrder[nextTypeIndex];
+
+    store.commit(
+      events.cellTypeChanged({
+        id: selectedCell.id,
+        cellType: nextCellType,
+        actorId: "tui-client",
+      }),
+    );
   };
 
   const deleteSelectedCell = () => {
@@ -303,9 +367,41 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
       return;
     }
 
-    // Cell management
+    // Cell type cycling: Shift-C
+    if (input === "C" && key.shift) {
+      cycleCellType();
+      return;
+    }
+
+    // Cell creation with type intent (Shift key combinations)
+    if (key.shift) {
+      switch (input.toUpperCase()) {
+        case "A":
+          // Shift-A: Create AI cell above
+          createCellWithType("ai", "above");
+          return;
+        case "M":
+          // Shift-M: Create markdown cell above
+          createCellWithType("markdown", "above");
+          return;
+        case "B":
+          // Shift-B: Create code cell below (explicit)
+          createCellWithType("code", "below");
+          return;
+        case "S":
+          // Shift-S: Create SQL cell below
+          createCellWithType("sql", "below");
+          return;
+        case "N":
+          // Shift-N: Create code cell below (shortcut)
+          createCellWithType("code", "below");
+          return;
+      }
+    }
+
+    // Cell management (existing behavior preserved)
     if (input.toLowerCase() === "a") {
-      // Insert cell above
+      // Insert cell above (code type - existing behavior)
       if (!store || cells.length === 0) return;
       const selectedCell = cells[selectedCellIndex];
       const newCellId = `cell-${Date.now()}`;
