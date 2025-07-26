@@ -228,6 +228,11 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       return;
     }
 
+    if (type === "startup_output") {
+      // Startup messages are already logged by worker, noop to keep out of cells
+      return;
+    }
+
     if (type === "stream_output") {
       // Handle real-time streaming outputs with formatting
       if (this.currentExecutionContext) {

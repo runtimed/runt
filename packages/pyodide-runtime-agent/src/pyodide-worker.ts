@@ -166,7 +166,7 @@ async function initializePyodide(
         data: `[Pyodide stdout on startup]: ${text}`,
       });
       self.postMessage({
-        type: "stream_output",
+        type: "startup_output",
         data: { type: "stdout", text },
       });
     },
@@ -177,7 +177,7 @@ async function initializePyodide(
         data: `[Pyodide stderr on startup]: ${text}`,
       });
       self.postMessage({
-        type: "stream_output",
+        type: "startup_output",
         data: { type: "stderr", text },
       });
     },
