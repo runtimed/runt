@@ -195,6 +195,7 @@ async function initializePyodide(
         "runt_runtime_display.py",
         "runt_runtime_bootstrap.py",
         "runt_runtime_shell.py",
+        "runt_runtime_interrupt_patches.py",
       ];
 
       for (const moduleFile of moduleFiles) {

@@ -28,6 +28,7 @@ from runt_runtime_display import (
     js_clear_callback,
 )
 from runt_runtime_bootstrap import bootstrap_micropip_packages
+from runt_runtime_interrupt_patches import setup_interrupt_patches, check_interrupt
 
 __all__ = [
     # Core shell and initialization
@@ -44,6 +45,9 @@ __all__ = [
     "js_clear_callback",
     # Bootstrap utilities
     "bootstrap_micropip_packages",
+    # Interrupt handling
+    "setup_interrupt_patches",
+    "check_interrupt",
 ]
 
 # Package metadata
