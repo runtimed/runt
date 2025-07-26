@@ -101,9 +101,9 @@ class RichDisplayPublisher(DisplayPublisher):
 class RichDisplayHook(DisplayHook):
     """Enhanced display hook with rich output formatting"""
 
-    def __init__(self, shell=None, cache_size=1000, *args, **kwargs):
+    def __init__(self, shell=None, cache_size=1000, **kwargs):
         super(RichDisplayHook, self).__init__(
-            shell=shell, cache_size=cache_size, *args, **kwargs
+            shell=shell, cache_size=cache_size, **kwargs
         )
         self.js_callback = None
 
