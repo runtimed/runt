@@ -1,19 +1,23 @@
 {
   "name": "@runt/tui",
   "version": "0.8.0",
-  "description": "Terminal notebook viewer for Runt runtime agents",
+  "description": "A powerful terminal-based notebook interface for Runt runtime agents, enabling interactive editing, execution, and real-time collaboration.",
   "license": "BSD-3-Clause",
   "exports": {
-    ".": "./src/cli.tsx",
-    "./mod": "./mod.ts"
+    ".": "./src/cli.tsx"
   },
   "bin": {
     "runt-tui": "./src/cli.tsx"
   },
+  "compat": {
+    "deno": ">=2.4.2",
+    "node": true,
+    "bun": true
+  },
   "tasks": {
     "dev": "deno run --allow-net --allow-env --allow-read --allow-write --allow-sys --quiet src/cli.tsx",
     "test": "deno test --allow-env --allow-net --allow-read --allow-write --allow-sys",
-    "check": "deno check mod.ts src/*.ts",
+    "check": "deno check src/*.ts src/*.tsx",
     "fmt": "deno fmt",
     "lint": "deno lint"
   },
@@ -45,7 +49,7 @@
     "lib": ["dom", "dom.iterable", "es2022", "deno.ns"]
   },
   "publish": {
-    "include": ["mod.ts", "src/", "README.md", "LICENSE"],
+    "include": ["src/", "README.md", "LICENSE"],
     "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
   }
 }

@@ -10,15 +10,6 @@ import { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 import { runner } from "@runt/lib";
 
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
-export {
-  getBootstrapPackages,
-  getCacheConfig,
-  getCacheDir,
-  getEssentialPackages,
-  getOnDemandPackages,
-  getPreloadPackages,
-  isFirstRun,
-} from "./cache-utils.ts";
 
 // Run the agent if this file is executed directly
 if (import.meta.main) {

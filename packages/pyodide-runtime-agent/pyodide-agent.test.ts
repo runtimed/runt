@@ -1,12 +1,14 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
+import { PyodideRuntimeAgent } from "./src/pyodide-agent.ts";
 import {
+  getBootstrapPackages as _getBootstrapPackages,
   getCacheConfig,
   getCacheDir,
   getEssentialPackages,
-  getOnDemandPackages,
-  getPreloadPackages,
-  PyodideRuntimeAgent,
-} from "./src/mod.ts";
+  getOnDemandPackages as _getOnDemandPackages,
+  getPreloadPackages as _getPreloadPackages,
+  isFirstRun as _isFirstRun,
+} from "./src/cache-utils.ts";
 import { withQuietConsole } from "../lib/test/test-config.ts";
 
 // Configure test environment for quiet logging
@@ -19,8 +21,8 @@ Deno.test("PyodideRuntimeAgent exports", () => {
   assertEquals(typeof getCacheConfig, "function");
   assertEquals(typeof getCacheDir, "function");
   assertEquals(typeof getEssentialPackages, "function");
-  assertEquals(typeof getOnDemandPackages, "function");
-  assertEquals(typeof getPreloadPackages, "function");
+  assertEquals(typeof _getOnDemandPackages, "function");
+  assertEquals(typeof _getPreloadPackages, "function");
 });
 
 Deno.test("Cache utilities", async (t) => {
@@ -50,7 +52,7 @@ Deno.test("Cache utilities", async (t) => {
   });
 
   await t.step("getPreloadPackages returns subset of essential", () => {
-    const preload = getPreloadPackages();
+    const preload = _getPreloadPackages();
     const essential = getEssentialPackages();
     assertEquals(Array.isArray(preload), true);
     assertEquals(preload.length > 0, true);
@@ -62,13 +64,13 @@ Deno.test("Cache utilities", async (t) => {
   });
 
   await t.step("getOnDemandPackages returns array", () => {
-    const onDemand = getOnDemandPackages();
+    const onDemand = _getOnDemandPackages();
     assertEquals(Array.isArray(onDemand), true);
     assertEquals(onDemand.length > 0, true);
   });
 
   await t.step("package lists don't overlap incorrectly", () => {
-    const preload = getPreloadPackages();
+    const preload = _getPreloadPackages();
     const essential = getEssentialPackages();
 
     // Preload should be subset of essential

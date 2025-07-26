@@ -13,7 +13,7 @@
     "@runt/lib": "./packages/lib/mod.ts",
     "@runt/pyodide-runtime-agent": "./packages/pyodide-runtime-agent/src/mod.ts",
     "@runt/python-runtime-agent": "./packages/python-runtime-agent/mod.ts",
-    "@runt/tui": "./packages/tui/mod.ts"
+    "@runt/tui": "./packages/tui/src/cli.tsx"
   },
   "lint": {
     "rules": {
@@ -34,7 +34,7 @@
     "test:pyodide:integration": "RUNT_LOG_LEVEL=ERROR RUNT_DISABLE_CONSOLE_LOGS=true deno test --allow-env --allow-net --allow-read --allow-write --allow-sys --allow-run packages/pyodide-runtime-agent/test/in-memory-integration.test.ts --reporter=dot",
     "integration": "RUNT_LOG_LEVEL=ERROR RUNT_DISABLE_CONSOLE_LOGS=true deno test --allow-env --allow-net --allow-read --allow-write --allow-sys --allow-run packages/pyodide-runtime-agent/test/simple-integration.test.ts packages/pyodide-runtime-agent/test/in-memory-integration.test.ts --reporter=dot",
     "check": "deno check $(find packages -name '*.ts' -not -path '*/tui/*' | tr '\n' ' ')",
-    "check:tui": "deno check packages/tui/mod.ts $(find packages/tui -name '*.ts' -o -name '*.tsx' | tr '\n' ' ') --config packages/tui/deno.json",
+    "check:tui": "deno check $(find packages/tui -name '*.ts' -o -name '*.tsx' | tr '\n' ' ') --config packages/tui/deno.json",
     "fmt": "deno fmt",
     "fmt:check": "deno fmt --check",
     "lint": "deno lint",
