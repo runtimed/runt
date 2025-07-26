@@ -682,6 +682,19 @@ matplotlib.use("Agg")
 # Suppress matplotlib font warnings in console
 logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
 
+# Default callback functions (will be replaced by worker)
+def default_display_callback(data, metadata, transient, update=False):
+    """Default display callback - prints to console"""
+    print(f"Display: {data}")
+
+def default_execution_callback(execution_count, data, metadata):
+    """Default execution callback - prints to console"""
+    print(f"[{execution_count}]: {data}")
+
+def default_clear_callback(wait=False):
+    """Default clear callback - does nothing"""
+    pass
+
 # Simple interrupt handling
 import signal
 import time
@@ -705,6 +718,48 @@ def setup_interrupt_patches():
     print("Basic interrupt handling installed")
 
 setup_interrupt_patches()
+
+# Set up matplotlib plot capture
+def _capture_matplotlib_show():
+    """Capture matplotlib.pyplot.show() calls for rich display"""
+    _original_show = plt.show
+
+    def captured_show(*args, **kwargs):
+        """Show matplotlib figures through display system"""
+        try:
+            # Get current figure
+            fig = plt.gcf()
+            if fig.get_axes():
+                # Save to bytes buffer
+                buf = io.BytesIO()
+                fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
+                buf.seek(0)
+
+                # Create display data
+                png_data = buf.getvalue()
+                import base64
+
+                png_b64 = base64.b64encode(png_data).decode("utf-8")
+
+                display_data = {
+                    "image/png": png_b64,
+                    "text/plain": f"<matplotlib figure {id(fig)}>",
+                }
+
+                # Send through display system
+                default_display_callback(display_data, {}, {}, False)
+
+                # Clear the figure to prevent duplicate displays
+                plt.clf()
+        except Exception as e:
+            print(f"Error capturing matplotlib show: {e}")
+            # Fallback to original show
+            _original_show(*args, **kwargs)
+
+    # Patch matplotlib
+    plt.show = captured_show
+
+_capture_matplotlib_show()
 
 # Set up IPython environment
 shell = get_ipython()
@@ -745,6 +800,20 @@ async def run_registered_tool(toolName: str, kwargs_string: str):
         print(f"[TOOL_TRACEBACK] {tb_str}", file=sys.stderr)
         raise Exception(f"{error_msg}\\n\\nPython traceback:\\n{tb_str}")
 
+# Micropip bootstrap function for pure Python packages
+async def bootstrap_micropip_packages():
+    """Bootstrap micropip packages for enhanced functionality"""
+    try:
+        import micropip
+
+        # Load essential packages for function registry and visualization
+        packages = ["seaborn"]
+        print(f"Installing micropip packages: {', '.join(packages)}")
+        await micropip.install(packages)
+        print(f"Successfully installed: {', '.join(packages)}")
+    except Exception as e:
+        print(f"Warning: Failed to install micropip packages: {e}")
+
 print("IPython environment ready with rich display support")
 print("Interrupt-aware function patches applied with enhanced signal handling")
 `;
@@ -763,11 +832,21 @@ print("Interrupt-aware function patches applied with enhanced signal handling")
 
   if (!isTest) {
     // Use setTimeout to isolate from execution pipeline
-    // Micropip bootstrap not needed in simplified setup
-    self.postMessage({
-      type: "log",
-      data: "Skipping micropip bootstrap in simplified setup",
-    });
+    setTimeout(() => {
+      pyodide!.runPythonAsync(`await bootstrap_micropip_packages()`).then(
+        () => {
+          self.postMessage({
+            type: "log",
+            data: "Micropip packages installed successfully",
+          });
+        },
+      ).catch((error) => {
+        self.postMessage({
+          type: "log",
+          data: `Warning: Micropip package installation failed: ${error}`,
+        });
+      });
+    }, 100);
   } else {
     self.postMessage({
       type: "log",
