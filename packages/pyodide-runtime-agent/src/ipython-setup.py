@@ -524,8 +524,23 @@ async def run_registered_tool(toolName: str, kwargs):
     except UnknownFunctionError:
         raise ToolNotFoundError(f"Tool {toolName} not found")
     except (FunctionArgumentError, FunctionError) as e:
-        print(f"Error running tool {toolName}: {e}")
+        # Log the error for debugging
+        print(f"[TOOL_ERROR] Error running tool {toolName}: {e}")
         raise
+    except Exception as e:
+        # Capture and format any other Python exceptions from tool execution
+        import traceback
+
+        # Format the full traceback for debugging
+        tb_str = traceback.format_exc()
+        error_msg = f"Tool '{toolName}' execution failed with error: {str(e)}"
+
+        # Print the full traceback to stderr for logging
+        print(f"[TOOL_ERROR] {error_msg}", file=sys.stderr)
+        print(f"[TOOL_TRACEBACK] {tb_str}", file=sys.stderr)
+
+        # Raise a clear error that includes the Python error details
+        raise Exception(f"{error_msg}\n\nPython traceback:\n{tb_str}")
 
 
 # Export the configured shell and registry functions for use by the worker

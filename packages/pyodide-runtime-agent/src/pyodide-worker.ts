@@ -76,10 +76,27 @@ self.addEventListener("message", async (event) => {
       }
 
       case "run_registered_tool": {
-        const result = await pyodide!.runPythonAsync(
-          `run_registered_tool("${data.toolName}", ${data.args})`,
-        );
-        self.postMessage({ id, type: "response", data: result });
+        try {
+          // Convert JS object to Python dict using pyodide.toPy
+          pyodide!.globals.set("tool_args", pyodide!.toPy(data.args));
+          const result = await pyodide!.runPythonAsync(
+            `await run_registered_tool("${data.toolName}", tool_args)`,
+          );
+          self.postMessage({ id, type: "response", data: result });
+        } catch (error) {
+          // Send back the Python error details for debugging
+          const errorMessage = error instanceof Error
+            ? error.message
+            : String(error);
+          self.postMessage({
+            id,
+            type: "error",
+            error: errorMessage,
+          });
+
+          // Also log to console for debugging
+          console.error(`Tool execution failed for ${data.toolName}:`, error);
+        }
         break;
       }
 
