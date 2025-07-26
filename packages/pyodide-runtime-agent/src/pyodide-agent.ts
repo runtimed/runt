@@ -19,13 +19,13 @@ import {
   type KnownMimeType,
 } from "@runt/schema";
 import {
-  getBootstrapPackages,
-  getCacheConfig,
-  getCacheDir,
+  getBootstrapPackages as _getBootstrapPackages,
+  getCacheConfig as _getCacheConfig,
+  getCacheDir as _getCacheDir,
   getEssentialPackages,
-  getOnDemandPackages,
-  getPreloadPackages,
-  isFirstRun,
+  getOnDemandPackages as _getOnDemandPackages,
+  getPreloadPackages as _getPreloadPackages,
+  isFirstRun as _isFirstRun,
 } from "./cache-utils.ts";
 import {
   discoverAvailableAiModels,

@@ -1,13 +1,13 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import { PyodideRuntimeAgent } from "./src/pyodide-agent.ts";
 import {
-  getBootstrapPackages,
+  getBootstrapPackages as _getBootstrapPackages,
   getCacheConfig,
   getCacheDir,
   getEssentialPackages,
-  getOnDemandPackages,
-  getPreloadPackages,
-  isFirstRun,
+  getOnDemandPackages as _getOnDemandPackages,
+  getPreloadPackages as _getPreloadPackages,
+  isFirstRun as _isFirstRun,
 } from "./src/cache-utils.ts";
 import { withQuietConsole } from "../lib/test/test-config.ts";
 
