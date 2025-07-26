@@ -64,7 +64,7 @@ export interface RuntimeAgentOptions {
   readonly authToken: string;
   /** Notebook ID to connect to */
   readonly notebookId: string;
-  /** Threshold in bytes for uploading images as artifacts (default: 1MB) */
+  /** Threshold in bytes for uploading images as artifacts (default: 6KB) */
   readonly imageArtifactThresholdBytes?: number;
   /** Artifact client for dependency injection (optional) */
   readonly artifactClient?: IArtifactClient;

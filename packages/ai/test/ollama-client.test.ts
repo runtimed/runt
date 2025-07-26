@@ -373,7 +373,11 @@ Deno.test("Ollama Client - Connection Status", async (t) => {
   });
 });
 
-Deno.test("Ollama Client - Streaming Chat", async (t) => {
+Deno.test({
+  name: "Ollama Client - Streaming Chat",
+  sanitizeOps: false, // AI clients spawn child processes
+  sanitizeResources: false, // Allow child process resources
+}, async (t) => {
   await t.step("should stream markdown content token by token", async () => {
     const client = new RuntOllamaClient();
     const { context, outputs, getMarkdownContent } =

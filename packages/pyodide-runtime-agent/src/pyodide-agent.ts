@@ -1,4 +1,4 @@
-// Enhanced Pyodide Runtime Agent
+// Pyodide Runtime Agent
 //
 // This module provides a Pyodide-based Python runtime agent with advanced
 // IPython integration, rich display support, and true interruption support
@@ -36,11 +36,11 @@ interface PyodideAgentOptions {
 }
 
 /**
- * Enhanced Pyodide-based Python runtime agent using web workers
+ * Pyodide-based Python runtime agent using web workers
  *
  * Extends the generic RuntimeAgent with advanced Python execution capabilities
- * including IPython integration, rich display support, matplotlib SVG output,
- * pandas HTML tables, and enhanced error formatting.
+ * including IPython integration, rich display support, matplotlib output,
+ * pandas HTML tables, and error formatting.
  */
 export class PyodideRuntimeAgent extends RuntimeAgent {
   private worker: Worker | null = null;
@@ -143,11 +143,11 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
   }
 
   /**
-   * Initialize enhanced Pyodide worker with rich display support
+   * Initialize Pyodide worker with rich display support
    */
   private async initializePyodideWorker(): Promise<void> {
     try {
-      this.logger.info("Initializing enhanced Pyodide worker");
+      this.logger.info("Initializing Pyodide worker");
 
       // Determine packages to load based on options
       const packagesToLoad = this.options.packages || getEssentialPackages();
@@ -162,7 +162,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       const interruptView = new Int32Array(this.interruptBuffer);
       interruptView[0] = 0; // Initialize to no interrupt
 
-      // Create worker with enhanced Pyodide
+      // Create worker with Pyodide
       this.worker = new Worker(
         new URL("./pyodide-worker.ts", import.meta.url),
         { type: "module" },
@@ -182,16 +182,16 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         this.handleWorkerCrash("Worker message error");
       });
 
-      // Initialize enhanced Pyodide in worker
+      // Initialize Pyodide in worker
       await this.sendWorkerMessage("init", {
         interruptBuffer: this.interruptBuffer,
         packages: packagesToLoad,
       });
 
       this.isInitialized = true;
-      this.logger.info("Enhanced Pyodide worker initialized successfully");
+      this.logger.info("Pyodide worker initialized successfully");
     } catch (error) {
-      this.logger.error("Failed to initialize enhanced Pyodide worker", error);
+      this.logger.error("Failed to initialize Pyodide worker", error);
       throw error;
     }
   }
@@ -228,8 +228,13 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       return;
     }
 
+    if (type === "startup_output") {
+      // Startup messages are already logged by worker, noop to keep out of cells
+      return;
+    }
+
     if (type === "stream_output") {
-      // Handle real-time streaming outputs with enhanced formatting
+      // Handle real-time streaming outputs with formatting
       if (this.currentExecutionContext) {
         switch (data.type) {
           case "stdout":

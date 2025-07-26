@@ -1,4 +1,4 @@
-// Enhanced Pyodide Web Worker
+// Pyodide Web Worker
 //
 // This worker runs Pyodide with IPython display formatting loaded from
 // a separate Python file, but executes user code directly through Pyodide
@@ -76,10 +76,30 @@ self.addEventListener("message", async (event) => {
       }
 
       case "run_registered_tool": {
-        const result = await pyodide!.runPythonAsync(
-          `run_registered_tool("${data.toolName}", ${data.args})`,
-        );
-        self.postMessage({ id, type: "response", data: result });
+        try {
+          // Pass arguments as JSON string directly to registry
+          pyodide!.globals.set(
+            "kwargs_string",
+            JSON.stringify(data.args || {}),
+          );
+          const result = await pyodide!.runPythonAsync(`
+await run_registered_tool("${data.toolName}", kwargs_string)
+          `.trim());
+          self.postMessage({ id, type: "response", data: result });
+        } catch (error) {
+          // Send back the Python error details for debugging
+          const errorMessage = error instanceof Error
+            ? error.message
+            : String(error);
+          self.postMessage({
+            id,
+            type: "error",
+            error: errorMessage,
+          });
+
+          // Also log to console for debugging
+          console.error(`Tool execution failed for ${data.toolName}:`, error);
+        }
         break;
       }
 
@@ -104,7 +124,7 @@ async function initializePyodide(
 ): Promise<void> {
   self.postMessage({
     type: "log",
-    data: "Loading Pyodide with enhanced display support",
+    data: "Loading Pyodide with display support",
   });
 
   // Store interrupt buffer
@@ -146,7 +166,7 @@ async function initializePyodide(
         data: `[Pyodide stdout on startup]: ${text}`,
       });
       self.postMessage({
-        type: "stream_output",
+        type: "startup_output",
         data: { type: "stdout", text },
       });
     },
@@ -157,8 +177,54 @@ async function initializePyodide(
         data: `[Pyodide stderr on startup]: ${text}`,
       });
       self.postMessage({
-        type: "stream_output",
+        type: "startup_output",
         data: { type: "stderr", text },
+      });
+    },
+    fsInit: async (FS, info) => {
+      // Preload Python modules as proper files in the filesystem
+      self.postMessage({
+        type: "log",
+        data: "Preloading runt_runtime modules into filesystem",
+      });
+
+      // Load all module files directly to site-packages
+      const moduleFiles = [
+        "runt_runtime.py",
+        "runt_runtime_registry.py",
+        "runt_runtime_display.py",
+        "runt_runtime_bootstrap.py",
+        "runt_runtime_shell.py",
+        "runt_runtime_interrupt_patches.py",
+      ];
+
+      for (const moduleFile of moduleFiles) {
+        try {
+          const moduleCode = await fetch(
+            new URL(`./${moduleFile}`, import.meta.url),
+          ).then((response) => {
+            if (!response.ok) {
+              throw new Error(
+                `HTTP ${response.status}: ${response.statusText}`,
+              );
+            }
+            return response.text();
+          });
+
+          FS.writeFile(`${info.sitePackages}/${moduleFile}`, moduleCode);
+        } catch (error) {
+          self.postMessage({
+            type: "log",
+            data: `Warning: Could not load ${moduleFile}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          });
+        }
+      }
+
+      self.postMessage({
+        type: "log",
+        data: "runt_runtime modules preloaded successfully",
       });
     },
   });
@@ -246,7 +312,7 @@ async function initializePyodide(
 
   self.postMessage({
     type: "log",
-    data: "Enhanced Pyodide worker initialized successfully",
+    data: "Pyodide worker initialized successfully",
   });
 }
 
@@ -256,20 +322,30 @@ async function initializePyodide(
 async function setupIPythonEnvironment(): Promise<void> {
   self.postMessage({
     type: "log",
-    data: "Loading IPython environment from bootstrap file",
+    data: "Loading pseudo-IPython environment from preloaded modules",
   });
 
-  // Get the Python bootstrap code
-  const pythonBootstrap = await fetch(
-    new URL("./ipython-setup.py", import.meta.url),
-  ).then((response) => response.text());
+  // Install pydantic first (required by registry.py)
+  await pyodide!.loadPackage("pydantic");
 
-  // Execute the bootstrap code
-  await pyodide!.runPythonAsync(pythonBootstrap);
+  // Import and initialize the runt_runtime package
+  await pyodide!.runPythonAsync(`
+import runt_runtime
+# Initialize the pseudo-IPython sandbox environment
+runt_runtime.initialize_ipython_environment()
+# Make shell, tool functions, and display callbacks available globally for user code execution
+globals()['shell'] = runt_runtime.shell
+globals()['get_registered_tools'] = runt_runtime.get_registered_tools
+globals()['run_registered_tool'] = runt_runtime.run_registered_tool
+globals()['tool'] = runt_runtime.tool
+globals()['js_display_callback'] = runt_runtime.js_display_callback
+globals()['js_execution_callback'] = runt_runtime.js_execution_callback
+globals()['js_clear_callback'] = runt_runtime.js_clear_callback
+`);
 
   self.postMessage({
     type: "log",
-    data: "IPython environment loaded successfully",
+    data: "Pseudo-IPython environment loaded successfully from modules",
   });
 
   // Install micropip packages in background without blocking
@@ -280,7 +356,9 @@ async function setupIPythonEnvironment(): Promise<void> {
   if (!isTest) {
     // Use setTimeout to isolate from execution pipeline
     setTimeout(() => {
-      pyodide!.runPythonAsync(`await bootstrap_micropip_packages()`).then(
+      pyodide!.runPythonAsync(
+        `await runt_runtime.bootstrap_micropip_packages()`,
+      ).then(
         () => {
           self.postMessage({
             type: "log",
@@ -643,7 +721,7 @@ function ensureSerializable(obj: unknown): unknown {
 }
 
 /**
- * Format Python errors with enhanced information
+ * Format Python errors with information
  */
 function formatPythonError(error: unknown): {
   ename: string;
@@ -728,8 +806,8 @@ function formatPythonError(error: unknown): {
   };
 }
 
-// Log that enhanced worker is ready
+// Log that worker is ready
 self.postMessage({
   type: "log",
-  data: "Enhanced Pyodide worker ready with serialization-safe output",
+  data: "Pyodide worker ready with serialization-safe output",
 });

@@ -972,14 +972,34 @@ export class RuntimeAgent {
       const imageData = decodeBase64(content);
       const imageSizeBytes = imageData.length;
 
+      const logger = createLogger("runtime-agent");
+      logger.debug("Processing image content for artifact upload", {
+        mimeType,
+        imageSizeBytes,
+        thresholdBytes: this.config.imageArtifactThresholdBytes,
+        willUploadAsArtifact:
+          imageSizeBytes > this.config.imageArtifactThresholdBytes,
+      });
+
       // If image is below threshold, keep inline
       if (imageSizeBytes <= this.config.imageArtifactThresholdBytes) {
+        logger.debug("Image below threshold, keeping inline", {
+          mimeType,
+          imageSizeBytes,
+          thresholdBytes: this.config.imageArtifactThresholdBytes,
+        });
         return {
           type: "inline",
           data: content,
           metadata,
         };
       }
+
+      logger.debug("Image above threshold, uploading as artifact", {
+        mimeType,
+        imageSizeBytes,
+        thresholdBytes: this.config.imageArtifactThresholdBytes,
+      });
 
       // Upload large image as artifact
       const submissionOptions: ArtifactSubmissionOptions = {
@@ -994,6 +1014,12 @@ export class RuntimeAgent {
         imageData,
         submissionOptions,
       );
+
+      logger.debug("Image successfully uploaded as artifact", {
+        mimeType,
+        artifactId: result.artifactId,
+        imageSizeBytes,
+      });
 
       return {
         type: "artifact",
