@@ -27,6 +27,9 @@ AI behavior with iterative tool calls.
   management
 - **Pyodide Package** (`@runt/pyodide-runtime-agent`): Python runtime using
   Pyodide with IPython integration for rich display support
+- **Python Package** (`@runt/python-runtime-agent`): Stub for a native Python
+  runtime agent. **Note: This package is not yet implemented.**
+- **TUI Package** (`@runt/tui`): A terminal-based UI for viewing notebooks.
 - **LiveStore**: Event-sourcing framework for local-first apps with real-time
   sync
 - **Deno**: TypeScript runtime with built-in testing and formatting
@@ -147,16 +150,18 @@ versions. Type errors usually indicate schema mismatches.
 ```
 runt/
 ├── packages/
-│   ├── schema/          # LiveStore schema definitions
-│   │   └── mod.ts       # Events, tables, materializers
-│   ├── lib/             # Runtime agent library
-│   │   ├── src/         # Source code
-│   │   ├── examples/    # Working examples
-│   │   └── test/        # Integration tests
-│   └── pyodide-runtime-agent/  # Python runtime implementation
-│       └── src/         # Pyodide agent, worker, IPython setup
-├── .github/workflows/   # CI/CD
-└── deno.json           # Tasks and dependencies
+│   ├── schema/                   # LiveStore schema definitions
+│   │   └── mod.ts                # Events, tables, materializers
+│   ├── lib/                      # Runtime agent library
+│   │   ├── src/                  # Source code
+│   │   ├── examples/             # Working examples
+│   │   └── test/                 # Integration tests
+│   ├── pyodide-runtime-agent/    # Python runtime implementation
+│   │   └── src/                  # Pyodide agent, worker, IPython setup
+│   ├── python-runtime-agent/   # Stub for native Python runtime
+│   └── tui/                      # Terminal notebook viewer
+├── .github/workflows/            # CI/CD
+└── deno.json                    # Tasks and dependencies
 ```
 
 ## Common Issues

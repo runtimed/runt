@@ -8,6 +8,7 @@ Runtime agents for connecting to next gen notebooks from
 - `@runt/schema` - LiveStore schema (events, tables, types)
 - `@runt/lib` - Runtime agent base class
 - `@runt/pyodide-runtime-agent` - Python runtime using Pyodide
+- `@runt/python-runtime-agent` - Stub for a native Python runtime agent
 - `@runt/tui` - Terminal notebook viewer
 
 ## Usage
@@ -25,6 +26,7 @@ packages/
 ├── schema/                   # LiveStore schema
 ├── lib/                      # Runtime agent base
 ├── pyodide-runtime-agent/    # Python runtime
+├── python-runtime-agent/     # Stub for native Python runtime
 └── tui/                      # Terminal viewer
 ```
 
