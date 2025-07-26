@@ -8,11 +8,11 @@ runt working with an interactive Python environment.
 """
 
 import os
-import sys
+
 import signal
 import time
 import builtins
-from typing import Optional
+
 
 from IPython.core.interactiveshell import InteractiveShell
 from IPython.core.history import HistoryManager
@@ -70,7 +70,7 @@ def format_exception(exc_type, exc_value, exc_traceback):
         formatted_tb = "".join(tb_lines).strip()
 
         return formatted_tb
-    except Exception as e:
+    except Exception:
         # Fallback to basic formatting if rich formatting fails
         return f"{exc_type.__name__}: {exc_value}"
 
@@ -122,8 +122,8 @@ def setup_interrupt_patches():
     try:
         signal.signal(signal.SIGINT, signal_handler)
         print("Signal handler installed for SIGINT")
-    except (OSError, ValueError) as e:
-        print(f"Could not install signal handler: {e}")
+    except (OSError, ValueError):
+        print("Could not install signal handler")
 
     # Patch built-in functions with interrupt-aware versions
     def periodic_interrupt_check():
@@ -131,11 +131,9 @@ def setup_interrupt_patches():
         check_interrupt()
 
     # Monkey patch time.sleep to be interrupt-aware
-    original_sleep = time.sleep
     time.sleep = interrupt_aware_sleep
 
     # Monkey patch input to be interrupt-aware
-    original_input = builtins.input
     builtins.input = interrupt_aware_input
 
     # Set up periodic interrupt checking

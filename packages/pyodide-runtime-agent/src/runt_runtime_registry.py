@@ -6,7 +6,7 @@ Original from https://github.com/rgbkrk/chatlab/blob/main/chatlab/registry.py
 import asyncio
 import inspect
 import json
-import sys
+
 from typing import (
     Any,
     Callable,

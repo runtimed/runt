@@ -9,9 +9,7 @@ This module provides rich display capabilities including:
 """
 
 import io
-import json
 import base64
-from typing import Any, Dict, Optional, Callable
 
 from IPython.core.displaypub import DisplayPublisher
 from IPython.core.displayhook import DisplayHook
@@ -129,6 +127,43 @@ class RichDisplayHook(DisplayHook):
 
                 traceback.print_exc()
 
+    def _handle_dict_serialization(self, obj):
+        """Handle dictionary serialization with error handling"""
+        result = {}
+        for key, value in obj.items():
+            try:
+                str_key = str(key)
+                result[str_key] = self._make_serializable(value)
+            except Exception as e:
+                print(f"Warning: Could not serialize key {key}: {e}")
+                result[str(key)] = f"<unserializable: {type(value).__name__}>"
+        return result
+
+    def _handle_bytes_serialization(self, obj):
+        """Handle bytes object serialization"""
+        try:
+            return base64.b64encode(obj).decode("ascii")
+        except Exception:
+            return f"<binary data: {len(obj)} bytes>"
+
+    def _handle_scientific_objects(self, obj):
+        """Handle pandas/numpy objects"""
+        # Try pandas DataFrame/Series
+        if hasattr(obj, "to_dict"):
+            try:
+                return self._make_serializable(obj.to_dict())
+            except Exception:
+                pass
+
+        # Try numpy arrays
+        if hasattr(obj, "tolist"):
+            try:
+                return self._make_serializable(obj.tolist())
+            except Exception:
+                pass
+
+        return None
+
     def _make_serializable(self, obj):
         """Convert complex Python objects to JSON-serializable format"""
         if obj is None:
@@ -141,37 +176,15 @@ class RichDisplayHook(DisplayHook):
             return [self._make_serializable(item) for item in obj]
 
         if isinstance(obj, dict):
-            result = {}
-            for key, value in obj.items():
-                try:
-                    str_key = str(key)
-                    result[str_key] = self._make_serializable(value)
-                except Exception as e:
-                    print(f"Warning: Could not serialize key {key}: {e}")
-                    result[str(key)] = f"<unserializable: {type(value).__name__}>"
-            return result
+            return self._handle_dict_serialization(obj)
 
-        # Handle bytes objects
         if isinstance(obj, bytes):
-            try:
-                return base64.b64encode(obj).decode("ascii")
-            except Exception:
-                return f"<binary data: {len(obj)} bytes>"
+            return self._handle_bytes_serialization(obj)
 
-        # Handle common scientific computing objects
-        try:
-            # Try pandas DataFrame/Series
-            if hasattr(obj, "to_dict"):
-                return self._make_serializable(obj.to_dict())
-        except Exception:
-            pass
-
-        try:
-            # Try numpy arrays
-            if hasattr(obj, "tolist"):
-                return self._make_serializable(obj.tolist())
-        except Exception:
-            pass
+        # Handle scientific computing objects
+        scientific_result = self._handle_scientific_objects(obj)
+        if scientific_result is not None:
+            return scientific_result
 
         # For other objects, try string representation
         try:
@@ -183,7 +196,6 @@ class RichDisplayHook(DisplayHook):
 def _capture_matplotlib_show():
     """Enhanced matplotlib show function with inline image capture"""
     import matplotlib.pyplot as plt
-    import matplotlib
 
     # Store original show function
     original_show = plt.show
