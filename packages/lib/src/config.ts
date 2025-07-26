@@ -17,7 +17,7 @@ import { ArtifactClient } from "./artifact-client.ts";
  */
 export const DEFAULT_CONFIG = {
   syncUrl: "wss://anode-docworker.rgbkrk.workers.dev",
-  imageArtifactThresholdBytes: 32 * 1024, // 32KB threshold for uploading images as artifacts
+  imageArtifactThresholdBytes: 6 * 1024, // 6KB threshold for uploading images as artifacts
 } as const;
 
 /**
