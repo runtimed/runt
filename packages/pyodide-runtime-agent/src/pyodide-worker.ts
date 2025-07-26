@@ -282,34 +282,28 @@ async function setupIPythonEnvironment(): Promise<void> {
   // Install pydantic first (required by registry.py)
   await pyodide!.loadPackage("pydantic");
 
-  // Create proper Python package structure by writing files
+  // Create proper Python package structure using colocated files
   // (writeFile automatically creates parent directories)
 
-  // Write registry.py to package directory
-  const registryCode = await fetch(
-    new URL("./registry.py", import.meta.url),
-  ).then((response) => response.text());
-  pyodide!.FS.writeFile("/runt_runtime/registry.py", registryCode);
+  // Load and write all package files
+  const packageFiles = [
+    { src: "./runt_runtime/__init__.py", dest: "/runt_runtime/__init__.py" },
+    { src: "./runt_runtime/registry.py", dest: "/runt_runtime/registry.py" },
+    {
+      src: "./runt_runtime/interrupts.py",
+      dest: "/runt_runtime/interrupts.py",
+    },
+    {
+      src: "./runt_runtime/ipython_setup.py",
+      dest: "/runt_runtime/ipython_setup.py",
+    },
+  ];
 
-  // Write ipython setup to package directory
-  const pythonBootstrap = await fetch(
-    new URL("./ipython-setup.py", import.meta.url),
-  ).then((response) => response.text());
-  pyodide!.FS.writeFile("/runt_runtime/ipython_setup.py", pythonBootstrap);
-
-  // Create __init__.py to make it a proper package
-  pyodide!.FS.writeFile(
-    "/runt_runtime/__init__.py",
-    `"""
-Runt runtime package for Pyodide.
-
-This package contains the function registry and IPython setup for the Runt runtime.
-"""
-
-from .registry import *
-from .ipython_setup import *
-`,
-  );
+  for (const { src, dest } of packageFiles) {
+    const content = await fetch(new URL(src, import.meta.url))
+      .then((response) => response.text());
+    pyodide!.FS.writeFile(dest, content);
+  }
 
   // Add package to Python path and import
   await pyodide!.runPythonAsync(`
@@ -317,8 +311,8 @@ import sys
 if '/' not in sys.path:
     sys.path.insert(0, '/')
 
-# Import and execute the IPython setup
-from runt_runtime.ipython_setup import *
+# Import the runt_runtime package (this executes ipython_setup.py for side effects)
+import runt_runtime
 `);
 
   self.postMessage({
