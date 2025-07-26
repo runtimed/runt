@@ -1,4 +1,7 @@
-"""Registry of functions"""
+"""Registry of functions.
+
+Original from https://github.com/rgbkrk/chatlab/blob/main/chatlab/registry.py
+"""
 
 import asyncio
 import inspect
@@ -174,12 +177,6 @@ def generate_function_schema(
     if not doc:
         raise Exception("Only functions with docstrings can be registered")
 
-    schema = FunctionDefinition(
-        name=func_name,
-        description=doc,
-        parameters={},
-    )
-
     if isinstance(parameter_schema, dict):
         parameters = parameter_schema
     elif parameter_schema is not None:
@@ -199,7 +196,11 @@ def generate_function_schema(
     if "required" not in parameters:
         parameters["required"] = []
 
-    schema.parameters = parameters
+    schema = FunctionDefinition(
+        name=func_name,
+        description=doc,
+        parameters=parameters,
+    )
     return schema
 
 

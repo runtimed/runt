@@ -76,10 +76,30 @@ self.addEventListener("message", async (event) => {
       }
 
       case "run_registered_tool": {
-        const result = await pyodide!.runPythonAsync(
-          `run_registered_tool("${data.toolName}", ${data.args})`,
-        );
-        self.postMessage({ id, type: "response", data: result });
+        try {
+          // Pass arguments as JSON string directly to registry
+          pyodide!.globals.set(
+            "tool_args_json",
+            JSON.stringify(data.args || {}),
+          );
+          const result = await pyodide!.runPythonAsync(`
+await run_registered_tool("${data.toolName}", tool_args_json)
+          `.trim());
+          self.postMessage({ id, type: "response", data: result });
+        } catch (error) {
+          // Send back the Python error details for debugging
+          const errorMessage = error instanceof Error
+            ? error.message
+            : String(error);
+          self.postMessage({
+            id,
+            type: "error",
+            error: errorMessage,
+          });
+
+          // Also log to console for debugging
+          console.error(`Tool execution failed for ${data.toolName}:`, error);
+        }
         break;
       }
 
@@ -258,6 +278,16 @@ async function setupIPythonEnvironment(): Promise<void> {
     type: "log",
     data: "Loading IPython environment from bootstrap file",
   });
+
+  // Install pydantic first (required by registry.py)
+  await pyodide!.loadPackage("pydantic");
+
+  // Load registry.py first
+  const registryCode = await fetch(
+    new URL("./registry.py", import.meta.url),
+  ).then((response) => response.text());
+
+  await pyodide!.runPythonAsync(registryCode);
 
   // Get the Python bootstrap code
   const pythonBootstrap = await fetch(
