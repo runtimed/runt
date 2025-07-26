@@ -77,11 +77,14 @@ self.addEventListener("message", async (event) => {
 
       case "run_registered_tool": {
         try {
-          // Convert JS object to Python dict using pyodide.toPy
-          pyodide!.globals.set("tool_args", pyodide!.toPy(data.args));
-          const result = await pyodide!.runPythonAsync(
-            `await run_registered_tool("${data.toolName}", tool_args)`,
+          // Pass arguments as JSON string directly to registry
+          pyodide!.globals.set(
+            "tool_args_json",
+            JSON.stringify(data.args || {}),
           );
+          const result = await pyodide!.runPythonAsync(`
+await run_registered_tool("${data.toolName}", tool_args_json)
+          `.trim());
           self.postMessage({ id, type: "response", data: result });
         } catch (error) {
           // Send back the Python error details for debugging
