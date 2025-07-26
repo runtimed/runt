@@ -13,14 +13,14 @@ import json
 import base64
 from typing import Any, Dict, Optional, Callable
 
+from IPython.core.displaypub import DisplayPublisher
+from IPython.core.displayhook import DisplayHook
 
-class RichDisplayPublisher:
+
+class RichDisplayPublisher(DisplayPublisher):
     """Enhanced display publisher for rich output handling"""
 
     def __init__(self, shell=None, *args, **kwargs):
-        # Import here to avoid circular imports
-        from IPython.core.displaypub import DisplayPublisher
-
         super(RichDisplayPublisher, self).__init__(shell, *args, **kwargs)
         self.js_callback = None
 
@@ -98,11 +98,11 @@ class RichDisplayPublisher:
             return f"<unserializable: {type(obj).__name__}>"
 
 
-class RichDisplayHook:
+class RichDisplayHook(DisplayHook):
     """Enhanced display hook with rich output formatting"""
 
     def __init__(self, shell=None, cache_size=1000):
-        self.shell = shell
+        super(RichDisplayHook, self).__init__(shell=shell, cache_size=cache_size)
         self.js_callback = None
 
     def __call__(self, result):
