@@ -29,6 +29,11 @@ from runt_runtime_display import (
 )
 
 
+# Module-level singleton storage for original functions to prevent double-patching
+_original_sleep = None
+_original_input = None
+
+
 class LiteHistoryManager(HistoryManager):
     """Lightweight history manager for web environment"""
 
@@ -78,9 +83,12 @@ def format_exception(exc_type, exc_value, exc_traceback):
 def setup_interrupt_patches():
     """Set up interrupt handling and signal management"""
 
-    # Store original functions before monkey patching
-    original_sleep = time.sleep
-    original_input = builtins.input
+    # Store original functions once at module level to prevent double-patching
+    global _original_sleep, _original_input
+    if _original_sleep is None:
+        _original_sleep = time.sleep
+    if _original_input is None:
+        _original_input = builtins.input
 
     def signal_handler(signum, frame):
         """Enhanced signal handler with proper interrupt support"""
@@ -112,7 +120,7 @@ def setup_interrupt_patches():
             remaining = end_time - time.time()
             if remaining > 0:
                 # Sleep in small chunks to allow interrupt checking
-                original_sleep(min(0.1, remaining))
+                _original_sleep(min(0.1, remaining))
 
     def interrupt_aware_input(prompt=""):
         """Input function that can be interrupted"""
