@@ -259,6 +259,16 @@ async function setupIPythonEnvironment(): Promise<void> {
     data: "Loading IPython environment from bootstrap file",
   });
 
+  // Install pydantic first (required by registry.py)
+  await pyodide!.loadPackage("pydantic");
+
+  // Load registry.py first
+  const registryCode = await fetch(
+    new URL("./registry.py", import.meta.url),
+  ).then((response) => response.text());
+
+  await pyodide!.runPythonAsync(registryCode);
+
   // Get the Python bootstrap code
   const pythonBootstrap = await fetch(
     new URL("./ipython-setup.py", import.meta.url),

@@ -336,11 +336,14 @@ def default_clear_callback(wait=False):
 async def bootstrap_micropip_packages():
     """Note: this _must_ be run on start of this ipython session"""
     try:
-        await micropip.install("seaborn")
+        # Install pydantic for the new function registry system (fallback)
+        await micropip.install("pydantic")
+        print("Installed pydantic via micropip")
 
+        await micropip.install("seaborn")
         print("Installed seaborn via micropip")
     except Exception as e:
-        print(f"Warning: Failed to install seaborn: {e}")
+        print(f"Warning: Failed to install packages: {e}")
 
 
 def setup_interrupt_patches():
@@ -455,52 +458,77 @@ js_clear_callback = default_clear_callback
 setup_interrupt_patches()
 
 
+# Import the new function registry system (loaded globally by worker)
+# Classes are available from registry.py loaded earlier
+_function_registry = FunctionRegistry()
+
+
+# Exception classes for compatibility
 class ToolNotFoundError(Exception):
+    """Compatibility alias for UnknownFunctionError"""
+
     pass
 
 
-@dataclass
-class RegisteredFunction:
-    name: str
-    openai_tool_metadata: dict
-    _func: Callable
-
-    def __call__(self, *args, **kwargs) -> Any:
-        result = self._func(*args, **kwargs)
-        if not isinstance(result, str):
-            result = json.dumps(result, default=str)
-        return result
-
-
-_tool_registry = {}
-
-
 def tool(func) -> Callable:
-    from openai_function_calling import FunctionInferrer
-
-    schema = FunctionInferrer.infer_from_function_reference(func).to_json_schema()
-
-    entry = RegisteredFunction(
-        name=func.__name__, _func=func, openai_tool_metadata=schema
-    )
-    _tool_registry[func.__name__] = entry
-    return func
+    """Decorator to register a function as a tool using the new registry system"""
+    try:
+        _function_registry.register(func)
+        return func
+    except Exception as e:
+        print(f"Error registering tool {func.__name__}: {e}")
+        raise
 
 
 def get_registered_tools():
+    """Get all registered tools as JSON string (compatible with existing API)"""
     import json
 
-    tools = [func.openai_tool_metadata for func in _tool_registry.values()]
-    return json.dumps(tools, default=str)
+    print(
+        f"[DEBUG] Registry has {len(_function_registry.function_definitions)} function definitions"
+    )
+
+    # Convert FunctionDefinition format to NotebookTool format
+    tools = []
+    for i, definition in enumerate(_function_registry.function_definitions):
+        print(f"[DEBUG] Processing definition {i}: {definition}")
+
+        # Return the function definition directly (NotebookTool format)
+        tool_spec = {
+            "name": definition["name"],
+            "description": definition.get("description", ""),
+            "parameters": definition.get("parameters", {}),
+        }
+        print(f"[DEBUG] Created tool_spec {i}: {tool_spec}")
+        tools.append(tool_spec)
+
+    print(f"[DEBUG] Final tools array: {tools}")
+    result = json.dumps(tools, default=str)
+    print(f"[DEBUG] JSON result: {result}")
+    return result
 
 
-def run_registered_tool(toolName: str, kwargs):
-    if toolName not in _tool_registry:
+async def run_registered_tool(toolName: str, kwargs):
+    """Run a registered tool by name"""
+    try:
+        # Convert kwargs dict to JSON string format expected by registry
+        arguments_json = json.dumps(kwargs) if kwargs else None
+        result = await _function_registry.call(toolName, arguments_json)
+
+        # Ensure result is JSON serializable string
+        if not isinstance(result, str):
+            result = json.dumps(result, default=str)
+
+        return result
+
+    except UnknownFunctionError:
         raise ToolNotFoundError(f"Tool {toolName} not found")
-    return _tool_registry[toolName](**kwargs)
+    except (FunctionArgumentError, FunctionError) as e:
+        print(f"Error running tool {toolName}: {e}")
+        raise
 
 
-# Export the configured shell for use by the worker
+# Export the configured shell and registry functions for use by the worker
 __all__ = [
     "shell",
     "js_display_callback",
@@ -509,4 +537,6 @@ __all__ = [
     "setup_interrupt_patches",
     "get_registered_tools",
     "run_registered_tool",
+    "tool",
+    "_function_registry",  # Direct access to registry if needed
 ]
