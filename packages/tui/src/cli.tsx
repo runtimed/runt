@@ -1,3 +1,4 @@
+#!/usr/bin/env -S deno run --allow-net --allow-env --allow-read --allow-write --allow-sys --quiet
 /**
  * @module
  * Main entry point for the Runt TUI (Terminal User Interface) application.
@@ -8,7 +9,6 @@
  * It provides an interactive notebook experience in the terminal, allowing
  * users to view, edit, and execute notebook cells.
  */
-#!/usr/bin/env -S deno run --allow-net --allow-env --allow-read --allow-write --allow-sys --quiet
 import React from "react";
 import { render, useStdin } from "ink";
 import { Effect, Logger, LogLevel } from "effect";

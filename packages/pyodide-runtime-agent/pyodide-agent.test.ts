@@ -21,7 +21,7 @@ Deno.test("PyodideRuntimeAgent exports", () => {
   assertEquals(typeof getCacheConfig, "function");
   assertEquals(typeof getCacheDir, "function");
   assertEquals(typeof getEssentialPackages, "function");
-    assertEquals(typeof _getOnDemandPackages, "function");
+  assertEquals(typeof _getOnDemandPackages, "function");
   assertEquals(typeof _getPreloadPackages, "function");
 });
 
