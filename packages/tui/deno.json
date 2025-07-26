@@ -10,8 +10,9 @@
     "runt-tui": "./src/cli.tsx"
   },
   "compat": {
-    "deno": "^1.39.0",
-    "browser": true
+    "deno": ">=2.4.2",
+    "node": true,
+    "bun": true
   },
   "tasks": {
     "dev": "deno run --allow-net --allow-env --allow-read --allow-write --allow-sys --quiet src/cli.tsx",
