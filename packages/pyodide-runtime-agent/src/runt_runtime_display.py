@@ -21,7 +21,7 @@ class RichDisplayPublisher(DisplayPublisher):
     """Enhanced display publisher for rich output handling"""
 
     def __init__(self, shell=None, *args, **kwargs):
-        super(RichDisplayPublisher, self).__init__(shell, *args, **kwargs)
+        super(RichDisplayPublisher, self).__init__(shell=shell, *args, **kwargs)
         self.js_callback = None
 
     def publish(
@@ -101,8 +101,10 @@ class RichDisplayPublisher(DisplayPublisher):
 class RichDisplayHook(DisplayHook):
     """Enhanced display hook with rich output formatting"""
 
-    def __init__(self, shell=None, cache_size=1000):
-        super(RichDisplayHook, self).__init__(shell=shell, cache_size=cache_size)
+    def __init__(self, shell=None, cache_size=1000, *args, **kwargs):
+        super(RichDisplayHook, self).__init__(
+            shell=shell, cache_size=cache_size, *args, **kwargs
+        )
         self.js_callback = None
 
     def __call__(self, result):
