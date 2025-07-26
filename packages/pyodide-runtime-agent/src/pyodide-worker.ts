@@ -185,39 +185,45 @@ async function initializePyodide(
       // Preload Python modules as proper files in the filesystem
       self.postMessage({
         type: "log",
-        data: "Preloading runt_runtime package into filesystem",
+        data: "Preloading runt_runtime modules into filesystem",
       });
 
-      // Define runt_runtime package directory path
-      const runtRuntimeDir = `${info.sitePackages}/runt_runtime`;
-
-      // Load all module files
+      // Load all module files directly to site-packages
       const moduleFiles = [
-        "__init__.py",
-        "registry.py",
-        "display.py",
-        "bootstrap.py",
-        "shell.py",
+        "runt_runtime.py",
+        "runt_runtime_registry.py",
+        "runt_runtime_display.py",
+        "runt_runtime_bootstrap.py",
+        "runt_runtime_shell.py",
       ];
 
       for (const moduleFile of moduleFiles) {
         try {
           const moduleCode = await fetch(
-            new URL(`./runt_runtime/${moduleFile}`, import.meta.url),
-          ).then((response) => response.text());
+            new URL(`./${moduleFile}`, import.meta.url),
+          ).then((response) => {
+            if (!response.ok) {
+              throw new Error(
+                `HTTP ${response.status}: ${response.statusText}`,
+              );
+            }
+            return response.text();
+          });
 
-          FS.writeFile(`${runtRuntimeDir}/${moduleFile}`, moduleCode);
+          FS.writeFile(`${info.sitePackages}/${moduleFile}`, moduleCode);
         } catch (error) {
           self.postMessage({
             type: "log",
-            data: `Warning: Could not load ${moduleFile}: ${error}`,
+            data: `Warning: Could not load ${moduleFile}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
           });
         }
       }
 
       self.postMessage({
         type: "log",
-        data: "runt_runtime package preloaded successfully",
+        data: "runt_runtime modules preloaded successfully",
       });
     },
   });

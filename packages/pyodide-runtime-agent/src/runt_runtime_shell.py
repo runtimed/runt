@@ -17,8 +17,16 @@ from typing import Optional
 from IPython.core.interactiveshell import InteractiveShell
 from IPython.core.history import HistoryManager
 
-from .display import RichDisplayHook, RichDisplayPublisher, setup_rich_formatters
-from .display import js_display_callback, js_execution_callback, js_clear_callback
+from runt_runtime_display import (
+    RichDisplayHook,
+    RichDisplayPublisher,
+    setup_rich_formatters,
+)
+from runt_runtime_display import (
+    js_display_callback,
+    js_execution_callback,
+    js_clear_callback,
+)
 
 
 class LiteHistoryManager(HistoryManager):
