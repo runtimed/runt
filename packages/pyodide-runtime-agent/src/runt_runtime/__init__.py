@@ -1,11 +1,13 @@
 """
-Runt Runtime - Python runtime environment for Pyodide-based execution
+Runt Runtime - Pseudo-IPython sandbox environment for Pyodide-based execution
 
-This package provides a complete IPython environment with rich display support,
-function registry, and enhanced output handling for use in Pyodide workers.
+This package provides a sandbox environment that mimics IPython functionality
+with rich display support, function registry, and enhanced output handling
+for use in Pyodide workers. It's designed to demonstrate runt working with
+a nice interactive Python environment.
 
 Main components:
-- IPython shell with rich display formatting
+- Pseudo-IPython shell with rich display formatting
 - Function registry for tool registration and execution
 - Interrupt handling and signal management
 - Matplotlib integration for plot display
@@ -37,4 +39,4 @@ __all__ = [
 # Package metadata
 __version__ = "0.1.0"
 __author__ = "Runt Runtime Team"
-__description__ = "Python runtime environment for Pyodide-based execution"
+__description__ = "Pseudo-IPython sandbox environment for Pyodide-based execution"

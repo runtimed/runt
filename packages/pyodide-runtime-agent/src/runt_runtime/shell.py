@@ -1,8 +1,10 @@
 """
-IPython shell setup and configuration for Runt Runtime
+Pseudo-IPython shell setup and configuration for Runt Runtime
 
-This module provides the core IPython shell instance with enhanced
-display capabilities, interrupt handling, and error formatting.
+This module provides a pseudo-IPython shell instance that mimics IPython
+functionality with enhanced display capabilities, interrupt handling, and
+error formatting. It's designed as a sandbox environment to demonstrate
+runt working with an interactive Python environment.
 """
 
 import os
@@ -38,7 +40,7 @@ os.environ.update(
     }
 )
 
-# Create IPython shell instance with enhanced display capabilities
+# Create pseudo-IPython shell instance with enhanced display capabilities
 shell = InteractiveShell.instance(
     displayhook_class=RichDisplayHook,
     display_pub_class=RichDisplayPublisher,
@@ -135,7 +137,7 @@ def setup_interrupt_patches():
 
 
 def initialize_ipython_environment():
-    """Initialize the complete IPython environment with all setup functions"""
+    """Initialize the pseudo-IPython sandbox environment with all setup functions"""
 
     # Set up display callbacks on the shell's display publisher and hook
     if hasattr(shell, "display_pub") and hasattr(shell.display_pub, "js_callback"):
@@ -155,7 +157,7 @@ def initialize_ipython_environment():
     # Set up interrupt patches
     setup_interrupt_patches()
 
-    print("IPython environment ready with rich display support")
+    print("Pseudo-IPython environment ready with rich display support")
 
 
 # Configure matplotlib for headless PNG output (works in Deno workers)

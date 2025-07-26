@@ -188,9 +188,8 @@ async function initializePyodide(
         data: "Preloading runt_runtime package into filesystem",
       });
 
-      // Create runt_runtime package directory
+      // Define runt_runtime package directory path
       const runtRuntimeDir = `${info.sitePackages}/runt_runtime`;
-      FS.mkdir(runtRuntimeDir);
 
       // Load all module files
       const moduleFiles = [
@@ -316,7 +315,7 @@ async function initializePyodide(
 async function setupIPythonEnvironment(): Promise<void> {
   self.postMessage({
     type: "log",
-    data: "Loading IPython environment from preloaded modules",
+    data: "Loading pseudo-IPython environment from preloaded modules",
   });
 
   // Install pydantic first (required by registry.py)
@@ -325,7 +324,7 @@ async function setupIPythonEnvironment(): Promise<void> {
   // Import and initialize the runt_runtime package
   await pyodide!.runPythonAsync(`
 import runt_runtime
-# Initialize the complete IPython environment
+# Initialize the pseudo-IPython sandbox environment
 runt_runtime.initialize_ipython_environment()
 # Make shell, tool functions, and display callbacks available globally for user code execution
 globals()['shell'] = runt_runtime.shell
@@ -339,7 +338,7 @@ globals()['js_clear_callback'] = runt_runtime.js_clear_callback
 
   self.postMessage({
     type: "log",
-    data: "IPython environment loaded successfully from modules",
+    data: "Pseudo-IPython environment loaded successfully from modules",
   });
 
   // Install micropip packages in background without blocking
