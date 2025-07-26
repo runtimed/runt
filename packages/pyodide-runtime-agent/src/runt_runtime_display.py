@@ -31,11 +31,8 @@ class RichDisplayPublisher(DisplayPublisher):
         transient=None,
         update=False,
     ):
-        """Publish with JavaScript callback, letting IPython handle formatting"""
-        # First let IPython handle the normal publish flow
-        super().publish(data, metadata, source, transient=transient, update=update)
-
-        # Then call our JavaScript callback if available
+        """Publish with JavaScript callback using IPython's formatted data"""
+        # Call our JavaScript callback with the formatted data if available
         if self.js_callback:
             try:
                 self.js_callback(data, metadata, transient, update)
@@ -61,18 +58,27 @@ class RichDisplayHook(DisplayHook):
         self.js_callback = None
 
     def __call__(self, result):
-        """Process execution results using IPython's display system"""
+        """Process execution results using IPython's formatters"""
         if result is not None:
-            # Let IPython handle the normal display flow first
-            super().__call__(result)
+            # Use IPython's formatters to get properly formatted display data
+            if self.shell and hasattr(self.shell, "display_formatter"):
+                format_dict, metadata_dict = self.shell.display_formatter.format(result)
 
-            # Then call our JavaScript callback if available
-            if self.js_callback:
-                try:
-                    execution_count = getattr(self.shell, "execution_count", 0)
-                    self.js_callback(execution_count, result, None)
-                except Exception as e:
-                    print(f"Error in display hook callback: {e}")
+                # Call our JavaScript callback with formatted data
+                if self.js_callback:
+                    try:
+                        execution_count = getattr(self.shell, "execution_count", 0)
+                        self.js_callback(execution_count, format_dict, metadata_dict)
+                    except Exception as e:
+                        print(f"Error in display hook callback: {e}")
+            else:
+                # Fallback if no formatter available
+                if self.js_callback:
+                    try:
+                        execution_count = getattr(self.shell, "execution_count", 0)
+                        self.js_callback(execution_count, result, None)
+                    except Exception as e:
+                        print(f"Error in display hook callback: {e}")
 
 
 def _capture_matplotlib_show():
