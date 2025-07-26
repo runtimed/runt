@@ -17,7 +17,7 @@
   "tasks": {
     "dev": "deno run --allow-net --allow-env --allow-read --allow-write --allow-sys --quiet src/cli.tsx",
     "test": "deno test --allow-env --allow-net --allow-read --allow-write --allow-sys",
-    "check": "deno check mod.ts src/*.ts",
+    "check": "deno check src/*.ts src/*.tsx",
     "fmt": "deno fmt",
     "lint": "deno lint"
   },
