@@ -2,7 +2,9 @@
 
 ## Overview
 
-This document outlines the integration of a new Pydantic-based function registry system into the Pyodide runtime agent, replacing the previous tool system with enhanced schema generation, type validation, and error handling.
+This document outlines the integration of a new Pydantic-based function registry
+system into the Pyodide runtime agent, replacing the previous tool system with
+enhanced schema generation, type validation, and error handling.
 
 ## What Was Implemented
 
@@ -21,7 +23,8 @@ This document outlines the integration of a new Pydantic-based function registry
    - Added comprehensive error logging and traceback reporting
    - Maintained backward compatibility with `@tool` decorator
 
-3. **Worker Communication** (`packages/pyodide-runtime-agent/src/pyodide-worker.ts`)
+3. **Worker Communication**
+   (`packages/pyodide-runtime-agent/src/pyodide-worker.ts`)
    - Fixed argument serialization using `pyodide.globals.set()`
    - Eliminated double JSON encoding issues
    - Added proper error propagation from Python to TypeScript
@@ -31,22 +34,30 @@ This document outlines the integration of a new Pydantic-based function registry
 ### ✅ Working Features
 
 - **Basic tool registration**: `@tool` decorator works correctly
-- **Pydantic model support**: Complex nested models work (e.g., `Rectangle`, `RectangleProps`)
+- **Pydantic model support**: Complex nested models work (e.g., `Rectangle`,
+  `RectangleProps`)
 - **Type validation**: Automatic validation of function arguments
-- **Error logging**: Python errors are captured in logs (but not displayed in UI)
+- **Error logging**: Python errors are captured in logs (but not displayed in
+  UI)
 - **Async tools**: Functions can be async and are properly awaited
-- **JSON serialization**: Boolean, null, and complex object handling works correctly
+- **JSON serialization**: Boolean, null, and complex object handling works
+  correctly
 
 ### ❌ Known Issues
 
-1. **Error visibility**: Python errors from tool execution are logged but not displayed in AI cell UI
-2. **Side effects**: `display()` calls from within tools are not captured in AI cell output
-3. **Tool approval flow**: Some tools may need debugging around the approval/execution pipeline
+1. **Error visibility**: Python errors from tool execution are logged but not
+   displayed in AI cell UI
+2. **Side effects**: `display()` calls from within tools are not captured in AI
+   cell output
+3. **Tool approval flow**: Some tools may need debugging around the
+   approval/execution pipeline
 
 ### 🧪 Partially Working
 
-- **Tool execution**: Works when Python code is correct, fails gracefully when not
-- **AI integration**: Tools are discovered and called, but error feedback to AI is limited
+- **Tool execution**: Works when Python code is correct, fails gracefully when
+  not
+- **AI integration**: Tools are discovered and called, but error feedback to AI
+  is limited
 
 ## Architecture
 
@@ -68,9 +79,12 @@ AI system calls tool   →   JSON.stringify(args)      →   pyodide.globals.set
 
 ### Key Design Decisions
 
-1. **JSON string arguments**: Registry accepts JSON strings to enable future streaming partial execution
-2. **Pydantic validation**: Automatic type checking and conversion of function arguments
-3. **Error boundaries**: Clear separation between validation errors, execution errors, and system errors
+1. **JSON string arguments**: Registry accepts JSON strings to enable future
+   streaming partial execution
+2. **Pydantic validation**: Automatic type checking and conversion of function
+   arguments
+3. **Error boundaries**: Clear separation between validation errors, execution
+   errors, and system errors
 4. **Backward compatibility**: Existing `@tool` decorator interface preserved
 
 ## Testing
@@ -119,21 +133,28 @@ print("Tools JSON:", tools_json)
 
 **Current**: Errors logged to console but not shown to user.
 
-**Solution needed**: Capture Python errors and return them as part of tool result or display them inline.
+**Solution needed**: Capture Python errors and return them as part of tool
+result or display them inline.
 
 **Files to modify**:
-- `packages/pyodide-runtime-agent/src/ipython-setup.py` - `run_registered_tool()`
-- `packages/ai/tool-registry.ts` - Error handling in `handleToolCallWithResult()`
+
+- `packages/pyodide-runtime-agent/src/ipython-setup.py` -
+  `run_registered_tool()`
+- `packages/ai/tool-registry.ts` - Error handling in
+  `handleToolCallWithResult()`
 
 ### 2. Side Effect Capture (Medium Priority)
 
-**Problem**: `display()` calls, `print()` statements, and plots from tool execution aren't captured.
+**Problem**: `display()` calls, `print()` statements, and plots from tool
+execution aren't captured.
 
 **Current**: Only the return value is captured.
 
-**Solution needed**: Capture stdout, display outputs, and matplotlib plots during tool execution.
+**Solution needed**: Capture stdout, display outputs, and matplotlib plots
+during tool execution.
 
-**Approach**: 
+**Approach**:
+
 - Redirect IPython display outputs during tool execution
 - Capture stdout/stderr
 - Include captured outputs in tool result
@@ -142,7 +163,8 @@ print("Tools JSON:", tools_json)
 
 **Foundation**: JSON string architecture supports this.
 
-**Implementation**: 
+**Implementation**:
+
 - Send partial JSON strings as they're generated
 - Buffer and parse incrementally in registry
 - Enable progressive tool result rendering
@@ -190,16 +212,19 @@ deno task fmt
 ## Example Error to Debug
 
 When testing tools with the current system, you might see:
+
 ```
 Tool execution failed for paint: 'str' object has no attribute 'get'
 ```
 
-This should now be resolved, but if it persists, check the argument serialization flow in the worker.
+This should now be resolved, but if it persists, check the argument
+serialization flow in the worker.
 
 ## Contact
 
 If resuming this work, key areas to focus on:
+
 1. Error handling and visibility
-2. Tool execution output capture  
+2. Tool execution output capture
 3. Integration testing with complex Pydantic models
 4. Performance optimization for large tool schemas

@@ -17,8 +17,6 @@ import os
 import sys
 import io
 import json
-from dataclasses import dataclass
-from typing import Any
 from typing import Callable
 import time
 import builtins
@@ -33,6 +31,13 @@ from IPython.core.history import HistoryManager
 import matplotlib
 import matplotlib.pyplot as plt
 
+# Import registry classes from runt_runtime package
+from runt_runtime.registry import (
+    FunctionRegistry,
+    UnknownFunctionError,
+    FunctionArgumentError,
+    FunctionError,
+)
 
 # Configure matplotlib for headless PNG output (works in Deno workers)
 matplotlib.use("Agg")
@@ -456,10 +461,7 @@ js_clear_callback = default_clear_callback
 
 # Set up interrupt patches
 setup_interrupt_patches()
-
-
-# Import the new function registry system (loaded globally by worker)
-# Classes are available from registry.py loaded earlier
+# Create global function registry instance
 _function_registry = FunctionRegistry()
 
 
@@ -508,11 +510,11 @@ def get_registered_tools():
     return result
 
 
-async def run_registered_tool(toolName: str, arguments_json: str):
+async def run_registered_tool(toolName: str, kwargs_string: str):
     """Run a registered tool by name"""
     try:
         # Pass JSON string directly to registry
-        result = await _function_registry.call(toolName, arguments_json)
+        result = await _function_registry.call(toolName, kwargs_string)
 
         # Ensure result is JSON serializable string
         if not isinstance(result, str):

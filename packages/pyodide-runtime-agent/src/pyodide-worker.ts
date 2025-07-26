@@ -79,11 +79,11 @@ self.addEventListener("message", async (event) => {
         try {
           // Pass arguments as JSON string directly to registry
           pyodide!.globals.set(
-            "tool_args_json",
+            "kwargs_string",
             JSON.stringify(data.args || {}),
           );
           const result = await pyodide!.runPythonAsync(`
-await run_registered_tool("${data.toolName}", tool_args_json)
+await run_registered_tool("${data.toolName}", kwargs_string)
           `.trim());
           self.postMessage({ id, type: "response", data: result });
         } catch (error) {
@@ -282,20 +282,44 @@ async function setupIPythonEnvironment(): Promise<void> {
   // Install pydantic first (required by registry.py)
   await pyodide!.loadPackage("pydantic");
 
-  // Load registry.py first
+  // Create proper Python package structure by writing files
+  // (writeFile automatically creates parent directories)
+
+  // Write registry.py to package directory
   const registryCode = await fetch(
     new URL("./registry.py", import.meta.url),
   ).then((response) => response.text());
+  pyodide!.FS.writeFile("/runt_runtime/registry.py", registryCode);
 
-  await pyodide!.runPythonAsync(registryCode);
-
-  // Get the Python bootstrap code
+  // Write ipython setup to package directory
   const pythonBootstrap = await fetch(
     new URL("./ipython-setup.py", import.meta.url),
   ).then((response) => response.text());
+  pyodide!.FS.writeFile("/runt_runtime/ipython_setup.py", pythonBootstrap);
 
-  // Execute the bootstrap code
-  await pyodide!.runPythonAsync(pythonBootstrap);
+  // Create __init__.py to make it a proper package
+  pyodide!.FS.writeFile(
+    "/runt_runtime/__init__.py",
+    `"""
+Runt runtime package for Pyodide.
+
+This package contains the function registry and IPython setup for the Runt runtime.
+"""
+
+from .registry import *
+from .ipython_setup import *
+`,
+  );
+
+  // Add package to Python path and import
+  await pyodide!.runPythonAsync(`
+import sys
+if '/' not in sys.path:
+    sys.path.insert(0, '/')
+
+# Import and execute the IPython setup
+from runt_runtime.ipython_setup import *
+`);
 
   self.postMessage({
     type: "log",
