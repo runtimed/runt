@@ -6,6 +6,7 @@ Original from https://github.com/rgbkrk/chatlab/blob/main/chatlab/registry.py
 import asyncio
 import inspect
 import json
+
 from typing import (
     Any,
     Callable,
@@ -338,11 +339,18 @@ class FunctionRegistry:
 
 
 def extract_arguments(name: str, function: Callable, arguments: Optional[str]) -> dict:
+    print(
+        f"[DEBUG extract_arguments] name={name}, arguments={arguments!r}, type={type(arguments)}"
+    )
     dict_arguments = {}
     if arguments is not None and arguments != "":
         try:
             dict_arguments = json.loads(arguments)
-        except json.JSONDecodeError:
+            print(
+                f"[DEBUG extract_arguments] After JSON parsing: dict_arguments={dict_arguments!r}, type={type(dict_arguments)}"
+            )
+        except json.JSONDecodeError as e:
+            print(f"[DEBUG extract_arguments] JSON decode error: {e}")
             raise FunctionArgumentError(
                 f"Invalid Function call on {name}. Arguments must be a valid JSON object"
             )
@@ -351,6 +359,9 @@ def extract_arguments(name: str, function: Callable, arguments: Optional[str]) -
 
     for param_name, param in inspect.signature(function).parameters.items():
         param_type = param.annotation
+        print(
+            f"[DEBUG extract_arguments] Processing param {param_name}, dict_arguments type={type(dict_arguments)}"
+        )
         arg_value = dict_arguments.get(param_name)
 
         # Check if parameter type is a subclass of BaseModel and deserialize JSON into Pydantic model
@@ -360,3 +371,86 @@ def extract_arguments(name: str, function: Callable, arguments: Optional[str]) -
             prepared_arguments[param_name] = cast(Any, arg_value)
 
     return prepared_arguments
+
+
+# Create the global function registry instance
+function_registry = FunctionRegistry()
+
+
+class ToolNotFoundError(Exception):
+    """Compatibility alias for UnknownFunctionError"""
+
+    pass
+
+
+def tool(func) -> Callable:
+    """Decorator to register a function as a tool using the registry system"""
+    try:
+        function_registry.register(func)
+        return func
+    except Exception as e:
+        print(f"Error registering tool {func.__name__}: {e}")
+        raise
+
+
+def get_registered_tools():
+    """Get all registered tools as JSON string (compatible with existing API)"""
+    import json
+
+    print(
+        f"[DEBUG] Registry has {len(function_registry.function_definitions)} function definitions"
+    )
+
+    # Convert FunctionDefinition format to NotebookTool format
+    tools = []
+    for i, definition in enumerate(function_registry.function_definitions):
+        print(f"[DEBUG] Processing definition {i}: {definition}")
+
+        # Return the function definition directly (NotebookTool format)
+        tool_spec = {
+            "name": definition["name"],
+            "description": definition.get("description", ""),
+            "parameters": definition.get("parameters", {}),
+        }
+        print(f"[DEBUG] Created tool_spec {i}: {tool_spec}")
+        tools.append(tool_spec)
+
+    print(f"[DEBUG] Final tools array: {tools}")
+    result = json.dumps(tools, default=str)
+    print(f"[DEBUG] JSON result: {result}")
+    return result
+
+
+async def run_registered_tool(toolName: str, kwargs_string: str):
+    """Run a registered tool by name"""
+    try:
+        # Pass JSON string directly to registry
+        result = await function_registry.call(toolName, kwargs_string)
+
+        # Ensure result is JSON serializable string
+        if not isinstance(result, str):
+            result = json.dumps(result, default=str)
+
+        return result
+
+    except UnknownFunctionError:
+        raise ToolNotFoundError(f"Tool {toolName} not found")
+    except (FunctionArgumentError, FunctionError) as e:
+        # Log the error for debugging
+        print(f"[TOOL_ERROR] Error running tool {toolName}: {e}")
+        raise
+    except Exception as e:
+        # Capture and format any other Python exceptions from tool execution
+        import traceback
+        import sys
+
+        # Format the full traceback for debugging
+        tb_str = traceback.format_exc()
+        error_msg = f"Tool '{toolName}' execution failed with error: {str(e)}"
+
+        # Print the full traceback to stderr for logging
+        print(f"[TOOL_ERROR] {error_msg}", file=sys.stderr)
+        print(f"[TOOL_TRACEBACK] {tb_str}", file=sys.stderr)
+
+        # Raise a clear error that includes the Python error details
+        raise Exception(f"{error_msg}\n\nPython traceback:\n{tb_str}")
