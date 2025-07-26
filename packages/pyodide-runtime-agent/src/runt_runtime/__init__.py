@@ -32,7 +32,5 @@ __all__ = [
 
 __version__ = "0.1.0"
 
-# Import ipython_setup module for side effects
-# This must be imported last to ensure all dependencies are available
-# It sets up the IPython environment, display handlers, interrupt handling, etc.
-from . import ipython_setup  # noqa: F401 - imported for side effects
+# Note: ipython_setup module is NOT imported automatically to avoid side effects
+# It must be imported explicitly by the caller when IPython setup is needed
