@@ -78,6 +78,10 @@ def format_exception(exc_type, exc_value, exc_traceback):
 def setup_interrupt_patches():
     """Set up interrupt handling and signal management"""
 
+    # Store original functions before monkey patching
+    original_sleep = time.sleep
+    original_input = builtins.input
+
     def signal_handler(signum, frame):
         """Enhanced signal handler with proper interrupt support"""
         print(f"Received signal {signum}")
@@ -108,7 +112,7 @@ def setup_interrupt_patches():
             remaining = end_time - time.time()
             if remaining > 0:
                 # Sleep in small chunks to allow interrupt checking
-                time.sleep(min(0.1, remaining))
+                original_sleep(min(0.1, remaining))
 
     def interrupt_aware_input(prompt=""):
         """Input function that can be interrupted"""
