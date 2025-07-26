@@ -163,6 +163,7 @@ export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
       "runtime-python-path",
       "runtime-env-path",
       "runtime-package-manager",
+      "image-artifact-threshold",
     ],
     boolean: ["help", "runtime-env-externally-managed"],
     alias: {
@@ -202,6 +203,7 @@ Examples:
 
 Environment Variables (fallback):
   NOTEBOOK_ID, AUTH_TOKEN, LIVESTORE_SYNC_URL, RUNTIME_ID, RUNTIME_TYPE
+  IMAGE_ARTIFACT_THRESHOLD_BYTES
 
 Logging Configuration:
   RUNT_LOG_LEVEL             Set to DEBUG, INFO, WARN, or ERROR (default: INFO)
@@ -271,6 +273,19 @@ Logging Configuration:
     ...result,
     environmentOptions,
   };
+
+  // Parse image artifact threshold
+  const thresholdArg = parsed["image-artifact-threshold"] ||
+    Deno.env.get("IMAGE_ARTIFACT_THRESHOLD_BYTES");
+  if (thresholdArg) {
+    const threshold = parseInt(thresholdArg, 10);
+    if (!isNaN(threshold) && threshold >= 0) {
+      result = {
+        ...result,
+        imageArtifactThresholdBytes: threshold,
+      };
+    }
+  }
 
   return result;
 }
