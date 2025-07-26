@@ -682,18 +682,25 @@ matplotlib.use("Agg")
 # Suppress matplotlib font warnings in console
 logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
 
-# Default callback functions (will be replaced by worker)
+# These will be set by the worker's JavaScript callbacks
+js_display_callback = None
+js_execution_callback = None
+js_clear_callback = None
+
 def default_display_callback(data, metadata, transient, update=False):
-    """Default display callback - prints to console"""
-    print(f"Display: {data}")
+    """Route display data to JavaScript callback"""
+    if js_display_callback:
+        js_display_callback(data, metadata, transient, update)
 
 def default_execution_callback(execution_count, data, metadata):
-    """Default execution callback - prints to console"""
-    print(f"[{execution_count}]: {data}")
+    """Route execution results to JavaScript callback"""
+    if js_execution_callback:
+        js_execution_callback(execution_count, data, metadata)
 
 def default_clear_callback(wait=False):
-    """Default clear callback - does nothing"""
-    pass
+    """Route clear requests to JavaScript callback"""
+    if js_clear_callback:
+        js_clear_callback(wait)
 
 # Simple interrupt handling
 import signal
@@ -746,8 +753,8 @@ def _capture_matplotlib_show():
                     "text/plain": f"<matplotlib figure {id(fig)}>",
                 }
 
-                # Send through display system
-                default_display_callback(display_data, {}, {}, False)
+                # Send through IPython display system
+                shell.display_pub.publish(display_data, {})
 
                 # Clear the figure to prevent duplicate displays
                 plt.clf()
@@ -765,6 +772,32 @@ _capture_matplotlib_show()
 shell = get_ipython()
 if not shell:
     shell = TerminalInteractiveShell.instance()
+
+# Connect JavaScript callbacks to IPython display system
+if 'js_display_callback' in globals():
+    # Set up custom display publisher that routes to JavaScript
+    class JSDisplayPublisher:
+        def publish(self, data, metadata=None, source=None, transient=None, update=False, **kwargs):
+            js_display_callback(data, metadata or {}, transient or {}, update)
+        def clear_output(self, wait=False):
+            if 'js_clear_callback' in globals():
+                js_clear_callback(wait)
+
+    shell.display_pub = JSDisplayPublisher()
+
+    # Set up custom display hook for execution results
+    class JSDisplayHook:
+        def __init__(self, shell):
+            self.shell = shell
+            self.execution_count = 0
+        def __call__(self, result=None):
+            if result is not None:
+                self.execution_count += 1
+                formatted = self.shell.display_formatter.format(result)
+                if formatted[0] and 'js_execution_callback' in globals():
+                    js_execution_callback(self.execution_count, formatted[0], formatted[1])
+
+    shell.displayhook = JSDisplayHook(shell)
 
 # Create global function registry instance
 _function_registry = FunctionRegistry()
