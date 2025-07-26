@@ -136,7 +136,11 @@ class MockStreamingResponse {
   }
 }
 
-Deno.test("OpenAI Client - Streaming Markdown", async (t) => {
+Deno.test({
+  name: "OpenAI Client - Streaming Markdown",
+  sanitizeOps: false, // AI clients spawn child processes
+  sanitizeResources: false, // Allow child process resources
+}, async (t) => {
   await t.step("should stream markdown content token by token", async () => {
     const client = new RuntOpenAIClient();
     const { context, outputs, getMarkdownContent } =
