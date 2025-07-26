@@ -185,26 +185,40 @@ async function initializePyodide(
       // Preload Python modules as proper files in the filesystem
       self.postMessage({
         type: "log",
-        data: "Preloading Python modules into filesystem",
+        data: "Preloading runt_runtime package into filesystem",
       });
 
-      // Load registry.py and write to site-packages
-      const registryCode = await fetch(
-        new URL("./registry.py", import.meta.url),
-      ).then((response) => response.text());
+      // Create runt_runtime package directory
+      const runtRuntimeDir = `${info.sitePackages}/runt_runtime`;
+      FS.mkdir(runtRuntimeDir);
 
-      // Load ipython-setup.py and write to site-packages
-      const ipythonSetupCode = await fetch(
-        new URL("./ipython-setup.py", import.meta.url),
-      ).then((response) => response.text());
+      // Load all module files
+      const moduleFiles = [
+        "__init__.py",
+        "registry.py",
+        "display.py",
+        "bootstrap.py",
+        "shell.py",
+      ];
 
-      // Write files to site-packages so they can be imported
-      FS.writeFile(`${info.sitePackages}/registry.py`, registryCode);
-      FS.writeFile(`${info.sitePackages}/ipython_setup.py`, ipythonSetupCode);
+      for (const moduleFile of moduleFiles) {
+        try {
+          const moduleCode = await fetch(
+            new URL(`./runt_runtime/${moduleFile}`, import.meta.url),
+          ).then((response) => response.text());
+
+          FS.writeFile(`${runtRuntimeDir}/${moduleFile}`, moduleCode);
+        } catch (error) {
+          self.postMessage({
+            type: "log",
+            data: `Warning: Could not load ${moduleFile}: ${error}`,
+          });
+        }
+      }
 
       self.postMessage({
         type: "log",
-        data: "Python modules preloaded successfully",
+        data: "runt_runtime package preloaded successfully",
       });
     },
   });
@@ -308,20 +322,19 @@ async function setupIPythonEnvironment(): Promise<void> {
   // Install pydantic first (required by registry.py)
   await pyodide!.loadPackage("pydantic");
 
-  // Import and execute the IPython setup module
-  // The registry module will be imported properly from within ipython_setup
+  // Import and initialize the runt_runtime package
   await pyodide!.runPythonAsync(`
-import ipython_setup
+import runt_runtime
 # Initialize the complete IPython environment
-ipython_setup.initialize_ipython_environment()
+runt_runtime.initialize_ipython_environment()
 # Make shell, tool functions, and display callbacks available globally for user code execution
-globals()['shell'] = ipython_setup.shell
-globals()['get_registered_tools'] = ipython_setup.get_registered_tools
-globals()['run_registered_tool'] = ipython_setup.run_registered_tool
-globals()['tool'] = ipython_setup.tool
-globals()['js_display_callback'] = ipython_setup.js_display_callback
-globals()['js_execution_callback'] = ipython_setup.js_execution_callback
-globals()['js_clear_callback'] = ipython_setup.js_clear_callback
+globals()['shell'] = runt_runtime.shell
+globals()['get_registered_tools'] = runt_runtime.get_registered_tools
+globals()['run_registered_tool'] = runt_runtime.run_registered_tool
+globals()['tool'] = runt_runtime.tool
+globals()['js_display_callback'] = runt_runtime.js_display_callback
+globals()['js_execution_callback'] = runt_runtime.js_execution_callback
+globals()['js_clear_callback'] = runt_runtime.js_clear_callback
 `);
 
   self.postMessage({
@@ -338,7 +351,7 @@ globals()['js_clear_callback'] = ipython_setup.js_clear_callback
     // Use setTimeout to isolate from execution pipeline
     setTimeout(() => {
       pyodide!.runPythonAsync(
-        `await ipython_setup.bootstrap_micropip_packages()`,
+        `await runt_runtime.bootstrap_micropip_packages()`,
       ).then(
         () => {
           self.postMessage({
