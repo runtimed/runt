@@ -44,6 +44,8 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
 
   const runtimeSessions = useQuery(queryDb(tables.runtimeSessions.select()));
 
+  const outputDeltas = useQuery(queryDb(tables.outputDeltas.select()));
+
   const title = titleMetadata.length > 0
     ? titleMetadata[0]?.value || "Untitled Notebook"
     : "Untitled Notebook";
@@ -495,7 +497,30 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     }
   }, [cells.length, selectedCellIndex]);
 
-  const outputsByCell = outputs.reduce((acc, output) => {
+  // Reconstruct streaming outputs by combining base outputs with deltas
+  const outputsWithDeltas = outputs.map((output) => {
+    if (output.outputType === "markdown") {
+      // Get deltas for this output, sorted by sequence number
+      const deltas = outputDeltas
+        .filter((delta) => delta.outputId === output.id)
+        .sort((a, b) => a.sequenceNumber - b.sequenceNumber);
+
+      if (deltas.length > 0) {
+        // Reconstruct full content by concatenating base + deltas
+        const fullContent =
+          (typeof output.data === "string" ? output.data : "") +
+          deltas.map((delta) => delta.delta).join("");
+
+        return {
+          ...output,
+          data: fullContent,
+        };
+      }
+    }
+    return output;
+  });
+
+  const outputsByCell = outputsWithDeltas.reduce((acc, output) => {
     if (!acc[output.cellId]) {
       acc[output.cellId] = [];
     }
