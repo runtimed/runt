@@ -5,7 +5,8 @@ left gutter numbering, and real-time collaboration support.
 
 ## Design Goals
 
-The TUI aims to provide a fluid, paper-like notebook experience that mimics reading and navigating a physical notebook.
+The TUI aims to provide a fluid, paper-like notebook experience that mimics
+reading and navigating a physical notebook.
 
 ## Features
 

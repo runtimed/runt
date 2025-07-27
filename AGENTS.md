@@ -29,7 +29,8 @@ AI behavior with iterative tool calls.
   Pyodide with IPython integration for rich display support
 - **Python Package** (`@runt/python-runtime-agent`): Stub for a native Python
   runtime agent. **Note: This package is not yet implemented.**
-- **TUI Package** (`@runt/tui`): A terminal-based UI for viewing notebooks with cell-based scrolling and output display.
+- **TUI Package** (`@runt/tui`): A terminal-based UI for viewing notebooks with
+  cell-based scrolling and output display.
 - **LiveStore**: Event-sourcing framework for local-first apps with real-time
   sync
 - **Deno**: TypeScript runtime with built-in testing and formatting
@@ -62,17 +63,23 @@ AI behavior with iterative tool calls.
 - **Real-time Collaboration**: LiveStore-based event sourcing for multi-user
   support
 - **Rich Media Support**: Handle plots, tables, HTML, and custom display formats
-- **Terminal Interface**: TUI with cell-based navigation, left gutter numbering, and predictable scrolling
+- **Terminal Interface**: TUI with cell-based navigation, left gutter numbering,
+  and predictable scrolling
 
 ## Design Goals
 
-The TUI aims to provide a fluid, paper-like notebook experience that mimics reading and navigating a physical notebook. Current implementation includes:
+The TUI aims to provide a fluid, paper-like notebook experience that mimics
+reading and navigating a physical notebook. Current implementation includes:
 
-- **Cell-based navigation**: j/k keys move between cells rather than line-by-line scrolling
-- **Left gutter numbering**: Consistent 2-character margin with cell numbers (1., 2., 3., etc.)
+- **Cell-based navigation**: j/k keys move between cells rather than
+  line-by-line scrolling
+- **Left gutter numbering**: Consistent 2-character margin with cell numbers
+  (1., 2., 3., etc.)
 - **Reduced spacing**: `marginBottom={1}` between cells, single-line footer
-- **Predictable viewport positioning**: Selected cells remain consistently positioned during navigation
-- **Conservative height estimates**: Simple line counting for reliable scrolling behavior
+- **Predictable viewport positioning**: Selected cells remain consistently
+  positioned during navigation
+- **Conservative height estimates**: Simple line counting for reliable scrolling
+  behavior
 
 ## What Needs Work (Non-blocking)
 
