@@ -28,21 +28,20 @@ const estimateCellHeight = (
 ): number => {
   let height = 0;
 
-  // Base height for cell container and metadata
+  // Base height for cell container and metadata with left gutter layout
   if (compact) {
-    // Box flexDirection="column" marginBottom={2}
-    // Box flexDirection="row" alignItems="center" marginBottom={1}
+    // Box marginBottom={1} (reduced from 2)
+    // Badge line + reduced margin
     height += 1 + 1; // Badge line + margin
   } else {
-    // Outer Box: marginBottom={2}, paddingY={1}, border (2 lines)
-    height += 2 + 2 + 2; // margin + padding + border
+    // Box marginBottom={1} (reduced from 2), optional borders only when selected
     // Header Box: 1 line for badge/execution state/last executed
-    height += 1;
+    height += 1 + 1; // header + margin (no constant border/padding)
   }
 
   // Source code height
   if (cell.source) {
-    // Box marginTop={1} for source
+    // Box marginTop={1} for source (unchanged)
     height += 1; // marginTop
     if (cell.cellType === "code" || cell.cellType === "sql") {
       height += cell.source.split("\n").length;
@@ -58,12 +57,12 @@ const estimateCellHeight = (
 
   // Outputs height
   if (outputs.length > 0) {
-    // Box marginTop={2} flexDirection="column"
-    // Box marginBottom={1} for "Out:" text
-    height += 2 + 1 + 1; // marginTop + "Out:" line + marginBottom
+    // Box marginTop={1} (reduced from 2) flexDirection="column"
+    // Box marginBottom={0} (reduced from 1) for "Out:" text
+    height += 1 + 1 + 0; // marginTop + "Out:" line + marginBottom
     for (const output of outputs) {
-      // Box marginBottom={1} for each output
-      height += 1;
+      // Box marginBottom={0} (reduced from 1) for each output
+      height += 0;
       switch (output.outputType) {
         case "terminal":
         case "error":
@@ -626,8 +625,8 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     );
   }, [cells, outputsByCell, compact, terminalWidth]);
 
-  const headerHeight = compact ? 3 : 3;
-  const footerHeight = compact ? 2 : 10; // Fixed height for footer with logs
+  const headerHeight = compact ? 2 : 3;
+  const footerHeight = compact ? 2 : 4; // Reduced height for more compact footer
   const safetyMargin = 1;
   const availableHeight = Math.max(
     5,
@@ -709,6 +708,7 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
                 compact={compact}
                 isSelected={index === selectedCellIndex}
                 mode={mode}
+                cellIndex={index}
               />
             )
         ))}

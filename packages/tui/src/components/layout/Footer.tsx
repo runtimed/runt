@@ -71,7 +71,7 @@ export const Footer: React.FC<FooterProps> = ({
       marginTop={1}
       flexDirection="column"
       width={terminalWidth}
-      height={showLogs ? 10 : 3}
+      height={showLogs ? 4 : 2}
     >
       <Box>
         <Text color={Colors.UI.metadata}>
@@ -80,10 +80,10 @@ export const Footer: React.FC<FooterProps> = ({
       </Box>
 
       {showLogs && (
-        <Box flexDirection="column" marginTop={1} height={8}>
+        <Box flexDirection="column" marginTop={1} height={2}>
           {recentLogs.length > 0
             ? (
-              recentLogs.slice(0, 6).map((log) => (
+              recentLogs.slice(0, 2).map((log) => (
                 <Box key={log.id} flexDirection="row">
                   <Text color={Colors.UI.metadata}>
                     {formatTimestamp(log.timestamp)}
@@ -105,20 +105,11 @@ export const Footer: React.FC<FooterProps> = ({
       )}
 
       {!showLogs && (
-        <Box marginTop={1} height={8} flexDirection="column">
+        <Box marginTop={0} height={1} flexDirection="column">
           <Text color={Colors.UI.metadata} dimColor>
-            Press L to show debug logs
+            j/k Navigate • Enter Edit • r Run&Next • R RUN • a/b New • dd Del •
+            SHIFT: A AI↑ • C Type • T Model • L Logs
           </Text>
-          <Box marginTop={1}>
-            <Text color={Colors.UI.metadata} dimColor>
-              COMMAND: j/k Navigate • Enter Edit • r Run&Next • R Run Only • a/b
-              New Above/Below • dd Delete
-            </Text>
-            <Text color={Colors.UI.metadata} dimColor>
-              SHIFT: A AI↑ • M Markdown↑ • B/N Code↓ • S SQL↓ • C Cycle Type • T
-              Cycle AI Model • L Logs
-            </Text>
-          </Box>
         </Box>
       )}
     </Box>

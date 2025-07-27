@@ -22,7 +22,14 @@ export const ScrollableWithSelection: React.FC<ScrollableWithSelectionProps> = (
   const childArray = React.Children.toArray(children);
   const totalChildren = childArray.length;
 
-  const { visibleChildren, startIndex, endIndex, totalVisibleHeight, hiddenAboveLines, hiddenBelowLines } = useMemo(() => {
+  const {
+    visibleChildren,
+    startIndex,
+    endIndex,
+    totalVisibleHeight,
+    hiddenAboveCells,
+    hiddenBelowCells,
+  } = useMemo(() => {
     let currentHeight = 0;
     let startIdx = 0;
     let endIdx = 0;
@@ -91,11 +98,14 @@ export const ScrollableWithSelection: React.FC<ScrollableWithSelectionProps> = (
     }
 
     // Calculate total visible height
-    const _totalVisibleHeight = itemHeights.slice(startIdx, endIdx + 1).reduce((sum, h) => sum + h, 0);
+    const _totalVisibleHeight = itemHeights.slice(startIdx, endIdx + 1).reduce(
+      (sum, h) => sum + h,
+      0,
+    );
 
-    // Calculate hidden lines
-    const _hiddenAboveLines = itemHeights.slice(0, startIdx).reduce((sum, h) => sum + h, 0);
-    const _hiddenBelowLines = itemHeights.slice(endIdx + 1).reduce((sum, h) => sum + h, 0);
+    // Calculate hidden cells
+    const _hiddenAboveCells = startIdx;
+    const _hiddenBelowCells = totalChildren - 1 - endIdx;
 
     const visible = childArray.slice(startIdx, endIdx + 1);
 
@@ -104,8 +114,8 @@ export const ScrollableWithSelection: React.FC<ScrollableWithSelectionProps> = (
       startIndex: startIdx,
       endIndex: endIdx,
       totalVisibleHeight: _totalVisibleHeight,
-      hiddenAboveLines: _hiddenAboveLines,
-      hiddenBelowLines: _hiddenBelowLines,
+      hiddenAboveCells: _hiddenAboveCells,
+      hiddenBelowCells: _hiddenBelowCells,
     };
   }, [
     childArray,
@@ -115,7 +125,8 @@ export const ScrollableWithSelection: React.FC<ScrollableWithSelectionProps> = (
     itemHeights,
   ]);
 
-  const hasIndicators = showOverflowIndicator && (hiddenAboveLines > 0 || hiddenBelowLines > 0);
+  const hasIndicators = showOverflowIndicator &&
+    (hiddenAboveCells > 0 || hiddenBelowCells > 0);
   const contentBoxHeight = maxHeight - (hasIndicators ? 2 : 0); // 2 lines for indicators if present
 
   return (
@@ -123,10 +134,11 @@ export const ScrollableWithSelection: React.FC<ScrollableWithSelectionProps> = (
       flexDirection="column"
       height={maxHeight} // The outer box should take up the full available height
     >
-      {showOverflowIndicator && hiddenAboveLines > 0 && (
+      {showOverflowIndicator && hiddenAboveCells > 0 && (
         <Box justifyContent="center" height={1}>
           <Text color={Colors.UI.metadata}>
-            ↑ {hiddenAboveLines} lines hidden above
+            ↑ {hiddenAboveCells} cell{hiddenAboveCells === 1 ? "" : "s"}{" "}
+            hidden above
           </Text>
         </Box>
       )}
@@ -136,10 +148,11 @@ export const ScrollableWithSelection: React.FC<ScrollableWithSelectionProps> = (
         {visibleChildren}
       </Box>
 
-      {showOverflowIndicator && hiddenBelowLines > 0 && (
+      {showOverflowIndicator && hiddenBelowCells > 0 && (
         <Box justifyContent="center" height={1}>
           <Text color={Colors.UI.metadata}>
-            ↓ {hiddenBelowLines} lines hidden below
+            ↓ {hiddenBelowCells} cell{hiddenBelowCells === 1 ? "" : "s"}{" "}
+            hidden below
           </Text>
         </Box>
       )}
