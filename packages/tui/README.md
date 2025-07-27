@@ -1,17 +1,24 @@
 # @runt/tui
 
-Terminal notebook viewer for Runt runtime agents with real-time collaboration
-support.
+Terminal notebook viewer for Runt runtime agents with cell-based navigation,
+left gutter numbering, and real-time collaboration support.
+
+## Design Goals
+
+The TUI aims to provide a fluid, paper-like notebook experience that mimics reading and navigating a physical notebook.
 
 ## Features
 
-- Interactive terminal notebook interface
+- Terminal notebook interface
+- Cell-based navigation with up/down scrolling (j/k keys)
+- Left gutter with cell numbering (1., 2., 3., etc.)
+- Reduced spacing (`marginBottom={1}`) and single-line footer
 - Edit and execute code cells directly in the terminal
 - Real-time collaboration and sync via LiveStore
-- Rich output display (code, markdown, multimedia, errors)
+- Rich output display (code, markdown, multimedia, errors, tables)
 - Syntax highlighting for code cells
 - Clickable URLs and navigation controls
-- Debug logging integration
+- Overflow indicators showing hidden cells above/below
 
 ## Usage
 
