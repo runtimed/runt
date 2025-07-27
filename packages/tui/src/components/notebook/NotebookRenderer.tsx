@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useQuery, useStore } from "@livestore/react";
 import { queryDb } from "@livestore/livestore";
-import { events, type OutputData, tables } from "@runt/schema";
+import { type CellType, events, type OutputData, tables } from "@runt/schema";
 import { Colors } from "../../utils/colors.ts";
 import { Header } from "../layout/Header.tsx";
 import { Footer } from "../layout/Footer.tsx";
@@ -42,9 +42,21 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
 
   const outputs = useQuery(queryDb(tables.outputs.select()));
 
+  const runtimeSessions = useQuery(queryDb(tables.runtimeSessions.select()));
+
+  const outputDeltas = useQuery(queryDb(tables.outputDeltas.select()));
+
   const title = titleMetadata.length > 0
     ? titleMetadata[0]?.value || "Untitled Notebook"
     : "Untitled Notebook";
+
+  // Cell type cycling order: code → markdown → ai → sql → code
+  const cellTypeOrder: CellType[] = ["code", "markdown", "ai", "sql"];
+
+  // Get available AI models from active runtime sessions
+  const availableAiModels = runtimeSessions
+    .filter((r) => r.status === "ready" && r.availableAiModels)
+    .flatMap((r) => r.availableAiModels || []);
 
   // Helper functions for cell operations
   const createNewCell = () => {
@@ -67,6 +79,103 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
 
     // Select the new cell
     setSelectedCellIndex(cells.length);
+  };
+
+  const createCellWithType = (
+    cellType: CellType,
+    position: "above" | "below",
+  ) => {
+    if (!store || cells.length === 0) return;
+
+    const selectedCell = cells[selectedCellIndex];
+    const newCellId = `cell-${Date.now()}`;
+
+    let newPosition: number;
+    let newSelectionIndex = selectedCellIndex;
+
+    if (position === "above") {
+      newPosition = selectedCellIndex > 0
+        ? (cells[selectedCellIndex - 1].position + selectedCell.position) / 2
+        : selectedCell.position - 1;
+      // Don't change selection - new cell is above
+    } else {
+      // position === "below"
+      newPosition = selectedCellIndex < cells.length - 1
+        ? (selectedCell.position + cells[selectedCellIndex + 1].position) / 2
+        : selectedCell.position + 1;
+      newSelectionIndex = selectedCellIndex + 1;
+    }
+
+    store.commit(
+      events.cellCreated({
+        id: newCellId,
+        cellType,
+        position: newPosition,
+        createdBy: "tui-client",
+        actorId: "tui-client",
+      }),
+    );
+
+    if (position === "below") {
+      setSelectedCellIndex(newSelectionIndex);
+    }
+  };
+
+  const cycleCellType = () => {
+    if (!store || cells.length === 0) return;
+
+    const selectedCell = cells[selectedCellIndex];
+    if (!selectedCell) return;
+
+    const currentTypeIndex = cellTypeOrder.indexOf(
+      selectedCell.cellType as CellType,
+    );
+    const nextTypeIndex = (currentTypeIndex + 1) % cellTypeOrder.length;
+    const nextCellType = cellTypeOrder[nextTypeIndex];
+
+    store.commit(
+      events.cellTypeChanged({
+        id: selectedCell.id,
+        cellType: nextCellType,
+        actorId: "tui-client",
+      }),
+    );
+  };
+
+  const cycleAiModel = () => {
+    if (!store || cells.length === 0) return;
+
+    const selectedCell = cells[selectedCellIndex];
+    if (!selectedCell || selectedCell.cellType !== "ai") return;
+
+    if (availableAiModels.length === 0) {
+      // No models available - maybe show a message?
+      return;
+    }
+
+    const currentModel = selectedCell.aiModel;
+    const currentProvider = selectedCell.aiProvider;
+
+    // Find current model index
+    let currentIndex = -1;
+    if (currentModel && currentProvider) {
+      currentIndex = availableAiModels.findIndex(
+        (m) => m.name === currentModel && m.provider === currentProvider,
+      );
+    }
+
+    // Get next model (or first if current not found)
+    const nextIndex = (currentIndex + 1) % availableAiModels.length;
+    const nextModel = availableAiModels[nextIndex];
+
+    store.commit(
+      events.aiSettingsChanged({
+        cellId: selectedCell.id,
+        provider: nextModel.provider,
+        model: nextModel.name,
+        settings: selectedCell.aiSettings || {},
+      }),
+    );
   };
 
   const deleteSelectedCell = () => {
@@ -303,9 +412,47 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
       return;
     }
 
-    // Cell management
+    // Cell type cycling: Shift-C
+    if (input === "C" && key.shift) {
+      cycleCellType();
+      return;
+    }
+
+    // AI model cycling: Shift-T (for model Type)
+    if (input === "T" && key.shift) {
+      cycleAiModel();
+      return;
+    }
+
+    // Cell creation with type intent (Shift key combinations)
+    if (key.shift) {
+      switch (input.toUpperCase()) {
+        case "A":
+          // Shift-A: Create AI cell above
+          createCellWithType("ai", "above");
+          return;
+        case "M":
+          // Shift-M: Create markdown cell above
+          createCellWithType("markdown", "above");
+          return;
+        case "B":
+          // Shift-B: Create code cell below (explicit)
+          createCellWithType("code", "below");
+          return;
+        case "S":
+          // Shift-S: Create SQL cell below
+          createCellWithType("sql", "below");
+          return;
+        case "N":
+          // Shift-N: Create code cell below (shortcut)
+          createCellWithType("code", "below");
+          return;
+      }
+    }
+
+    // Cell management (existing behavior preserved)
     if (input.toLowerCase() === "a") {
-      // Insert cell above
+      // Insert cell above (code type - existing behavior)
       if (!store || cells.length === 0) return;
       const selectedCell = cells[selectedCellIndex];
       const newCellId = `cell-${Date.now()}`;
@@ -350,7 +497,30 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     }
   }, [cells.length, selectedCellIndex]);
 
-  const outputsByCell = outputs.reduce((acc, output) => {
+  // Reconstruct streaming outputs by combining base outputs with deltas
+  const outputsWithDeltas = outputs.map((output) => {
+    if (output.outputType === "markdown") {
+      // Get deltas for this output, sorted by sequence number
+      const deltas = outputDeltas
+        .filter((delta) => delta.outputId === output.id)
+        .sort((a, b) => a.sequenceNumber - b.sequenceNumber);
+
+      if (deltas.length > 0) {
+        // Reconstruct full content by concatenating base + deltas
+        const fullContent =
+          (typeof output.data === "string" ? output.data : "") +
+          deltas.map((delta) => delta.delta).join("");
+
+        return {
+          ...output,
+          data: fullContent,
+        };
+      }
+    }
+    return output;
+  });
+
+  const outputsByCell = outputsWithDeltas.reduce((acc, output) => {
     if (!acc[output.cellId]) {
       acc[output.cellId] = [];
     }
