@@ -14,6 +14,7 @@ interface CellProps {
   compact?: boolean;
   isSelected?: boolean;
   mode?: "command" | "edit";
+  cellIndex?: number;
 }
 
 export const Cell: React.FC<CellProps> = ({
@@ -23,6 +24,7 @@ export const Cell: React.FC<CellProps> = ({
   compact = false,
   isSelected = false,
   mode = "command",
+  cellIndex,
 }) => {
   const getCellTypeColor = (cellType: string) => {
     return (
@@ -132,14 +134,14 @@ export const Cell: React.FC<CellProps> = ({
     if (outputs.length === 0) return null;
 
     return (
-      <Box marginTop={2} flexDirection="column">
-        <Box marginBottom={1}>
+      <Box marginTop={1} flexDirection="column">
+        <Box marginBottom={0}>
           <Text color={Colors.AccentCyan} bold>
             Out:
           </Text>
         </Box>
         {outputs.map((output) => (
-          <Box key={output.id} marginBottom={1}>
+          <Box key={output.id} marginBottom={0}>
             <OutputRenderer
               output={output}
               showMetadata={showMetadata}
@@ -153,71 +155,86 @@ export const Cell: React.FC<CellProps> = ({
 
   if (compact) {
     return (
-      <Box flexDirection="column" marginBottom={2}>
-        <Box flexDirection="row" alignItems="center" marginBottom={1}>
-          {/* @ts-expect-error - TUI Badge component in Ink */}
-          <Badge color={getCellTypeColor(cell.cellType)}>
-            {getCellTypeIcon(cell.cellType)} {getCellTypeLabel(cell)}
-          </Badge>
-          {cell.executionState && (
-            <Box marginLeft={2}>
-              <Text color={getExecutionStateColor(cell.executionState)}>
-                {getExecutionStateIcon(cell.executionState)}
-              </Text>
-            </Box>
-          )}
+      <Box flexDirection="row" marginBottom={1}>
+        {/* Left gutter for cell numbers */}
+        <Box width={2} flexShrink={0}>
+          <Text color={Colors.UI.metadata} dimColor>
+            {cellIndex !== undefined ? `${cellIndex + 1}.` : ""}
+          </Text>
         </Box>
-        {renderCellSource()}
-        {renderOutputs()}
+        <Box flexDirection="column" flexGrow={1}>
+          <Box flexDirection="row" alignItems="center" marginBottom={1}>
+            {/* @ts-expect-error - TUI Badge component in Ink */}
+            <Badge color={getCellTypeColor(cell.cellType)}>
+              {getCellTypeIcon(cell.cellType)} {getCellTypeLabel(cell)}
+            </Badge>
+            {cell.executionState && (
+              <Box marginLeft={2}>
+                <Text color={getExecutionStateColor(cell.executionState)}>
+                  {getExecutionStateIcon(cell.executionState)}
+                </Text>
+              </Box>
+            )}
+          </Box>
+          {renderCellSource()}
+          {renderOutputs()}
+        </Box>
       </Box>
     );
   }
 
   return (
-    <Box
-      flexDirection="column"
-      marginBottom={2}
-      borderStyle="round"
-      borderColor={isSelected
-        ? (mode === "edit" ? Colors.UI.warning : Colors.UI.success)
-        : Colors.UI.border}
-      borderLeft={false}
-      borderRight={false}
-      paddingX={0}
-      paddingY={1}
-      width="100%"
-    >
+    <Box flexDirection="row" marginBottom={1}>
+      {/* Left gutter for cell numbers */}
+      <Box width={2} flexShrink={0}>
+        <Text color={Colors.UI.metadata} dimColor>
+          {cellIndex !== undefined ? `${cellIndex + 1}.` : ""}
+        </Text>
+      </Box>
       <Box
-        flexDirection="row"
-        justifyContent="space-between"
-        alignItems="center"
+        flexDirection="column"
+        flexGrow={1}
+        borderStyle={isSelected ? "single" : undefined}
+        borderColor={isSelected
+          ? (mode === "edit" ? Colors.UI.warning : Colors.UI.success)
+          : undefined}
+        borderLeft={false}
+        borderRight={false}
+        paddingX={1}
+        paddingY={isSelected ? 1 : 0}
       >
-        <Box flexDirection="row" alignItems="center">
-          {/* @ts-expect-error - TUI Badge component in Ink */}
-          <Badge color={getCellTypeColor(cell.cellType)}>
-            {getCellTypeIcon(cell.cellType)} {getCellTypeLabel(cell)}
-          </Badge>
-          {cell.executionState && (
-            <Box marginLeft={2}>
-              <Text color={getExecutionStateColor(cell.executionState)}>
-                {getExecutionStateIcon(cell.executionState)}{" "}
-                {cell.executionState}
+        <Box
+          flexDirection="row"
+          justifyContent="space-between"
+          alignItems="center"
+        >
+          <Box flexDirection="row" alignItems="center">
+            {/* @ts-expect-error - TUI Badge component in Ink */}
+            <Badge color={getCellTypeColor(cell.cellType)}>
+              {getCellTypeIcon(cell.cellType)} {getCellTypeLabel(cell)}
+            </Badge>
+            {cell.executionState && (
+              <Box marginLeft={2}>
+                <Text color={getExecutionStateColor(cell.executionState)}>
+                  {getExecutionStateIcon(cell.executionState)}{" "}
+                  {cell.executionState}
+                </Text>
+              </Box>
+            )}
+          </Box>
+
+          {showMetadata && cell.lastExecuted && (
+            <Box>
+              <Text color={Colors.UI.metadata}>
+                Last run: {new Date(cell.lastExecuted).toLocaleTimeString()}
               </Text>
             </Box>
           )}
         </Box>
 
-        {showMetadata && cell.lastExecuted && (
-          <Box>
-            <Text color={Colors.UI.metadata}>
-              Last run: {new Date(cell.lastExecuted).toLocaleTimeString()}
-            </Text>
-          </Box>
-        )}
+        {renderCellSource()}
+        {renderOutputs()}
       </Box>
-
-      {renderCellSource()}
-      {renderOutputs()}
     </Box>
   );
 };

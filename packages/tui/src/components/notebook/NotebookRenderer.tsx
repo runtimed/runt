@@ -2,14 +2,67 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useQuery, useStore } from "@livestore/react";
 import { queryDb } from "@livestore/livestore";
-import { type CellType, events, type OutputData, tables } from "@runt/schema";
+import {
+  type CellData,
+  type CellType,
+  events,
+  type OutputData,
+  tables,
+} from "@runt/schema";
 import { Colors } from "../../utils/colors.ts";
 import { Header } from "../layout/Header.tsx";
 import { Footer } from "../layout/Footer.tsx";
 import { ScrollableWithSelection } from "../layout/ScrollableWithSelection.tsx";
 import { Cell } from "./Cell.tsx";
-import { toggleLogs, useSimpleLogging } from "../../utils/simpleLogging.ts";
+
 import { CellEditor } from "./CellEditor.tsx";
+import { estimateTextHeight } from "../../utils/textUtils.ts";
+import { shouldRenderAsJson } from "../../utils/representationSelector.ts";
+
+// Helper to estimate the height of a cell in lines (simplified and conservative)
+const estimateCellHeight = (
+  cell: CellData,
+  outputs: OutputData[],
+  compact: boolean,
+  terminalWidth: number,
+): number => {
+  let height = 0;
+
+  // Base height: badge line + margin (conservative)
+  height += 2;
+
+  // Source code height (simple line count)
+  if (cell.source) {
+    height += 1; // marginTop
+    height += cell.source.split("\n").length;
+  }
+
+  // Outputs height (conservative estimates)
+  if (outputs.length > 0) {
+    height += 2; // "Out:" line + margin
+    for (const output of outputs) {
+      const outputText = String(output.data || "");
+      switch (output.outputType) {
+        case "terminal":
+        case "error":
+        case "markdown":
+          // Simple line count, no complex wrapping calculation
+          height += Math.max(1, outputText.split("\n").length);
+          break;
+        case "multimedia_display":
+        case "multimedia_result":
+          // Conservative placeholder for tables/images
+          height += 3;
+          break;
+        default:
+          height += 1;
+          break;
+      }
+    }
+  }
+
+  return height;
+};
 
 interface NotebookRendererProps {
   notebookId: string;
@@ -378,12 +431,6 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
 
     // COMMAND MODE - Modal interface like Jupyter
 
-    // Global shortcuts (work in both modes)
-    if (input.toLowerCase() === "l" && !key.ctrl && !key.meta) {
-      toggleLogs();
-      return;
-    }
-
     // Navigation
     if (key.upArrow || input.toLowerCase() === "k") {
       setSelectedCellIndex((prev) => Math.max(0, prev - 1));
@@ -536,8 +583,19 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     };
   }, []); // Only calculate once on mount
 
-  const headerHeight = compact ? 3 : 3;
-  const footerHeight = compact ? 2 : 10; // Fixed height for footer with logs
+  const cellHeights = React.useMemo(() => {
+    return cells.map((cell) =>
+      estimateCellHeight(
+        cell,
+        outputsByCell[cell.id] || [],
+        compact,
+        terminalWidth,
+      )
+    );
+  }, [cells, outputsByCell, compact, terminalWidth]);
+
+  const headerHeight = compact ? 2 : 3;
+  const footerHeight = compact ? 1 : 1; // Single line footer
   const safetyMargin = 1;
   const availableHeight = Math.max(
     5,
@@ -595,6 +653,7 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
         maxHeight={availableHeight}
         selectedIndex={selectedCellIndex}
         showOverflowIndicator={!compact}
+        itemHeights={cellHeights}
       >
         {cells.map((cell, index) => (
           editingCellId === cell.id
@@ -618,6 +677,7 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
                 compact={compact}
                 isSelected={index === selectedCellIndex}
                 mode={mode}
+                cellIndex={index}
               />
             )
         ))}
