@@ -2,7 +2,13 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useQuery, useStore } from "@livestore/react";
 import { queryDb } from "@livestore/livestore";
-import { type CellType, events, type OutputData, tables } from "@runt/schema";
+import {
+  type CellData,
+  type CellType,
+  events,
+  type OutputData,
+  tables,
+} from "@runt/schema";
 import { Colors } from "../../utils/colors.ts";
 import { Header } from "../layout/Header.tsx";
 import { Footer } from "../layout/Footer.tsx";
@@ -10,6 +16,79 @@ import { ScrollableWithSelection } from "../layout/ScrollableWithSelection.tsx";
 import { Cell } from "./Cell.tsx";
 import { toggleLogs, useSimpleLogging } from "../../utils/simpleLogging.ts";
 import { CellEditor } from "./CellEditor.tsx";
+import { estimateTextHeight } from "../../utils/textUtils.ts";
+import { shouldRenderAsJson } from "../../utils/representationSelector.ts";
+
+// Helper to estimate the height of a cell in lines
+const estimateCellHeight = (
+  cell: CellData,
+  outputs: OutputData[],
+  compact: boolean,
+  terminalWidth: number,
+): number => {
+  let height = 0;
+
+  // Base height for cell container and metadata
+  if (compact) {
+    // Box flexDirection="column" marginBottom={2}
+    // Box flexDirection="row" alignItems="center" marginBottom={1}
+    height += 1 + 1; // Badge line + margin
+  } else {
+    // Outer Box: marginBottom={2}, paddingY={1}, border (2 lines)
+    height += 2 + 2 + 2; // margin + padding + border
+    // Header Box: 1 line for badge/execution state/last executed
+    height += 1;
+  }
+
+  // Source code height
+  if (cell.source) {
+    // Box marginTop={1} for source
+    height += 1; // marginTop
+    if (cell.cellType === "code" || cell.cellType === "sql") {
+      height += cell.source.split("\n").length;
+    } else if (cell.cellType === "markdown") {
+      height += estimateTextHeight(cell.source, terminalWidth);
+      // Add some extra for markdown elements like headers, lists, code blocks
+      height += Math.floor(cell.source.split("\n").length / 5); // +1 line for every 5 lines of markdown for overhead
+    } else {
+      // Raw text
+      height += estimateTextHeight(cell.source, terminalWidth);
+    }
+  }
+
+  // Outputs height
+  if (outputs.length > 0) {
+    // Box marginTop={2} flexDirection="column"
+    // Box marginBottom={1} for "Out:" text
+    height += 2 + 1 + 1; // marginTop + "Out:" line + marginBottom
+    for (const output of outputs) {
+      // Box marginBottom={1} for each output
+      height += 1;
+      switch (output.outputType) {
+        case "terminal":
+        case "error":
+          height += estimateTextHeight(String(output.data), terminalWidth);
+          break;
+        case "multimedia_display":
+        case "multimedia_result":
+          // Placeholder for multimedia, as actual height is unknown without rendering
+          height += 5;
+          break;
+        case "markdown":
+          height += estimateTextHeight(String(output.data), terminalWidth);
+          height += Math.floor(String(output.data).split("\n").length / 5); // Overhead for markdown
+          break;
+
+        default:
+          // Fallback for unknown output types
+          height += 1;
+          break;
+      }
+    }
+  }
+
+  return height;
+};
 
 interface NotebookRendererProps {
   notebookId: string;
@@ -536,6 +615,17 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     };
   }, []); // Only calculate once on mount
 
+  const cellHeights = React.useMemo(() => {
+    return cells.map((cell) =>
+      estimateCellHeight(
+        cell,
+        outputsByCell[cell.id] || [],
+        compact,
+        terminalWidth,
+      )
+    );
+  }, [cells, outputsByCell, compact, terminalWidth]);
+
   const headerHeight = compact ? 3 : 3;
   const footerHeight = compact ? 2 : 10; // Fixed height for footer with logs
   const safetyMargin = 1;
@@ -595,6 +685,7 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
         maxHeight={availableHeight}
         selectedIndex={selectedCellIndex}
         showOverflowIndicator={!compact}
+        itemHeights={cellHeights}
       >
         {cells.map((cell, index) => (
           editingCellId === cell.id
