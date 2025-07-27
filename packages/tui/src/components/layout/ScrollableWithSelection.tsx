@@ -26,86 +26,49 @@ export const ScrollableWithSelection: React.FC<ScrollableWithSelectionProps> = (
     visibleChildren,
     startIndex,
     endIndex,
-    totalVisibleHeight,
     hiddenAboveCells,
     hiddenBelowCells,
   } = useMemo(() => {
-    let currentHeight = 0;
-    let startIdx = 0;
-    let endIdx = 0;
-
-    // Calculate the ideal start index to keep selectedIndex in view
-    // Try to center the selected item if possible
-    let idealStartIdx = 0;
-    let heightBeforeSelected = 0;
-    for (let i = 0; i < selectedIndex; i++) {
-      heightBeforeSelected += itemHeights[i] || 0;
+    // Simplified logic: ensure selected item is visible and fill around it
+    if (totalChildren === 0) {
+      return {
+        visibleChildren: [],
+        startIndex: 0,
+        endIndex: -1,
+        hiddenAboveCells: 0,
+        hiddenBelowCells: 0,
+      };
     }
 
-    // Estimate how many items can fit above the selected item
-    let estimatedItemsAbove = 0;
-    let currentHeightAbove = 0;
-    for (let i = selectedIndex - 1; i >= 0; i--) {
-      currentHeightAbove += itemHeights[i] || 0;
-      if (currentHeightAbove > maxHeight / 2) {
-        break;
-      }
-      estimatedItemsAbove++;
-    }
-    idealStartIdx = Math.max(0, selectedIndex - estimatedItemsAbove);
-
-    // Determine the actual visible range
-    currentHeight = 0;
-    startIdx = idealStartIdx;
-    for (let i = idealStartIdx; i < totalChildren; i++) {
-      currentHeight += itemHeights[i] || 0;
-      if (currentHeight > maxHeight) {
-        endIdx = i - 1;
-        break;
-      }
-      endIdx = i;
-    }
-
-    // Adjust if selectedIndex is not in view
-    if (selectedIndex < startIdx) {
-      startIdx = selectedIndex;
-      currentHeight = 0;
-      for (let i = selectedIndex; i < totalChildren; i++) {
-        currentHeight += itemHeights[i] || 0;
-        if (currentHeight > maxHeight) {
-          endIdx = i - 1;
-          break;
-        }
-        endIdx = i;
-      }
-    } else if (selectedIndex > endIdx) {
-      endIdx = selectedIndex;
-      currentHeight = 0;
-      for (let i = selectedIndex; i >= 0; i--) {
-        currentHeight += itemHeights[i] || 0;
-        if (currentHeight > maxHeight) {
-          startIdx = i + 1;
-          break;
-        }
-        startIdx = i;
-      }
-    }
-
-    // Final adjustment to ensure we don't go out of bounds
-    if (endIdx - startIdx + 1 > totalChildren) {
-      startIdx = 0;
-      endIdx = totalChildren - 1;
-    }
-
-    // Calculate total visible height
-    const _totalVisibleHeight = itemHeights.slice(startIdx, endIdx + 1).reduce(
-      (sum, h) => sum + h,
+    // Clamp selectedIndex to valid range
+    const safeSelectedIndex = Math.max(
       0,
+      Math.min(selectedIndex, totalChildren - 1),
     );
+
+    let startIdx = safeSelectedIndex;
+    let endIdx = safeSelectedIndex;
+    let currentHeight = itemHeights[safeSelectedIndex] || 1;
+
+    // Expand downward first
+    while (endIdx + 1 < totalChildren) {
+      const nextHeight = itemHeights[endIdx + 1] || 1;
+      if (currentHeight + nextHeight > maxHeight) break;
+      endIdx++;
+      currentHeight += nextHeight;
+    }
+
+    // Then expand upward
+    while (startIdx > 0) {
+      const prevHeight = itemHeights[startIdx - 1] || 1;
+      if (currentHeight + prevHeight > maxHeight) break;
+      startIdx--;
+      currentHeight += prevHeight;
+    }
 
     // Calculate hidden cells
     const _hiddenAboveCells = startIdx;
-    const _hiddenBelowCells = totalChildren - 1 - endIdx;
+    const _hiddenBelowCells = Math.max(0, totalChildren - 1 - endIdx);
 
     const visible = childArray.slice(startIdx, endIdx + 1);
 
@@ -113,7 +76,6 @@ export const ScrollableWithSelection: React.FC<ScrollableWithSelectionProps> = (
       visibleChildren: visible,
       startIndex: startIdx,
       endIndex: endIdx,
-      totalVisibleHeight: _totalVisibleHeight,
       hiddenAboveCells: _hiddenAboveCells,
       hiddenBelowCells: _hiddenBelowCells,
     };
@@ -130,10 +92,7 @@ export const ScrollableWithSelection: React.FC<ScrollableWithSelectionProps> = (
   const contentBoxHeight = maxHeight - (hasIndicators ? 2 : 0); // 2 lines for indicators if present
 
   return (
-    <Box
-      flexDirection="column"
-      height={maxHeight} // The outer box should take up the full available height
-    >
+    <Box flexDirection="column">
       {showOverflowIndicator && hiddenAboveCells > 0 && (
         <Box justifyContent="center" height={1}>
           <Text color={Colors.UI.metadata}>
@@ -143,8 +102,7 @@ export const ScrollableWithSelection: React.FC<ScrollableWithSelectionProps> = (
         </Box>
       )}
 
-      {/* The content box should take up the remaining height after indicators */}
-      <Box flexDirection="column" height={contentBoxHeight}>
+      <Box flexDirection="column">
         {visibleChildren}
       </Box>
 

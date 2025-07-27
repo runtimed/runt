@@ -14,12 +14,12 @@ import { Header } from "../layout/Header.tsx";
 import { Footer } from "../layout/Footer.tsx";
 import { ScrollableWithSelection } from "../layout/ScrollableWithSelection.tsx";
 import { Cell } from "./Cell.tsx";
-import { toggleLogs, useSimpleLogging } from "../../utils/simpleLogging.ts";
+
 import { CellEditor } from "./CellEditor.tsx";
 import { estimateTextHeight } from "../../utils/textUtils.ts";
 import { shouldRenderAsJson } from "../../utils/representationSelector.ts";
 
-// Helper to estimate the height of a cell in lines
+// Helper to estimate the height of a cell in lines (simplified and conservative)
 const estimateCellHeight = (
   cell: CellData,
   outputs: OutputData[],
@@ -28,58 +28,33 @@ const estimateCellHeight = (
 ): number => {
   let height = 0;
 
-  // Base height for cell container and metadata with left gutter layout
-  if (compact) {
-    // Box marginBottom={1} (reduced from 2)
-    // Badge line + reduced margin
-    height += 1 + 1; // Badge line + margin
-  } else {
-    // Box marginBottom={1} (reduced from 2), optional borders only when selected
-    // Header Box: 1 line for badge/execution state/last executed
-    height += 1 + 1; // header + margin (no constant border/padding)
-  }
+  // Base height: badge line + margin (conservative)
+  height += 2;
 
-  // Source code height
+  // Source code height (simple line count)
   if (cell.source) {
-    // Box marginTop={1} for source (unchanged)
     height += 1; // marginTop
-    if (cell.cellType === "code" || cell.cellType === "sql") {
-      height += cell.source.split("\n").length;
-    } else if (cell.cellType === "markdown") {
-      height += estimateTextHeight(cell.source, terminalWidth);
-      // Add some extra for markdown elements like headers, lists, code blocks
-      height += Math.floor(cell.source.split("\n").length / 5); // +1 line for every 5 lines of markdown for overhead
-    } else {
-      // Raw text
-      height += estimateTextHeight(cell.source, terminalWidth);
-    }
+    height += cell.source.split("\n").length;
   }
 
-  // Outputs height
+  // Outputs height (conservative estimates)
   if (outputs.length > 0) {
-    // Box marginTop={1} (reduced from 2) flexDirection="column"
-    // Box marginBottom={0} (reduced from 1) for "Out:" text
-    height += 1 + 1 + 0; // marginTop + "Out:" line + marginBottom
+    height += 2; // "Out:" line + margin
     for (const output of outputs) {
-      // Box marginBottom={0} (reduced from 1) for each output
-      height += 0;
+      const outputText = String(output.data || "");
       switch (output.outputType) {
         case "terminal":
         case "error":
-          height += estimateTextHeight(String(output.data), terminalWidth);
+        case "markdown":
+          // Simple line count, no complex wrapping calculation
+          height += Math.max(1, outputText.split("\n").length);
           break;
         case "multimedia_display":
         case "multimedia_result":
-          // Placeholder for multimedia, as actual height is unknown without rendering
-          height += 5;
+          // Conservative placeholder for tables/images
+          height += 3;
           break;
-        case "markdown":
-          height += estimateTextHeight(String(output.data), terminalWidth);
-          height += Math.floor(String(output.data).split("\n").length / 5); // Overhead for markdown
-          break;
-
         default:
-          // Fallback for unknown output types
           height += 1;
           break;
       }
@@ -456,12 +431,6 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
 
     // COMMAND MODE - Modal interface like Jupyter
 
-    // Global shortcuts (work in both modes)
-    if (input.toLowerCase() === "l" && !key.ctrl && !key.meta) {
-      toggleLogs();
-      return;
-    }
-
     // Navigation
     if (key.upArrow || input.toLowerCase() === "k") {
       setSelectedCellIndex((prev) => Math.max(0, prev - 1));
@@ -626,7 +595,7 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
   }, [cells, outputsByCell, compact, terminalWidth]);
 
   const headerHeight = compact ? 2 : 3;
-  const footerHeight = compact ? 2 : 4; // Reduced height for more compact footer
+  const footerHeight = compact ? 1 : 1; // Single line footer
   const safetyMargin = 1;
   const availableHeight = Math.max(
     5,

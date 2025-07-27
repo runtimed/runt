@@ -1,12 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { Colors } from "../../utils/colors.ts";
-import {
-  formatLogLevel,
-  formatTimestamp,
-  getLogLevelColor,
-  useSimpleLogging,
-} from "../../utils/simpleLogging.ts";
 
 interface FooterProps {
   syncStatus: "connected" | "disconnected" | "syncing";
@@ -19,8 +13,6 @@ export const Footer: React.FC<FooterProps> = ({
   lastSync,
   terminalWidth,
 }) => {
-  const { getRecentLogs, showLogs } = useSimpleLogging();
-  const recentLogs = showLogs ? getRecentLogs(8) : [];
   const getSyncStatusColor = () => {
     switch (syncStatus) {
       case "connected":
@@ -71,47 +63,14 @@ export const Footer: React.FC<FooterProps> = ({
       marginTop={1}
       flexDirection="column"
       width={terminalWidth}
-      height={showLogs ? 4 : 2}
+      height={1}
     >
       <Box>
-        <Text color={Colors.UI.metadata}>
-          ⚡ Debug Logs {showLogs ? "(L to hide)" : "(L to show)"}
+        <Text color={Colors.UI.metadata} dimColor>
+          j/k Navigate • Enter Edit • r Run&Next • R RUN • a/b New • dd Del •
+          SHIFT: A AI↑ • C Type • T Model
         </Text>
       </Box>
-
-      {showLogs && (
-        <Box flexDirection="column" marginTop={1} height={2}>
-          {recentLogs.length > 0
-            ? (
-              recentLogs.slice(0, 2).map((log) => (
-                <Box key={log.id} flexDirection="row">
-                  <Text color={Colors.UI.metadata}>
-                    {formatTimestamp(log.timestamp)}
-                  </Text>
-                  <Text color={getLogLevelColor(log.level)} dimColor>
-                    {" "}[{formatLogLevel(log.level)}]
-                  </Text>
-                  <Text color={Colors.UI.metadata}>
-                    {" "}
-                    {log.message.length > maxMessageLength
-                      ? log.message.substring(0, maxMessageLength) + "..."
-                      : log.message}
-                  </Text>
-                </Box>
-              ))
-            )
-            : <Text color={Colors.UI.metadata} dimColor>No recent logs</Text>}
-        </Box>
-      )}
-
-      {!showLogs && (
-        <Box marginTop={0} height={1} flexDirection="column">
-          <Text color={Colors.UI.metadata} dimColor>
-            j/k Navigate • Enter Edit • r Run&Next • R RUN • a/b New • dd Del •
-            SHIFT: A AI↑ • C Type • T Model • L Logs
-          </Text>
-        </Box>
-      )}
     </Box>
   );
 };
