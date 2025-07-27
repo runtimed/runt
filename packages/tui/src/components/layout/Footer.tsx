@@ -112,7 +112,11 @@ export const Footer: React.FC<FooterProps> = ({
           <Box marginTop={1}>
             <Text color={Colors.UI.metadata} dimColor>
               COMMAND: j/k Navigate • Enter Edit • r Run&Next • R Run Only • a/b
-              New Above/Below • dd Delete • L Logs
+              New Above/Below • dd Delete
+            </Text>
+            <Text color={Colors.UI.metadata} dimColor>
+              SHIFT: A AI↑ • M Markdown↑ • B/N Code↓ • S SQL↓ • C Cycle Type • T
+              Cycle AI Model • L Logs
             </Text>
           </Box>
         </Box>

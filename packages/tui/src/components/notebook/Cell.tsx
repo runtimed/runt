@@ -48,6 +48,16 @@ export const Cell: React.FC<CellProps> = ({
     }
   };
 
+  const getCellTypeLabel = (cell: CellData) => {
+    if (cell.cellType === "ai") {
+      const modelInfo = cell.aiModel
+        ? cell.aiModel.replace(/^.*\//, "") // Remove provider prefix if present
+        : "no model";
+      return `${cell.cellType} (${modelInfo})`;
+    }
+    return cell.cellType;
+  };
+
   const getExecutionStateColor = (state?: string) => {
     switch (state) {
       case "completed":
@@ -147,7 +157,7 @@ export const Cell: React.FC<CellProps> = ({
         <Box flexDirection="row" alignItems="center" marginBottom={1}>
           {/* @ts-expect-error - TUI Badge component in Ink */}
           <Badge color={getCellTypeColor(cell.cellType)}>
-            {getCellTypeIcon(cell.cellType)} {cell.cellType}
+            {getCellTypeIcon(cell.cellType)} {getCellTypeLabel(cell)}
           </Badge>
           {cell.executionState && (
             <Box marginLeft={2}>
@@ -185,7 +195,7 @@ export const Cell: React.FC<CellProps> = ({
         <Box flexDirection="row" alignItems="center">
           {/* @ts-expect-error - TUI Badge component in Ink */}
           <Badge color={getCellTypeColor(cell.cellType)}>
-            {getCellTypeIcon(cell.cellType)} {cell.cellType}
+            {getCellTypeIcon(cell.cellType)} {getCellTypeLabel(cell)}
           </Badge>
           {cell.executionState && (
             <Box marginLeft={2}>

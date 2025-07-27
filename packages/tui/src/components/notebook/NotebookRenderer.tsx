@@ -42,12 +42,19 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
 
   const outputs = useQuery(queryDb(tables.outputs.select()));
 
+  const runtimeSessions = useQuery(queryDb(tables.runtimeSessions.select()));
+
   const title = titleMetadata.length > 0
     ? titleMetadata[0]?.value || "Untitled Notebook"
     : "Untitled Notebook";
 
   // Cell type cycling order: code → markdown → ai → sql → code
   const cellTypeOrder: CellType[] = ["code", "markdown", "ai", "sql"];
+
+  // Get available AI models from active runtime sessions
+  const availableAiModels = runtimeSessions
+    .filter((r) => r.status === "ready" && r.availableAiModels)
+    .flatMap((r) => r.availableAiModels || []);
 
   // Helper functions for cell operations
   const createNewCell = () => {
@@ -129,6 +136,42 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
         id: selectedCell.id,
         cellType: nextCellType,
         actorId: "tui-client",
+      }),
+    );
+  };
+
+  const cycleAiModel = () => {
+    if (!store || cells.length === 0) return;
+
+    const selectedCell = cells[selectedCellIndex];
+    if (!selectedCell || selectedCell.cellType !== "ai") return;
+
+    if (availableAiModels.length === 0) {
+      // No models available - maybe show a message?
+      return;
+    }
+
+    const currentModel = selectedCell.aiModel;
+    const currentProvider = selectedCell.aiProvider;
+
+    // Find current model index
+    let currentIndex = -1;
+    if (currentModel && currentProvider) {
+      currentIndex = availableAiModels.findIndex(
+        (m) => m.name === currentModel && m.provider === currentProvider,
+      );
+    }
+
+    // Get next model (or first if current not found)
+    const nextIndex = (currentIndex + 1) % availableAiModels.length;
+    const nextModel = availableAiModels[nextIndex];
+
+    store.commit(
+      events.aiSettingsChanged({
+        cellId: selectedCell.id,
+        provider: nextModel.provider,
+        model: nextModel.name,
+        settings: selectedCell.aiSettings || {},
       }),
     );
   };
@@ -370,6 +413,12 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     // Cell type cycling: Shift-C
     if (input === "C" && key.shift) {
       cycleCellType();
+      return;
+    }
+
+    // AI model cycling: Shift-T (for model Type)
+    if (input === "T" && key.shift) {
+      cycleAiModel();
       return;
     }
 
