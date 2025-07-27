@@ -14,10 +14,16 @@ import { Header } from "../layout/Header.tsx";
 import { Footer } from "../layout/Footer.tsx";
 import { ScrollableWithSelection } from "../layout/ScrollableWithSelection.tsx";
 import { Cell } from "./Cell.tsx";
-
 import { CellEditor } from "./CellEditor.tsx";
 import { estimateTextHeight } from "../../utils/textUtils.ts";
 import { shouldRenderAsJson } from "../../utils/representationSelector.ts";
+import {
+  tuiBulkQuery,
+  tuiCells$,
+  tuiNotebookMetadata$,
+  tuiOutputDeltas$,
+  tuiRuntimeSessions$,
+} from "../../queries/index.ts";
 
 // Helper to estimate the height of a cell in lines (simplified and conservative)
 const estimateCellHeight = (
@@ -83,21 +89,16 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
   const [lastDKeyTime, setLastDKeyTime] = useState<number>(0);
   const { store } = useStore();
 
-  const titleMetadata = useQuery(
-    queryDb(tables.notebookMetadata.select().where({ key: "title" })),
-  );
+  const notebookMetadata = useQuery(tuiNotebookMetadata$);
+  const titleMetadata = notebookMetadata.filter((m) => m.key === "title");
 
-  const cells = useQuery(
-    queryDb(
-      tables.cells.select().orderBy([{ col: "position", direction: "asc" }]),
-    ),
-  );
+  const cells = useQuery(tuiCells$);
 
-  const outputs = useQuery(queryDb(tables.outputs.select()));
+  const cellIds = React.useMemo(() => cells.map((c) => c.id), [cells]);
 
-  const runtimeSessions = useQuery(queryDb(tables.runtimeSessions.select()));
+  const runtimeSessions = useQuery(tuiRuntimeSessions$);
 
-  const outputDeltas = useQuery(queryDb(tables.outputDeltas.select()));
+  const outputDeltas = useQuery(tuiOutputDeltas$);
 
   const title = titleMetadata.length > 0
     ? titleMetadata[0]?.value || "Untitled Notebook"
@@ -544,37 +545,6 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     }
   }, [cells.length, selectedCellIndex]);
 
-  // Reconstruct streaming outputs by combining base outputs with deltas
-  const outputsWithDeltas = outputs.map((output) => {
-    if (output.outputType === "markdown") {
-      // Get deltas for this output, sorted by sequence number
-      const deltas = outputDeltas
-        .filter((delta) => delta.outputId === output.id)
-        .sort((a, b) => a.sequenceNumber - b.sequenceNumber);
-
-      if (deltas.length > 0) {
-        // Reconstruct full content by concatenating base + deltas
-        const fullContent =
-          (typeof output.data === "string" ? output.data : "") +
-          deltas.map((delta) => delta.delta).join("");
-
-        return {
-          ...output,
-          data: fullContent,
-        };
-      }
-    }
-    return output;
-  });
-
-  const outputsByCell = outputsWithDeltas.reduce((acc, output) => {
-    if (!acc[output.cellId]) {
-      acc[output.cellId] = [];
-    }
-    acc[output.cellId] = [...(acc[output.cellId] || []), output];
-    return acc;
-  }, {} as Record<string, OutputData[]>);
-
   const { terminalWidth, terminalHeight } = React.useMemo(() => {
     const terminalSize = Deno.consoleSize();
     return {
@@ -582,6 +552,56 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
       terminalHeight: terminalSize?.rows || 24,
     };
   }, []); // Only calculate once on mount
+
+  const headerHeight = compact ? 2 : 3;
+  const footerHeight = compact ? 1 : 1; // Single line footer
+  const safetyMargin = 1;
+  const availableHeight = Math.max(
+    5,
+    terminalHeight - headerHeight - footerHeight - safetyMargin,
+  );
+
+  // Use optimized bulk query for outputs instead of individual queries
+  const outputs = useQuery(
+    cellIds.length > 0
+      ? tuiBulkQuery.outputsByCells(cellIds)
+      : queryDb(tables.outputs.select().where({ cellId: "never-matches" })),
+  );
+
+  // Reconstruct streaming outputs by combining base outputs with deltas
+  const outputsWithDeltas = React.useMemo(() => {
+    return outputs.map((output) => {
+      if (output.outputType === "markdown") {
+        // Get deltas for this output, sorted by sequence number
+        const deltas = outputDeltas
+          .filter((delta) => delta.outputId === output.id)
+          .sort((a, b) => a.sequenceNumber - b.sequenceNumber);
+
+        if (deltas.length > 0) {
+          // Reconstruct full content by concatenating base + deltas
+          const fullContent =
+            (typeof output.data === "string" ? output.data : "") +
+            deltas.map((delta) => delta.delta).join("");
+
+          return {
+            ...output,
+            data: fullContent,
+          };
+        }
+      }
+      return output;
+    });
+  }, [outputs, outputDeltas]);
+
+  const outputsByCell = React.useMemo(() => {
+    return outputsWithDeltas.reduce((acc, output) => {
+      if (!acc[output.cellId]) {
+        acc[output.cellId] = [];
+      }
+      acc[output.cellId] = [...(acc[output.cellId] || []), output];
+      return acc;
+    }, {} as Record<string, OutputData[]>);
+  }, [outputsWithDeltas]);
 
   const cellHeights = React.useMemo(() => {
     return cells.map((cell) =>
@@ -593,14 +613,6 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
       )
     );
   }, [cells, outputsByCell, compact, terminalWidth]);
-
-  const headerHeight = compact ? 2 : 3;
-  const footerHeight = compact ? 1 : 1; // Single line footer
-  const safetyMargin = 1;
-  const availableHeight = Math.max(
-    5,
-    terminalHeight - headerHeight - footerHeight - safetyMargin,
-  );
 
   if (cells.length === 0) {
     return (
