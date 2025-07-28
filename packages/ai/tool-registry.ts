@@ -27,6 +27,9 @@ interface ToolParameter {
   enum?: string[];
   description?: string;
   default?: string;
+  items?: ToolParameter; // For array types
+  properties?: Record<string, ToolParameter>; // For object types
+  required?: string[]; // For object types
 }
 
 // Define available notebook tools
@@ -97,6 +100,42 @@ const NOTEBOOK_TOOLS: NotebookTool[] = [
 ];
 
 /**
+ * Convert MCP parameter schema to ToolParameter format
+ */
+function convertMcpParameterToToolParameter(
+  mcpParam: Record<string, unknown>,
+): ToolParameter {
+  const baseParam: ToolParameter = {
+    type: (mcpParam.type as string) || "string",
+    description: mcpParam.description as string,
+    enum: mcpParam.enum as string[],
+    default: mcpParam.default as string,
+  };
+
+  // Handle array types with items
+  if (mcpParam.type === "array" && mcpParam.items) {
+    baseParam.items = convertMcpParameterToToolParameter(
+      mcpParam.items as Record<string, unknown>,
+    );
+  }
+
+  // Handle object types with properties
+  if (mcpParam.type === "object" && mcpParam.properties) {
+    baseParam.properties = Object.fromEntries(
+      Object.entries(mcpParam.properties as Record<string, unknown>).map(
+        ([key, value]) => [
+          key,
+          convertMcpParameterToToolParameter(value as Record<string, unknown>),
+        ],
+      ),
+    );
+    baseParam.required = mcpParam.required as string[];
+  }
+
+  return baseParam;
+}
+
+/**
  * Get all available tools including both notebook tools and MCP tools
  */
 export async function getAllTools(): Promise<NotebookTool[]> {
@@ -115,14 +154,9 @@ export async function getAllTools(): Promise<NotebookTool[]> {
             [key, value],
           ) => [
             key,
-            {
-              type: (value as Record<string, unknown>)?.type as string ||
-                "string",
-              description: (value as Record<string, unknown>)
-                ?.description as string,
-              enum: (value as Record<string, unknown>)?.enum as string[],
-              default: (value as Record<string, unknown>)?.default as string,
-            } as ToolParameter,
+            convertMcpParameterToToolParameter(
+              value as Record<string, unknown>,
+            ),
           ]),
         ),
         required: mcpTool.parameters.required || [],
