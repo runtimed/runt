@@ -1,12 +1,13 @@
 # @runt/ai
 
-AI integration package for Runt runtime agents, providing OpenAI and Ollama
-clients with streaming responses, tool calling, and agentic conversation
+AI integration package for Runt runtime agents, providing OpenAI, Ollama, and
+Groq clients with streaming responses, tool calling, and agentic conversation
 support.
 
 ## Features
 
-- **🤖 Multiple AI Providers**: OpenAI and Ollama support with unified interface
+- **🤖 Multiple AI Providers**: OpenAI, Ollama, and Groq support with unified
+  interface
 - **🔄 Streaming Responses**: Real-time token-by-token streaming with markdown
   rendering
 - **🛠️ Tool Calling**: Full support for notebook tools (create_cell,
@@ -69,6 +70,25 @@ console.log("Client ready:", isReady);
 // Simple conversation
 await client.generateAgenticResponse(messages, context, {
   model: "llama3.1",
+  temperature: 0.7,
+  enableTools: false,
+});
+```
+
+### Groq Client
+
+```typescript
+import { OpenAIClient } from "@runt/ai";
+
+// Groq uses the OpenAI client with custom base URL
+const client = new OpenAIClient({
+  apiKey: process.env.GROQ_API_KEY,
+  baseURL: "https://api.groq.com/openai/v1",
+});
+
+// Simple conversation
+await client.generateAgenticResponse(messages, context, {
+  model: "llama-3.1-70b-versatile",
   temperature: 0.7,
   enableTools: false,
 });
@@ -219,6 +239,9 @@ export OPENAI_BASE_URL=https://api.openai.com/v1
 
 # Ollama
 export OLLAMA_HOST=http://localhost:11434
+
+# Groq
+export GROQ_API_KEY=gsk_...
 ```
 
 ## Streaming Support
@@ -283,6 +306,21 @@ ollama pull mistral
 ollama pull codellama
 ```
 
+## Groq Setup
+
+For fast cloud AI with Groq:
+
+```bash
+# Get API key from https://console.groq.com/keys
+export GROQ_API_KEY=gsk_your_key_here
+
+# Available models include:
+# - llama-3.1-70b-versatile
+# - llama-3.1-8b-instant
+# - mixtral-8x7b-32768
+# - gemma2-9b-it
+```
+
 ## Model Management (Ollama)
 
 ```typescript
@@ -333,16 +371,16 @@ const capabilities = {
 
 ## Provider Comparison
 
-| Feature          | OpenAI Client | Ollama Client |
-| ---------------- | ------------- | ------------- |
-| Streaming        | ✅            | ✅            |
-| Tool Calling     | ✅            | ✅            |
-| Model Management | ❌            | ✅            |
-| Local Models     | ❌            | ✅            |
-| Cost             | 💰            | 🆓            |
-| Privacy          | ☁️            | 🏠            |
-| Speed            | Fast          | Variable      |
-| Setup            | API Key       | Local Install |
+| Feature          | OpenAI Client | Ollama Client | Groq Client |
+| ---------------- | ------------- | ------------- | ----------- |
+| Streaming        | ✅            | ✅            | ✅          |
+| Tool Calling     | ✅            | ✅            | ✅          |
+| Model Management | ❌            | ✅            | ❌          |
+| Local Models     | ❌            | ✅            | ❌          |
+| Cost             | 💰            | 🆓            | 💰          |
+| Privacy          | ☁️            | 🏠            | ☁️          |
+| Speed            | Fast          | Variable      | Very Fast   |
+| Setup            | API Key       | Local Install | API Key     |
 
 ## API Reference
 
