@@ -1,8 +1,12 @@
 # @runt/ai
 
-AI integration package for Runt runtime agents, providing OpenAI, Ollama, and
-Groq clients with streaming responses, tool calling, and agentic conversation
-support.
+AI integration package for Runt runtime agents. This package provides AI clients
+as part of the pluggable runtime layer, allowing notebook environments to
+integrate with various AI providers when users opt-in to AI-powered features.
+
+This is not a standalone AI client package - it's specifically designed for use
+within Runt's runtime agent ecosystem (currently the pyodide agent, with more
+runtime agents planned).
 
 ## Features
 
@@ -21,77 +25,44 @@ support.
 - **🔧 Configuration**: Flexible configuration options
 - **🧪 Testing**: Comprehensive test suite with 95%+ coverage
 
-## Installation
+## Integration with Runtime Agents
+
+This package is automatically included when you use a Runt runtime agent that
+supports AI features. Users can opt-in to AI functionality by:
+
+1. Setting appropriate API keys (e.g., `OPENAI_API_KEY`, `GROQ_API_KEY`)
+2. Installing and configuring local AI providers (e.g., Ollama)
+3. Creating AI cells in their notebooks
+
+The runtime agent handles all the integration - no manual installation required.
+
+## Quick Start for Notebook Users
+
+### Using AI Cells
+
+Once your runtime agent has AI support enabled, you can create AI cells in your
+notebook:
+
+1. **Create an AI cell** - The cell type will be available in your notebook
+   interface
+2. **Set your provider** - Choose from OpenAI, Ollama, or Groq
+3. **Write your prompt** - Ask questions, request analysis, or get coding help
+4. **Execute** - The AI will respond with streaming text and can use tools to
+   create/modify other cells
+
+### Configuration
+
+AI features are activated by setting environment variables:
 
 ```bash
-# Install as part of Runt
-npm install @runt/ai
+# For OpenAI
+export OPENAI_API_KEY=sk-your-key-here
 
-# Or use with Deno
-import { OpenAIClient, RuntOllamaClient } from "jsr:@runt/ai";
-```
+# For Groq (faster inference)
+export GROQ_API_KEY=gsk-your-key-here
 
-## Quick Start
-
-### OpenAI Client
-
-```typescript
-import { OpenAIClient } from "@runt/ai";
-
-const client = new OpenAIClient({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-// Simple conversation
-const messages = [
-  { role: "user", content: "Explain Python list comprehensions" },
-];
-
-await client.generateAgenticResponse(messages, context, {
-  model: "gpt-4",
-  temperature: 0.7,
-  enableTools: false,
-});
-```
-
-### Ollama Client
-
-```typescript
-import { RuntOllamaClient } from "@runt/ai";
-
-const client = new RuntOllamaClient({
-  host: "http://localhost:11434",
-});
-
-// Check if ready
-const isReady = await client.isReady();
-console.log("Client ready:", isReady);
-
-// Simple conversation
-await client.generateAgenticResponse(messages, context, {
-  model: "llama3.1",
-  temperature: 0.7,
-  enableTools: false,
-});
-```
-
-### Groq Client
-
-```typescript
-import { OpenAIClient } from "@runt/ai";
-
-// Groq uses the OpenAI client with custom base URL
-const client = new OpenAIClient({
-  apiKey: process.env.GROQ_API_KEY,
-  baseURL: "https://api.groq.com/openai/v1",
-});
-
-// Simple conversation
-await client.generateAgenticResponse(messages, context, {
-  model: "llama-3.1-70b-versatile",
-  temperature: 0.7,
-  enableTools: false,
-});
+# For Ollama (local AI)
+export OLLAMA_HOST=http://localhost:11434
 ```
 
 ## Dynamic Model Discovery
@@ -308,18 +279,24 @@ ollama pull codellama
 
 ## Groq Setup
 
-For fast cloud AI with Groq:
+For fast cloud AI with Groq's dedicated client:
 
 ```bash
 # Get API key from https://console.groq.com/keys
 export GROQ_API_KEY=gsk_your_key_here
 
 # Available models include:
-# - llama-3.1-70b-versatile
-# - llama-3.1-8b-instant
+# - llama-3.1-70b-versatile (recommended for quality)
+# - llama-3.1-8b-instant (fastest)
+# - llama3-70b-8192
+# - llama3-8b-8192
 # - mixtral-8x7b-32768
 # - gemma2-9b-it
 ```
+
+The Groq client uses the official Groq SDK for optimal performance and
+reliability, providing faster inference than OpenAI while maintaining tool
+calling capabilities.
 
 ## Model Management (Ollama)
 
@@ -371,16 +348,17 @@ const capabilities = {
 
 ## Provider Comparison
 
-| Feature          | OpenAI Client | Ollama Client | Groq Client |
-| ---------------- | ------------- | ------------- | ----------- |
-| Streaming        | ✅            | ✅            | ✅          |
-| Tool Calling     | ✅            | ✅            | ✅          |
-| Model Management | ❌            | ✅            | ❌          |
-| Local Models     | ❌            | ✅            | ❌          |
-| Cost             | 💰            | 🆓            | 💰          |
-| Privacy          | ☁️            | 🏠            | ☁️          |
-| Speed            | Fast          | Variable      | Very Fast   |
-| Setup            | API Key       | Local Install | API Key     |
+| Feature          | OpenAI Client | Ollama Client | Groq Client   |
+| ---------------- | ------------- | ------------- | ------------- |
+| Streaming        | ✅            | ✅            | ✅            |
+| Tool Calling     | ✅            | ✅            | ✅            |
+| Model Management | ❌            | ✅            | ❌            |
+| Local Models     | ❌            | ✅            | ❌            |
+| Cost             | 💰            | 🆓            | 💰 (Lower)    |
+| Privacy          | ☁️            | 🏠            | ☁️            |
+| Speed            | Fast          | Variable      | Very Fast     |
+| Setup            | API Key       | Local Install | API Key       |
+| SDK              | OpenAI SDK    | Custom        | Official Groq |
 
 ## API Reference
 
@@ -397,6 +375,7 @@ const capabilities = {
 
 - `OpenAIClient` - OpenAI API client with streaming and tool support
 - `RuntOllamaClient` - Ollama client with local model management
+- `GroqClient` - Groq client using official SDK for fast cloud inference
 
 ### Types
 
