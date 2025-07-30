@@ -914,11 +914,9 @@ export const materializers = State.SQLite.materializers(events, {
     const existingDebug = ctx.query(
       tables.debug.select().where({ id: event.id }).limit(1),
     )[0];
-    console.log("Existing debug", existingDebug);
     if (existingDebug) {
       return [];
     }
-    console.log("Setting debug", event.id);
     return [
       tables.debug.insert({ id: event.id }).onConflict("id", "replace"),
     ];
