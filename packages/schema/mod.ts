@@ -420,6 +420,13 @@ export const tables = {
 // Events describe notebook and cell changes
 // All events are scoped to a single notebook (storeId = notebookId)
 export const events = {
+  debug1: Events.synced({
+    name: "v1.Debug",
+    schema: Schema.Struct({
+      id: Schema.String,
+    }),
+  }),
+
   // Notebook events (single notebook per store)
   /** @deprecated  */
   notebookInitialized: Events.synced({
@@ -903,6 +910,17 @@ function updatePresence(userId: string, cellId?: string) {
 
 // Materializers map events to state changes
 export const materializers = State.SQLite.materializers(events, {
+  "v1.Debug": (event, ctx) => {
+    const existingDebug = ctx.query(
+      tables.debug.select().where({ id: event.id }).limit(1),
+    )[0];
+    if (existingDebug) {
+      return [];
+    }
+    return [
+      tables.debug.insert({ id: event.id }).onConflict("id", "replace"),
+    ];
+  },
   // Notebook materializers
   /** @deprecated */
   "v1.NotebookInitialized": ({ id, title, ownerId }) => [
