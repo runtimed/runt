@@ -25,6 +25,8 @@ AI behavior with iterative tool calls.
   TypeScript types
 - **Library Package** (`@runt/lib`): Runtime agent implementation with lifecycle
   management
+- **AI Package** (`@runt/ai`): AI integration package with OpenAI, Ollama, and
+  Groq support for streaming responses, tool calling, and agentic conversations
 - **Pyodide Package** (`@runt/pyodide-runtime-agent`): Python runtime using
   Pyodide with IPython integration for rich display support
 - **Python Package** (`@runt/python-runtime-agent`): Stub for a native Python
@@ -60,6 +62,7 @@ AI behavior with iterative tool calls.
 - **Python Execution**: Direct Pyodide integration with IPython rich display
   support
 - **AI Integration**: Agentic behavior with tool calling and iterative responses
+  (OpenAI, Ollama, Groq)
 - **Real-time Collaboration**: LiveStore-based event sourcing for multi-user
   support
 - **Rich Media Support**: Handle plots, tables, HTML, and custom display formats

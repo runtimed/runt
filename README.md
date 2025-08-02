@@ -7,6 +7,7 @@ Runtime agents for connecting to next gen notebooks from
 
 - `@runt/schema` - LiveStore schema (events, tables, types)
 - `@runt/lib` - Runtime agent base class
+- `@runt/ai` - AI integration with OpenAI, Ollama, and Groq clients
 - `@runt/pyodide-runtime-agent` - Python runtime using Pyodide
 - `@runt/python-runtime-agent` - Stub for a native Python runtime agent
 - `@runt/tui` - Terminal notebook viewer
@@ -25,6 +26,7 @@ Structure:
 packages/
 ├── schema/                   # LiveStore schema
 ├── lib/                      # Runtime agent base
+├── ai/                       # AI integration (OpenAI, Ollama, Groq)
 ├── pyodide-runtime-agent/    # Python runtime
 ├── python-runtime-agent/     # Stub for native Python runtime
 └── tui/                      # Terminal viewer

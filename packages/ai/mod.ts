@@ -26,6 +26,7 @@ const schema = makeSchema({ events, state });
 
 import { OpenAIClient } from "./openai-client.ts";
 import { RuntOllamaClient } from "./ollama-client.ts";
+import { GroqClient } from "./groq-client.ts";
 import type { NotebookTool } from "./tool-registry.ts";
 
 export type { NotebookTool };
@@ -406,7 +407,7 @@ const getDefaultModel = (provider: string): string => {
  * Execute AI prompts using OpenAI, Ollama, or other providers
  */
 // Export the AI clients and MCP client for external use
-export { OpenAIClient, RuntOllamaClient };
+export { GroqClient, OpenAIClient, RuntOllamaClient };
 export { closeMCPClient, getMCPClient, MCPClient } from "./mcp-client.ts";
 export { getAllTools } from "./tool-registry.ts";
 
@@ -428,40 +429,14 @@ export async function discoverAvailableAiModels(): Promise<AiModel[]> {
   }
 
   // Discover Groq models
-  if (Deno.env.get("GROQ_API_KEY")) {
-    const groqModels: AiModel[] = [
-      {
-        provider: "groq",
-        name: "moonshotai/kimi-k2-instruct",
-        displayName: "Kimi K2 Instruct",
-        capabilities: ["completion", "tools", "thinking"],
-      },
-      {
-        provider: "groq",
-        name: "llama3-8b-8192",
-        displayName: "Llama 3.1 8B",
-        capabilities: ["completion", "tools", "thinking"],
-      },
-      {
-        provider: "groq",
-        name: "llama3-70b-8192",
-        displayName: "Llama 3.1 70B",
-        capabilities: ["completion", "tools", "thinking"],
-      },
-      {
-        provider: "groq",
-        name: "mixtral-8x7b-32768",
-        displayName: "Mixtral 8x7B",
-        capabilities: ["completion", "tools"],
-      },
-      {
-        provider: "groq",
-        name: "gemma2-9b-it",
-        displayName: "Gemma 2 9B",
-        capabilities: ["completion", "tools"],
-      },
-    ];
+  const groqClient = new GroqClient();
+  try {
+    const groqModels = await groqClient.discoverAiModels();
     allModels.push(...groqModels);
+  } catch (_error) {
+    console.warn(
+      "Failed to discover Groq models - API may not be configured",
+    );
   }
 
   // Discover Ollama models
@@ -673,22 +648,18 @@ The system will automatically pull models if they're not available locally.`;
         });
       }
     } else if (provider === "groq") {
-      // Use Groq provider with RuntOpenAIClient configured for Groq
-      const groqApiKey = Deno.env.get("GROQ_API_KEY");
-      if (!groqApiKey) {
+      // Use dedicated Groq client
+      const groqClient = new GroqClient(undefined, notebookTools);
+
+      if (!groqClient.isReady()) {
         context.display({
           "text/markdown":
-            "# Groq Configuration Required\n\nGroq API key not found. Please set `GROQ_API_KEY` environment variable.",
+            "# Groq Configuration Required\n\nGroq API key not found. Please set `GROQ_API_KEY` environment variable.\n\nGet your API key from [Groq Console](https://console.groq.com/keys).",
           "text/plain":
             "Groq API key not found. Please set GROQ_API_KEY environment variable.",
         });
         return { success: false, error: "Groq API key not configured" };
       }
-
-      const groqClient = new OpenAIClient({
-        apiKey: groqApiKey,
-        baseURL: "https://api.groq.com/openai/v1",
-      }, notebookTools);
 
       const conversationMessages = buildConversationMessages(
         notebookContext,
