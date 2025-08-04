@@ -1008,7 +1008,9 @@ export const materializers = State.SQLite.materializers(events, {
   "v2.CellCreated": ({ id, fractionalIndex, cellType, createdBy }) => {
     // With fractional indexing, we don't need ctx.query!
     // The order is already calculated client-side
-    const ops = [
+    const ops = [];
+
+    ops.push(
       tables.cells
         .insert({
           id,
@@ -1018,7 +1020,7 @@ export const materializers = State.SQLite.materializers(events, {
           createdBy,
         })
         .onConflict("id", "ignore"),
-    ];
+    );
 
     // Update presence for the creator
     ops.push(updatePresence(createdBy, id));
@@ -1796,12 +1798,16 @@ export function createCellAfter(
   if (afterCellId) {
     const cellIndex = sortedCells.findIndex((c) => c.id === afterCellId);
     if (cellIndex >= 0) {
-      previousKey = sortedCells[cellIndex].fractionalIndex!;
-      if (cellIndex < sortedCells.length - 1) {
-        nextKey = sortedCells[cellIndex + 1].fractionalIndex!;
+      const currentCell = sortedCells[cellIndex];
+      if (currentCell) {
+        previousKey = currentCell.fractionalIndex!;
+        const nextCell = sortedCells[cellIndex + 1];
+        if (nextCell) {
+          nextKey = nextCell.fractionalIndex!;
+        }
       }
     }
-  } else if (sortedCells.length > 0) {
+  } else if (sortedCells.length > 0 && sortedCells[0]) {
     // Insert at beginning
     nextKey = sortedCells[0].fractionalIndex!;
   }
@@ -1833,14 +1839,21 @@ export function createCellBefore(
   if (beforeCellId) {
     const cellIndex = sortedCells.findIndex((c) => c.id === beforeCellId);
     if (cellIndex >= 0) {
-      nextKey = sortedCells[cellIndex].fractionalIndex!;
-      if (cellIndex > 0) {
-        previousKey = sortedCells[cellIndex - 1].fractionalIndex!;
+      const currentCell = sortedCells[cellIndex];
+      if (currentCell) {
+        nextKey = currentCell.fractionalIndex!;
+        const prevCell = sortedCells[cellIndex - 1];
+        if (prevCell) {
+          previousKey = prevCell.fractionalIndex!;
+        }
       }
     }
   } else if (sortedCells.length > 0) {
     // Insert at end
-    previousKey = sortedCells[sortedCells.length - 1].fractionalIndex!;
+    const lastCell = sortedCells[sortedCells.length - 1];
+    if (lastCell) {
+      previousKey = lastCell.fractionalIndex!;
+    }
   }
 
   const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
@@ -1871,10 +1884,16 @@ export function createCellAtPosition(
   let nextKey: string | null = null;
 
   if (clampedPosition > 0) {
-    previousKey = sortedCells[clampedPosition - 1].fractionalIndex!;
+    const prevCell = sortedCells[clampedPosition - 1];
+    if (prevCell) {
+      previousKey = prevCell.fractionalIndex!;
+    }
   }
   if (clampedPosition < sortedCells.length) {
-    nextKey = sortedCells[clampedPosition].fractionalIndex!;
+    const nextCell = sortedCells[clampedPosition];
+    if (nextCell) {
+      nextKey = nextCell.fractionalIndex!;
+    }
   }
 
   const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);

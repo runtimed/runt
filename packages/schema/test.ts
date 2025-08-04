@@ -699,7 +699,7 @@ Deno.test("v2.CellCreated - mixed v1 and v2 events", async () => {
 
 Deno.test("v2.CellCreated - bulk cell import", async () => {
   const store = await setupStore();
-  const { generateFractionalIndices, fractionalIndexBetween } = await import(
+  const { fractionalIndexBetween } = await import(
     "@runt/schema"
   );
 
@@ -754,7 +754,7 @@ Deno.test("v2.CellCreated - extreme insertion patterns", async () => {
   );
 
   // Start with one cell (no jitter for predictable test)
-  let indices: string[] = [initialFractionalIndex(false)];
+  const indices: string[] = [initialFractionalIndex(false)];
   store.commit(events.cellCreated2({
     id: "cell-0",
     fractionalIndex: indices[0],
@@ -880,15 +880,12 @@ Deno.test("fractional indexing - edge cases", async () => {
 Deno.test("v2.CellCreated - using helper functions", async () => {
   const store = await setupStore();
   const {
-    createCellAfter,
-    createCellBefore,
-    createCellAtPosition,
     fractionalIndexBetween,
   } = await import("@runt/schema");
 
   // For predictable tests, we'll create cells with non-jittered indices manually
   // Start with an empty notebook
-  let cells = store.query(tables.cells);
+  const cells = store.query(tables.cells);
   assertEquals(cells.length, 0);
 
   // Create first cell with non-jittered index
