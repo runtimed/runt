@@ -476,12 +476,12 @@ export const events = {
      cellType: CellType,
    }
 
-   TODO: Migration plan for fractional indexing:
-   1. Add 'order' column to cells table
-   2. Migrate existing cells to use fractional indices based on position
-   3. Update all queries to use ORDER BY order instead of position
-   4. Remove position column from cells table
-   5. Update v1.CellCreated to calculate fractional index
+   Note: fractionalIndex column has been added to cells table.
+   Future migration steps:
+   1. Migrate existing cells to use fractional indices based on position
+   2. Update all queries to use ORDER BY fractionalIndex instead of position
+   3. Eventually deprecate position column from cells table
+   4. Update v1.CellCreated to calculate fractional index
    */
   cellCreated2: Events.synced({
     name: "v2.CellCreated",
@@ -490,7 +490,6 @@ export const events = {
       fractionalIndex: Schema.String,
       cellType: CellType,
       createdBy: Schema.String,
-      actorId: Schema.optional(Schema.String),
     }),
   }),
 
@@ -1003,12 +1002,10 @@ export const materializers = State.SQLite.materializers(events, {
     updatePresence(actorId || createdBy, id),
   ],
 
-  "v2.CellCreated": ({ id, fractionalIndex, cellType, createdBy, actorId }) => {
+  "v2.CellCreated": ({ id, fractionalIndex, cellType, createdBy }) => {
     // With fractional indexing, we don't need ctx.query!
     // The order is already calculated client-side
-    //
-    const ops = [];
-    ops.push(
+    const ops = [
       tables.cells
         .insert({
           id,
@@ -1018,11 +1015,10 @@ export const materializers = State.SQLite.materializers(events, {
           createdBy,
         })
         .onConflict("id", "ignore"),
-    );
+    ];
 
-    if (actorId) {
-      ops.push(updatePresence(actorId, id));
-    }
+    // Update presence for the creator
+    ops.push(updatePresence(createdBy, id));
 
     return ops;
   },
