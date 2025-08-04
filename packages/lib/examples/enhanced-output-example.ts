@@ -234,7 +234,7 @@ class ExamplePythonRuntime {
               "stdout",
               "stderr",
               "display_data",
-              "execute_result",
+              "multimedia_result",
             ],
             timestamp: new Date().toISOString(),
           }),
@@ -248,7 +248,7 @@ class ExamplePythonRuntime {
       return {
         success: true,
         data: { "text/plain": code },
-        outputType: "execute_result" as const,
+        outputType: "multimedia_result" as const,
       };
     } catch (err) {
       // Handle unexpected errors
@@ -305,7 +305,7 @@ class ComparisonExample {
     return {
       success: true,
       data: { "text/plain": `Result: ${code}` },
-      outputType: "execute_result" as const,
+      outputType: "multimedia_result" as const,
     };
   }
 

@@ -183,7 +183,83 @@ const MediaRepresentationSchema = Schema.Union(
   }),
 );
 
-const CellType = Schema.Literal("code", "markdown", "sql", "raw", "ai");
+// TypeScript type for cell types
+export type CellType = "code" | "markdown" | "sql" | "raw" | "ai";
+
+// Schema for cell type validation
+export const CellTypeSchema = Schema.Literal(
+  "code",
+  "markdown",
+  "sql",
+  "raw",
+  "ai",
+);
+
+// Execution state types
+export type ExecutionState =
+  | "idle"
+  | "queued"
+  | "running"
+  | "completed"
+  | "error";
+export const ExecutionStateSchema = Schema.Literal(
+  "idle",
+  "queued",
+  "running",
+  "completed",
+  "error",
+);
+
+// Output types
+export type OutputType =
+  | "multimedia_display"
+  | "multimedia_result"
+  | "terminal"
+  | "markdown"
+  | "error";
+export const OutputTypeSchema = Schema.Literal(
+  "multimedia_display",
+  "multimedia_result",
+  "terminal",
+  "markdown",
+  "error",
+);
+
+// Runtime status types
+export type RuntimeStatus =
+  | "starting"
+  | "ready"
+  | "busy"
+  | "restarting"
+  | "terminated";
+export const RuntimeStatusSchema = Schema.Literal(
+  "starting",
+  "ready",
+  "busy",
+  "restarting",
+  "terminated",
+);
+
+// Queue status types
+export type QueueStatus =
+  | "pending"
+  | "assigned"
+  | "executing"
+  | "completed"
+  | "failed"
+  | "cancelled";
+export const QueueStatusSchema = Schema.Literal(
+  "pending",
+  "assigned",
+  "executing",
+  "completed",
+  "failed",
+  "cancelled",
+);
+
+// Actor types
+export type ActorType = "human" | "runtime_agent";
+export const ActorTypeSchema = Schema.Literal("human", "runtime_agent");
 
 export const tables = {
   debug: State.SQLite.table({
@@ -217,7 +293,7 @@ export const tables = {
     columns: {
       id: State.SQLite.text({ primaryKey: true }),
       cellType: State.SQLite.text({
-        schema: CellType,
+        schema: CellTypeSchema,
       }),
       source: State.SQLite.text({ default: "" }),
       position: State.SQLite.real(),
@@ -227,13 +303,7 @@ export const tables = {
       executionCount: State.SQLite.integer({ nullable: true }),
       executionState: State.SQLite.text({
         default: "idle",
-        schema: Schema.Literal(
-          "idle",
-          "queued",
-          "running",
-          "completed",
-          "error",
-        ),
+        schema: ExecutionStateSchema,
       }),
       assignedRuntimeSession: State.SQLite.text({ nullable: true }), // Which runtime session is handling this
       lastExecutionDurationMs: State.SQLite.integer({ nullable: true }), // Duration of last execution in milliseconds
@@ -272,13 +342,7 @@ export const tables = {
       id: State.SQLite.text({ primaryKey: true }),
       cellId: State.SQLite.text(),
       outputType: State.SQLite.text({
-        schema: Schema.Literal(
-          "multimedia_display",
-          "multimedia_result",
-          "terminal",
-          "markdown",
-          "error",
-        ),
+        schema: OutputTypeSchema,
       }),
       position: State.SQLite.real(),
 
@@ -323,13 +387,7 @@ export const tables = {
       runtimeId: State.SQLite.text(), // Stable runtime identifier
       runtimeType: State.SQLite.text({ default: "python3" }),
       status: State.SQLite.text({
-        schema: Schema.Literal(
-          "starting",
-          "ready",
-          "busy",
-          "restarting",
-          "terminated",
-        ),
+        schema: RuntimeStatusSchema,
       }),
       isActive: State.SQLite.boolean({ default: true }),
 
@@ -356,14 +414,7 @@ export const tables = {
       // Queue management
       status: State.SQLite.text({
         default: "pending",
-        schema: Schema.Literal(
-          "pending",
-          "assigned",
-          "executing",
-          "completed",
-          "failed",
-          "cancelled",
-        ),
+        schema: QueueStatusSchema,
       }),
       assignedRuntimeSession: State.SQLite.text({ nullable: true }),
 
@@ -462,7 +513,7 @@ export const events = {
     name: "v1.CellCreated",
     schema: Schema.Struct({
       id: Schema.String,
-      cellType: CellType,
+      cellType: CellTypeSchema,
       position: Schema.Number,
       createdBy: Schema.String,
       actorId: Schema.optional(Schema.String),
@@ -491,7 +542,7 @@ export const events = {
       fractionalIndex: Schema.String.annotations({
         description: "Jittered fractional index for deterministic ordering",
       }),
-      cellType: CellType,
+      cellType: CellTypeSchema,
       createdBy: Schema.String,
     }),
   }),
@@ -509,7 +560,7 @@ export const events = {
     name: "v1.CellTypeChanged",
     schema: Schema.Struct({
       id: Schema.String,
-      cellType: CellType,
+      cellType: CellTypeSchema,
       actorId: Schema.optional(Schema.String),
     }),
   }),
@@ -816,7 +867,7 @@ export const events = {
     name: "v1.ActorProfileSet",
     schema: Schema.Struct({
       id: Schema.String,
-      type: Schema.Literal("human", "runtime_agent"),
+      type: ActorTypeSchema,
       displayName: Schema.String,
       avatar: Schema.optional(Schema.String),
     }),
@@ -1575,38 +1626,6 @@ export type RuntimeSessionData = typeof tables.runtimeSessions.Type;
 export type ExecutionQueueData = typeof tables.executionQueue.Type;
 export type UiStateData = typeof tables.uiState.Type;
 
-// Execution states
-export type ExecutionState =
-  | "idle"
-  | "queued"
-  | "running"
-  | "completed"
-  | "error";
-
-// Runtime session statuses
-export type RuntimeStatus =
-  | "starting"
-  | "ready"
-  | "busy"
-  | "restarting"
-  | "terminated";
-
-// Queue statuses
-export type QueueStatus =
-  | "pending"
-  | "assigned"
-  | "executing"
-  | "completed"
-  | "failed"
-  | "cancelled";
-
-// Output types
-export type OutputType =
-  | "display_data"
-  | "execute_result"
-  | "terminal"
-  | "error";
-
 // Type guards for MediaContainer
 export function isInlineContainer<T>(
   container: MediaContainer,
@@ -1784,7 +1803,7 @@ export function createCellAfter(
   cells: Array<{ id: string; fractionalIndex: string | null }>,
   cellData: {
     id: string;
-    cellType: "code" | "markdown" | "sql" | "raw" | "ai";
+    cellType: CellType;
     createdBy: string;
   },
 ): ReturnType<typeof events.cellCreated2> {
@@ -1825,7 +1844,7 @@ export function createCellBefore(
   cells: Array<{ id: string; fractionalIndex: string | null }>,
   cellData: {
     id: string;
-    cellType: "code" | "markdown" | "sql" | "raw" | "ai";
+    cellType: CellType;
     createdBy: string;
   },
 ): ReturnType<typeof events.cellCreated2> {
@@ -1869,7 +1888,7 @@ export function createCellAtPosition(
   cells: Array<{ id: string; fractionalIndex: string | null }>,
   cellData: {
     id: string;
-    cellType: "code" | "markdown" | "sql" | "raw" | "ai";
+    cellType: CellType;
     createdBy: string;
   },
 ): ReturnType<typeof events.cellCreated2> {
