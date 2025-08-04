@@ -14,9 +14,9 @@ import { Events, Schema, SessionIdSymbol, State } from "@livestore/livestore";
  * - ClientId must be non-numeric to prevent user impersonation
  *
  * USER CLIENTS (runtime: false/undefined):
- * - Regular users: clientId = authenticated user ID (numeric Google ID)
+ * - Regular users: clientId = authenticated user ID
  * - Anonymous users: clientId = "anonymous-user"
- * - User clients use Google OAuth tokens for authentication
+ * - User clients use OIDC tokens for authentication
  * - ClientId must match authenticated user ID
  *
  * PRESENCE DISPLAY:
