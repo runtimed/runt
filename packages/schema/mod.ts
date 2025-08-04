@@ -220,6 +220,7 @@ export const tables = {
       }),
       source: State.SQLite.text({ default: "" }),
       position: State.SQLite.real(),
+      fractionalIndex: State.SQLite.text({ nullable: true }), // Fractional index for deterministic ordering
 
       // Execution state
       executionCount: State.SQLite.integer({ nullable: true }),
@@ -468,22 +469,27 @@ export const events = {
   }),
 
   /**
-  v2 cell created
-  // If both beforeId and afterId are *not* provided, the cell is inserted at the end of the notebook.
+  v2 cell created with fractional indexing
    {
      id: CellId,
-     beforeId?: CellId,
-     afterId?: CellId,
+     fractionalIndex: string, // Fractional index (e.g., "a0", "a5", "b0")
      cellType: CellType,
    }
+
+   TODO: Migration plan for fractional indexing:
+   1. Add 'order' column to cells table
+   2. Migrate existing cells to use fractional indices based on position
+   3. Update all queries to use ORDER BY order instead of position
+   4. Remove position column from cells table
+   5. Update v1.CellCreated to calculate fractional index
    */
   cellCreated2: Events.synced({
     name: "v2.CellCreated",
     schema: Schema.Struct({
       id: Schema.String,
-      beforeId: Schema.optional(Schema.String),
-      afterId: Schema.optional(Schema.String),
+      fractionalIndex: Schema.String,
       cellType: CellType,
+      createdBy: Schema.String,
       actorId: Schema.optional(Schema.String),
     }),
   }),
@@ -997,8 +1003,28 @@ export const materializers = State.SQLite.materializers(events, {
     updatePresence(actorId || createdBy, id),
   ],
 
-  "v2.CellCreated": () => {
-    return [];
+  "v2.CellCreated": ({ id, fractionalIndex, cellType, createdBy, actorId }) => {
+    // With fractional indexing, we don't need ctx.query!
+    // The order is already calculated client-side
+    //
+    const ops = [];
+    ops.push(
+      tables.cells
+        .insert({
+          id,
+          cellType,
+          position: 0, // Keep position for backward compatibility
+          fractionalIndex, // New fractional index
+          createdBy,
+        })
+        .onConflict("id", "ignore"),
+    );
+
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+
+    return ops;
   },
 
   "v1.CellSourceChanged": ({ id, source, modifiedBy }) => [
@@ -1709,6 +1735,14 @@ export const AI_TOOL_CALL_MIME_TYPE =
  */
 export const AI_TOOL_RESULT_MIME_TYPE =
   "application/vnd.anode.aitool.result+json" as const;
+
+// Export fractional indexing utilities
+export {
+  fractionalIndexBetween,
+  generateFractionalIndices,
+  initialFractionalIndex,
+  isValidFractionalIndex,
+} from "./src/fractional-indexing.ts";
 
 // Pre 0.7.1 -- these types should get created in clients
 // const state = State.SQLite.makeState({ tables, materializers });
