@@ -523,6 +523,262 @@ Deno.test("v2.CellCreated - simulating concurrent notebook editing", async () =>
   store.shutdown();
 });
 
+Deno.test("v2.CellCreated - building a notebook from scratch", async () => {
+  const store = await setupStore();
+  const { fractionalIndexBetween, initialFractionalIndex } = await import(
+    "@runt/schema"
+  );
+
+  // Create a notebook with markdown, code, and AI cells
+  // Cell 1: Markdown introduction
+  const cell1Order = initialFractionalIndex();
+  store.commit(events.cellCreated2({
+    id: "intro",
+    fractionalIndex: cell1Order,
+    cellType: "markdown",
+    createdBy: "author",
+  }));
+  store.commit(events.cellSourceChanged({
+    id: "intro",
+    source: "# Data Analysis Notebook\n\nThis notebook analyzes sales data.",
+    modifiedBy: "author",
+  }));
+
+  // Cell 2: Code to load data
+  const cell2Order = fractionalIndexBetween(cell1Order, null);
+  store.commit(events.cellCreated2({
+    id: "load-data",
+    fractionalIndex: cell2Order,
+    cellType: "code",
+    createdBy: "author",
+  }));
+  store.commit(events.cellSourceChanged({
+    id: "load-data",
+    source: "import pandas as pd\ndf = pd.read_csv('sales.csv')",
+    modifiedBy: "author",
+  }));
+
+  // Cell 3: AI analysis
+  const cell3Order = fractionalIndexBetween(cell2Order, null);
+  store.commit(events.cellCreated2({
+    id: "ai-analysis",
+    fractionalIndex: cell3Order,
+    cellType: "ai",
+    createdBy: "author",
+  }));
+  store.commit(events.cellSourceChanged({
+    id: "ai-analysis",
+    source: "Analyze the sales trends in the dataframe",
+    modifiedBy: "author",
+  }));
+
+  // User inserts a new code cell between load-data and ai-analysis
+  const insertedOrder = fractionalIndexBetween(cell2Order, cell3Order);
+  store.commit(events.cellCreated2({
+    id: "transform-data",
+    fractionalIndex: insertedOrder,
+    cellType: "code",
+    createdBy: "collaborator",
+  }));
+  store.commit(events.cellSourceChanged({
+    id: "transform-data",
+    source: "df['profit_margin'] = df['profit'] / df['revenue']",
+    modifiedBy: "collaborator",
+  }));
+
+  // Verify final notebook structure
+  const orderedCells = store.query(
+    tables.cells.select().orderBy("fractionalIndex", "asc"),
+  ).filter((c) => c.fractionalIndex !== null);
+
+  assertEquals(orderedCells.length, 4);
+  assertEquals(orderedCells[0].id, "intro");
+  assertEquals(orderedCells[1].id, "load-data");
+  assertEquals(orderedCells[2].id, "transform-data");
+  assertEquals(orderedCells[3].id, "ai-analysis");
+
+  // Verify cell types and sources
+  assertEquals(orderedCells[0].cellType, "markdown");
+  assertEquals(orderedCells[1].cellType, "code");
+  assertEquals(orderedCells[2].cellType, "code");
+  assertEquals(orderedCells[3].cellType, "ai");
+
+  assert(orderedCells[0].source.includes("Data Analysis Notebook"));
+  assert(orderedCells[1].source.includes("pd.read_csv"));
+  assert(orderedCells[2].source.includes("profit_margin"));
+  assert(orderedCells[3].source.includes("Analyze the sales trends"));
+
+  store.shutdown();
+});
+
+Deno.test("v2.CellCreated - mixed v1 and v2 events", async () => {
+  const store = await setupStore();
+  const { fractionalIndexBetween, initialFractionalIndex } = await import(
+    "@runt/schema"
+  );
+
+  // Create some cells with v1 events
+  store.commit(events.cellCreated({
+    id: "v1-cell-1",
+    cellType: "code",
+    position: 0,
+    createdBy: "user1",
+  }));
+
+  store.commit(events.cellCreated({
+    id: "v1-cell-2",
+    cellType: "markdown",
+    position: 1,
+    createdBy: "user1",
+  }));
+
+  // Now use v2 events for new cells
+  const firstV2Order = initialFractionalIndex();
+  store.commit(events.cellCreated2({
+    id: "v2-cell-1",
+    fractionalIndex: firstV2Order,
+    cellType: "ai",
+    createdBy: "user2",
+  }));
+
+  const secondV2Order = fractionalIndexBetween(firstV2Order, null);
+  store.commit(events.cellCreated2({
+    id: "v2-cell-2",
+    fractionalIndex: secondV2Order,
+    cellType: "sql",
+    createdBy: "user2",
+  }));
+
+  // Query all cells
+  const allCells = store.query(tables.cells);
+  assertEquals(allCells.length, 4);
+
+  // v1 cells have position but no fractionalIndex
+  const v1Cells = allCells.filter((c) => c.id.startsWith("v1-"));
+  assertEquals(v1Cells.length, 2);
+  v1Cells.forEach((cell) => {
+    assert(cell.position !== null);
+    assertEquals(cell.fractionalIndex, null);
+  });
+
+  // v2 cells have fractionalIndex
+  const v2Cells = allCells.filter((c) => c.id.startsWith("v2-"));
+  assertEquals(v2Cells.length, 2);
+  v2Cells.forEach((cell) => {
+    assert(cell.fractionalIndex !== null);
+    assertEquals(cell.position, 0); // Default value
+  });
+
+  store.shutdown();
+});
+
+Deno.test("v2.CellCreated - bulk cell import", async () => {
+  const store = await setupStore();
+  const { generateFractionalIndices } = await import("@runt/schema");
+
+  // Simulate importing 10 cells at once
+  const cellCount = 10;
+  const indices = generateFractionalIndices(cellCount);
+
+  // Create all cells
+  for (let i = 0; i < cellCount; i++) {
+    store.commit(events.cellCreated2({
+      id: `imported-cell-${i}`,
+      fractionalIndex: indices[i],
+      cellType: i % 3 === 0 ? "markdown" : i % 3 === 1 ? "code" : "ai",
+      createdBy: "importer",
+    }));
+  }
+
+  // Verify all cells were created in order
+  const orderedCells = store.query(
+    tables.cells.select().orderBy("fractionalIndex", "asc"),
+  );
+
+  assertEquals(orderedCells.length, cellCount);
+
+  // Verify ordering is correct
+  for (let i = 0; i < cellCount; i++) {
+    assertEquals(orderedCells[i].id, `imported-cell-${i}`);
+  }
+
+  // Verify fractional indices are properly spaced
+  for (let i = 1; i < orderedCells.length; i++) {
+    assert(
+      orderedCells[i].fractionalIndex! > orderedCells[i - 1].fractionalIndex!,
+      `Cell ${i} should have greater fractionalIndex than cell ${i - 1}`,
+    );
+  }
+
+  store.shutdown();
+});
+
+Deno.test("v2.CellCreated - extreme insertion patterns", async () => {
+  const store = await setupStore();
+  const { fractionalIndexBetween, initialFractionalIndex } = await import(
+    "@runt/schema"
+  );
+
+  // Start with one cell
+  let indices: string[] = [initialFractionalIndex()];
+  store.commit(events.cellCreated2({
+    id: "cell-0",
+    fractionalIndex: indices[0],
+    cellType: "code",
+    createdBy: "user",
+  }));
+
+  // Always insert at the beginning (stress test for "before" insertions)
+  for (let i = 1; i <= 5; i++) {
+    const newIndex = fractionalIndexBetween(null, indices[0]);
+    indices.unshift(newIndex);
+    store.commit(events.cellCreated2({
+      id: `cell-before-${i}`,
+      fractionalIndex: newIndex,
+      cellType: "code",
+      createdBy: "user",
+    }));
+  }
+
+  // Always insert between first two cells (stress test fractional precision)
+  for (let i = 1; i <= 5; i++) {
+    const newIndex = fractionalIndexBetween(indices[0], indices[1]);
+    indices.splice(1, 0, newIndex);
+    store.commit(events.cellCreated2({
+      id: `cell-between-${i}`,
+      fractionalIndex: newIndex,
+      cellType: "markdown",
+      createdBy: "user",
+    }));
+  }
+
+  // Verify all cells exist and are properly ordered
+  const orderedCells = store.query(
+    tables.cells.select().orderBy("fractionalIndex", "asc"),
+  ).filter((c) => c.fractionalIndex !== null);
+
+  assertEquals(orderedCells.length, 11); // 1 original + 5 before + 5 between
+
+  // Verify the fractional indices don't get too long
+  const maxIndexLength = Math.max(
+    ...orderedCells.map((c) => c.fractionalIndex!.length),
+  );
+  assert(
+    maxIndexLength < 10,
+    `Fractional indices should stay reasonably short, got max length: ${maxIndexLength}`,
+  );
+
+  // Verify ordering is maintained
+  for (let i = 1; i < orderedCells.length; i++) {
+    assert(
+      orderedCells[i].fractionalIndex! > orderedCells[i - 1].fractionalIndex!,
+      `Ordering broken at index ${i}`,
+    );
+  }
+
+  store.shutdown();
+});
+
 Deno.test("fractional indexing - concurrent inserts", async () => {
   const { fractionalIndexBetween } = await import("@runt/schema");
 
