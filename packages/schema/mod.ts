@@ -182,6 +182,8 @@ const MediaRepresentationSchema = Schema.Union(
   }),
 );
 
+const CellType = Schema.Literal("code", "markdown", "sql", "raw", "ai");
+
 export const tables = {
   debug: State.SQLite.table({
     name: "debug",
@@ -214,7 +216,7 @@ export const tables = {
     columns: {
       id: State.SQLite.text({ primaryKey: true }),
       cellType: State.SQLite.text({
-        schema: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
+        schema: CellType,
       }),
       source: State.SQLite.text({ default: "" }),
       position: State.SQLite.real(),
@@ -458,7 +460,28 @@ export const events = {
     name: "v1.CellCreated",
     schema: Schema.Struct({
       id: Schema.String,
-      cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
+      cellType: CellType,
+      position: Schema.Number,
+      createdBy: Schema.String,
+      actorId: Schema.optional(Schema.String),
+    }),
+  }),
+
+  /**
+  v2 cell created
+  // If both beforeId and afterId are *not* provided, the cell is inserted at the end of the notebook.
+   {
+     id: CellId,
+     beforeId?: CellId,
+     afterId?: CellId,
+     cellType: CellType,
+   }
+   */
+  cellCreated2: Events.synced({
+    name: "v2.CellCreated",
+    schema: Schema.Struct({
+      id: Schema.String,
+      cellType: CellType,
       position: Schema.Number,
       createdBy: Schema.String,
       actorId: Schema.optional(Schema.String),
@@ -478,7 +501,7 @@ export const events = {
     name: "v1.CellTypeChanged",
     schema: Schema.Struct({
       id: Schema.String,
-      cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
+      cellType: CellType,
       actorId: Schema.optional(Schema.String),
     }),
   }),
@@ -962,6 +985,19 @@ export const materializers = State.SQLite.materializers(events, {
 
   // Cell materializers
   "v1.CellCreated": ({ id, cellType, position, createdBy, actorId }) => [
+    tables.cells
+      .insert({
+        id,
+        cellType,
+        position,
+        createdBy,
+      })
+      .onConflict("id", "ignore"),
+    // Update presence table
+    updatePresence(actorId || createdBy, id),
+  ],
+
+  "v2.CellCreated": ({ id, cellType, position, createdBy, actorId }) => [
     tables.cells
       .insert({
         id,
@@ -1520,9 +1556,6 @@ export type OutputData = typeof tables.outputs.Type;
 export type RuntimeSessionData = typeof tables.runtimeSessions.Type;
 export type ExecutionQueueData = typeof tables.executionQueue.Type;
 export type UiStateData = typeof tables.uiState.Type;
-
-// Cell types
-export type CellType = "code" | "markdown" | "raw" | "sql" | "ai";
 
 // Execution states
 export type ExecutionState =
