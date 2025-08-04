@@ -1,8 +1,5 @@
 import { Events, Schema, SessionIdSymbol, State } from "@livestore/livestore";
-import {
-  generateJitteredKeyBetween,
-  generateNJitteredKeysBetween,
-} from "fractional-indexing-jittered";
+import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 
 /**
  * CLIENT AUTHENTICATION PATTERNS
@@ -1738,15 +1735,40 @@ export const AI_TOOL_CALL_MIME_TYPE =
 export const AI_TOOL_RESULT_MIME_TYPE =
   "application/vnd.anode.aitool.result+json" as const;
 
-// Export fractional indexing utilities from jittered library
-export {
-  generateJitteredKeyBetween as fractionalIndexBetween,
-  generateNJitteredKeysBetween as generateFractionalIndices,
-} from "fractional-indexing-jittered";
+// Add optional jittering to fractional indices
+function addJitter(key: string, jitterLength: number = 3): string {
+  const chars =
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  let jitter = "";
+  for (let i = 0; i < jitterLength; i++) {
+    jitter += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return key + jitter;
+}
+
+// Export fractional indexing utilities with optional jittering
+export function fractionalIndexBetween(
+  a: string | null | undefined,
+  b: string | null | undefined,
+  useJitter: boolean = true,
+): string {
+  const key = generateKeyBetween(a, b);
+  return useJitter ? addJitter(key) : key;
+}
+
+export function generateFractionalIndices(
+  a: string | null | undefined,
+  b: string | null | undefined,
+  n: number,
+  useJitter: boolean = true,
+): string[] {
+  const keys = generateNKeysBetween(a, b, n);
+  return useJitter ? keys.map((key) => addJitter(key)) : keys;
+}
 
 // Helper to get initial fractional index
-export function initialFractionalIndex(): string {
-  return generateJitteredKeyBetween(null, null);
+export function initialFractionalIndex(useJitter: boolean = true): string {
+  return fractionalIndexBetween(null, null, useJitter);
 }
 
 // Helper to validate fractional index (basic check)
@@ -1757,7 +1779,7 @@ export function isValidFractionalIndex(index: string): boolean {
 // Helper functions to create cell events with proper fractional indexing
 export function createCellAfter(
   afterCellId: string | null,
-  cells: CellData[],
+  cells: Array<{ id: string; fractionalIndex: string | null }>,
   cellData: {
     id: string;
     cellType: "code" | "markdown" | "sql" | "raw" | "ai";
@@ -1784,7 +1806,7 @@ export function createCellAfter(
     nextKey = sortedCells[0].fractionalIndex!;
   }
 
-  const fractionalIndex = generateJitteredKeyBetween(previousKey, nextKey);
+  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
 
   return events.cellCreated2({
     ...cellData,
@@ -1794,7 +1816,7 @@ export function createCellAfter(
 
 export function createCellBefore(
   beforeCellId: string | null,
-  cells: CellData[],
+  cells: Array<{ id: string; fractionalIndex: string | null }>,
   cellData: {
     id: string;
     cellType: "code" | "markdown" | "sql" | "raw" | "ai";
@@ -1821,7 +1843,7 @@ export function createCellBefore(
     previousKey = sortedCells[sortedCells.length - 1].fractionalIndex!;
   }
 
-  const fractionalIndex = generateJitteredKeyBetween(previousKey, nextKey);
+  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
 
   return events.cellCreated2({
     ...cellData,
@@ -1831,7 +1853,7 @@ export function createCellBefore(
 
 export function createCellAtPosition(
   position: number,
-  cells: CellData[],
+  cells: Array<{ id: string; fractionalIndex: string | null }>,
   cellData: {
     id: string;
     cellType: "code" | "markdown" | "sql" | "raw" | "ai";
@@ -1855,7 +1877,7 @@ export function createCellAtPosition(
     nextKey = sortedCells[clampedPosition].fractionalIndex!;
   }
 
-  const fractionalIndex = generateJitteredKeyBetween(previousKey, nextKey);
+  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
 
   return events.cellCreated2({
     ...cellData,
