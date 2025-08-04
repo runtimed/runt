@@ -1,4 +1,8 @@
 import { Events, Schema, SessionIdSymbol, State } from "@livestore/livestore";
+import {
+  generateJitteredKeyBetween,
+  generateNJitteredKeysBetween,
+} from "fractional-indexing-jittered";
 
 /**
  * CLIENT AUTHENTICATION PATTERNS
@@ -487,7 +491,9 @@ export const events = {
     name: "v2.CellCreated",
     schema: Schema.Struct({
       id: Schema.String,
-      fractionalIndex: Schema.String,
+      fractionalIndex: Schema.String.annotations({
+        description: "Jittered fractional index for deterministic ordering",
+      }),
       cellType: CellType,
       createdBy: Schema.String,
     }),
@@ -1732,13 +1738,130 @@ export const AI_TOOL_CALL_MIME_TYPE =
 export const AI_TOOL_RESULT_MIME_TYPE =
   "application/vnd.anode.aitool.result+json" as const;
 
-// Export fractional indexing utilities
+// Export fractional indexing utilities from jittered library
 export {
-  fractionalIndexBetween,
-  generateFractionalIndices,
-  initialFractionalIndex,
-  isValidFractionalIndex,
-} from "./src/fractional-indexing.ts";
+  generateJitteredKeyBetween as fractionalIndexBetween,
+  generateNJitteredKeysBetween as generateFractionalIndices,
+} from "fractional-indexing-jittered";
+
+// Helper to get initial fractional index
+export function initialFractionalIndex(): string {
+  return generateJitteredKeyBetween(null, null);
+}
+
+// Helper to validate fractional index (basic check)
+export function isValidFractionalIndex(index: string): boolean {
+  return typeof index === "string" && index.length > 0;
+}
+
+// Helper functions to create cell events with proper fractional indexing
+export function createCellAfter(
+  afterCellId: string | null,
+  cells: CellData[],
+  cellData: {
+    id: string;
+    cellType: "code" | "markdown" | "sql" | "raw" | "ai";
+    createdBy: string;
+  },
+): ReturnType<typeof events.cellCreated2> {
+  const sortedCells = cells.filter((c) => c.fractionalIndex).sort((a, b) =>
+    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
+  );
+
+  let previousKey: string | null = null;
+  let nextKey: string | null = null;
+
+  if (afterCellId) {
+    const cellIndex = sortedCells.findIndex((c) => c.id === afterCellId);
+    if (cellIndex >= 0) {
+      previousKey = sortedCells[cellIndex].fractionalIndex!;
+      if (cellIndex < sortedCells.length - 1) {
+        nextKey = sortedCells[cellIndex + 1].fractionalIndex!;
+      }
+    }
+  } else if (sortedCells.length > 0) {
+    // Insert at beginning
+    nextKey = sortedCells[0].fractionalIndex!;
+  }
+
+  const fractionalIndex = generateJitteredKeyBetween(previousKey, nextKey);
+
+  return events.cellCreated2({
+    ...cellData,
+    fractionalIndex,
+  });
+}
+
+export function createCellBefore(
+  beforeCellId: string | null,
+  cells: CellData[],
+  cellData: {
+    id: string;
+    cellType: "code" | "markdown" | "sql" | "raw" | "ai";
+    createdBy: string;
+  },
+): ReturnType<typeof events.cellCreated2> {
+  const sortedCells = cells.filter((c) => c.fractionalIndex).sort((a, b) =>
+    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
+  );
+
+  let previousKey: string | null = null;
+  let nextKey: string | null = null;
+
+  if (beforeCellId) {
+    const cellIndex = sortedCells.findIndex((c) => c.id === beforeCellId);
+    if (cellIndex >= 0) {
+      nextKey = sortedCells[cellIndex].fractionalIndex!;
+      if (cellIndex > 0) {
+        previousKey = sortedCells[cellIndex - 1].fractionalIndex!;
+      }
+    }
+  } else if (sortedCells.length > 0) {
+    // Insert at end
+    previousKey = sortedCells[sortedCells.length - 1].fractionalIndex!;
+  }
+
+  const fractionalIndex = generateJitteredKeyBetween(previousKey, nextKey);
+
+  return events.cellCreated2({
+    ...cellData,
+    fractionalIndex,
+  });
+}
+
+export function createCellAtPosition(
+  position: number,
+  cells: CellData[],
+  cellData: {
+    id: string;
+    cellType: "code" | "markdown" | "sql" | "raw" | "ai";
+    createdBy: string;
+  },
+): ReturnType<typeof events.cellCreated2> {
+  const sortedCells = cells.filter((c) => c.fractionalIndex).sort((a, b) =>
+    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
+  );
+
+  // Clamp position to valid range
+  const clampedPosition = Math.max(0, Math.min(position, sortedCells.length));
+
+  let previousKey: string | null = null;
+  let nextKey: string | null = null;
+
+  if (clampedPosition > 0) {
+    previousKey = sortedCells[clampedPosition - 1].fractionalIndex!;
+  }
+  if (clampedPosition < sortedCells.length) {
+    nextKey = sortedCells[clampedPosition].fractionalIndex!;
+  }
+
+  const fractionalIndex = generateJitteredKeyBetween(previousKey, nextKey);
+
+  return events.cellCreated2({
+    ...cellData,
+    fractionalIndex,
+  });
+}
 
 // Pre 0.7.1 -- these types should get created in clients
 // const state = State.SQLite.makeState({ tables, materializers });
