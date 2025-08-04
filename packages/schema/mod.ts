@@ -481,9 +481,9 @@ export const events = {
     name: "v2.CellCreated",
     schema: Schema.Struct({
       id: Schema.String,
+      beforeId: Schema.optional(Schema.String),
+      afterId: Schema.optional(Schema.String),
       cellType: CellType,
-      position: Schema.Number,
-      createdBy: Schema.String,
       actorId: Schema.optional(Schema.String),
     }),
   }),
@@ -997,18 +997,9 @@ export const materializers = State.SQLite.materializers(events, {
     updatePresence(actorId || createdBy, id),
   ],
 
-  "v2.CellCreated": ({ id, cellType, position, createdBy, actorId }) => [
-    tables.cells
-      .insert({
-        id,
-        cellType,
-        position,
-        createdBy,
-      })
-      .onConflict("id", "ignore"),
-    // Update presence table
-    updatePresence(actorId || createdBy, id),
-  ],
+  "v2.CellCreated": () => {
+    return [];
+  },
 
   "v1.CellSourceChanged": ({ id, source, modifiedBy }) => [
     tables.cells.update({ source }).where({ id }),
