@@ -582,6 +582,17 @@ export const events = {
     }),
   }),
 
+  cellMoved2: Events.synced({
+    name: "v2.CellMoved",
+    schema: Schema.Struct({
+      id: Schema.String,
+      fractionalIndex: Schema.String.annotations({
+        description: "New fractional index position for the cell",
+      }),
+      actorId: Schema.optional(Schema.String),
+    }),
+  }),
+
   cellSourceVisibilityToggled: Events.synced({
     name: "v1.CellSourceVisibilityToggled",
     schema: Schema.Struct({
@@ -1104,6 +1115,15 @@ export const materializers = State.SQLite.materializers(events, {
   "v1.CellMoved": ({ id, newPosition, actorId }) => {
     const ops = [];
     ops.push(tables.cells.update({ position: newPosition }).where({ id }));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+    return ops;
+  },
+
+  "v2.CellMoved": ({ id, fractionalIndex, actorId }) => {
+    const ops = [];
+    ops.push(tables.cells.update({ fractionalIndex }).where({ id }));
     if (actorId) {
       ops.push(updatePresence(actorId, id));
     }
@@ -1954,6 +1974,207 @@ export function createCellAtPosition(
   return events.cellCreated2({
     ...cellData,
     fractionalIndex,
+  });
+}
+
+/**
+ * Move a cell after another cell using fractional indices
+ */
+export function moveCellAfter(
+  cellId: string,
+  afterCellId: string | null,
+  cells: Array<{ id: string; fractionalIndex: string | null }>,
+  actorId?: string,
+): ReturnType<typeof events.cellMoved2> | null {
+  // Check if the cell to move exists
+  const cellToMove = cells.find((c) => c.id === cellId);
+  if (!cellToMove || !cellToMove.fractionalIndex) {
+    return null;
+  }
+
+  // Only consider cells with valid fractionalIndex for ordering
+  const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
+  const sortedCells = cellsWithIndex.sort((a, b) =>
+    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
+  );
+
+  // Find current position
+  const currentIndex = sortedCells.findIndex((c) => c.id === cellId);
+
+  // Check if already in target position
+  if (afterCellId === null) {
+    // Moving to beginning - check if already first
+    if (currentIndex === 0) {
+      return null;
+    }
+  } else {
+    // Check if already right after the afterCellId
+    const afterIndex = sortedCells.findIndex((c) => c.id === afterCellId);
+    if (afterIndex !== -1 && currentIndex === afterIndex + 1) {
+      return null;
+    }
+  }
+
+  // Exclude the cell being moved for position calculation
+  const otherCells = sortedCells.filter((c) => c.id !== cellId);
+
+  let previousKey: string | null = null;
+  let nextKey: string | null = null;
+
+  if (afterCellId === null) {
+    // Moving to the beginning
+    if (otherCells.length > 0) {
+      nextKey = otherCells[0]?.fractionalIndex || null;
+    }
+  } else {
+    // Find the after cell
+    const afterCell = otherCells.find((c) => c.id === afterCellId);
+    if (!afterCell) {
+      return null; // After cell not found
+    }
+
+    previousKey = afterCell.fractionalIndex;
+
+    // Find the next cell after the afterCell
+    const afterIndex = otherCells.indexOf(afterCell);
+    if (afterIndex < otherCells.length - 1) {
+      nextKey = otherCells[afterIndex + 1]?.fractionalIndex || null;
+    }
+  }
+
+  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
+
+  return events.cellMoved2({
+    id: cellId,
+    fractionalIndex,
+    actorId,
+  });
+}
+
+/**
+ * Move a cell before another cell using fractional indices
+ */
+export function moveCellBefore(
+  cellId: string,
+  beforeCellId: string | null,
+  cells: Array<{ id: string; fractionalIndex: string | null }>,
+  actorId?: string,
+): ReturnType<typeof events.cellMoved2> | null {
+  // Check if the cell to move exists
+  const cellToMove = cells.find((c) => c.id === cellId);
+  if (!cellToMove || !cellToMove.fractionalIndex) {
+    return null;
+  }
+
+  // Only consider cells with valid fractionalIndex for ordering
+  const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
+  const sortedCells = cellsWithIndex.sort((a, b) =>
+    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
+  );
+
+  // Find current position
+  const currentIndex = sortedCells.findIndex((c) => c.id === cellId);
+
+  // Check if already in target position
+  if (beforeCellId === null) {
+    // Moving to end - check if already last
+    if (currentIndex === sortedCells.length - 1) {
+      return null;
+    }
+  } else {
+    // Check if already right before the beforeCellId
+    const beforeIndex = sortedCells.findIndex((c) => c.id === beforeCellId);
+    if (beforeIndex !== -1 && currentIndex === beforeIndex - 1) {
+      return null;
+    }
+  }
+
+  // Exclude the cell being moved for position calculation
+  const otherCells = sortedCells.filter((c) => c.id !== cellId);
+
+  let previousKey: string | null = null;
+  let nextKey: string | null = null;
+
+  if (beforeCellId === null) {
+    // Moving to the end
+    if (otherCells.length > 0) {
+      previousKey = otherCells[otherCells.length - 1]?.fractionalIndex || null;
+    }
+  } else {
+    // Find the before cell
+    const beforeCell = otherCells.find((c) => c.id === beforeCellId);
+    if (!beforeCell) {
+      return null; // Before cell not found
+    }
+
+    nextKey = beforeCell.fractionalIndex;
+
+    // Find the previous cell before the beforeCell
+    const beforeIndex = otherCells.indexOf(beforeCell);
+    if (beforeIndex > 0) {
+      previousKey = otherCells[beforeIndex - 1]?.fractionalIndex || null;
+    }
+  }
+
+  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
+
+  return events.cellMoved2({
+    id: cellId,
+    fractionalIndex,
+    actorId,
+  });
+}
+
+/**
+ * Move a cell to a specific position using fractional indices
+ */
+export function moveCellToPosition(
+  cellId: string,
+  position: number,
+  cells: Array<{ id: string; fractionalIndex: string | null }>,
+  actorId?: string,
+): ReturnType<typeof events.cellMoved2> | null {
+  // Check if the cell to move exists
+  const cellToMove = cells.find((c) => c.id === cellId);
+  if (!cellToMove || !cellToMove.fractionalIndex) {
+    return null;
+  }
+
+  // Only consider cells with valid fractionalIndex for ordering
+  const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
+  const sortedCells = cellsWithIndex.sort((a, b) =>
+    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
+  );
+
+  // Find current position
+  const currentIndex = sortedCells.findIndex((c) => c.id === cellId);
+  if (currentIndex === position) {
+    // Already at target position
+    return null;
+  }
+
+  // Exclude the cell being moved for position calculation
+  const otherCells = sortedCells.filter((c) => c.id !== cellId);
+
+  // Clamp position to valid range
+  const clampedPosition = Math.max(0, Math.min(position, otherCells.length));
+
+  let previousKey: string | null = null;
+  let nextKey: string | null = null;
+
+  if (clampedPosition > 0) {
+    previousKey = otherCells[clampedPosition - 1]?.fractionalIndex || null;
+  }
+  if (clampedPosition < otherCells.length) {
+    nextKey = otherCells[clampedPosition]?.fractionalIndex || null;
+  }
+
+  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
+
+  return events.cellMoved2({
+    id: cellId,
+    fractionalIndex,
+    actorId,
   });
 }
 
