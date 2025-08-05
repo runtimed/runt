@@ -1,4 +1,5 @@
 import { Events, Schema, SessionIdSymbol, State } from "@livestore/livestore";
+import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 
 /**
  * CLIENT AUTHENTICATION PATTERNS
@@ -14,9 +15,9 @@ import { Events, Schema, SessionIdSymbol, State } from "@livestore/livestore";
  * - ClientId must be non-numeric to prevent user impersonation
  *
  * USER CLIENTS (runtime: false/undefined):
- * - Regular users: clientId = authenticated user ID (numeric Google ID)
+ * - Regular users: clientId = authenticated user ID
  * - Anonymous users: clientId = "anonymous-user"
- * - User clients use Google OAuth tokens for authentication
+ * - User clients use OIDC tokens for authentication
  * - ClientId must match authenticated user ID
  *
  * PRESENCE DISPLAY:
@@ -182,6 +183,84 @@ const MediaRepresentationSchema = Schema.Union(
   }),
 );
 
+// TypeScript type for cell types
+export type CellType = "code" | "markdown" | "sql" | "raw" | "ai";
+
+// Schema for cell type validation
+export const CellTypeSchema = Schema.Literal(
+  "code",
+  "markdown",
+  "sql",
+  "raw",
+  "ai",
+);
+
+// Execution state types
+export type ExecutionState =
+  | "idle"
+  | "queued"
+  | "running"
+  | "completed"
+  | "error";
+export const ExecutionStateSchema = Schema.Literal(
+  "idle",
+  "queued",
+  "running",
+  "completed",
+  "error",
+);
+
+// Output types
+export type OutputType =
+  | "multimedia_display"
+  | "multimedia_result"
+  | "terminal"
+  | "markdown"
+  | "error";
+export const OutputTypeSchema = Schema.Literal(
+  "multimedia_display",
+  "multimedia_result",
+  "terminal",
+  "markdown",
+  "error",
+);
+
+// Runtime status types
+export type RuntimeStatus =
+  | "starting"
+  | "ready"
+  | "busy"
+  | "restarting"
+  | "terminated";
+export const RuntimeStatusSchema = Schema.Literal(
+  "starting",
+  "ready",
+  "busy",
+  "restarting",
+  "terminated",
+);
+
+// Queue status types
+export type QueueStatus =
+  | "pending"
+  | "assigned"
+  | "executing"
+  | "completed"
+  | "failed"
+  | "cancelled";
+export const QueueStatusSchema = Schema.Literal(
+  "pending",
+  "assigned",
+  "executing",
+  "completed",
+  "failed",
+  "cancelled",
+);
+
+// Actor types
+export type ActorType = "human" | "runtime_agent";
+export const ActorTypeSchema = Schema.Literal("human", "runtime_agent");
+
 export const tables = {
   debug: State.SQLite.table({
     name: "debug",
@@ -214,22 +293,17 @@ export const tables = {
     columns: {
       id: State.SQLite.text({ primaryKey: true }),
       cellType: State.SQLite.text({
-        schema: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
+        schema: CellTypeSchema,
       }),
       source: State.SQLite.text({ default: "" }),
       position: State.SQLite.real(),
+      fractionalIndex: State.SQLite.text({ nullable: true }), // Fractional index for deterministic ordering
 
       // Execution state
       executionCount: State.SQLite.integer({ nullable: true }),
       executionState: State.SQLite.text({
         default: "idle",
-        schema: Schema.Literal(
-          "idle",
-          "queued",
-          "running",
-          "completed",
-          "error",
-        ),
+        schema: ExecutionStateSchema,
       }),
       assignedRuntimeSession: State.SQLite.text({ nullable: true }), // Which runtime session is handling this
       lastExecutionDurationMs: State.SQLite.integer({ nullable: true }), // Duration of last execution in milliseconds
@@ -268,13 +342,7 @@ export const tables = {
       id: State.SQLite.text({ primaryKey: true }),
       cellId: State.SQLite.text(),
       outputType: State.SQLite.text({
-        schema: Schema.Literal(
-          "multimedia_display",
-          "multimedia_result",
-          "terminal",
-          "markdown",
-          "error",
-        ),
+        schema: OutputTypeSchema,
       }),
       position: State.SQLite.real(),
 
@@ -319,13 +387,7 @@ export const tables = {
       runtimeId: State.SQLite.text(), // Stable runtime identifier
       runtimeType: State.SQLite.text({ default: "python3" }),
       status: State.SQLite.text({
-        schema: Schema.Literal(
-          "starting",
-          "ready",
-          "busy",
-          "restarting",
-          "terminated",
-        ),
+        schema: RuntimeStatusSchema,
       }),
       isActive: State.SQLite.boolean({ default: true }),
 
@@ -352,14 +414,7 @@ export const tables = {
       // Queue management
       status: State.SQLite.text({
         default: "pending",
-        schema: Schema.Literal(
-          "pending",
-          "assigned",
-          "executing",
-          "completed",
-          "failed",
-          "cancelled",
-        ),
+        schema: QueueStatusSchema,
       }),
       assignedRuntimeSession: State.SQLite.text({ nullable: true }),
 
@@ -458,10 +513,37 @@ export const events = {
     name: "v1.CellCreated",
     schema: Schema.Struct({
       id: Schema.String,
-      cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
+      cellType: CellTypeSchema,
       position: Schema.Number,
       createdBy: Schema.String,
       actorId: Schema.optional(Schema.String),
+    }),
+  }),
+
+  /**
+  v2 cell created with fractional indexing
+   {
+     id: CellId,
+     fractionalIndex: string, // Fractional index (e.g., "a0", "a5", "b0")
+     cellType: CellType,
+   }
+
+   Note: fractionalIndex column has been added to cells table.
+   Future migration steps:
+   1. Migrate existing cells to use fractional indices based on position
+   2. Update all queries to use ORDER BY fractionalIndex instead of position
+   3. Eventually deprecate position column from cells table
+   4. Update v1.CellCreated to calculate fractional index
+   */
+  cellCreated2: Events.synced({
+    name: "v2.CellCreated",
+    schema: Schema.Struct({
+      id: Schema.String,
+      fractionalIndex: Schema.String.annotations({
+        description: "Jittered fractional index for deterministic ordering",
+      }),
+      cellType: CellTypeSchema,
+      createdBy: Schema.String,
     }),
   }),
 
@@ -478,7 +560,7 @@ export const events = {
     name: "v1.CellTypeChanged",
     schema: Schema.Struct({
       id: Schema.String,
-      cellType: Schema.Literal("code", "markdown", "raw", "sql", "ai"),
+      cellType: CellTypeSchema,
       actorId: Schema.optional(Schema.String),
     }),
   }),
@@ -785,7 +867,7 @@ export const events = {
     name: "v1.ActorProfileSet",
     schema: Schema.Struct({
       id: Schema.String,
-      type: Schema.Literal("human", "runtime_agent"),
+      type: ActorTypeSchema,
       displayName: Schema.String,
       avatar: Schema.optional(Schema.String),
     }),
@@ -973,6 +1055,29 @@ export const materializers = State.SQLite.materializers(events, {
     // Update presence table
     updatePresence(actorId || createdBy, id),
   ],
+
+  "v2.CellCreated": ({ id, fractionalIndex, cellType, createdBy }) => {
+    // With fractional indexing, we don't need ctx.query!
+    // The order is already calculated client-side
+    const ops = [];
+
+    ops.push(
+      tables.cells
+        .insert({
+          id,
+          cellType,
+          position: 0, // Keep position for backward compatibility
+          fractionalIndex, // New fractional index
+          createdBy,
+        })
+        .onConflict("id", "ignore"),
+    );
+
+    // Update presence for the creator
+    ops.push(updatePresence(createdBy, id));
+
+    return ops;
+  },
 
   "v1.CellSourceChanged": ({ id, source, modifiedBy }) => [
     tables.cells.update({ source }).where({ id }),
@@ -1521,41 +1626,6 @@ export type RuntimeSessionData = typeof tables.runtimeSessions.Type;
 export type ExecutionQueueData = typeof tables.executionQueue.Type;
 export type UiStateData = typeof tables.uiState.Type;
 
-// Cell types
-export type CellType = "code" | "markdown" | "raw" | "sql" | "ai";
-
-// Execution states
-export type ExecutionState =
-  | "idle"
-  | "queued"
-  | "running"
-  | "completed"
-  | "error";
-
-// Runtime session statuses
-export type RuntimeStatus =
-  | "starting"
-  | "ready"
-  | "busy"
-  | "restarting"
-  | "terminated";
-
-// Queue statuses
-export type QueueStatus =
-  | "pending"
-  | "assigned"
-  | "executing"
-  | "completed"
-  | "failed"
-  | "cancelled";
-
-// Output types
-export type OutputType =
-  | "display_data"
-  | "execute_result"
-  | "terminal"
-  | "error";
-
 // Type guards for MediaContainer
 export function isInlineContainer<T>(
   container: MediaContainer,
@@ -1685,6 +1755,202 @@ export const AI_TOOL_CALL_MIME_TYPE =
  */
 export const AI_TOOL_RESULT_MIME_TYPE =
   "application/vnd.anode.aitool.result+json" as const;
+
+// JitterProvider interface for dependency injection
+export interface JitterProvider {
+  addJitter(key: string): string;
+}
+
+// Default jitter provider that adds random suffix
+export class RandomJitterProvider implements JitterProvider {
+  constructor(private readonly length: number = 3) {}
+
+  addJitter(key: string): string {
+    const chars =
+      "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    let jitter = "";
+    for (let i = 0; i < this.length; i++) {
+      jitter += chars[Math.floor(Math.random() * chars.length)];
+    }
+    // Separate jitter with underscore to maintain valid key format
+    return key + "_" + jitter;
+  }
+}
+
+// No-op jitter provider for tests
+export class NoJitterProvider implements JitterProvider {
+  addJitter(key: string): string {
+    return key;
+  }
+}
+
+// Default jitter provider instance
+const defaultJitterProvider = new RandomJitterProvider();
+
+// Export fractional indexing utilities with optional jittering
+export function fractionalIndexBetween(
+  a: string | null | undefined,
+  b: string | null | undefined,
+  jitterProvider: JitterProvider = defaultJitterProvider,
+): string {
+  // Extract base key if it contains jitter (separated by underscore)
+  const cleanA = a ? a.split("_")[0] : a;
+  const cleanB = b ? b.split("_")[0] : b;
+
+  const key = generateKeyBetween(cleanA, cleanB);
+  return jitterProvider.addJitter(key);
+}
+
+export function generateFractionalIndices(
+  a: string | null | undefined,
+  b: string | null | undefined,
+  n: number,
+  jitterProvider: JitterProvider = defaultJitterProvider,
+): string[] {
+  const cleanA = a ? a.split("_")[0] : a;
+  const cleanB = b ? b.split("_")[0] : b;
+
+  const keys = generateNKeysBetween(cleanA, cleanB, n);
+  return keys.map((key) => jitterProvider.addJitter(key));
+}
+
+// Helper to get initial fractional index
+export function initialFractionalIndex(
+  jitterProvider: JitterProvider = defaultJitterProvider,
+): string {
+  return fractionalIndexBetween(null, null, jitterProvider);
+}
+
+// Helper to validate fractional index (basic check)
+export function isValidFractionalIndex(index: string): boolean {
+  return typeof index === "string" && index.length > 0;
+}
+
+// Helper functions to create cell events with proper fractional indexing
+export function createCellAfter(
+  afterCellId: string | null,
+  cells: Array<{ id: string; fractionalIndex: string | null }>,
+  cellData: {
+    id: string;
+    cellType: CellType;
+    createdBy: string;
+  },
+): ReturnType<typeof events.cellCreated2> {
+  const sortedCells = cells.filter((c) => c.fractionalIndex).sort((a, b) =>
+    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
+  );
+
+  let previousKey: string | null = null;
+  let nextKey: string | null = null;
+
+  if (afterCellId) {
+    const cellIndex = sortedCells.findIndex((c) => c.id === afterCellId);
+    if (cellIndex >= 0) {
+      const currentCell = sortedCells[cellIndex];
+      if (currentCell) {
+        previousKey = currentCell.fractionalIndex!;
+        const nextCell = sortedCells[cellIndex + 1];
+        if (nextCell) {
+          nextKey = nextCell.fractionalIndex!;
+        }
+      }
+    }
+  } else if (sortedCells.length > 0 && sortedCells[0]) {
+    // Insert at beginning
+    nextKey = sortedCells[0].fractionalIndex!;
+  }
+
+  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
+
+  return events.cellCreated2({
+    ...cellData,
+    fractionalIndex,
+  });
+}
+
+export function createCellBefore(
+  beforeCellId: string | null,
+  cells: Array<{ id: string; fractionalIndex: string | null }>,
+  cellData: {
+    id: string;
+    cellType: CellType;
+    createdBy: string;
+  },
+): ReturnType<typeof events.cellCreated2> {
+  const sortedCells = cells.filter((c) => c.fractionalIndex).sort((a, b) =>
+    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
+  );
+
+  let previousKey: string | null = null;
+  let nextKey: string | null = null;
+
+  if (beforeCellId) {
+    const cellIndex = sortedCells.findIndex((c) => c.id === beforeCellId);
+    if (cellIndex >= 0) {
+      const currentCell = sortedCells[cellIndex];
+      if (currentCell) {
+        nextKey = currentCell.fractionalIndex!;
+        const prevCell = sortedCells[cellIndex - 1];
+        if (prevCell) {
+          previousKey = prevCell.fractionalIndex!;
+        }
+      }
+    }
+  } else if (sortedCells.length > 0) {
+    // Insert at end
+    const lastCell = sortedCells[sortedCells.length - 1];
+    if (lastCell) {
+      previousKey = lastCell.fractionalIndex!;
+    }
+  }
+
+  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
+
+  return events.cellCreated2({
+    ...cellData,
+    fractionalIndex,
+  });
+}
+
+export function createCellAtPosition(
+  position: number,
+  cells: Array<{ id: string; fractionalIndex: string | null }>,
+  cellData: {
+    id: string;
+    cellType: CellType;
+    createdBy: string;
+  },
+): ReturnType<typeof events.cellCreated2> {
+  const sortedCells = cells.filter((c) => c.fractionalIndex).sort((a, b) =>
+    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
+  );
+
+  // Clamp position to valid range
+  const clampedPosition = Math.max(0, Math.min(position, sortedCells.length));
+
+  let previousKey: string | null = null;
+  let nextKey: string | null = null;
+
+  if (clampedPosition > 0) {
+    const prevCell = sortedCells[clampedPosition - 1];
+    if (prevCell) {
+      previousKey = prevCell.fractionalIndex!;
+    }
+  }
+  if (clampedPosition < sortedCells.length) {
+    const nextCell = sortedCells[clampedPosition];
+    if (nextCell) {
+      nextKey = nextCell.fractionalIndex!;
+    }
+  }
+
+  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
+
+  return events.cellCreated2({
+    ...cellData,
+    fractionalIndex,
+  });
+}
 
 // Pre 0.7.1 -- these types should get created in clients
 // const state = State.SQLite.makeState({ tables, materializers });

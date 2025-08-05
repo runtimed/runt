@@ -16,7 +16,8 @@
     "README.md"
   ],
   "dependencies": {
-    "@livestore/livestore": "^0.3.1"
+    "@livestore/livestore": "^0.3.1",
+    "fractional-indexing-jittered": "^1.0.0"
   },
   "repository": {
     "type": "git",

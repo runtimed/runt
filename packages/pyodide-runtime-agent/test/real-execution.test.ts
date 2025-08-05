@@ -56,10 +56,11 @@ function createTestExecutionContext(code: string): {
   // Create minimal context that satisfies the ExecutionContext interface
   const context: ExecutionContext = {
     cell: {
-      id: "test-cell-" + Math.random().toString(36).slice(2),
+      id: "test-cell",
       cellType: "code",
       source: code,
       position: 0,
+      fractionalIndex: null,
       executionCount: 1,
       executionState: "running",
       assignedRuntimeSession: null,
