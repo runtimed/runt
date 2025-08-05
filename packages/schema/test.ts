@@ -1658,3 +1658,119 @@ Deno.test("v2.CellMoved - moveCellBetween API", async () => {
 
   store.shutdown();
 });
+
+Deno.test("v2.CellCreated - createCellBetween API", async () => {
+  const store = await setupStore();
+  const { fractionalIndexBetween, createCellBetween } = await import(
+    "@runt/schema"
+  );
+  type CellReference = import("@runt/schema").CellReference;
+
+  // Create initial cells to insert between
+  const cell1: CellReference = {
+    id: "existing-1",
+    fractionalIndex: fractionalIndexBetween(null, null),
+  };
+  const cell2: CellReference = {
+    id: "existing-2",
+    fractionalIndex: fractionalIndexBetween(cell1.fractionalIndex, null),
+  };
+
+  // Create cells in the store
+  for (const cell of [cell1, cell2]) {
+    store.commit(events.cellCreated2({
+      id: cell.id,
+      fractionalIndex: cell.fractionalIndex!,
+      cellType: "code",
+      createdBy: "user1",
+    }));
+  }
+
+  // Test 1: Create cell at the beginning (before cell1)
+  const newCell1 = createCellBetween(
+    {
+      id: "new-1",
+      cellType: "markdown",
+      createdBy: "user1",
+    },
+    null,
+    cell1,
+  );
+  store.commit(newCell1);
+
+  // Verify it's before cell1
+  assert(newCell1.args.fractionalIndex < cell1.fractionalIndex!);
+
+  // Test 2: Create cell between cell1 and cell2
+  const newCell2 = createCellBetween(
+    {
+      id: "new-2",
+      cellType: "code",
+      createdBy: "user2",
+    },
+    cell1,
+    cell2,
+  );
+  store.commit(newCell2);
+
+  // Verify it's between cell1 and cell2
+  assert(newCell2.args.fractionalIndex > cell1.fractionalIndex!);
+  assert(newCell2.args.fractionalIndex < cell2.fractionalIndex!);
+
+  // Test 3: Create cell at the end (after cell2)
+  const newCell3 = createCellBetween(
+    {
+      id: "new-3",
+      cellType: "ai",
+      createdBy: "user3",
+    },
+    cell2,
+    null,
+  );
+  store.commit(newCell3);
+
+  // Verify it's after cell2
+  assert(newCell3.args.fractionalIndex > cell2.fractionalIndex!);
+
+  // Test 4: Create between two cells that were just created
+  const newCell4 = createCellBetween(
+    {
+      id: "new-4",
+      cellType: "sql",
+      createdBy: "user1",
+    },
+    { id: "new-1", fractionalIndex: newCell1.args.fractionalIndex },
+    cell1,
+  );
+  store.commit(newCell4);
+
+  // Verify ordering
+  assert(newCell4.args.fractionalIndex > newCell1.args.fractionalIndex);
+  assert(newCell4.args.fractionalIndex < cell1.fractionalIndex!);
+
+  // Test 5: Create first cell in empty notebook
+  const firstCell = createCellBetween(
+    {
+      id: "first",
+      cellType: "markdown",
+      createdBy: "user1",
+    },
+    null,
+    null,
+  );
+  assertExists(firstCell.args.fractionalIndex);
+
+  // Verify all cells maintain proper ordering
+  const allCells = store.query(
+    tables.cells.select().orderBy("fractionalIndex", "asc"),
+  ).filter((c) => c.fractionalIndex !== null);
+
+  // Check that ordering is strictly increasing
+  for (let i = 1; i < allCells.length; i++) {
+    const prev = allCells[i - 1].fractionalIndex!;
+    const curr = allCells[i].fractionalIndex!;
+    assert(prev < curr, `Ordering violated: ${prev} should be < ${curr}`);
+  }
+
+  store.shutdown();
+});

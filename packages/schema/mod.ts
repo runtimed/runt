@@ -1846,167 +1846,6 @@ export type CellReference = {
  * This ensures stable, deterministic ordering even in the unlikely event of index collisions.
  * We generate 20 candidate indices and pick one randomly to minimize collision probability.
  */
-export function createCellAfter(
-  afterCellId: string | null,
-  cells: Array<{ id: string; fractionalIndex: string | null }>,
-  cellData: {
-    id: string;
-    cellType: CellType;
-    createdBy: string;
-  },
-): ReturnType<typeof events.cellCreated2> {
-  // Only consider cells with valid fractionalIndex for ordering
-  const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
-  const sortedCells = cellsWithIndex.sort((a, b) => {
-    // Primary sort by fractional index
-    if (a.fractionalIndex! < b.fractionalIndex!) return -1;
-    if (a.fractionalIndex! > b.fractionalIndex!) return 1;
-    // Secondary sort by ID if fractional indices are equal
-    return a.id.localeCompare(b.id);
-  });
-
-  let previousKey: string | null = null;
-  let nextKey: string | null = null;
-
-  if (afterCellId) {
-    // Find the cell we want to insert after
-    const targetCell = cells.find((c) => c.id === afterCellId);
-    if (targetCell && targetCell.fractionalIndex) {
-      // If the target cell has a fractionalIndex, use it
-      previousKey = targetCell.fractionalIndex;
-
-      // Find the next cell in sorted order
-      const targetIndex = sortedCells.findIndex((c) => c.id === afterCellId);
-      if (targetIndex >= 0 && targetIndex < sortedCells.length - 1) {
-        const nextCell = sortedCells[targetIndex + 1];
-        if (nextCell) {
-          nextKey = nextCell.fractionalIndex!;
-        }
-      }
-    }
-  } else {
-    // When afterCellId is null, insert at the end
-    if (sortedCells.length > 0) {
-      const lastCell = sortedCells[sortedCells.length - 1];
-      if (lastCell) {
-        previousKey = lastCell.fractionalIndex!;
-      }
-    }
-    // If no cells with fractionalIndex exist, previousKey and nextKey remain null
-    // This will create the first fractionalIndex
-  }
-
-  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
-
-  return events.cellCreated2({
-    ...cellData,
-    fractionalIndex,
-  });
-}
-
-export function createCellBefore(
-  beforeCellId: string | null,
-  cells: Array<{ id: string; fractionalIndex: string | null }>,
-  cellData: {
-    id: string;
-    cellType: CellType;
-    createdBy: string;
-  },
-): ReturnType<typeof events.cellCreated2> {
-  // Only consider cells with valid fractionalIndex for ordering
-  const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
-  const sortedCells = cellsWithIndex.sort((a, b) => {
-    // Primary sort by fractional index
-    if (a.fractionalIndex! < b.fractionalIndex!) return -1;
-    if (a.fractionalIndex! > b.fractionalIndex!) return 1;
-    // Secondary sort by ID if fractional indices are equal
-    return a.id.localeCompare(b.id);
-  });
-
-  let previousKey: string | null = null;
-  let nextKey: string | null = null;
-
-  if (beforeCellId) {
-    // Find the cell we want to insert before
-    const targetCell = cells.find((c) => c.id === beforeCellId);
-    if (targetCell && targetCell.fractionalIndex) {
-      // If the target cell has a fractionalIndex, use it
-      nextKey = targetCell.fractionalIndex;
-
-      // Find the previous cell in sorted order
-      const targetIndex = sortedCells.findIndex((c) => c.id === beforeCellId);
-      if (targetIndex > 0) {
-        const prevCell = sortedCells[targetIndex - 1];
-        if (prevCell) {
-          previousKey = prevCell.fractionalIndex!;
-        }
-      }
-    }
-  } else {
-    // When beforeCellId is null, also insert at the end (same as createCellAfter with null)
-    if (sortedCells.length > 0) {
-      const lastCell = sortedCells[sortedCells.length - 1];
-      if (lastCell) {
-        previousKey = lastCell.fractionalIndex!;
-      }
-    }
-    // If no cells with fractionalIndex exist, previousKey and nextKey remain null
-    // This will create the first fractionalIndex
-  }
-
-  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
-
-  return events.cellCreated2({
-    ...cellData,
-    fractionalIndex,
-  });
-}
-
-export function createCellAtPosition(
-  position: number,
-  cells: Array<{ id: string; fractionalIndex: string | null }>,
-  cellData: {
-    id: string;
-    cellType: CellType;
-    createdBy: string;
-  },
-): ReturnType<typeof events.cellCreated2> {
-  const sortedCells = cells
-    .filter((c) => c.fractionalIndex)
-    .sort((a, b) => {
-      // Primary sort by fractional index
-      if (a.fractionalIndex! < b.fractionalIndex!) return -1;
-      if (a.fractionalIndex! > b.fractionalIndex!) return 1;
-      // Secondary sort by ID if fractional indices are equal
-      return a.id.localeCompare(b.id);
-    });
-
-  // Clamp position to valid range
-  const clampedPosition = Math.max(0, Math.min(position, sortedCells.length));
-
-  let previousKey: string | null = null;
-  let nextKey: string | null = null;
-
-  if (clampedPosition > 0) {
-    const prevCell = sortedCells[clampedPosition - 1];
-    if (prevCell) {
-      previousKey = prevCell.fractionalIndex!;
-    }
-  }
-  if (clampedPosition < sortedCells.length) {
-    const nextCell = sortedCells[clampedPosition];
-    if (nextCell) {
-      nextKey = nextCell.fractionalIndex!;
-    }
-  }
-
-  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
-
-  return events.cellCreated2({
-    ...cellData,
-    fractionalIndex,
-  });
-}
 
 /**
  * Move a cell between two other cells using fractional indices
@@ -2061,6 +1900,37 @@ export function moveCellBetween(
     id: cell.id,
     fractionalIndex,
     actorId,
+  });
+}
+
+/**
+ * Create a cell between two other cells using fractional indices
+ *
+ * @param cellData - The cell data (id, cellType, createdBy)
+ * @param cellBefore - The cell that should come before (null for beginning)
+ * @param cellAfter - The cell that should come after (null for end)
+ *
+ * Note: It's the caller's responsibility to provide accurate before/after cells.
+ * If both cellBefore and cellAfter are provided, they must be adjacent cells.
+ */
+export function createCellBetween(
+  cellData: {
+    id: string;
+    cellType: CellType;
+    createdBy: string;
+  },
+  cellBefore: CellReference | null,
+  cellAfter: CellReference | null,
+): ReturnType<typeof events.cellCreated2> {
+  // Determine the fractional indices for before and after
+  const previousKey = cellBefore?.fractionalIndex || null;
+  const nextKey = cellAfter?.fractionalIndex || null;
+
+  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
+
+  return events.cellCreated2({
+    ...cellData,
+    fractionalIndex,
   });
 }
 
