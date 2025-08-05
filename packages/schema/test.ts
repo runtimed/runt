@@ -1280,13 +1280,13 @@ Deno.test("v2.CellMoved - basic cell movement", async () => {
   movedCell.fractionalIndex = moveEvent.args.fractionalIndex;
 
   // Verify the new order: cell-1, cell-3, cell-2
-  const sortedCells = [...cells].sort((a, b) =>
-    a.fractionalIndex < b.fractionalIndex
-      ? -1
-      : a.fractionalIndex > b.fractionalIndex
-      ? 1
-      : 0
-  );
+  const sortedCells = [...cells].sort((a, b) => {
+    // Primary sort by fractional index
+    if (a.fractionalIndex < b.fractionalIndex) return -1;
+    if (a.fractionalIndex > b.fractionalIndex) return 1;
+    // Secondary sort by ID if fractional indices are equal
+    return a.id.localeCompare(b.id);
+  });
   assertEquals(sortedCells[0].id, "cell-1");
   assertEquals(sortedCells[1].id, "cell-3");
   assertEquals(sortedCells[2].id, "cell-2");
@@ -1298,13 +1298,13 @@ Deno.test("v2.CellMoved - basic cell movement", async () => {
 
   // Verify cell-2 is now first
   movedCell.fractionalIndex = moveToStartEvent.args.fractionalIndex;
-  const resortedCells = [...cells].sort((a, b) =>
-    a.fractionalIndex < b.fractionalIndex
-      ? -1
-      : a.fractionalIndex > b.fractionalIndex
-      ? 1
-      : 0
-  );
+  const resortedCells = [...cells].sort((a, b) => {
+    // Primary sort by fractional index
+    if (a.fractionalIndex < b.fractionalIndex) return -1;
+    if (a.fractionalIndex > b.fractionalIndex) return 1;
+    // Secondary sort by ID if fractional indices are equal
+    return a.id.localeCompare(b.id);
+  });
   assertEquals(resortedCells[0].id, "cell-2");
 
   store.shutdown();
@@ -1342,9 +1342,13 @@ Deno.test("v2.CellMoved - move to position", async () => {
   movedCell.fractionalIndex = moveEvent.args.fractionalIndex;
 
   // Verify new order: cell-1, cell-2, cell-5, cell-3, cell-4
-  const sortedCells = [...cells].sort((a, b) =>
-    a.fractionalIndex.localeCompare(b.fractionalIndex)
-  );
+  const sortedCells = [...cells].sort((a, b) => {
+    // Primary sort by fractional index
+    if (a.fractionalIndex < b.fractionalIndex) return -1;
+    if (a.fractionalIndex > b.fractionalIndex) return 1;
+    // Secondary sort by ID if fractional indices are equal
+    return a.id.localeCompare(b.id);
+  });
   assertEquals(sortedCells.map((c) => c.id), [
     "cell-1",
     "cell-2",
@@ -1360,9 +1364,13 @@ Deno.test("v2.CellMoved - move to position", async () => {
 
   cells.find((c) => c.id === "cell-1")!.fractionalIndex =
     moveToEndEvent.args.fractionalIndex;
-  const finalOrder = [...cells].sort((a, b) =>
-    a.fractionalIndex.localeCompare(b.fractionalIndex)
-  );
+  const finalOrder = [...cells].sort((a, b) => {
+    // Primary sort by fractional index
+    if (a.fractionalIndex < b.fractionalIndex) return -1;
+    if (a.fractionalIndex > b.fractionalIndex) return 1;
+    // Secondary sort by ID if fractional indices are equal
+    return a.id.localeCompare(b.id);
+  });
   assertEquals(finalOrder.map((c) => c.id), [
     "cell-2",
     "cell-5",
@@ -1453,9 +1461,13 @@ Deno.test("v2.CellMoved - concurrent movements", async () => {
     move2.args.fractionalIndex;
 
   // Both cells should be between cell-1 and cell-2
-  const sortedCells = [...cells].sort((a, b) =>
-    a.fractionalIndex.localeCompare(b.fractionalIndex)
-  );
+  const sortedCells = [...cells].sort((a, b) => {
+    // Primary sort by fractional index
+    if (a.fractionalIndex < b.fractionalIndex) return -1;
+    if (a.fractionalIndex > b.fractionalIndex) return 1;
+    // Secondary sort by ID if fractional indices are equal
+    return a.id.localeCompare(b.id);
+  });
   const cell1Index = sortedCells.findIndex((c) => c.id === "cell-1");
   const cell2Index = sortedCells.findIndex((c) => c.id === "cell-2");
   const cell3Index = sortedCells.findIndex((c) => c.id === "cell-3");
@@ -1524,9 +1536,13 @@ Deno.test("v2.CellMoved - no-op when already in position", async () => {
     actualMove.args.fractionalIndex;
 
   // Verify new order: cell-1, cell-3, cell-2, cell-4
-  const sortedCells = [...cells].sort((a, b) =>
-    a.fractionalIndex.localeCompare(b.fractionalIndex)
-  );
+  const sortedCells = [...cells].sort((a, b) => {
+    // Primary sort by fractional index
+    if (a.fractionalIndex < b.fractionalIndex) return -1;
+    if (a.fractionalIndex > b.fractionalIndex) return 1;
+    // Secondary sort by ID if fractional indices are equal
+    return a.id.localeCompare(b.id);
+  });
   assertEquals(sortedCells.map((c) => c.id), [
     "cell-1",
     "cell-3",

@@ -1789,7 +1789,7 @@ export function fractionalIndexBetween(
   // For production, use multi-key generation to avoid collisions
   try {
     // Generate multiple keys and pick one randomly
-    const numKeys = 10;
+    const numKeys = 20;
     const keys = generateNKeysBetween(a, b, numKeys);
 
     // Pick a random key (not the first or last for better distribution)
@@ -1828,7 +1828,16 @@ export function isValidFractionalIndex(index: string): boolean {
   return typeof index === "string" && index.length > 0;
 }
 
-// Helper functions to create cell events with proper fractional indexing
+/**
+ * Helper functions for cell creation and movement with fractional indexing
+ *
+ * Sorting Strategy:
+ * 1. Primary sort: Lexicographic comparison of fractional indices (a < b, not localeCompare)
+ * 2. Secondary sort: Cell ID comparison when fractional indices are equal (rare but possible)
+ *
+ * This ensures stable, deterministic ordering even in the unlikely event of index collisions.
+ * We generate 20 candidate indices and pick one randomly to minimize collision probability.
+ */
 export function createCellAfter(
   afterCellId: string | null,
   cells: Array<{ id: string; fractionalIndex: string | null }>,
@@ -1840,13 +1849,13 @@ export function createCellAfter(
 ): ReturnType<typeof events.cellCreated2> {
   // Only consider cells with valid fractionalIndex for ordering
   const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
-  const sortedCells = cellsWithIndex.sort((a, b) =>
-    a.fractionalIndex! < b.fractionalIndex!
-      ? -1
-      : a.fractionalIndex! > b.fractionalIndex!
-      ? 1
-      : 0
-  );
+  const sortedCells = cellsWithIndex.sort((a, b) => {
+    // Primary sort by fractional index
+    if (a.fractionalIndex! < b.fractionalIndex!) return -1;
+    if (a.fractionalIndex! > b.fractionalIndex!) return 1;
+    // Secondary sort by ID if fractional indices are equal
+    return a.id.localeCompare(b.id);
+  });
 
   let previousKey: string | null = null;
   let nextKey: string | null = null;
@@ -1898,13 +1907,13 @@ export function createCellBefore(
 ): ReturnType<typeof events.cellCreated2> {
   // Only consider cells with valid fractionalIndex for ordering
   const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
-  const sortedCells = cellsWithIndex.sort((a, b) =>
-    a.fractionalIndex! < b.fractionalIndex!
-      ? -1
-      : a.fractionalIndex! > b.fractionalIndex!
-      ? 1
-      : 0
-  );
+  const sortedCells = cellsWithIndex.sort((a, b) => {
+    // Primary sort by fractional index
+    if (a.fractionalIndex! < b.fractionalIndex!) return -1;
+    if (a.fractionalIndex! > b.fractionalIndex!) return 1;
+    // Secondary sort by ID if fractional indices are equal
+    return a.id.localeCompare(b.id);
+  });
 
   let previousKey: string | null = null;
   let nextKey: string | null = null;
@@ -1956,13 +1965,13 @@ export function createCellAtPosition(
 ): ReturnType<typeof events.cellCreated2> {
   const sortedCells = cells
     .filter((c) => c.fractionalIndex)
-    .sort((a, b) =>
-      a.fractionalIndex! < b.fractionalIndex!
-        ? -1
-        : a.fractionalIndex! > b.fractionalIndex!
-        ? 1
-        : 0
-    );
+    .sort((a, b) => {
+      // Primary sort by fractional index
+      if (a.fractionalIndex! < b.fractionalIndex!) return -1;
+      if (a.fractionalIndex! > b.fractionalIndex!) return 1;
+      // Secondary sort by ID if fractional indices are equal
+      return a.id.localeCompare(b.id);
+    });
 
   // Clamp position to valid range
   const clampedPosition = Math.max(0, Math.min(position, sortedCells.length));
@@ -2008,13 +2017,13 @@ export function moveCellAfter(
 
   // Only consider cells with valid fractionalIndex for ordering
   const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
-  const sortedCells = cellsWithIndex.sort((a, b) =>
-    a.fractionalIndex! < b.fractionalIndex!
-      ? -1
-      : a.fractionalIndex! > b.fractionalIndex!
-      ? 1
-      : 0
-  );
+  const sortedCells = cellsWithIndex.sort((a, b) => {
+    // Primary sort by fractional index
+    if (a.fractionalIndex! < b.fractionalIndex!) return -1;
+    if (a.fractionalIndex! > b.fractionalIndex!) return 1;
+    // Secondary sort by ID if fractional indices are equal
+    return a.id.localeCompare(b.id);
+  });
 
   // Find current position
   const currentIndex = sortedCells.findIndex((c) => c.id === cellId);
@@ -2086,13 +2095,13 @@ export function moveCellBefore(
 
   // Only consider cells with valid fractionalIndex for ordering
   const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
-  const sortedCells = cellsWithIndex.sort((a, b) =>
-    a.fractionalIndex! < b.fractionalIndex!
-      ? -1
-      : a.fractionalIndex! > b.fractionalIndex!
-      ? 1
-      : 0
-  );
+  const sortedCells = cellsWithIndex.sort((a, b) => {
+    // Primary sort by fractional index
+    if (a.fractionalIndex! < b.fractionalIndex!) return -1;
+    if (a.fractionalIndex! > b.fractionalIndex!) return 1;
+    // Secondary sort by ID if fractional indices are equal
+    return a.id.localeCompare(b.id);
+  });
 
   // Find current position
   const currentIndex = sortedCells.findIndex((c) => c.id === cellId);
@@ -2164,13 +2173,13 @@ export function moveCellToPosition(
 
   // Only consider cells with valid fractionalIndex for ordering
   const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
-  const sortedCells = cellsWithIndex.sort((a, b) =>
-    a.fractionalIndex! < b.fractionalIndex!
-      ? -1
-      : a.fractionalIndex! > b.fractionalIndex!
-      ? 1
-      : 0
-  );
+  const sortedCells = cellsWithIndex.sort((a, b) => {
+    // Primary sort by fractional index
+    if (a.fractionalIndex! < b.fractionalIndex!) return -1;
+    if (a.fractionalIndex! > b.fractionalIndex!) return 1;
+    // Secondary sort by ID if fractional indices are equal
+    return a.id.localeCompare(b.id);
+  });
 
   // Find current position
   const currentIndex = sortedCells.findIndex((c) => c.id === cellId);
