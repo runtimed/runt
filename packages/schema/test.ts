@@ -1099,36 +1099,50 @@ Deno.test("v2.CellCreated - concurrent insertions triggering edge case", async (
 
     // If we found a problematic pair, test concurrent insertions
     if (problematicPairFound && cellA && cellB) {
-      // Restore Math.random for actual randomness
+      // Restore Math.random first
       restore();
 
-      // Both users try to insert between the same two cells
-      const userAIndex = fractionalIndexBetween(cellA, cellB);
-      const userBIndex = fractionalIndexBetween(cellA, cellB);
+      // Mock Math.random to return different values for each call
+      // This ensures userA and userB pick different indices from the generated keys
+      let callCount = 0;
+      const randomStub = stub(Math, "random", () => {
+        // First call (for userA): return 0.3 (will pick index ~6 out of 20)
+        // Second call (for userB): return 0.7 (will pick index ~14 out of 20)
+        callCount++;
+        return callCount === 1 ? 0.3 : 0.7;
+      });
 
-      // With randomness, they should get different indices
-      assertNotEquals(userAIndex, userBIndex, "Random indices should differ");
+      try {
+        // Both users try to insert between the same two cells
+        const userAIndex = fractionalIndexBetween(cellA, cellB);
+        const userBIndex = fractionalIndexBetween(cellA, cellB);
 
-      // Both indices should maintain proper ordering
-      assert(userAIndex > cellA, `${userAIndex} should be > ${cellA}`);
-      assert(userAIndex < cellB, `${userAIndex} should be < ${cellB}`);
-      assert(userBIndex > cellA, `${userBIndex} should be > ${cellA}`);
-      assert(userBIndex < cellB, `${userBIndex} should be < ${cellB}`);
+        // With different random values, they should get different indices
+        assertNotEquals(userAIndex, userBIndex, "Random indices should differ");
 
-      // Commit both cells
-      store.commit(events.cellCreated2({
-        id: "concurrent-userA",
-        fractionalIndex: userAIndex,
-        cellType: "code",
-        createdBy: "userA",
-      }));
+        // Both indices should maintain proper ordering
+        assert(userAIndex > cellA, `${userAIndex} should be > ${cellA}`);
+        assert(userAIndex < cellB, `${userAIndex} should be < ${cellB}`);
+        assert(userBIndex > cellA, `${userBIndex} should be > ${cellA}`);
+        assert(userBIndex < cellB, `${userBIndex} should be < ${cellB}`);
 
-      store.commit(events.cellCreated2({
-        id: "concurrent-userB",
-        fractionalIndex: userBIndex,
-        cellType: "markdown",
-        createdBy: "userB",
-      }));
+        // Commit both cells
+        store.commit(events.cellCreated2({
+          id: "concurrent-userA",
+          fractionalIndex: userAIndex,
+          cellType: "code",
+          createdBy: "userA",
+        }));
+
+        store.commit(events.cellCreated2({
+          id: "concurrent-userB",
+          fractionalIndex: userBIndex,
+          cellType: "markdown",
+          createdBy: "userB",
+        }));
+      } finally {
+        randomStub.restore();
+      }
     }
 
     // Verify final ordering is maintained
