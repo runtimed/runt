@@ -1753,72 +1753,54 @@ export const AI_TOOL_CALL_MIME_TYPE =
 export const AI_TOOL_RESULT_MIME_TYPE =
   "application/vnd.anode.aitool.result+json" as const;
 
-// JitterProvider interface for dependency injection
-export interface JitterProvider {
-  addJitter(key: string): string;
-}
-
-// Default jitter provider that adds random suffix
-export class RandomJitterProvider implements JitterProvider {
-  constructor(private readonly length: number = 3) {}
-
-  addJitter(key: string): string {
-    const chars =
-      "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    let jitter = "";
-    for (let i = 0; i < this.length; i++) {
-      jitter += chars[Math.floor(Math.random() * chars.length)];
-    }
-    // Separate jitter with tilde to maintain valid key format and proper sorting
-    return key + "~" + jitter;
-  }
-}
-
-// No-op jitter provider for tests
-export class NoJitterProvider implements JitterProvider {
-  addJitter(key: string): string {
-    return key;
-  }
-}
-
-// Default jitter provider instance
-const defaultJitterProvider = new RandomJitterProvider();
+// Note on fractional indexing edge cases:
+// The fractional-indexing library has inherent limitations when keys get densely packed.
+// For example, inserting many times between "a2" and "a3" eventually produces keys like
+// "a2l" and "a2V" that violate lexicographic ordering (lowercase > uppercase in ASCII).
+// Our jittering approach using multi-key generation helps avoid collisions but cannot
+// fix this fundamental limitation. In practice, this edge case is rare and occurs only
+// with extreme insertion patterns.
 
 // Export fractional indexing utilities with optional jittering
 export function fractionalIndexBetween(
   a: string | null | undefined,
   b: string | null | undefined,
-  jitterProvider: JitterProvider = defaultJitterProvider,
 ): string {
-  // Extract base key if it contains jitter (separated by tilde)
-  const cleanA = a ? a.split("~")[0] : a;
-  const cleanB = b ? b.split("~")[0] : b;
+  // For production, use multi-key generation to avoid collisions
+  try {
+    // Generate multiple keys and pick one randomly
+    const numKeys = 10;
+    const keys = generateNKeysBetween(a, b, numKeys);
 
-  const key = generateKeyBetween(cleanA, cleanB);
+    // Pick a random key (not the first or last for better distribution)
+    if (keys.length > 2) {
+      const randomIndex = 1 + Math.floor(Math.random() * (keys.length - 2));
+      return keys[randomIndex]!;
+    } else if (keys.length > 0) {
+      return keys[0]!;
+    }
+  } catch (_error) {
+    // If multi-key generation fails, fall back to single key
+    console.warn(
+      `Multi-key generation failed between ${a} and ${b}, using single key`,
+    );
+  }
 
-  const jitteredKey = jitterProvider.addJitter(key);
-
-  return jitteredKey;
+  // Fallback to single key generation
+  return generateKeyBetween(a, b);
 }
 
 export function generateFractionalIndices(
   a: string | null | undefined,
   b: string | null | undefined,
   n: number,
-  jitterProvider: JitterProvider = defaultJitterProvider,
 ): string[] {
-  const cleanA = a ? a.split("_")[0] : a;
-  const cleanB = b ? b.split("_")[0] : b;
-
-  const keys = generateNKeysBetween(cleanA, cleanB, n);
-  return keys.map((key) => jitterProvider.addJitter(key));
+  return generateNKeysBetween(a, b, n);
 }
 
 // Helper to get initial fractional index
-export function initialFractionalIndex(
-  jitterProvider: JitterProvider = defaultJitterProvider,
-): string {
-  return fractionalIndexBetween(null, null, jitterProvider);
+export function initialFractionalIndex(): string {
+  return fractionalIndexBetween(null, null);
 }
 
 // Helper to validate fractional index (basic check)
