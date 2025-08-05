@@ -1756,40 +1756,69 @@ export const AI_TOOL_CALL_MIME_TYPE =
 export const AI_TOOL_RESULT_MIME_TYPE =
   "application/vnd.anode.aitool.result+json" as const;
 
-// Add optional jittering to fractional indices
-function addJitter(key: string, jitterLength: number = 3): string {
-  const chars =
-    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-  let jitter = "";
-  for (let i = 0; i < jitterLength; i++) {
-    jitter += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return key + jitter;
+// JitterProvider interface for dependency injection
+export interface JitterProvider {
+  addJitter(key: string): string;
 }
+
+// Default jitter provider that adds random suffix
+export class RandomJitterProvider implements JitterProvider {
+  constructor(private readonly length: number = 3) {}
+
+  addJitter(key: string): string {
+    const chars =
+      "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    let jitter = "";
+    for (let i = 0; i < this.length; i++) {
+      jitter += chars[Math.floor(Math.random() * chars.length)];
+    }
+    // Separate jitter with underscore to maintain valid key format
+    return key + "_" + jitter;
+  }
+}
+
+// No-op jitter provider for tests
+export class NoJitterProvider implements JitterProvider {
+  addJitter(key: string): string {
+    return key;
+  }
+}
+
+// Default jitter provider instance
+const defaultJitterProvider = new RandomJitterProvider();
 
 // Export fractional indexing utilities with optional jittering
 export function fractionalIndexBetween(
   a: string | null | undefined,
   b: string | null | undefined,
-  useJitter: boolean = true,
+  jitterProvider: JitterProvider = defaultJitterProvider,
 ): string {
-  const key = generateKeyBetween(a, b);
-  return useJitter ? addJitter(key) : key;
+  // Extract base key if it contains jitter (separated by underscore)
+  const cleanA = a ? a.split("_")[0] : a;
+  const cleanB = b ? b.split("_")[0] : b;
+
+  const key = generateKeyBetween(cleanA, cleanB);
+  return jitterProvider.addJitter(key);
 }
 
 export function generateFractionalIndices(
   a: string | null | undefined,
   b: string | null | undefined,
   n: number,
-  useJitter: boolean = true,
+  jitterProvider: JitterProvider = defaultJitterProvider,
 ): string[] {
-  const keys = generateNKeysBetween(a, b, n);
-  return useJitter ? keys.map((key) => addJitter(key)) : keys;
+  const cleanA = a ? a.split("_")[0] : a;
+  const cleanB = b ? b.split("_")[0] : b;
+
+  const keys = generateNKeysBetween(cleanA, cleanB, n);
+  return keys.map((key) => jitterProvider.addJitter(key));
 }
 
 // Helper to get initial fractional index
-export function initialFractionalIndex(useJitter: boolean = true): string {
-  return fractionalIndexBetween(null, null, useJitter);
+export function initialFractionalIndex(
+  jitterProvider: JitterProvider = defaultJitterProvider,
+): string {
+  return fractionalIndexBetween(null, null, jitterProvider);
 }
 
 // Helper to validate fractional index (basic check)

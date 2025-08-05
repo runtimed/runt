@@ -287,44 +287,48 @@ Deno.test("replay exported event log", async () => {
 });
 
 Deno.test("fractional indexing - basic operations", async () => {
-  const { fractionalIndexBetween, initialFractionalIndex } = await import(
-    "@runt/schema"
-  );
+  const { fractionalIndexBetween, initialFractionalIndex, NoJitterProvider } =
+    await import(
+      "@runt/schema"
+    );
+  const noJitter = new NoJitterProvider();
 
-  // Initial index (no jitter for deterministic tests)
-  const first = initialFractionalIndex(false);
+  // Initial index
+  const first = initialFractionalIndex(noJitter);
   assertEquals(first, "a0");
 
   // Insert after first
-  const second = fractionalIndexBetween(first, null, false);
+  const second = fractionalIndexBetween(first, null, noJitter);
   assertEquals(second, "a1");
   assert(second > first);
 
   // Insert between first and second
-  const middle = fractionalIndexBetween(first, second, false);
+  const middle = fractionalIndexBetween(first, second, noJitter);
   assertEquals(middle, "a0V");
   assert(middle > first);
   assert(middle < second);
 
   // Insert before first
-  const beforeFirst = fractionalIndexBetween(null, first, false);
+  const beforeFirst = fractionalIndexBetween(null, first, noJitter);
   assertEquals(beforeFirst, "Zz");
   assert(beforeFirst < first);
 
   // Insert at very end
-  const third = fractionalIndexBetween(second, null, false);
+  const third = fractionalIndexBetween(second, null, noJitter);
   assertEquals(third, "a2");
   assert(third > second);
 });
 
 Deno.test("v2.CellCreated with fractional indexing - comprehensive", async () => {
   const store = await setupStore();
-  const { fractionalIndexBetween, initialFractionalIndex } = await import(
-    "@runt/schema"
-  );
+  const { fractionalIndexBetween, initialFractionalIndex, NoJitterProvider } =
+    await import(
+      "@runt/schema"
+    );
+  const noJitter = new NoJitterProvider();
 
-  // Create first cell (no jitter for predictable tests)
-  const firstOrder = initialFractionalIndex(false);
+  // Create first cell
+  const firstOrder = initialFractionalIndex(noJitter);
   store.commit(events.cellCreated2({
     id: "cell-1",
     fractionalIndex: firstOrder,
@@ -333,7 +337,7 @@ Deno.test("v2.CellCreated with fractional indexing - comprehensive", async () =>
   }));
 
   // Create second cell after first
-  const secondOrder = fractionalIndexBetween(firstOrder, null, false);
+  const secondOrder = fractionalIndexBetween(firstOrder, null, noJitter);
   store.commit(events.cellCreated2({
     id: "cell-2",
     fractionalIndex: secondOrder,
@@ -342,7 +346,7 @@ Deno.test("v2.CellCreated with fractional indexing - comprehensive", async () =>
   }));
 
   // Create third cell between first and second
-  const thirdOrder = fractionalIndexBetween(firstOrder, secondOrder, false);
+  const thirdOrder = fractionalIndexBetween(firstOrder, secondOrder, noJitter);
   store.commit(events.cellCreated2({
     id: "cell-3",
     fractionalIndex: thirdOrder,
@@ -351,7 +355,7 @@ Deno.test("v2.CellCreated with fractional indexing - comprehensive", async () =>
   }));
 
   // Create fourth cell at the beginning
-  const fourthOrder = fractionalIndexBetween(null, firstOrder, false);
+  const fourthOrder = fractionalIndexBetween(null, firstOrder, noJitter);
   store.commit(events.cellCreated2({
     id: "cell-4",
     fractionalIndex: fourthOrder,
@@ -360,7 +364,7 @@ Deno.test("v2.CellCreated with fractional indexing - comprehensive", async () =>
   }));
 
   // Create fifth cell at the end
-  const fifthOrder = fractionalIndexBetween(secondOrder, null, false);
+  const fifthOrder = fractionalIndexBetween(secondOrder, null, noJitter);
   store.commit(events.cellCreated2({
     id: "cell-5",
     fractionalIndex: fifthOrder,
@@ -403,7 +407,7 @@ Deno.test("v2.CellCreated with fractional indexing - comprehensive", async () =>
 
   // Test complex insertion scenario
   // Insert between cell-4 and cell-1
-  const sixthOrder = fractionalIndexBetween(fourthOrder, firstOrder, false);
+  const sixthOrder = fractionalIndexBetween(fourthOrder, firstOrder, noJitter);
   store.commit(events.cellCreated2({
     id: "cell-6",
     fractionalIndex: sixthOrder,
@@ -412,7 +416,11 @@ Deno.test("v2.CellCreated with fractional indexing - comprehensive", async () =>
   }));
 
   // Insert between cell-3 and cell-2
-  const seventhOrder = fractionalIndexBetween(thirdOrder, secondOrder, false);
+  const seventhOrder = fractionalIndexBetween(
+    thirdOrder,
+    secondOrder,
+    noJitter,
+  );
   store.commit(events.cellCreated2({
     id: "cell-7",
     fractionalIndex: seventhOrder,
@@ -448,12 +456,14 @@ Deno.test("v2.CellCreated with fractional indexing - comprehensive", async () =>
 
 Deno.test("v2.CellCreated - simulating concurrent notebook editing", async () => {
   const store = await setupStore();
-  const { fractionalIndexBetween, initialFractionalIndex } = await import(
-    "@runt/schema"
-  );
+  const { fractionalIndexBetween, initialFractionalIndex, NoJitterProvider } =
+    await import(
+      "@runt/schema"
+    );
+  const noJitter = new NoJitterProvider();
 
   // Initial notebook state: 3 cells (no jitter for first part)
-  const cell1Order = initialFractionalIndex(false);
+  const cell1Order = initialFractionalIndex(noJitter);
   store.commit(events.cellCreated2({
     id: "initial-1",
     fractionalIndex: cell1Order,
@@ -461,7 +471,7 @@ Deno.test("v2.CellCreated - simulating concurrent notebook editing", async () =>
     createdBy: "author",
   }));
 
-  const cell2Order = fractionalIndexBetween(cell1Order, null, false);
+  const cell2Order = fractionalIndexBetween(cell1Order, null, noJitter);
   store.commit(events.cellCreated2({
     id: "initial-2",
     fractionalIndex: cell2Order,
@@ -469,7 +479,7 @@ Deno.test("v2.CellCreated - simulating concurrent notebook editing", async () =>
     createdBy: "author",
   }));
 
-  const cell3Order = fractionalIndexBetween(cell2Order, null, false);
+  const cell3Order = fractionalIndexBetween(cell2Order, null, noJitter);
   store.commit(events.cellCreated2({
     id: "initial-3",
     fractionalIndex: cell3Order,
@@ -482,18 +492,18 @@ Deno.test("v2.CellCreated - simulating concurrent notebook editing", async () =>
   const userAOrderNoJitter = fractionalIndexBetween(
     cell2Order,
     cell3Order,
-    false,
+    noJitter,
   );
   const userBOrderNoJitter = fractionalIndexBetween(
     cell2Order,
     cell3Order,
-    false,
+    noJitter,
   );
   assertEquals(userAOrderNoJitter, userBOrderNoJitter);
 
   // With jitter: users get different positions (high probability)
-  const userAOrder = fractionalIndexBetween(cell2Order, cell3Order, true);
-  const userBOrder = fractionalIndexBetween(cell2Order, cell3Order, true);
+  const userAOrder = fractionalIndexBetween(cell2Order, cell3Order);
+  const userBOrder = fractionalIndexBetween(cell2Order, cell3Order);
 
   // Both should be valid and between cell2Order and cell3Order
   assert(userAOrder > cell2Order);
@@ -548,7 +558,7 @@ Deno.test("v2.CellCreated - building a notebook from scratch", async () => {
 
   // Create a notebook with markdown, code, and AI cells
   // Cell 1: Markdown introduction (use jitter for realistic scenario)
-  const cell1Order = initialFractionalIndex(true);
+  const cell1Order = initialFractionalIndex();
   store.commit(events.cellCreated2({
     id: "intro",
     fractionalIndex: cell1Order,
@@ -562,7 +572,7 @@ Deno.test("v2.CellCreated - building a notebook from scratch", async () => {
   }));
 
   // Cell 2: Code to load data
-  const cell2Order = fractionalIndexBetween(cell1Order, null, true);
+  const cell2Order = fractionalIndexBetween(cell1Order, null);
   store.commit(events.cellCreated2({
     id: "load-data",
     fractionalIndex: cell2Order,
@@ -576,7 +586,7 @@ Deno.test("v2.CellCreated - building a notebook from scratch", async () => {
   }));
 
   // Cell 3: AI analysis
-  const cell3Order = fractionalIndexBetween(cell2Order, null, true);
+  const cell3Order = fractionalIndexBetween(cell2Order, null);
   store.commit(events.cellCreated2({
     id: "ai-analysis",
     fractionalIndex: cell3Order,
@@ -590,7 +600,7 @@ Deno.test("v2.CellCreated - building a notebook from scratch", async () => {
   }));
 
   // User inserts a new code cell between load-data and ai-analysis
-  const insertedOrder = fractionalIndexBetween(cell2Order, cell3Order, true);
+  const insertedOrder = fractionalIndexBetween(cell2Order, cell3Order);
   store.commit(events.cellCreated2({
     id: "transform-data",
     fractionalIndex: insertedOrder,
@@ -638,9 +648,11 @@ Deno.test("v2.CellCreated - building a notebook from scratch", async () => {
 
 Deno.test("v2.CellCreated - mixed v1 and v2 events", async () => {
   const store = await setupStore();
-  const { fractionalIndexBetween, initialFractionalIndex } = await import(
-    "@runt/schema"
-  );
+  const { fractionalIndexBetween, initialFractionalIndex, NoJitterProvider } =
+    await import(
+      "@runt/schema"
+    );
+  const noJitter = new NoJitterProvider();
 
   // Create some cells with v1 events
   store.commit(events.cellCreated({
@@ -657,8 +669,8 @@ Deno.test("v2.CellCreated - mixed v1 and v2 events", async () => {
     createdBy: "user1",
   }));
 
-  // Now use v2 events for new cells (with jitter for realistic usage)
-  const firstV2Order = initialFractionalIndex(true);
+  // Now use v2 events for new cells
+  const firstV2Order = initialFractionalIndex(noJitter);
   store.commit(events.cellCreated2({
     id: "v2-cell-1",
     fractionalIndex: firstV2Order,
@@ -666,7 +678,7 @@ Deno.test("v2.CellCreated - mixed v1 and v2 events", async () => {
     createdBy: "user2",
   }));
 
-  const secondV2Order = fractionalIndexBetween(firstV2Order, null, true);
+  const secondV2Order = fractionalIndexBetween(firstV2Order, null, noJitter);
   store.commit(events.cellCreated2({
     id: "v2-cell-2",
     fractionalIndex: secondV2Order,
@@ -699,9 +711,10 @@ Deno.test("v2.CellCreated - mixed v1 and v2 events", async () => {
 
 Deno.test("v2.CellCreated - bulk cell import", async () => {
   const store = await setupStore();
-  const { fractionalIndexBetween } = await import(
+  const { fractionalIndexBetween, NoJitterProvider } = await import(
     "@runt/schema"
   );
+  const noJitter = new NoJitterProvider();
 
   // Simulate importing 10 cells at once
   const cellCount = 10;
@@ -709,7 +722,7 @@ Deno.test("v2.CellCreated - bulk cell import", async () => {
   const indices: string[] = [];
   let prevIndex: string | null = null;
   for (let i = 0; i < cellCount; i++) {
-    const newIndex = fractionalIndexBetween(prevIndex, null, false); // No jitter for predictable test
+    const newIndex = fractionalIndexBetween(prevIndex, null, noJitter); // No jitter for predictable test
     indices.push(newIndex);
     prevIndex = newIndex;
   }
@@ -749,12 +762,14 @@ Deno.test("v2.CellCreated - bulk cell import", async () => {
 
 Deno.test("v2.CellCreated - extreme insertion patterns", async () => {
   const store = await setupStore();
-  const { fractionalIndexBetween, initialFractionalIndex } = await import(
-    "@runt/schema"
-  );
+  const { fractionalIndexBetween, initialFractionalIndex, NoJitterProvider } =
+    await import(
+      "@runt/schema"
+    );
+  const noJitter = new NoJitterProvider();
 
   // Start with one cell (no jitter for predictable test)
-  const indices: string[] = [initialFractionalIndex(false)];
+  const indices: string[] = [initialFractionalIndex(noJitter)];
   store.commit(events.cellCreated2({
     id: "cell-0",
     fractionalIndex: indices[0],
@@ -764,7 +779,7 @@ Deno.test("v2.CellCreated - extreme insertion patterns", async () => {
 
   // Always insert at the beginning (stress test for "before" insertions)
   for (let i = 1; i <= 5; i++) {
-    const newIndex = fractionalIndexBetween(null, indices[0], false);
+    const newIndex = fractionalIndexBetween(null, indices[0], noJitter);
     indices.unshift(newIndex);
     store.commit(events.cellCreated2({
       id: `cell-before-${i}`,
@@ -776,7 +791,7 @@ Deno.test("v2.CellCreated - extreme insertion patterns", async () => {
 
   // Always insert between first two cells (stress test fractional precision)
   for (let i = 1; i <= 5; i++) {
-    const newIndex = fractionalIndexBetween(indices[0], indices[1], false);
+    const newIndex = fractionalIndexBetween(indices[0], indices[1], noJitter);
     indices.splice(1, 0, newIndex);
     store.commit(events.cellCreated2({
       id: `cell-between-${i}`,
@@ -814,23 +829,26 @@ Deno.test("v2.CellCreated - extreme insertion patterns", async () => {
 });
 
 Deno.test("fractional indexing - concurrent inserts", async () => {
-  const { fractionalIndexBetween } = await import("@runt/schema");
+  const { fractionalIndexBetween, NoJitterProvider } = await import(
+    "@runt/schema"
+  );
+  const noJitter = new NoJitterProvider();
 
   // Test deterministic behavior without jitter
-  const cellA = fractionalIndexBetween(null, null, false);
-  const cellB = fractionalIndexBetween(cellA, null, false);
+  const cellA = fractionalIndexBetween(null, null, noJitter);
+  const cellB = fractionalIndexBetween(cellA, null, noJitter);
   assertEquals(cellA, "a0");
   assertEquals(cellB, "a1");
 
   // Without jitter: both users get same position
-  const user1NoJitter = fractionalIndexBetween(cellA, cellB, false);
-  const user2NoJitter = fractionalIndexBetween(cellA, cellB, false);
+  const user1NoJitter = fractionalIndexBetween(cellA, cellB, noJitter);
+  const user2NoJitter = fractionalIndexBetween(cellA, cellB, noJitter);
   assertEquals(user1NoJitter, user2NoJitter);
   assertEquals(user1NoJitter, "a0V");
 
   // With jitter: users likely get different positions
-  const user1WithJitter = fractionalIndexBetween(cellA, cellB, true);
-  const user2WithJitter = fractionalIndexBetween(cellA, cellB, true);
+  const user1WithJitter = fractionalIndexBetween(cellA, cellB);
+  const user2WithJitter = fractionalIndexBetween(cellA, cellB);
 
   // Both should be valid and between cellA and cellB
   assert(user1WithJitter > cellA);
@@ -844,23 +862,25 @@ Deno.test("fractional indexing - concurrent inserts", async () => {
 });
 
 Deno.test("fractional indexing - edge cases", async () => {
-  const { fractionalIndexBetween, isValidFractionalIndex } = await import(
-    "@runt/schema"
-  );
+  const { fractionalIndexBetween, isValidFractionalIndex, NoJitterProvider } =
+    await import(
+      "@runt/schema"
+    );
+  const noJitter = new NoJitterProvider();
 
   // Validate indices
-  const validIndex = fractionalIndexBetween(null, null, false);
+  const validIndex = fractionalIndexBetween(null, null, noJitter);
   assert(isValidFractionalIndex(validIndex));
   assert(isValidFractionalIndex("a0V8p")); // Valid jittered key format
   assert(!isValidFractionalIndex(""));
 
   // Many inserts in sequence (no jitter for predictable results)
-  let prev = fractionalIndexBetween(null, null, false);
+  let prev = fractionalIndexBetween(null, null, noJitter);
   const indices: string[] = [prev];
   assertEquals(prev, "a0");
 
   for (let i = 0; i < 10; i++) {
-    const next = fractionalIndexBetween(prev, null, false);
+    const next = fractionalIndexBetween(prev, null, noJitter);
     assert(next > prev);
     indices.push(next);
     prev = next;
@@ -881,7 +901,9 @@ Deno.test("v2.CellCreated - using helper functions", async () => {
   const store = await setupStore();
   const {
     fractionalIndexBetween,
+    NoJitterProvider,
   } = await import("@runt/schema");
+  const noJitter = new NoJitterProvider();
 
   // For predictable tests, we'll create cells with non-jittered indices manually
   // Start with an empty notebook
@@ -889,7 +911,7 @@ Deno.test("v2.CellCreated - using helper functions", async () => {
   assertEquals(cells.length, 0);
 
   // Create first cell with non-jittered index
-  const firstIndex = fractionalIndexBetween(null, null, false); // "a0"
+  const firstIndex = fractionalIndexBetween(null, null, noJitter); // "a0"
   store.commit(events.cellCreated2({
     id: "first-cell",
     fractionalIndex: firstIndex,
@@ -898,7 +920,7 @@ Deno.test("v2.CellCreated - using helper functions", async () => {
   }));
 
   // Create a cell after the first one
-  const secondIndex = fractionalIndexBetween(firstIndex, null, false); // "a1"
+  const secondIndex = fractionalIndexBetween(firstIndex, null, noJitter); // "a1"
   store.commit(events.cellCreated2({
     id: "second-cell",
     fractionalIndex: secondIndex,
@@ -907,7 +929,7 @@ Deno.test("v2.CellCreated - using helper functions", async () => {
   }));
 
   // Create a cell before the first one
-  const beforeFirstIndex = fractionalIndexBetween(null, firstIndex, false); // "Zz"
+  const beforeFirstIndex = fractionalIndexBetween(null, firstIndex, noJitter); // "Zz"
   store.commit(events.cellCreated2({
     id: "before-first",
     fractionalIndex: beforeFirstIndex,
@@ -919,7 +941,7 @@ Deno.test("v2.CellCreated - using helper functions", async () => {
   const atPosition2Index = fractionalIndexBetween(
     firstIndex,
     secondIndex,
-    false,
+    noJitter,
   ); // "a0V"
   store.commit(events.cellCreated2({
     id: "at-position-2",
