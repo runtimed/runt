@@ -1790,19 +1790,13 @@ export function fractionalIndexBetween(
   b: string | null | undefined,
   jitterProvider: JitterProvider = defaultJitterProvider,
 ): string {
-  console.log("fractionalIndexBetween called with:", { a, b });
-
   // Extract base key if it contains jitter (separated by tilde)
   const cleanA = a ? a.split("~")[0] : a;
   const cleanB = b ? b.split("~")[0] : b;
 
-  console.log("Cleaned keys:", { cleanA, cleanB });
-
   const key = generateKeyBetween(cleanA, cleanB);
-  console.log("Generated base key:", key);
 
   const jitteredKey = jitterProvider.addJitter(key);
-  console.log("After jitter:", jitteredKey);
 
   return jitteredKey;
 }
@@ -1842,21 +1836,10 @@ export function createCellAfter(
     createdBy: string;
   },
 ): ReturnType<typeof events.cellCreated2> {
-  console.log("createCellAfter called with:", {
-    afterCellId,
-    cellsCount: cells.length,
-    cells: cells.map((c) => ({ id: c.id, fractionalIndex: c.fractionalIndex })),
-  });
-
   // Only consider cells with valid fractionalIndex for ordering
   const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
   const sortedCells = cellsWithIndex.sort((a, b) =>
     a.fractionalIndex!.localeCompare(b.fractionalIndex!)
-  );
-
-  console.log(
-    "Sorted cells:",
-    sortedCells.map((c) => ({ id: c.id, fractionalIndex: c.fractionalIndex })),
   );
 
   let previousKey: string | null = null;
@@ -1890,9 +1873,7 @@ export function createCellAfter(
     // This will create the first fractionalIndex
   }
 
-  console.log("Generating fractionalIndex with:", { previousKey, nextKey });
   const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
-  console.log("Generated fractionalIndex:", fractionalIndex);
 
   return events.cellCreated2({
     ...cellData,
