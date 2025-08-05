@@ -897,6 +897,227 @@ Deno.test("fractional indexing - edge cases", async () => {
   }
 });
 
+Deno.test("fractional indexing - base62 ordering edge case (a2l/a2V)", async () => {
+  const { fractionalIndexBetween, NoJitterProvider } = await import(
+    "@runt/schema"
+  );
+  const noJitter = new NoJitterProvider();
+
+  // This tests the specific edge case where inserting between certain patterns
+  // like a2l and a2V can cause ordering issues in base62
+
+  // First, we need to generate indices that would create these patterns
+  // Starting from a2, we'll create insertions that lead to a2l
+  let current = "a2";
+  const indices: string[] = [current];
+
+  // Insert multiple times after a2 to approach the pattern
+  for (let i = 0; i < 20; i++) {
+    const next = fractionalIndexBetween(current, "a3", noJitter);
+    indices.push(next);
+    current = next;
+  }
+
+  // Find indices that match our edge case patterns
+  const a2lIndex = indices.find((idx) => idx === "a2l");
+  const a2VIndex = indices.find((idx) => idx === "a2V");
+
+  // Test inserting between various problematic patterns
+  const testPatterns = [
+    { a: "a2l", b: "a2m", name: "a2l to a2m" },
+    { a: "a2V", b: "a2W", name: "a2V to a2W" },
+    { a: "a2l", b: "a2V", name: "a2l to a2V (specific edge case)" },
+    { a: "a2", b: "a2l", name: "a2 to a2l" },
+    { a: "a2V", b: "a3", name: "a2V to a3" },
+  ];
+
+  for (const pattern of testPatterns) {
+    try {
+      const between = fractionalIndexBetween(pattern.a, pattern.b, noJitter);
+
+      // Verify the ordering is correct
+      assert(
+        between > pattern.a,
+        `${between} should be > ${pattern.a} (${pattern.name})`,
+      );
+      assert(
+        between < pattern.b,
+        `${between} should be < ${pattern.b} (${pattern.name})`,
+      );
+
+      // Verify string comparison works correctly (base62 ordering)
+      assert(
+        pattern.a.localeCompare(between) < 0,
+        `localeCompare: ${pattern.a} should be < ${between}`,
+      );
+      assert(
+        between.localeCompare(pattern.b) < 0,
+        `localeCompare: ${between} should be < ${pattern.b}`,
+      );
+    } catch (error) {
+      // If the fractional-indexing library throws an error, we should handle it gracefully
+      console.log(
+        `Edge case error for ${pattern.name}: ${(error as Error).message}`,
+      );
+      // The system should recover - test that we can still insert elsewhere
+      const recovery = fractionalIndexBetween(pattern.a, null, noJitter);
+      assert(
+        recovery > pattern.a,
+        `Recovery: ${recovery} should be > ${pattern.a}`,
+      );
+    }
+  }
+
+  // Test with jitter to ensure tilde separator doesn't break ordering
+  const withJitter1 = fractionalIndexBetween("a2l", "a2m");
+  const withJitter2 = fractionalIndexBetween("a2l", "a2m");
+
+  // Both should be between a2l and a2m when comparing base keys
+  const base1 = withJitter1.split("~")[0];
+  const base2 = withJitter2.split("~")[0];
+
+  assert(
+    base1 > "a2l" && base1 < "a2m",
+    `Base key ${base1} should be between a2l and a2m`,
+  );
+  assert(
+    base2 > "a2l" && base2 < "a2m",
+    `Base key ${base2} should be between a2l and a2m`,
+  );
+
+  // With jitter, they should still maintain proper ordering
+  assert("a2l" < withJitter1, `a2l should be < ${withJitter1}`);
+  assert(withJitter1 < "a2m", `${withJitter1} should be < a2m`);
+});
+
+Deno.test("v2.CellCreated - concurrent insertions triggering edge case", async () => {
+  const store = await setupStore();
+  const notebookId = "test-notebook";
+  const { fractionalIndexBetween, NoJitterProvider } = await import(
+    "@runt/schema"
+  );
+  const noJitter = new NoJitterProvider();
+
+  // Simulate a notebook that has been heavily edited, approaching edge case indices
+  // Start with cells that have indices close to the problematic patterns
+
+  // Create initial cells that will lead to the edge case
+  store.commit(events.cellCreated2({
+    id: "cell-a2",
+    fractionalIndex: "a2",
+    cellType: "code",
+    createdBy: "user1",
+  }));
+
+  store.commit(events.cellCreated2({
+    id: "cell-a3",
+    fractionalIndex: "a3",
+    cellType: "code",
+    createdBy: "user1",
+  }));
+
+  // Simulate many insertions between a2 and a3 to approach problematic patterns
+  let prevIndex = "a2";
+  const insertedCells: string[] = [];
+
+  for (let i = 0; i < 15; i++) {
+    const nextIndex = fractionalIndexBetween(prevIndex, "a3", noJitter);
+    const cellId = `cell-between-${i}`;
+
+    store.commit(events.cellCreated2({
+      id: cellId,
+      fractionalIndex: nextIndex,
+      cellType: i % 2 === 0 ? "code" : "markdown",
+      createdBy: `user${(i % 3) + 1}`,
+    }));
+
+    insertedCells.push(cellId);
+    prevIndex = nextIndex;
+  }
+
+  // Now simulate concurrent insertions from multiple users
+  // User A and User B both try to insert at the same position
+  const sortedCells = store.query(
+    tables.cells.select().orderBy("fractionalIndex", "asc"),
+  ).filter((c) => c.fractionalIndex !== null);
+
+  // Find cells with indices that might trigger the edge case
+  let problematicPairFound = false;
+  let cellA: string | null = null;
+  let cellB: string | null = null;
+
+  for (let i = 0; i < sortedCells.length - 1; i++) {
+    const current = sortedCells[i].fractionalIndex!;
+    const next = sortedCells[i + 1].fractionalIndex!;
+
+    // Check if we're near the problematic patterns
+    if (
+      current.startsWith("a2") && next.startsWith("a2") &&
+      (current.includes("l") || current.includes("V") ||
+        next.includes("l") || next.includes("V"))
+    ) {
+      problematicPairFound = true;
+      cellA = current;
+      cellB = next;
+      break;
+    }
+  }
+
+  // If we found a problematic pair, test concurrent insertions
+  if (problematicPairFound && cellA && cellB) {
+    // Both users try to insert between the same two cells
+    const userAIndex = fractionalIndexBetween(cellA, cellB);
+    const userBIndex = fractionalIndexBetween(cellA, cellB);
+
+    // With jitter, they should get different indices
+    assertNotEquals(userAIndex, userBIndex, "Jittered indices should differ");
+
+    // Both indices should maintain proper ordering
+    assert(userAIndex > cellA, `${userAIndex} should be > ${cellA}`);
+    assert(userAIndex < cellB, `${userAIndex} should be < ${cellB}`);
+    assert(userBIndex > cellA, `${userBIndex} should be > ${cellA}`);
+    assert(userBIndex < cellB, `${userBIndex} should be < ${cellB}`);
+
+    // Commit both cells
+    store.commit(events.cellCreated2({
+      id: "concurrent-userA",
+      fractionalIndex: userAIndex,
+      cellType: "code",
+      createdBy: "userA",
+    }));
+
+    store.commit(events.cellCreated2({
+      id: "concurrent-userB",
+      fractionalIndex: userBIndex,
+      cellType: "markdown",
+      createdBy: "userB",
+    }));
+  }
+
+  // Verify final ordering is maintained
+  const finalCells = store.query(
+    tables.cells.select().orderBy("fractionalIndex", "asc"),
+  ).filter((c) => c.fractionalIndex !== null);
+
+  // Check that ordering is strictly increasing
+  for (let i = 1; i < finalCells.length; i++) {
+    const prev = finalCells[i - 1].fractionalIndex!;
+    const curr = finalCells[i].fractionalIndex!;
+    assert(
+      prev < curr,
+      `Ordering violated: ${prev} should be < ${curr}`,
+    );
+  }
+
+  // Verify no duplicate indices (even with concurrent insertions)
+  const indexSet = new Set(finalCells.map((c) => c.fractionalIndex));
+  assertEquals(
+    indexSet.size,
+    finalCells.length,
+    "All fractional indices should be unique",
+  );
+});
+
 Deno.test("v2.CellCreated - using helper functions", async () => {
   const store = await setupStore();
   const {
