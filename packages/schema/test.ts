@@ -1151,6 +1151,7 @@ Deno.test("v2.CellCreated - concurrent insertions triggering edge case", async (
   } finally {
     // Clean up the store to prevent leaks
     await store.shutdown();
+    restore();
   }
 });
 
