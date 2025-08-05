@@ -9,8 +9,7 @@ import {
 
 import { makeAdapter } from "npm:@livestore/adapter-node";
 
-import { assertEquals } from "jsr:@std/assert";
-import { assert } from "jsr:@std/assert";
+import { assert, assertEquals, assertNotEquals } from "jsr:@std/assert";
 
 import { events, materializers, tables } from "@runt/schema";
 
@@ -856,9 +855,8 @@ Deno.test("fractional indexing - concurrent inserts", async () => {
   assert(user2WithJitter > cellA);
   assert(user2WithJitter < cellB);
 
-  // The base part should be the same, but jitter makes them unique
-  assert(user1WithJitter.startsWith("a0V"));
-  assert(user2WithJitter.startsWith("a0V"));
+  // With multi-key jittering, they should be different (with high probability)
+  // We can't assert they start with a specific prefix since we pick from multiple positions
 });
 
 Deno.test("fractional indexing - edge cases", async () => {
@@ -993,129 +991,135 @@ Deno.test("fractional indexing - base62 ordering edge case (a2l/a2V)", async () 
 Deno.test("v2.CellCreated - concurrent insertions triggering edge case", async () => {
   const store = await setupStore();
   const notebookId = "test-notebook";
-  const { fractionalIndexBetween, NoJitterProvider } = await import(
-    "@runt/schema"
-  );
-  const noJitter = new NoJitterProvider();
 
-  // Simulate a notebook that has been heavily edited, approaching edge case indices
-  // Start with cells that have indices close to the problematic patterns
-
-  // Create initial cells that will lead to the edge case
-  store.commit(events.cellCreated2({
-    id: "cell-a2",
-    fractionalIndex: "a2",
-    cellType: "code",
-    createdBy: "user1",
-  }));
-
-  store.commit(events.cellCreated2({
-    id: "cell-a3",
-    fractionalIndex: "a3",
-    cellType: "code",
-    createdBy: "user1",
-  }));
-
-  // Simulate many insertions between a2 and a3 to approach problematic patterns
-  let prevIndex = "a2";
-  const insertedCells: string[] = [];
-
-  for (let i = 0; i < 15; i++) {
-    const nextIndex = fractionalIndexBetween(prevIndex, "a3", noJitter);
-    const cellId = `cell-between-${i}`;
-
-    store.commit(events.cellCreated2({
-      id: cellId,
-      fractionalIndex: nextIndex,
-      cellType: i % 2 === 0 ? "code" : "markdown",
-      createdBy: `user${(i % 3) + 1}`,
-    }));
-
-    insertedCells.push(cellId);
-    prevIndex = nextIndex;
-  }
-
-  // Now simulate concurrent insertions from multiple users
-  // User A and User B both try to insert at the same position
-  const sortedCells = store.query(
-    tables.cells.select().orderBy("fractionalIndex", "asc"),
-  ).filter((c) => c.fractionalIndex !== null);
-
-  // Find cells with indices that might trigger the edge case
-  let problematicPairFound = false;
-  let cellA: string | null = null;
-  let cellB: string | null = null;
-
-  for (let i = 0; i < sortedCells.length - 1; i++) {
-    const current = sortedCells[i].fractionalIndex!;
-    const next = sortedCells[i + 1].fractionalIndex!;
-
-    // Check if we're near the problematic patterns
-    if (
-      current.startsWith("a2") && next.startsWith("a2") &&
-      (current.includes("l") || current.includes("V") ||
-        next.includes("l") || next.includes("V"))
-    ) {
-      problematicPairFound = true;
-      cellA = current;
-      cellB = next;
-      break;
-    }
-  }
-
-  // If we found a problematic pair, test concurrent insertions
-  if (problematicPairFound && cellA && cellB) {
-    // Both users try to insert between the same two cells
-    const userAIndex = fractionalIndexBetween(cellA, cellB);
-    const userBIndex = fractionalIndexBetween(cellA, cellB);
-
-    // With jitter, they should get different indices
-    assertNotEquals(userAIndex, userBIndex, "Jittered indices should differ");
-
-    // Both indices should maintain proper ordering
-    assert(userAIndex > cellA, `${userAIndex} should be > ${cellA}`);
-    assert(userAIndex < cellB, `${userAIndex} should be < ${cellB}`);
-    assert(userBIndex > cellA, `${userBIndex} should be > ${cellA}`);
-    assert(userBIndex < cellB, `${userBIndex} should be < ${cellB}`);
-
-    // Commit both cells
-    store.commit(events.cellCreated2({
-      id: "concurrent-userA",
-      fractionalIndex: userAIndex,
-      cellType: "code",
-      createdBy: "userA",
-    }));
-
-    store.commit(events.cellCreated2({
-      id: "concurrent-userB",
-      fractionalIndex: userBIndex,
-      cellType: "markdown",
-      createdBy: "userB",
-    }));
-  }
-
-  // Verify final ordering is maintained
-  const finalCells = store.query(
-    tables.cells.select().orderBy("fractionalIndex", "asc"),
-  ).filter((c) => c.fractionalIndex !== null);
-
-  // Check that ordering is strictly increasing
-  for (let i = 1; i < finalCells.length; i++) {
-    const prev = finalCells[i - 1].fractionalIndex!;
-    const curr = finalCells[i].fractionalIndex!;
-    assert(
-      prev < curr,
-      `Ordering violated: ${prev} should be < ${curr}`,
+  try {
+    const { fractionalIndexBetween, NoJitterProvider } = await import(
+      "@runt/schema"
     );
-  }
+    const noJitter = new NoJitterProvider();
 
-  // Verify no duplicate indices (even with concurrent insertions)
-  const indexSet = new Set(finalCells.map((c) => c.fractionalIndex));
-  assertEquals(
-    indexSet.size,
-    finalCells.length,
-    "All fractional indices should be unique",
-  );
+    // Simulate a notebook that has been heavily edited, approaching edge case indices
+    // Start with cells that have indices close to the problematic patterns
+
+    // Create initial cells that will lead to the edge case
+    store.commit(events.cellCreated2({
+      id: "cell-a2",
+      fractionalIndex: "a2",
+      cellType: "code",
+      createdBy: "user1",
+    }));
+
+    store.commit(events.cellCreated2({
+      id: "cell-a3",
+      fractionalIndex: "a3",
+      cellType: "code",
+      createdBy: "user1",
+    }));
+
+    // Simulate many insertions between a2 and a3 to approach problematic patterns
+    let prevIndex = "a2";
+    const insertedCells: string[] = [];
+
+    for (let i = 0; i < 15; i++) {
+      const nextIndex = fractionalIndexBetween(prevIndex, "a3", noJitter);
+      const cellId = `cell-between-${i}`;
+
+      store.commit(events.cellCreated2({
+        id: cellId,
+        fractionalIndex: nextIndex,
+        cellType: i % 2 === 0 ? "code" : "markdown",
+        createdBy: `user${(i % 3) + 1}`,
+      }));
+
+      insertedCells.push(cellId);
+      prevIndex = nextIndex;
+    }
+
+    // Now simulate concurrent insertions from multiple users
+    // User A and User B both try to insert at the same position
+    const sortedCells = store.query(
+      tables.cells.select().orderBy("fractionalIndex", "asc"),
+    ).filter((c) => c.fractionalIndex !== null);
+
+    // Find cells with indices that might trigger the edge case
+    let problematicPairFound = false;
+    let cellA: string | null = null;
+    let cellB: string | null = null;
+
+    for (let i = 0; i < sortedCells.length - 1; i++) {
+      const current = sortedCells[i].fractionalIndex!;
+      const next = sortedCells[i + 1].fractionalIndex!;
+
+      // Check if we're near the problematic patterns
+      if (
+        current.startsWith("a2") && next.startsWith("a2") &&
+        (current.includes("l") || current.includes("V") ||
+          next.includes("l") || next.includes("V"))
+      ) {
+        problematicPairFound = true;
+        cellA = current;
+        cellB = next;
+        break;
+      }
+    }
+
+    // If we found a problematic pair, test concurrent insertions
+    if (problematicPairFound && cellA && cellB) {
+      // Both users try to insert between the same two cells
+      const userAIndex = fractionalIndexBetween(cellA, cellB);
+      const userBIndex = fractionalIndexBetween(cellA, cellB);
+
+      // With jitter, they should get different indices
+      assertNotEquals(userAIndex, userBIndex, "Jittered indices should differ");
+
+      // Both indices should maintain proper ordering
+      assert(userAIndex > cellA, `${userAIndex} should be > ${cellA}`);
+      assert(userAIndex < cellB, `${userAIndex} should be < ${cellB}`);
+      assert(userBIndex > cellA, `${userBIndex} should be > ${cellA}`);
+      assert(userBIndex < cellB, `${userBIndex} should be < ${cellB}`);
+
+      // Commit both cells
+      store.commit(events.cellCreated2({
+        id: "concurrent-userA",
+        fractionalIndex: userAIndex,
+        cellType: "code",
+        createdBy: "userA",
+      }));
+
+      store.commit(events.cellCreated2({
+        id: "concurrent-userB",
+        fractionalIndex: userBIndex,
+        cellType: "markdown",
+        createdBy: "userB",
+      }));
+    }
+
+    // Verify final ordering is maintained
+    const finalCells = store.query(
+      tables.cells.select().orderBy("fractionalIndex", "asc"),
+    ).filter((c) => c.fractionalIndex !== null);
+
+    // Check that ordering is strictly increasing
+    for (let i = 1; i < finalCells.length; i++) {
+      const prev = finalCells[i - 1].fractionalIndex!;
+      const curr = finalCells[i].fractionalIndex!;
+      assert(
+        prev < curr,
+        `Ordering violated: ${prev} should be < ${curr}`,
+      );
+    }
+
+    // Verify no duplicate indices (even with concurrent insertions)
+    const indexSet = new Set(finalCells.map((c) => c.fractionalIndex));
+    assertEquals(
+      indexSet.size,
+      finalCells.length,
+      "All fractional indices should be unique",
+    );
+  } finally {
+    // Clean up the store to prevent leaks
+    await store.shutdown();
+  }
 });
 
 Deno.test("v2.CellCreated - using helper functions", async () => {

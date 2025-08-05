@@ -1771,15 +1771,9 @@ export class RandomJitterProvider implements JitterProvider {
   constructor(private readonly length: number = 3) {}
 
   addJitter(key: string): string {
-    const chars =
-      "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    let jitter = "";
-    for (let i = 0; i < this.length; i++) {
-      jitter += chars[Math.floor(Math.random() * chars.length)];
-    }
-    // Instead of adding a suffix, we'll use multi-key generation in fractionalIndexBetween
-    // This is just a marker for backwards compatibility
-    return key;
+    // Return a marker to indicate this provider wants jittering
+    // The actual jittering happens in fractionalIndexBetween via multi-key generation
+    return key + "_JITTER";
   }
 }
 
@@ -1804,7 +1798,10 @@ export function fractionalIndexBetween(
   const cleanB = b ? b.split("~")[0] : b;
 
   // For deterministic tests (NoJitterProvider), use single key generation
-  if (jitterProvider.addJitter("test") === "test") {
+  const testJitter = jitterProvider.addJitter("test");
+  const wantsJitter = testJitter !== "test";
+
+  if (!wantsJitter) {
     return generateKeyBetween(cleanA, cleanB);
   }
 
@@ -1817,9 +1814,9 @@ export function fractionalIndexBetween(
     // Pick a random key (not the first or last for better distribution)
     if (keys.length > 2) {
       const randomIndex = 1 + Math.floor(Math.random() * (keys.length - 2));
-      return keys[randomIndex];
+      return keys[randomIndex]!;
     } else if (keys.length > 0) {
-      return keys[0];
+      return keys[0]!;
     }
   } catch (error) {
     // If multi-key generation fails, fall back to single key
