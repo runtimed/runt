@@ -999,9 +999,7 @@ export const materializers = State.SQLite.materializers(events, {
     if (existingDebug) {
       return [];
     }
-    return [
-      tables.debug.insert({ id: event.id }).onConflict("id", "replace"),
-    ];
+    return [tables.debug.insert({ id: event.id }).onConflict("id", "replace")];
   },
   // Notebook materializers
   /** @deprecated */
@@ -1112,9 +1110,7 @@ export const materializers = State.SQLite.materializers(events, {
     return ops;
   },
 
-  "v1.CellSourceVisibilityToggled": (
-    { id, sourceVisible, actorId },
-  ) => {
+  "v1.CellSourceVisibilityToggled": ({ id, sourceVisible, actorId }) => {
     const ops = [];
     ops.push(tables.cells.update({ sourceVisible }).where({ id }));
     if (actorId) {
@@ -1123,9 +1119,7 @@ export const materializers = State.SQLite.materializers(events, {
     return ops;
   },
 
-  "v1.CellOutputVisibilityToggled": (
-    { id, outputVisible, actorId },
-  ) => {
+  "v1.CellOutputVisibilityToggled": ({ id, outputVisible, actorId }) => {
     const ops = [];
     ops.push(tables.cells.update({ outputVisible }).where({ id }));
     if (actorId) {
@@ -1134,9 +1128,7 @@ export const materializers = State.SQLite.materializers(events, {
     return ops;
   },
 
-  "v1.CellAiContextVisibilityToggled": (
-    { id, aiContextVisible, actorId },
-  ) => {
+  "v1.CellAiContextVisibilityToggled": ({ id, aiContextVisible, actorId }) => {
     const ops = [];
     ops.push(tables.cells.update({ aiContextVisible }).where({ id }));
     if (actorId) {
@@ -1436,9 +1428,7 @@ export const materializers = State.SQLite.materializers(events, {
     ];
   },
 
-  "v2.TerminalOutputAppended": (
-    { outputId, delta, id, sequenceNumber },
-  ) => {
+  "v2.TerminalOutputAppended": ({ outputId, delta, id, sequenceNumber }) => {
     return tables.outputDeltas.insert({
       id,
       outputId,
@@ -1590,9 +1580,13 @@ export const materializers = State.SQLite.materializers(events, {
       .onConflict("id", "replace"),
 
   // Tool approval materializers
-  "v1.ToolApprovalRequested": (
-    { toolCallId, cellId, toolName, arguments: _args, requestedAt },
-  ) =>
+  "v1.ToolApprovalRequested": ({
+    toolCallId,
+    cellId,
+    toolName,
+    arguments: _args,
+    requestedAt,
+  }) =>
     tables.toolApprovals
       .insert({
         toolCallId,
@@ -1605,9 +1599,12 @@ export const materializers = State.SQLite.materializers(events, {
       })
       .onConflict("toolCallId", "replace"),
 
-  "v1.ToolApprovalResponded": (
-    { toolCallId, status, approvedBy, respondedAt },
-  ) =>
+  "v1.ToolApprovalResponded": ({
+    toolCallId,
+    status,
+    approvedBy,
+    respondedAt,
+  }) =>
     tables.toolApprovals
       .update({
         status,
@@ -1772,8 +1769,8 @@ export class RandomJitterProvider implements JitterProvider {
     for (let i = 0; i < this.length; i++) {
       jitter += chars[Math.floor(Math.random() * chars.length)];
     }
-    // Separate jitter with underscore to maintain valid key format
-    return key + "_" + jitter;
+    // Separate jitter with tilde to maintain valid key format and proper sorting
+    return key + "~" + jitter;
   }
 }
 
@@ -1793,12 +1790,15 @@ export function fractionalIndexBetween(
   b: string | null | undefined,
   jitterProvider: JitterProvider = defaultJitterProvider,
 ): string {
-  // Extract base key if it contains jitter (separated by underscore)
-  const cleanA = a ? a.split("_")[0] : a;
-  const cleanB = b ? b.split("_")[0] : b;
+  // Extract base key if it contains jitter (separated by tilde)
+  const cleanA = a ? a.split("~")[0] : a;
+  const cleanB = b ? b.split("~")[0] : b;
 
   const key = generateKeyBetween(cleanA, cleanB);
-  return jitterProvider.addJitter(key);
+
+  const jitteredKey = jitterProvider.addJitter(key);
+
+  return jitteredKey;
 }
 
 export function generateFractionalIndices(
@@ -1836,7 +1836,9 @@ export function createCellAfter(
     createdBy: string;
   },
 ): ReturnType<typeof events.cellCreated2> {
-  const sortedCells = cells.filter((c) => c.fractionalIndex).sort((a, b) =>
+  // Only consider cells with valid fractionalIndex for ordering
+  const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
+  const sortedCells = cellsWithIndex.sort((a, b) =>
     a.fractionalIndex!.localeCompare(b.fractionalIndex!)
   );
 
@@ -1844,20 +1846,31 @@ export function createCellAfter(
   let nextKey: string | null = null;
 
   if (afterCellId) {
-    const cellIndex = sortedCells.findIndex((c) => c.id === afterCellId);
-    if (cellIndex >= 0) {
-      const currentCell = sortedCells[cellIndex];
-      if (currentCell) {
-        previousKey = currentCell.fractionalIndex!;
-        const nextCell = sortedCells[cellIndex + 1];
+    // Find the cell we want to insert after
+    const targetCell = cells.find((c) => c.id === afterCellId);
+    if (targetCell && targetCell.fractionalIndex) {
+      // If the target cell has a fractionalIndex, use it
+      previousKey = targetCell.fractionalIndex;
+
+      // Find the next cell in sorted order
+      const targetIndex = sortedCells.findIndex((c) => c.id === afterCellId);
+      if (targetIndex >= 0 && targetIndex < sortedCells.length - 1) {
+        const nextCell = sortedCells[targetIndex + 1];
         if (nextCell) {
           nextKey = nextCell.fractionalIndex!;
         }
       }
     }
-  } else if (sortedCells.length > 0 && sortedCells[0]) {
-    // Insert at beginning
-    nextKey = sortedCells[0].fractionalIndex!;
+  } else {
+    // When afterCellId is null, insert at the end
+    if (sortedCells.length > 0) {
+      const lastCell = sortedCells[sortedCells.length - 1];
+      if (lastCell) {
+        previousKey = lastCell.fractionalIndex!;
+      }
+    }
+    // If no cells with fractionalIndex exist, previousKey and nextKey remain null
+    // This will create the first fractionalIndex
   }
 
   const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
@@ -1877,7 +1890,9 @@ export function createCellBefore(
     createdBy: string;
   },
 ): ReturnType<typeof events.cellCreated2> {
-  const sortedCells = cells.filter((c) => c.fractionalIndex).sort((a, b) =>
+  // Only consider cells with valid fractionalIndex for ordering
+  const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
+  const sortedCells = cellsWithIndex.sort((a, b) =>
     a.fractionalIndex!.localeCompare(b.fractionalIndex!)
   );
 
@@ -1885,23 +1900,31 @@ export function createCellBefore(
   let nextKey: string | null = null;
 
   if (beforeCellId) {
-    const cellIndex = sortedCells.findIndex((c) => c.id === beforeCellId);
-    if (cellIndex >= 0) {
-      const currentCell = sortedCells[cellIndex];
-      if (currentCell) {
-        nextKey = currentCell.fractionalIndex!;
-        const prevCell = sortedCells[cellIndex - 1];
+    // Find the cell we want to insert before
+    const targetCell = cells.find((c) => c.id === beforeCellId);
+    if (targetCell && targetCell.fractionalIndex) {
+      // If the target cell has a fractionalIndex, use it
+      nextKey = targetCell.fractionalIndex;
+
+      // Find the previous cell in sorted order
+      const targetIndex = sortedCells.findIndex((c) => c.id === beforeCellId);
+      if (targetIndex > 0) {
+        const prevCell = sortedCells[targetIndex - 1];
         if (prevCell) {
           previousKey = prevCell.fractionalIndex!;
         }
       }
     }
-  } else if (sortedCells.length > 0) {
-    // Insert at end
-    const lastCell = sortedCells[sortedCells.length - 1];
-    if (lastCell) {
-      previousKey = lastCell.fractionalIndex!;
+  } else {
+    // When beforeCellId is null, also insert at the end (same as createCellAfter with null)
+    if (sortedCells.length > 0) {
+      const lastCell = sortedCells[sortedCells.length - 1];
+      if (lastCell) {
+        previousKey = lastCell.fractionalIndex!;
+      }
     }
+    // If no cells with fractionalIndex exist, previousKey and nextKey remain null
+    // This will create the first fractionalIndex
   }
 
   const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
@@ -1921,9 +1944,9 @@ export function createCellAtPosition(
     createdBy: string;
   },
 ): ReturnType<typeof events.cellCreated2> {
-  const sortedCells = cells.filter((c) => c.fractionalIndex).sort((a, b) =>
-    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
-  );
+  const sortedCells = cells
+    .filter((c) => c.fractionalIndex)
+    .sort((a, b) => a.fractionalIndex!.localeCompare(b.fractionalIndex!));
 
   // Clamp position to valid range
   const clampedPosition = Math.max(0, Math.min(position, sortedCells.length));
