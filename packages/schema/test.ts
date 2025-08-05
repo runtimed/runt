@@ -1167,83 +1167,83 @@ Deno.test("v2.CellCreated - using helper functions", async () => {
   // Mock Math.random for deterministic tests
   const _mathRandomStub = stub(Math, "random", () => 0);
 
-  // For predictable tests, we'll create cells with non-jittered indices manually
-  // Start with an empty notebook
-  const cells = store.query(tables.cells);
-  assertEquals(cells.length, 0);
+  try {
+    // For predictable tests, we'll create cells with non-jittered indices manually
+    // Start with an empty notebook
+    const cells = store.query(tables.cells);
+    assertEquals(cells.length, 0);
 
-  // Create first cell with non-jittered index
-  const firstIndex = fractionalIndexBetween(null, null); // "a0"
-  store.commit(events.cellCreated2({
-    id: "first-cell",
-    fractionalIndex: firstIndex,
-    cellType: "markdown",
-    createdBy: "author",
-  }));
+    // Create first cell with non-jittered index
+    const firstIndex = fractionalIndexBetween(null, null); // "a0"
+    store.commit(events.cellCreated2({
+      id: "first-cell",
+      fractionalIndex: firstIndex,
+      cellType: "markdown",
+      createdBy: "author",
+    }));
 
-  // Create a cell after the first one
-  const secondIndex = fractionalIndexBetween(firstIndex, null); // "a1"
-  store.commit(events.cellCreated2({
-    id: "second-cell",
-    fractionalIndex: secondIndex,
-    cellType: "code",
-    createdBy: "author",
-  }));
+    // Create a cell after the first one
+    const secondIndex = fractionalIndexBetween(firstIndex, null); // "a1"
+    store.commit(events.cellCreated2({
+      id: "second-cell",
+      fractionalIndex: secondIndex,
+      cellType: "code",
+      createdBy: "author",
+    }));
 
-  // Create a cell before the first one
-  const beforeFirstIndex = fractionalIndexBetween(null, firstIndex); // "Zz"
-  store.commit(events.cellCreated2({
-    id: "before-first",
-    fractionalIndex: beforeFirstIndex,
-    cellType: "ai",
-    createdBy: "collaborator",
-  }));
+    // Create a cell before the first one
+    const beforeFirstIndex = fractionalIndexBetween(null, firstIndex); // "Zz"
+    store.commit(events.cellCreated2({
+      id: "before-first",
+      fractionalIndex: beforeFirstIndex,
+      cellType: "ai",
+      createdBy: "collaborator",
+    }));
 
-  // Create a cell at position 2 (between first and second)
-  const atPosition2Index = fractionalIndexBetween(firstIndex, secondIndex); // "a0V"
-  store.commit(events.cellCreated2({
-    id: "at-position-2",
-    fractionalIndex: atPosition2Index,
-    cellType: "sql",
-    createdBy: "collaborator",
-  }));
+    // Create a cell at position 2 (between first and second)
+    const atPosition2Index = fractionalIndexBetween(firstIndex, secondIndex); // "a0V"
+    store.commit(events.cellCreated2({
+      id: "at-position-2",
+      fractionalIndex: atPosition2Index,
+      cellType: "sql",
+      createdBy: "collaborator",
+    }));
 
-  // Verify final order
-  const orderedCells = store.query(
-    tables.cells.select().orderBy("fractionalIndex", "asc"),
-  ).filter((c) => c.fractionalIndex !== null);
+    // Verify final order
+    const orderedCells = store.query(
+      tables.cells.select().orderBy("fractionalIndex", "asc"),
+    ).filter((c) => c.fractionalIndex !== null);
 
-  assertEquals(orderedCells.length, 4);
+    assertEquals(orderedCells.length, 4);
 
-  // With non-jittered indices, we can verify exact ordering
-  assertEquals(orderedCells[0].id, "before-first"); // Zz < a0
-  assertEquals(orderedCells[1].id, "first-cell"); // a0
-  assertEquals(orderedCells[2].id, "at-position-2"); // a0V
-  assertEquals(orderedCells[3].id, "second-cell"); // a1
+    // With non-jittered indices, we can verify exact ordering
+    assertEquals(orderedCells[0].id, "before-first"); // Zz < a0
+    assertEquals(orderedCells[1].id, "first-cell"); // a0
+    assertEquals(orderedCells[2].id, "at-position-2"); // a0V
+    assertEquals(orderedCells[3].id, "second-cell"); // a1
 
-  // Verify all cells have unique fractional indices
-  const indices = new Set(orderedCells.map((c) => c.fractionalIndex));
-  assertEquals(indices.size, 4, "All cells should have unique indices");
+    // Verify all cells have unique fractional indices
+    const indices = new Set(orderedCells.map((c) => c.fractionalIndex));
+    assertEquals(indices.size, 4, "All cells should have unique indices");
 
-  // Don't verify exact indices since multi-key generation can produce different valid values
-  // Just verify they maintain proper ordering
+    // Don't verify exact indices since multi-key generation can produce different valid values
+    // Just verify they maintain proper ordering
 
-  // Verify cells are properly ordered
-  for (let i = 1; i < orderedCells.length; i++) {
-    assert(
-      orderedCells[i].fractionalIndex! > orderedCells[i - 1].fractionalIndex!,
-      `Cell ${i} should have greater fractionalIndex than cell ${i - 1}`,
-    );
+    // Verify cells are properly ordered
+    for (let i = 1; i < orderedCells.length; i++) {
+      assert(
+        orderedCells[i].fractionalIndex! > orderedCells[i - 1].fractionalIndex!,
+        `Cell ${i} should have greater fractionalIndex than cell ${i - 1}`,
+      );
+    }
+
+    store.shutdown();
+  } finally {
+    restore();
   }
-
-  store.shutdown();
-  restore();
 });
 
 Deno.test("v2.CellMoved - basic cell movement", async () => {
-  // Ensure Math.random isn't stubbed from other tests
-  restore();
-
   const store = await setupStore();
   const { fractionalIndexBetween, moveCellAfter } = await import(
     "@runt/schema"
@@ -1281,7 +1281,11 @@ Deno.test("v2.CellMoved - basic cell movement", async () => {
 
   // Verify the new order: cell-1, cell-3, cell-2
   const sortedCells = [...cells].sort((a, b) =>
-    a.fractionalIndex.localeCompare(b.fractionalIndex)
+    a.fractionalIndex < b.fractionalIndex
+      ? -1
+      : a.fractionalIndex > b.fractionalIndex
+      ? 1
+      : 0
   );
   assertEquals(sortedCells[0].id, "cell-1");
   assertEquals(sortedCells[1].id, "cell-3");
@@ -1295,7 +1299,11 @@ Deno.test("v2.CellMoved - basic cell movement", async () => {
   // Verify cell-2 is now first
   movedCell.fractionalIndex = moveToStartEvent.args.fractionalIndex;
   const resortedCells = [...cells].sort((a, b) =>
-    a.fractionalIndex.localeCompare(b.fractionalIndex)
+    a.fractionalIndex < b.fractionalIndex
+      ? -1
+      : a.fractionalIndex > b.fractionalIndex
+      ? 1
+      : 0
   );
   assertEquals(resortedCells[0].id, "cell-2");
 

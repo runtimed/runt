@@ -1841,7 +1841,11 @@ export function createCellAfter(
   // Only consider cells with valid fractionalIndex for ordering
   const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
   const sortedCells = cellsWithIndex.sort((a, b) =>
-    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
+    a.fractionalIndex! < b.fractionalIndex!
+      ? -1
+      : a.fractionalIndex! > b.fractionalIndex!
+      ? 1
+      : 0
   );
 
   let previousKey: string | null = null;
@@ -1895,7 +1899,11 @@ export function createCellBefore(
   // Only consider cells with valid fractionalIndex for ordering
   const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
   const sortedCells = cellsWithIndex.sort((a, b) =>
-    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
+    a.fractionalIndex! < b.fractionalIndex!
+      ? -1
+      : a.fractionalIndex! > b.fractionalIndex!
+      ? 1
+      : 0
   );
 
   let previousKey: string | null = null;
@@ -1948,7 +1956,13 @@ export function createCellAtPosition(
 ): ReturnType<typeof events.cellCreated2> {
   const sortedCells = cells
     .filter((c) => c.fractionalIndex)
-    .sort((a, b) => a.fractionalIndex!.localeCompare(b.fractionalIndex!));
+    .sort((a, b) =>
+      a.fractionalIndex! < b.fractionalIndex!
+        ? -1
+        : a.fractionalIndex! > b.fractionalIndex!
+        ? 1
+        : 0
+    );
 
   // Clamp position to valid range
   const clampedPosition = Math.max(0, Math.min(position, sortedCells.length));
@@ -1995,7 +2009,11 @@ export function moveCellAfter(
   // Only consider cells with valid fractionalIndex for ordering
   const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
   const sortedCells = cellsWithIndex.sort((a, b) =>
-    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
+    a.fractionalIndex! < b.fractionalIndex!
+      ? -1
+      : a.fractionalIndex! > b.fractionalIndex!
+      ? 1
+      : 0
   );
 
   // Find current position
@@ -2069,7 +2087,11 @@ export function moveCellBefore(
   // Only consider cells with valid fractionalIndex for ordering
   const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
   const sortedCells = cellsWithIndex.sort((a, b) =>
-    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
+    a.fractionalIndex! < b.fractionalIndex!
+      ? -1
+      : a.fractionalIndex! > b.fractionalIndex!
+      ? 1
+      : 0
   );
 
   // Find current position
@@ -2143,7 +2165,11 @@ export function moveCellToPosition(
   // Only consider cells with valid fractionalIndex for ordering
   const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
   const sortedCells = cellsWithIndex.sort((a, b) =>
-    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
+    a.fractionalIndex! < b.fractionalIndex!
+      ? -1
+      : a.fractionalIndex! > b.fractionalIndex!
+      ? 1
+      : 0
   );
 
   // Find current position
