@@ -582,6 +582,17 @@ export const events = {
     }),
   }),
 
+  cellMoved2: Events.synced({
+    name: "v2.CellMoved",
+    schema: Schema.Struct({
+      id: Schema.String,
+      fractionalIndex: Schema.String.annotations({
+        description: "New fractional index position for the cell",
+      }),
+      actorId: Schema.optional(Schema.String),
+    }),
+  }),
+
   cellSourceVisibilityToggled: Events.synced({
     name: "v1.CellSourceVisibilityToggled",
     schema: Schema.Struct({
@@ -1104,6 +1115,15 @@ export const materializers = State.SQLite.materializers(events, {
   "v1.CellMoved": ({ id, newPosition, actorId }) => {
     const ops = [];
     ops.push(tables.cells.update({ position: newPosition }).where({ id }));
+    if (actorId) {
+      ops.push(updatePresence(actorId, id));
+    }
+    return ops;
+  },
+
+  "v2.CellMoved": ({ id, fractionalIndex, actorId }) => {
+    const ops = [];
+    ops.push(tables.cells.update({ fractionalIndex }).where({ id }));
     if (actorId) {
       ops.push(updatePresence(actorId, id));
     }
@@ -1769,7 +1789,7 @@ export function fractionalIndexBetween(
   // For production, use multi-key generation to avoid collisions
   try {
     // Generate multiple keys and pick one randomly
-    const numKeys = 10;
+    const numKeys = 20;
     const keys = generateNKeysBetween(a, b, numKeys);
 
     // Pick a random key (not the first or last for better distribution)
@@ -1808,7 +1828,24 @@ export function isValidFractionalIndex(index: string): boolean {
   return typeof index === "string" && index.length > 0;
 }
 
-// Helper functions to create cell events with proper fractional indexing
+/**
+ * Cell reference type for fractional indexing operations
+ */
+export type CellReference = {
+  id: string;
+  fractionalIndex: string | null;
+};
+
+/**
+ * Helper functions for cell creation and movement with fractional indexing
+ *
+ * Sorting Strategy:
+ * 1. Primary sort: Lexicographic comparison of fractional indices (a < b, not localeCompare)
+ * 2. Secondary sort: Cell ID comparison when fractional indices are equal (rare but possible)
+ *
+ * This ensures stable, deterministic ordering even in the unlikely event of index collisions.
+ * We generate 20 candidate indices and pick one randomly to minimize collision probability.
+ */
 export function createCellAfter(
   afterCellId: string | null,
   cells: Array<{ id: string; fractionalIndex: string | null }>,
@@ -1820,9 +1857,13 @@ export function createCellAfter(
 ): ReturnType<typeof events.cellCreated2> {
   // Only consider cells with valid fractionalIndex for ordering
   const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
-  const sortedCells = cellsWithIndex.sort((a, b) =>
-    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
-  );
+  const sortedCells = cellsWithIndex.sort((a, b) => {
+    // Primary sort by fractional index
+    if (a.fractionalIndex! < b.fractionalIndex!) return -1;
+    if (a.fractionalIndex! > b.fractionalIndex!) return 1;
+    // Secondary sort by ID if fractional indices are equal
+    return a.id.localeCompare(b.id);
+  });
 
   let previousKey: string | null = null;
   let nextKey: string | null = null;
@@ -1874,9 +1915,13 @@ export function createCellBefore(
 ): ReturnType<typeof events.cellCreated2> {
   // Only consider cells with valid fractionalIndex for ordering
   const cellsWithIndex = cells.filter((c) => c.fractionalIndex);
-  const sortedCells = cellsWithIndex.sort((a, b) =>
-    a.fractionalIndex!.localeCompare(b.fractionalIndex!)
-  );
+  const sortedCells = cellsWithIndex.sort((a, b) => {
+    // Primary sort by fractional index
+    if (a.fractionalIndex! < b.fractionalIndex!) return -1;
+    if (a.fractionalIndex! > b.fractionalIndex!) return 1;
+    // Secondary sort by ID if fractional indices are equal
+    return a.id.localeCompare(b.id);
+  });
 
   let previousKey: string | null = null;
   let nextKey: string | null = null;
@@ -1928,7 +1973,13 @@ export function createCellAtPosition(
 ): ReturnType<typeof events.cellCreated2> {
   const sortedCells = cells
     .filter((c) => c.fractionalIndex)
-    .sort((a, b) => a.fractionalIndex!.localeCompare(b.fractionalIndex!));
+    .sort((a, b) => {
+      // Primary sort by fractional index
+      if (a.fractionalIndex! < b.fractionalIndex!) return -1;
+      if (a.fractionalIndex! > b.fractionalIndex!) return 1;
+      // Secondary sort by ID if fractional indices are equal
+      return a.id.localeCompare(b.id);
+    });
 
   // Clamp position to valid range
   const clampedPosition = Math.max(0, Math.min(position, sortedCells.length));
@@ -1954,6 +2005,62 @@ export function createCellAtPosition(
   return events.cellCreated2({
     ...cellData,
     fractionalIndex,
+  });
+}
+
+/**
+ * Move a cell between two other cells using fractional indices
+ *
+ * @param cell - The cell to move (must have a valid fractionalIndex)
+ * @param cellBefore - The cell that should come before (null for beginning)
+ * @param cellAfter - The cell that should come after (null for end)
+ * @param actorId - Optional actor ID for tracking who made the change
+ *
+ * Note: It's the caller's responsibility to provide accurate before/after cells.
+ * If both cellBefore and cellAfter are provided, they must be adjacent cells.
+ */
+export function moveCellBetween(
+  cell: CellReference,
+  cellBefore: CellReference | null,
+  cellAfter: CellReference | null,
+  actorId?: string,
+): ReturnType<typeof events.cellMoved2> | null {
+  // Cell must have a valid fractional index to be moved
+  if (!cell.fractionalIndex) {
+    return null;
+  }
+
+  // Determine the fractional indices for before and after
+  const previousKey = cellBefore?.fractionalIndex || null;
+  const nextKey = cellAfter?.fractionalIndex || null;
+
+  // Check if already in the target position
+  if (cellBefore && cellAfter) {
+    // If between two cells, check if we're already there
+    if (
+      cell.fractionalIndex > previousKey! &&
+      cell.fractionalIndex < nextKey!
+    ) {
+      return null;
+    }
+  } else if (!cellBefore && cellAfter) {
+    // Moving to beginning - check if already before cellAfter
+    if (cell.fractionalIndex < nextKey!) {
+      return null;
+    }
+  } else if (cellBefore && !cellAfter) {
+    // Moving to end - check if already after cellBefore
+    if (cell.fractionalIndex > previousKey!) {
+      return null;
+    }
+  }
+
+  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
+
+  return events.cellMoved2({
+    id: cell.id,
+    fractionalIndex,
+    actorId,
   });
 }
 
