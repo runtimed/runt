@@ -1755,50 +1755,148 @@ export const AI_TOOL_RESULT_MIME_TYPE =
 
 // JitterProvider interface for dependency injection
 export interface JitterProvider {
-  addJitter(key: string): string;
+  shouldRandomize(): boolean;
 }
 
-// Default jitter provider that adds random suffix
+// Default jitter provider that enables randomization
 export class RandomJitterProvider implements JitterProvider {
-  constructor(private readonly length: number = 3) {}
-
-  addJitter(key: string): string {
-    const chars =
-      "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    let jitter = "";
-    for (let i = 0; i < this.length; i++) {
-      jitter += chars[Math.floor(Math.random() * chars.length)];
-    }
-    // Separate jitter with tilde to maintain valid key format and proper sorting
-    return key + "~" + jitter;
+  shouldRandomize(): boolean {
+    return true;
   }
 }
 
 // No-op jitter provider for tests
 export class NoJitterProvider implements JitterProvider {
-  addJitter(key: string): string {
-    return key;
+  shouldRandomize(): boolean {
+    return false;
   }
 }
+
+// Create singleton instance for comparison
+const noJitterProvider = new NoJitterProvider();
 
 // Default jitter provider instance
 const defaultJitterProvider = new RandomJitterProvider();
 
 // Export fractional indexing utilities with optional jittering
+// Helper to validate that a key maintains proper ordering
+function isValidOrdering(
+  key: string,
+  lowerBound: string | null | undefined,
+  upperBound: string | null | undefined,
+): boolean {
+  // Check lower bound
+  if (lowerBound && key <= lowerBound) {
+    return false;
+  }
+  // Check upper bound
+  if (upperBound && key >= upperBound) {
+    return false;
+  }
+  return true;
+}
+
 export function fractionalIndexBetween(
   a: string | null | undefined,
   b: string | null | undefined,
   jitterProvider: JitterProvider = defaultJitterProvider,
 ): string {
-  // Extract base key if it contains jitter (separated by tilde)
-  const cleanA = a ? a.split("~")[0] : a;
-  const cleanB = b ? b.split("~")[0] : b;
+  // Extract base key by removing any tilde-separated jitter (for backwards compatibility)
+  const cleanKey = (k: string | null | undefined) => {
+    if (!k) return k;
+    if (k.includes("~")) return k.split("~")[0];
+    return k;
+  };
 
-  const key = generateKeyBetween(cleanA, cleanB);
+  const cleanA = cleanKey(a);
+  const cleanB = cleanKey(b);
 
-  const jitteredKey = jitterProvider.addJitter(key);
+  // If randomization is requested, generate multiple positions and pick one
+  if (jitterProvider.shouldRandomize()) {
+    try {
+      // Generate 20 positions between a and b
+      const positions = generateNKeysBetween(cleanA, cleanB, 20);
 
-  return jitteredKey;
+      // Filter out any positions that violate ordering
+      const validPositions = positions.filter((pos) =>
+        isValidOrdering(pos, cleanA, cleanB)
+      );
+
+      if (validPositions.length > 0) {
+        // Pick a random valid position (avoid first and last for better distribution)
+        if (validPositions.length > 2) {
+          const randomIndex = 1 +
+            Math.floor(Math.random() * (validPositions.length - 2));
+          return validPositions[randomIndex];
+        }
+        // If we only got 1-2 positions, use the first one
+        return validPositions[0];
+      }
+
+      // If no valid positions, fall through to recovery
+    } catch (error) {
+      // If generating multiple keys fails, fall through to recovery
+    }
+
+    // Recovery: try single key generation
+    try {
+      const singleKey = generateKeyBetween(cleanA, cleanB);
+      if (isValidOrdering(singleKey, cleanA, cleanB)) {
+        return singleKey;
+      }
+    } catch (error) {
+      // Single key generation also failed
+    }
+
+    // Final recovery: if we're close to an edge case, try to work around it
+    // by inserting at a different position
+    if (cleanB) {
+      // Try inserting after cleanB instead
+      try {
+        const afterB = generateKeyBetween(cleanB, null);
+        if (isValidOrdering(afterB, cleanB, null)) {
+          console.warn(
+            `Fractional indexing edge case detected between ${cleanA} and ${cleanB}. Inserted after ${cleanB} instead.`,
+          );
+          return afterB;
+        }
+      } catch (error) {
+        // Even this failed
+      }
+    }
+
+    // Ultimate fallback: generate a new initial position
+    console.error(
+      `Critical fractional indexing failure between ${cleanA} and ${cleanB}. Generating new position.`,
+    );
+    return generateKeyBetween(null, null);
+  }
+
+  // No randomization requested, generate single deterministic key
+  try {
+    const key = generateKeyBetween(cleanA, cleanB);
+    if (!isValidOrdering(key, cleanA, cleanB)) {
+      console.warn(
+        `Fractional indexing generated invalid ordering: ${key} between ${cleanA} and ${cleanB}`,
+      );
+      // Try recovery strategies
+      if (cleanB) {
+        const afterB = generateKeyBetween(cleanB, null);
+        if (isValidOrdering(afterB, cleanB, null)) {
+          return afterB;
+        }
+      }
+      // Ultimate fallback
+      return generateKeyBetween(null, null);
+    }
+    return key;
+  } catch (error) {
+    console.error(
+      `Fractional indexing error between ${cleanA} and ${cleanB}: ${error}`,
+    );
+    // Generate new position as fallback
+    return generateKeyBetween(null, null);
+  }
 }
 
 export function generateFractionalIndices(
@@ -1807,11 +1905,18 @@ export function generateFractionalIndices(
   n: number,
   jitterProvider: JitterProvider = defaultJitterProvider,
 ): string[] {
-  const cleanA = a ? a.split("_")[0] : a;
-  const cleanB = b ? b.split("_")[0] : b;
+  // Clean keys same as in fractionalIndexBetween
+  const cleanKey = (k: string | null | undefined) => {
+    if (!k) return k;
+    if (k.includes("~")) return k.split("~")[0];
+    return k;
+  };
 
-  const keys = generateNKeysBetween(cleanA, cleanB, n);
-  return keys.map((key) => jitterProvider.addJitter(key));
+  const cleanA = cleanKey(a);
+  const cleanB = cleanKey(b);
+
+  // Generate n keys - no additional jitter needed as each key is unique
+  return generateNKeysBetween(cleanA, cleanB, n);
 }
 
 // Helper to get initial fractional index
