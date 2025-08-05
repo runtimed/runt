@@ -1259,7 +1259,7 @@ Deno.test("v2.CellCreated - using helper functions", async () => {
 
 Deno.test("v2.CellMoved - basic cell movement", async () => {
   const store = await setupStore();
-  const { fractionalIndexBetween, moveCellAfter } = await import(
+  const { fractionalIndexBetween, moveCellBetween } = await import(
     "@runt/schema"
   );
 
@@ -1285,7 +1285,9 @@ Deno.test("v2.CellMoved - basic cell movement", async () => {
   }
 
   // Test moving cell-2 after cell-3
-  const moveEvent = moveCellAfter("cell-2", "cell-3", cells, "user1");
+  const cell2 = cells.find((c) => c.id === "cell-2")!;
+  const cell3 = cells.find((c) => c.id === "cell-3")!;
+  const moveEvent = moveCellBetween(cell2, cell3, null, "user1");
   assertExists(moveEvent);
   store.commit(moveEvent);
 
@@ -1306,7 +1308,8 @@ Deno.test("v2.CellMoved - basic cell movement", async () => {
   assertEquals(sortedCells[2].id, "cell-2");
 
   // Test moving cell-2 to the beginning (before all cells)
-  const moveToStartEvent = moveCellAfter("cell-2", null, cells, "user1");
+  const cell1 = cells.find((c) => c.id === "cell-1")!;
+  const moveToStartEvent = moveCellBetween(cell2, null, cell1, "user1");
   assertExists(moveToStartEvent);
   store.commit(moveToStartEvent);
 
@@ -1326,7 +1329,7 @@ Deno.test("v2.CellMoved - basic cell movement", async () => {
 
 Deno.test("v2.CellMoved - move to position", async () => {
   const store = await setupStore();
-  const { fractionalIndexBetween, moveCellToPosition } = await import(
+  const { fractionalIndexBetween, moveCellBetween } = await import(
     "@runt/schema"
   );
 
@@ -1347,7 +1350,10 @@ Deno.test("v2.CellMoved - move to position", async () => {
   }
 
   // Move cell-5 to position 2 (between cell-2 and cell-3)
-  const moveEvent = moveCellToPosition("cell-5", 2, cells, "user1");
+  const cell5 = cells.find((c) => c.id === "cell-5")!;
+  const cell2 = cells.find((c) => c.id === "cell-2")!;
+  const cell3 = cells.find((c) => c.id === "cell-3")!;
+  const moveEvent = moveCellBetween(cell5, cell2, cell3, "user1");
   assertExists(moveEvent);
   store.commit(moveEvent);
 
@@ -1372,7 +1378,9 @@ Deno.test("v2.CellMoved - move to position", async () => {
   ]);
 
   // Move cell-1 to the end (position 4)
-  const moveToEndEvent = moveCellToPosition("cell-1", 4, cells, "user1");
+  const cell1 = cells.find((c) => c.id === "cell-1")!;
+  const cell4 = cells.find((c) => c.id === "cell-4")!;
+  const moveToEndEvent = moveCellBetween(cell1, cell4, null, "user1");
   assertExists(moveToEndEvent);
   store.commit(moveToEndEvent);
 
@@ -1398,41 +1406,30 @@ Deno.test("v2.CellMoved - move to position", async () => {
 
 Deno.test("v2.CellMoved - edge cases", async () => {
   const store = await setupStore();
-  const { moveCellAfter, moveCellBefore, moveCellToPosition } = await import(
+  const { moveCellBetween } = await import(
     "@runt/schema"
   );
 
-  // Test with empty cells array
-  const emptyMove = moveCellAfter("cell-1", null, []);
-  assertEquals(emptyMove, null);
+  // Test with non-existent cell
+  const cell1 = { id: "cell-1", fractionalIndex: "a0" };
+  const cell2 = { id: "cell-2", fractionalIndex: "a1" };
+  const nonExistentCell = { id: "cell-999", fractionalIndex: null };
 
-  // Test moving non-existent cell
-  const cells = [
-    { id: "cell-1", fractionalIndex: "a0" },
-    { id: "cell-2", fractionalIndex: "a1" },
-  ];
-  const nonExistentMove = moveCellAfter("cell-999", "cell-1", cells);
-  assertEquals(nonExistentMove, null);
+  // Moving cell without fractional index
+  const invalidMove = moveCellBetween(nonExistentCell, cell1, cell2);
+  assertEquals(invalidMove, null);
 
-  // Test moving after non-existent cell
-  const invalidAfterMove = moveCellAfter("cell-1", "cell-999", cells);
-  assertEquals(invalidAfterMove, null);
-
-  // Test moving before non-existent cell
-  const invalidBeforeMove = moveCellBefore("cell-1", "cell-999", cells);
-  assertEquals(invalidBeforeMove, null);
-
-  // Test position out of bounds
-  const outOfBoundsMove = moveCellToPosition("cell-1", 100, cells);
-  assertExists(outOfBoundsMove);
-  // Should clamp to the end position
+  // Test moving between cells when already in position
+  // If cell1 is already before cell2, moving it between null and cell2 should be no-op
+  const noOpMove = moveCellBetween(cell1, null, cell2);
+  assertEquals(noOpMove, null);
 
   store.shutdown();
 });
 
 Deno.test("v2.CellMoved - concurrent movements", async () => {
   const store = await setupStore();
-  const { fractionalIndexBetween, moveCellAfter } = await import(
+  const { fractionalIndexBetween, moveCellBetween } = await import(
     "@runt/schema"
   );
 
@@ -1454,11 +1451,16 @@ Deno.test("v2.CellMoved - concurrent movements", async () => {
 
   // Simulate two users moving different cells concurrently
   // User 1 moves cell-4 after cell-1
-  const move1 = moveCellAfter("cell-4", "cell-1", cells, "user1");
+  const cell1 = cells.find((c) => c.id === "cell-1")!;
+  const cell2 = cells.find((c) => c.id === "cell-2")!;
+  const cell3 = cells.find((c) => c.id === "cell-3")!;
+  const cell4 = cells.find((c) => c.id === "cell-4")!;
+
+  const move1 = moveCellBetween(cell4, cell1, cell2, "user1");
   assertExists(move1);
 
   // User 2 moves cell-3 after cell-1 (same target position)
-  const move2 = moveCellAfter("cell-3", "cell-1", cells, "user2");
+  const move2 = moveCellBetween(cell3, cell1, cell2, "user2");
   assertExists(move2);
 
   // Both moves should have different fractional indices
@@ -1497,9 +1499,7 @@ Deno.test("v2.CellMoved - no-op when already in position", async () => {
   const store = await setupStore();
   const {
     fractionalIndexBetween,
-    moveCellAfter,
-    moveCellBefore,
-    moveCellToPosition,
+    moveCellBetween,
   } = await import(
     "@runt/schema"
   );
@@ -1520,28 +1520,30 @@ Deno.test("v2.CellMoved - no-op when already in position", async () => {
     }));
   }
 
-  // Move cell-3 after cell-2 (it's already after cell-2)
-  const noOpMove1 = moveCellAfter("cell-3", "cell-2", cells, "user1");
+  // Get cell references
+  const cell1 = cells.find((c) => c.id === "cell-1")!;
+  const cell2 = cells.find((c) => c.id === "cell-2")!;
+  const cell3 = cells.find((c) => c.id === "cell-3")!;
+  const cell4 = cells.find((c) => c.id === "cell-4")!;
+
+  // Move cell-3 between cell-2 and cell-4 (it's already there)
+  const noOpMove1 = moveCellBetween(cell3, cell2, cell4, "user1");
   assertEquals(noOpMove1, null);
 
   // Move cell-1 before cell-2 (it's already before cell-2)
-  const noOpMove2 = moveCellBefore("cell-1", "cell-2", cells, "user1");
+  const noOpMove2 = moveCellBetween(cell1, null, cell2, "user1");
   assertEquals(noOpMove2, null);
 
-  // Move cell-2 to position 1 (it's already at position 1)
-  const noOpMove3 = moveCellToPosition("cell-2", 1, cells, "user1");
+  // Move cell-2 between cell-1 and cell-3 (it's already there)
+  const noOpMove3 = moveCellBetween(cell2, cell1, cell3, "user1");
   assertEquals(noOpMove3, null);
 
-  // Move cell-1 to the beginning (it's already first)
-  const noOpMove4 = moveCellAfter("cell-1", null, cells, "user1");
+  // Move cell-4 to the end (it's already last)
+  const noOpMove4 = moveCellBetween(cell4, cell3, null, "user1");
   assertEquals(noOpMove4, null);
 
-  // Move cell-4 to the end (it's already last)
-  const noOpMove5 = moveCellBefore("cell-4", null, cells, "user1");
-  assertEquals(noOpMove5, null);
-
   // Now do an actual move and verify it works
-  const actualMove = moveCellAfter("cell-3", "cell-1", cells, "user1");
+  const actualMove = moveCellBetween(cell3, cell1, cell2, "user1");
   assertExists(actualMove);
   store.commit(actualMove);
 
@@ -1564,8 +1566,8 @@ Deno.test("v2.CellMoved - no-op when already in position", async () => {
     "cell-4",
   ]);
 
-  // Try to move cell-3 after cell-1 again (should be no-op)
-  const repeatMove = moveCellAfter("cell-3", "cell-1", cells, "user1");
+  // Try to move cell-3 between cell-1 and cell-2 again (should be no-op)
+  const repeatMove = moveCellBetween(cell3, cell1, cell2, "user1");
   assertEquals(repeatMove, null);
 
   store.shutdown();
