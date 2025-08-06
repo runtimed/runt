@@ -1649,6 +1649,267 @@ export function initialFractionalIndex(
   return fractionalIndexBetween(null, null, jitterProvider);
 }
 
+// Rebalancing functionality to handle "No string exists between" cases
+
+export interface RebalanceResult {
+  /** New fractional indices for the cells */
+  newIndices: { cellId: string; fractionalIndex: string }[];
+  /** Events to apply the rebalancing */
+  events: ReturnType<typeof events.cellMoved2>[];
+}
+
+export interface RebalanceOptions {
+  /** Jitter provider for consistent generation */
+  jitterProvider?: JitterProvider;
+  /** Actor ID for the rebalancing events */
+  actorId?: string;
+  /** Buffer space to add around the rebalanced region */
+  bufferCells?: number;
+}
+
+/**
+ * Determines if a range of cells needs rebalancing due to crowded indices
+ */
+export function needsRebalancing(
+  cells: CellReference[],
+  insertPosition?: number,
+): boolean {
+  if (cells.length < 2) return false;
+
+  // Sort cells by fractional index
+  const sortedCells = [...cells].sort((a, b) =>
+    (a.fractionalIndex || "").localeCompare(b.fractionalIndex || "")
+  );
+
+  // Check for adjacent indices that would prevent insertion
+  for (let i = 0; i < sortedCells.length - 1; i++) {
+    const current = sortedCells[i]?.fractionalIndex;
+    const next = sortedCells[i + 1]?.fractionalIndex;
+
+    if (!current || !next) continue;
+
+    try {
+      // Test if we can insert between these indices
+      fractionalIndexBetween(current, next, {
+        random: () => 0,
+        randomInt: () => 0,
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.includes("No string exists between")
+      ) {
+        return true;
+      }
+    }
+  }
+
+  // If insertPosition is specified, check if we can insert there
+  if (insertPosition !== undefined) {
+    const beforeCell = insertPosition > 0
+      ? sortedCells[insertPosition - 1]
+      : null;
+    const afterCell = insertPosition < sortedCells.length
+      ? sortedCells[insertPosition]
+      : null;
+
+    if (beforeCell && afterCell) {
+      try {
+        fractionalIndexBetween(
+          beforeCell.fractionalIndex,
+          afterCell.fractionalIndex,
+          { random: () => 0, randomInt: () => 0 },
+        );
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.includes("No string exists between")
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Rebalances fractional indices for a range of cells to create space for insertions
+ */
+export function rebalanceCellIndices(
+  cells: CellReference[],
+  options: RebalanceOptions = {},
+): RebalanceResult {
+  const {
+    jitterProvider = defaultJitterProvider,
+    actorId = "system",
+    bufferCells = 2,
+  } = options;
+
+  if (cells.length === 0) {
+    return { newIndices: [], events: [] };
+  }
+
+  // Sort cells by current fractional index
+  const sortedCells = [...cells].sort((a, b) =>
+    (a.fractionalIndex || "").localeCompare(b.fractionalIndex || "")
+  );
+
+  const newIndices: { cellId: string; fractionalIndex: string }[] = [];
+  const moveEvents: ReturnType<typeof events.cellMoved2>[] = [];
+
+  // Calculate the range with buffer
+  const totalPositions = cells.length + (bufferCells * 2);
+
+  // Generate evenly distributed indices
+  const indices = generateFractionalIndices(
+    null,
+    null,
+    totalPositions,
+    jitterProvider,
+  );
+
+  // Assign new indices to cells (skipping buffer positions)
+  for (let i = 0; i < sortedCells.length; i++) {
+    const cell = sortedCells[i];
+    const newIndex = indices[i + bufferCells]; // Skip buffer positions at start
+
+    if (!cell || !newIndex) continue;
+
+    if (cell.fractionalIndex !== newIndex) {
+      newIndices.push({
+        cellId: cell.id,
+        fractionalIndex: newIndex,
+      });
+
+      // Create move event
+      const moveEvent = events.cellMoved2({
+        id: cell.id,
+        fractionalIndex: newIndex,
+        actorId,
+      });
+
+      moveEvents.push(moveEvent);
+    }
+  }
+
+  return { newIndices, events: moveEvents };
+}
+
+/**
+ * Enhanced fractional index generation with automatic rebalancing fallback
+ */
+export function fractionalIndexBetweenWithFallback(
+  a: string | null | undefined,
+  b: string | null | undefined,
+  context: {
+    /** All cells in the current context for rebalancing */
+    allCells?: CellReference[];
+    /** Position where insertion is intended */
+    insertPosition?: number;
+    /** Jitter provider */
+    jitterProvider?: JitterProvider;
+  } = {},
+): {
+  index?: string;
+  needsRebalancing: boolean;
+  rebalanceResult?: RebalanceResult;
+} {
+  const {
+    allCells = [],
+    insertPosition,
+    jitterProvider = defaultJitterProvider,
+  } = context;
+
+  // First, try normal fractional index generation
+  try {
+    const index = fractionalIndexBetween(a, b, jitterProvider);
+    return { index, needsRebalancing: false };
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes("No string exists between")
+    ) {
+      // Check if rebalancing is needed and possible
+      if (allCells.length > 0 && needsRebalancing(allCells, insertPosition)) {
+        const rebalanceResult = rebalanceCellIndices(allCells, {
+          jitterProvider,
+        });
+        return {
+          needsRebalancing: true,
+          rebalanceResult,
+        };
+      }
+    }
+
+    // Re-throw other errors
+    throw error;
+  }
+}
+
+/**
+ * Safe cell movement with automatic rebalancing
+ */
+export function moveCellWithRebalancing(
+  cell: CellReference,
+  cellBefore: CellReference | null,
+  cellAfter: CellReference | null,
+  allCells: CellReference[],
+  options: {
+    actorId?: string;
+    jitterProvider?: JitterProvider;
+  } = {},
+): {
+  moveEvent?: ReturnType<typeof events.cellMoved2>;
+  rebalanceResult?: RebalanceResult;
+  needsRebalancing: boolean;
+} {
+  const { actorId = "user", jitterProvider = defaultJitterProvider } = options;
+
+  // Try normal move first
+  try {
+    const moveEvent = moveCellBetween(
+      cell,
+      cellBefore,
+      cellAfter,
+      actorId,
+      jitterProvider,
+    );
+
+    if (moveEvent) {
+      return { moveEvent, needsRebalancing: false };
+    }
+  } catch (error) {
+    // Check if it's the "No string exists between" error
+    if (
+      error instanceof Error &&
+      error.message.includes("No string exists between")
+    ) {
+      // This indicates we need rebalancing, so fall through to the rebalancing check
+    } else {
+      // Re-throw other errors
+      throw error;
+    }
+  }
+
+  // Check if it's because we need rebalancing
+  if (needsRebalancing(allCells)) {
+    const rebalanceResult = rebalanceCellIndices(allCells, {
+      jitterProvider,
+      actorId: `${actorId}-rebalance`,
+    });
+
+    return {
+      needsRebalancing: true,
+      rebalanceResult,
+    };
+  }
+
+  // Cell was already in position or other reason
+  return { needsRebalancing: false };
+}
+
 // Helper to validate fractional index (basic check)
 export function isValidFractionalIndex(index: string): boolean {
   if (typeof index !== "string" || index.length === 0) {
