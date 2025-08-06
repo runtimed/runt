@@ -172,3 +172,54 @@ Deno.test("RuntimeConfig.validate - throws for empty env path", () => {
     "--runtime-env-path",
   );
 });
+
+Deno.test("parseRuntimeArgs: parses mount paths from CLI", () => {
+  const args = [
+    "--notebook=test-nb",
+    "--auth-token=test-token",
+    "--mount=/home/user/data",
+    "--mount=/home/user/scripts",
+  ];
+
+  const result = parseRuntimeArgs(args);
+
+  assertEquals(result.notebookId, "test-nb");
+  assertEquals(result.authToken, "test-token");
+  assertEquals(result.mountPaths, ["/home/user/data", "/home/user/scripts"]);
+});
+
+Deno.test("parseRuntimeArgs: handles single mount path", () => {
+  const args = [
+    "--notebook=test-nb",
+    "--auth-token=test-token",
+    "--mount=/home/user/data",
+  ];
+
+  const result = parseRuntimeArgs(args);
+
+  assertEquals(result.mountPaths, ["/home/user/data"]);
+});
+
+Deno.test("parseRuntimeArgs: handles no mount paths", () => {
+  const args = [
+    "--notebook=test-nb",
+    "--auth-token=test-token",
+  ];
+
+  const result = parseRuntimeArgs(args);
+
+  assertEquals(result.mountPaths, undefined);
+});
+
+Deno.test("parseRuntimeArgs: uses short alias for mount", () => {
+  const args = [
+    "--notebook=test-nb",
+    "--auth-token=test-token",
+    "-m", "/home/user/data",
+    "-m", "/home/user/scripts",
+  ];
+
+  const result = parseRuntimeArgs(args);
+
+  assertEquals(result.mountPaths, ["/home/user/data", "/home/user/scripts"]);
+});

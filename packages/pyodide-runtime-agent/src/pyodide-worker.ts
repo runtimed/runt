@@ -57,6 +57,7 @@ self.addEventListener("message", async (event) => {
         await initializePyodide(
           data.interruptBuffer,
           data.packages,
+          data.mountData,
         );
         self.postMessage({ id, type: "response", data: { success: true } });
         break;
@@ -121,6 +122,7 @@ await run_registered_tool("${data.toolName}", kwargs_string)
 async function initializePyodide(
   buffer: SharedArrayBuffer,
   packagesToLoad?: string[],
+  mountData?: Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }>,
 ): Promise<void> {
   self.postMessage({
     type: "log",
@@ -236,6 +238,63 @@ async function initializePyodide(
     self.postMessage({ type: "log", data: "Interrupt buffer configured" });
   }
 
+  // Create mounted directories and copy files from host
+  if (mountData && mountData.length > 0) {
+    self.postMessage({
+      type: "log",
+      data: `Mounting ${mountData.length} host directories...`,
+    });
+
+    // Ensure /mnt directory exists
+    try {
+      pyodide.FS.mkdir("/mnt");
+    } catch (error) {
+      // /mnt might already exist, ignore error
+    }
+
+    for (const { hostPath, files } of mountData) {
+      try {
+        // Create a mount point with sanitized name
+        const mountPoint = `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        
+        // Create the mount directory
+        pyodide.FS.mkdir(mountPoint);
+        
+        // Copy all files to the virtual filesystem
+        let fileCount = 0;
+        for (const { path, content } of files) {
+          const virtualPath = `${mountPoint}/${path}`;
+          
+          // Create parent directories if needed
+          const parentDir = virtualPath.substring(0, virtualPath.lastIndexOf('/'));
+          if (parentDir !== mountPoint) {
+            try {
+              pyodide.FS.mkdirTree(parentDir);
+            } catch (error) {
+              // Directory might already exist, ignore
+            }
+          }
+          
+          // Write the file content
+          pyodide.FS.writeFile(virtualPath, content);
+          fileCount++;
+        }
+        
+        self.postMessage({
+          type: "log",
+          data: `Successfully mounted '${hostPath}' at '${mountPoint}' with ${fileCount} files`,
+        });
+      } catch (error) {
+        self.postMessage({
+          type: "log",
+          data: `Warning: Failed to mount '${hostPath}': ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+      }
+    }
+  }
+
   // Bootstrap packages were loaded during Pyodide initialization
   self.postMessage({
     type: "log",
@@ -251,26 +310,30 @@ async function initializePyodide(
   if (remainingPackages.length > 0) {
     self.postMessage({
       type: "log",
-      data:
-        `Loading ${remainingPackages.length} additional packages in background: ${
-          remainingPackages.join(", ")
-        }`,
+      data: `Loading ${remainingPackages.length} additional packages: ${
+        remainingPackages.join(", ")
+      }`,
     });
 
-    // Load remaining packages in background without blocking
-    pyodide.loadPackage(remainingPackages).then(() => {
-      self.postMessage({
-        type: "log",
-        data:
-          `Successfully loaded ${remainingPackages.length} additional packages`,
-      });
-    }).catch((error) => {
-      self.postMessage({
-        type: "log",
-        data: `Warning: Some additional packages failed to load: ${error}`,
-      });
-      // Don't throw - IPython is already working
-    });
+    // Use setTimeout to avoid blocking IPython setup
+    setTimeout(async () => {
+      try {
+        await pyodide!.loadPackage(remainingPackages);
+        self.postMessage({
+          type: "log",
+          data: `Additional packages loaded successfully: ${
+            remainingPackages.join(", ")
+          }`,
+        });
+      } catch (error) {
+        self.postMessage({
+          type: "log",
+          data: `Warning: Failed to load some additional packages: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+      }
+    }, 100);
   }
 
   // Switch to raw write handler for stdout to capture all bytes

@@ -34,6 +34,7 @@ export class RuntimeConfig {
   public readonly environmentOptions: RuntimeAgentOptions["environmentOptions"];
   public readonly imageArtifactThresholdBytes: number;
   public readonly artifactClient: IArtifactClient;
+  public readonly mountPaths: string[];
 
   constructor(options: RuntimeAgentOptions) {
     this.runtimeId = options.runtimeId;
@@ -45,6 +46,7 @@ export class RuntimeConfig {
     this.environmentOptions = options.environmentOptions;
     this.imageArtifactThresholdBytes = options.imageArtifactThresholdBytes ??
       DEFAULT_CONFIG.imageArtifactThresholdBytes;
+    this.mountPaths = options.mountPaths ?? [];
 
     // Use injected artifact client or create default one
     this.artifactClient = options.artifactClient ??
@@ -164,6 +166,7 @@ export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
       "runtime-env-path",
       "runtime-package-manager",
       "image-artifact-threshold",
+      "mount",
     ],
     boolean: ["help", "runtime-env-externally-managed"],
     alias: {
@@ -173,7 +176,9 @@ export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
       r: "runtime-id",
       T: "runtime-type",
       h: "help",
+      m: "mount",
     },
+    collect: ["mount"], // Allow multiple --mount arguments
   });
 
   if (parsed.help) {
@@ -195,11 +200,13 @@ Optional Options:
                              (default: <runtime-type>-runtime-{pid})
   --runtime-type, -T <type>  Runtime type identifier
                              (default: "runtime")
+  --mount, -m <path>         Host directory to mount (can be specified multiple times)
   --help, -h                 Show this help message
 
 Examples:
   deno run --allow-net --allow-env main.ts -n my-notebook -t your-token
   deno run --allow-net --allow-env main.ts --notebook=test --auth-token=abc123
+  deno run --allow-net --allow-env main.ts -n my-notebook -t token --mount /path/to/data
 
 Environment Variables (fallback):
   NOTEBOOK_ID, AUTH_TOKEN, LIVESTORE_SYNC_URL, RUNTIME_ID, RUNTIME_TYPE
@@ -249,6 +256,15 @@ Logging Configuration:
     };
   }
 
+  // Handle mount paths
+  if (parsed.mount && parsed.mount.length > 0) {
+    const mountPaths = Array.isArray(parsed.mount) ? parsed.mount : [parsed.mount];
+    result = {
+      ...result,
+      mountPaths,
+    };
+  }
+
   const environmentOptions: Record<string, unknown> = {};
   environmentOptions.runtimePythonPath = parsed["runtime-python-path"] ||
     Deno.env.get("RUNTIME_PYTHON_PATH") ||
@@ -279,7 +295,7 @@ Logging Configuration:
     Deno.env.get("IMAGE_ARTIFACT_THRESHOLD_BYTES");
   if (thresholdArg) {
     const threshold = parseInt(thresholdArg, 10);
-    if (!isNaN(threshold) && threshold >= 0) {
+    if (!isNaN(threshold) && threshold > 0) {
       result = {
         ...result,
         imageArtifactThresholdBytes: threshold,

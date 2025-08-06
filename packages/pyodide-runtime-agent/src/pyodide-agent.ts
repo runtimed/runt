@@ -41,6 +41,7 @@ import {
 interface PyodideAgentOptions {
   packages?: string[];
   discoverAiModels?: boolean;
+  mountPaths?: string[];
 }
 
 /**
@@ -113,7 +114,11 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       },
     });
 
-    this.options = options;
+    // Merge config mount paths with options mount paths
+    this.options = {
+      ...options,
+      mountPaths: options.mountPaths || config.mountPaths || [],
+    };
     this.onExecution(this.executeCell.bind(this));
     this.onCancellation(this.handlePyodideCancellation.bind(this));
   }
@@ -190,10 +195,17 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         this.handleWorkerCrash("Worker message error");
       });
 
+      // Read mount directories if provided
+      let mountData: Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }> = [];
+      if (this.options.mountPaths && this.options.mountPaths.length > 0) {
+        mountData = await this.readMountDirectories(this.options.mountPaths);
+      }
+
       // Initialize Pyodide in worker
       await this.sendWorkerMessage("init", {
         interruptBuffer: this.interruptBuffer,
         packages: packagesToLoad,
+        mountData,
       });
 
       this.isInitialized = true;
@@ -708,5 +720,59 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     }
 
     this.logger.info("Pyodide worker cleanup completed");
+  }
+
+  /**
+   * Read directory contents recursively for mounting
+   */
+  private async readMountDirectories(mountPaths: string[]): Promise<Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }>> {
+    const mountData: Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }> = [];
+
+    for (const hostPath of mountPaths) {
+      try {
+        const files: Array<{ path: string; content: Uint8Array }> = [];
+        
+        // Recursively read all files in the directory
+        await this.readDirectoryRecursive(hostPath, hostPath, files);
+        
+        mountData.push({ hostPath, files });
+        
+        this.logger.info(`Read ${files.length} files from mount path: ${hostPath}`);
+      } catch (error) {
+        this.logger.warn(`Failed to read mount directory: ${hostPath}`, { error });
+      }
+    }
+
+    return mountData;
+  }
+
+  /**
+   * Recursively read directory contents
+   */
+  private async readDirectoryRecursive(
+    basePath: string,
+    currentPath: string,
+    files: Array<{ path: string; content: Uint8Array }>
+  ): Promise<void> {
+    try {
+      for await (const entry of Deno.readDir(currentPath)) {
+        const fullPath = `${currentPath}/${entry.name}`;
+        const relativePath = fullPath.replace(`${basePath}/`, '');
+
+        if (entry.isFile) {
+          try {
+            const content = await Deno.readFile(fullPath);
+            files.push({ path: relativePath, content });
+          } catch (error) {
+            this.logger.warn(`Failed to read file: ${fullPath}`, { error });
+          }
+        } else if (entry.isDirectory) {
+          // Recursively read subdirectory
+          await this.readDirectoryRecursive(basePath, fullPath, files);
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to read directory: ${currentPath}`, { error });
+    }
   }
 }
