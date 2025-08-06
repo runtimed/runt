@@ -564,8 +564,10 @@ function main() {
 }
 
 if (import.meta.main) {
-  main().catch((error) => {
+  try {
+    main();
+  } catch (error) {
     console.error("Fuzz testing failed:", error);
     Deno.exit(1);
-  });
+  }
 }
