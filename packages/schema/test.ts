@@ -1856,6 +1856,7 @@ Deno.test("v2.CellCreated - createCellBetween API", async () => {
   for (let i = 1; i < allCells.length; i++) {
     const prev = allCells[i - 1].fractionalIndex!;
     const curr = allCells[i].fractionalIndex!;
+
     assert(prev < curr, `Ordering violated: ${prev} should be < ${curr}`);
   }
 

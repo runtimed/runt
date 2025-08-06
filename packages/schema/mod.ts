@@ -2125,8 +2125,21 @@ export function createCellBetween(
   jitterProvider: JitterProvider = defaultJitterProvider,
 ): CellOperationResult {
   // Determine the fractional indices for before and after
-  const previousKey = cellBefore?.fractionalIndex || null;
-  const nextKey = cellAfter?.fractionalIndex || null;
+  let previousKey = cellBefore?.fractionalIndex || null;
+  let nextKey = cellAfter?.fractionalIndex || null;
+
+  // Special case: if both are null but we have existing cells, insert at end
+  if (!cellBefore && !cellAfter && allCells.length > 0) {
+    // Sort cells by fractional index to find the last one
+    const sortedCells = [...allCells].sort((a, b) =>
+      (a.fractionalIndex || "").localeCompare(b.fractionalIndex || "")
+    );
+    const lastCell = sortedCells[sortedCells.length - 1];
+    if (lastCell?.fractionalIndex) {
+      previousKey = lastCell.fractionalIndex;
+      nextKey = null; // Insert after the last cell
+    }
+  }
 
   // Calculate insertion position for rebalancing context
   let insertPosition = 0;
