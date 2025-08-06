@@ -16,6 +16,10 @@ import type {
 
 import { tables } from "./tables.ts";
 
+export { tables };
+
+export * from "./types.ts";
+
 /**
  * CLIENT AUTHENTICATION PATTERNS
  *
