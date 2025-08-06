@@ -1414,21 +1414,25 @@ function generateKeyBetween(
       }
     } else {
       // nextVal is 0, meaning b continues with "0" after a ends
-      // We need to find what can go between a and a+"0"
-      // Since there's nothing less than "0" in our alphabet,
-      // we must look deeper into b for space
+      // Check if we can insert something between them
       if (b.length > i + 1) {
-        // b continues past the "0", so we can work within that space
-        // For example, if b = "a00", we can generate something like "a" + "0" + something < "0"
-        // But since nothing is less than "0", we need to look even deeper
-        let j = i + 1;
+        // b continues past the initial "0"
+        // Count consecutive zeros after position i in b
+        let zeroCount = 0;
+        let j = i;
         while (j < b.length && b[j] === "0") {
+          zeroCount++;
           j++;
         }
 
-        if (j < b.length) {
-          // Found a non-zero character at position j
-          // We can insert between a+"0"*count and b
+        // If b is all zeros after the prefix, we can insert a string with fewer zeros
+        // For example: between "m" and "m000", we can use "m0" or "m00"
+        if (j === b.length && zeroCount > 1) {
+          // Use half the zeros (at least 1)
+          return a + "0".repeat(Math.floor(zeroCount / 2));
+        } else if (j < b.length) {
+          // b has a non-zero character at position j
+          // We can insert something before that position
           const prefix = a + "0".repeat(j - i);
           const nextChar = b[j];
           if (!nextChar) {
@@ -1439,17 +1443,11 @@ function generateKeyBetween(
             return prefix + valueToChar(Math.floor(nextVal / 2));
           }
         }
-        // All remaining characters are "0" or we've reached the end
-        // This means a and b are adjacent
-        throw new Error(
-          `No string exists between "${a}" and "${b}" in base36 encoding`,
-        );
-      } else {
-        // b = "a0" exactly, there's no string between "a" and "a0"
-        throw new Error(
-          `No string exists between "${a}" and "${b}" in base36 encoding`,
-        );
       }
+      // No space between a and b
+      throw new Error(
+        `No string exists between "${a}" and "${b}" in base36 encoding`,
+      );
     }
   }
 
