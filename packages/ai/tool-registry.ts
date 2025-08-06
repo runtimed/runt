@@ -1,6 +1,6 @@
 import {
   type CellData,
-  cellList$,
+  cellReferences$,
   createCellBetween,
   events,
   materializers,
@@ -194,7 +194,7 @@ export function createCell(
   const afterId = String(args.after_id); // Now required
 
   // Get ordered cells with fractional indices
-  const cellList = store.query(cellList$);
+  const cellList = store.query(cellReferences$);
 
   // Find the cell to insert after
   const afterCellIndex = cellList.findIndex((c) => c.id === afterId);

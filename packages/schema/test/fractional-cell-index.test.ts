@@ -212,10 +212,10 @@ Deno.test("Fractional Indexing - Cell Integration", async (t: Deno.TestContext) 
   await t.step("should move cells correctly using moveCellBetween", () => {
     // Create initial cells
     const cells: CellReference[] = [
-      { id: "cell-1", fractionalIndex: "a" },
-      { id: "cell-2", fractionalIndex: "m" },
-      { id: "cell-3", fractionalIndex: "t" },
-      { id: "cell-4", fractionalIndex: "z" },
+      { id: "cell-1", fractionalIndex: "a", cellType: "code" },
+      { id: "cell-2", fractionalIndex: "m", cellType: "code" },
+      { id: "cell-3", fractionalIndex: "t", cellType: "code" },
+      { id: "cell-4", fractionalIndex: "z", cellType: "code" },
     ];
 
     // Move cell-4 between cell-1 and cell-2
@@ -264,7 +264,8 @@ Deno.test("Fractional Indexing - Cell Integration", async (t: Deno.TestContext) 
 
       cells.push({
         id: `cell-${i}`,
-        fractionalIndex: index,
+        fractionalIndex: index!,
+        cellType: "code",
       });
     }
 
@@ -311,9 +312,9 @@ Deno.test("Fractional Indexing - Cell Integration", async (t: Deno.TestContext) 
   await t.step("should detect when cell is already in position", () => {
     // Create three cells
     const cells: CellReference[] = [
-      { id: "cell-1", fractionalIndex: "a" },
-      { id: "cell-2", fractionalIndex: "m" },
-      { id: "cell-3", fractionalIndex: "z" },
+      { id: "cell-1", fractionalIndex: "a", cellType: "code" },
+      { id: "cell-2", fractionalIndex: "m", cellType: "code" },
+      { id: "cell-3", fractionalIndex: "z", cellType: "code" },
     ];
 
     // Try to move cell-2 to where it already is (between cell-1 and cell-3)
@@ -330,8 +331,8 @@ Deno.test("Fractional Indexing - Cell Integration", async (t: Deno.TestContext) 
 
   await t.step("should create cells between existing cells", () => {
     const cells: CellReference[] = [
-      { id: "cell-1", fractionalIndex: "a" },
-      { id: "cell-2", fractionalIndex: "z" },
+      { id: "cell-1", fractionalIndex: "a", cellType: "code" },
+      { id: "cell-2", fractionalIndex: "z", cellType: "code" },
     ];
 
     // Create a cell between cell-1 and cell-2

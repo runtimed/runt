@@ -9,13 +9,16 @@ export const cellIDs$ = queryDb(
   { label: "notebook.cellIds" },
 );
 
-// Fine-grained query for cell list with fractional indices
-export const cellList$ = queryDb(
+// Primary query for cell references - returns CellReference objects
+export const cellReferences$ = queryDb(
   tables.cells
-    .select("id", "fractionalIndex")
+    .select("id", "fractionalIndex", "cellType")
     .orderBy("fractionalIndex", "asc"),
-  { label: "notebook.cellList" },
+  { label: "notebook.cellReferences" },
 );
+
+// @deprecated Use cellReferences$ instead
+export const cellList$ = cellReferences$;
 
 // Query for getting a specific cell's fractional index
 export const cellFractionalIndex = (cellId: string) =>
@@ -32,17 +35,8 @@ export const cellFractionalIndex = (cellId: string) =>
     },
   );
 
-// Query for getting adjacent cells (useful for cell insertion)
-export const adjacentCells = (cellId: string) =>
-  queryDb(
-    tables.cells
-      .select("id", "fractionalIndex")
-      .orderBy("fractionalIndex", "asc"),
-    {
-      deps: [cellId],
-      label: `adjacentCells.${cellId}`,
-    },
-  );
+// @deprecated Use cellReferences$ instead - this returns all cells anyway
+export const adjacentCells = (cellId: string) => cellReferences$;
 
 export const notebookMetadata$ = queryDb(
   tables.notebookMetadata.select("key", "value"),
