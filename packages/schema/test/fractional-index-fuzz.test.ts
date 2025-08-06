@@ -1,6 +1,7 @@
 /// <reference lib="deno.ns" />
 
 import {
+  assert,
   assertEquals,
   assertThrows,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
@@ -8,6 +9,7 @@ import {
   type CellReference,
   createTestJitterProvider,
   fractionalIndexBetween,
+  fractionalIndexBetweenWithFallback,
   isValidFractionalIndex,
   moveCellBetween,
   validateFractionalIndexOrder,
@@ -383,9 +385,13 @@ Deno.test("Fractional Indexing Fuzz - Character Encoding Validation", async (t) 
         b += validChars[Math.floor(Math.random() * validChars.length)];
       }
 
-      // Ensure a < b
+      // Ensure a < b, skip if equal
       if (a >= b) {
         [a, b] = [b, a];
+        // Skip if they're still equal after swap
+        if (a === b) {
+          continue;
+        }
       }
 
       try {
@@ -413,6 +419,39 @@ Deno.test("Fractional Indexing Fuzz - Character Encoding Validation", async (t) 
         throw error;
       }
     }
+  });
+
+  await t.step("should handle edge cases with fallback function", () => {
+    // Create mock cells for rebalancing context
+    const mockCells: CellReference[] = [
+      { id: "cell1", fractionalIndex: "a", cellType: "code" },
+      { id: "cell2", fractionalIndex: "a", cellType: "code" }, // Duplicate index to trigger rebalancing need
+      { id: "cell3", fractionalIndex: "b", cellType: "code" },
+    ];
+
+    // Test equal strings case with fallback and rebalancing context
+    const result = fractionalIndexBetweenWithFallback("a", "a", {
+      allCells: mockCells,
+      insertPosition: 1,
+    });
+    assertEquals(result.needsRebalancing, true);
+    assertEquals(result.index, undefined);
+    assertEquals(typeof result.rebalanceResult, "object");
+
+    // Test normal case with fallback
+    const result2 = fractionalIndexBetweenWithFallback("a", "c");
+    assertEquals(result2.needsRebalancing, false);
+    assertEquals(typeof result2.index, "string");
+    assert(result2.index! > "a" && result2.index! < "c");
+
+    // Test equal strings without rebalancing context should throw
+    assertThrows(
+      () => {
+        fractionalIndexBetweenWithFallback("a", "a");
+      },
+      Error,
+      "Invalid range",
+    );
   });
 
   await t.step("should validate fractional index format correctly", () => {
