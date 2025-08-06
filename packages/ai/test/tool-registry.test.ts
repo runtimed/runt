@@ -33,11 +33,11 @@ Deno.test({
       "position parameter should be removed",
     );
 
-    // Should still have cellType and source as required
+    // cellType should now be optional (with default), source should still be required
     assertEquals(
       createCellTool?.parameters?.required?.includes("cellType"),
-      true,
-      "cellType should remain required",
+      false,
+      "cellType should now be optional",
     );
     assertEquals(
       createCellTool?.parameters?.required?.includes("source"),
