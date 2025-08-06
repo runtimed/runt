@@ -3,7 +3,7 @@ import { Box, Text } from "ink";
 import { Badge } from "@inkjs/ui";
 import { useQuery } from "@livestore/react";
 import type { CellData, OutputData } from "@runt/schema";
-import { cellQuery, outputDeltas$ } from "../../queries/index.ts";
+import { cellQuery, outputDeltas$ } from "@runt/schema";
 import { Colors } from "../../utils/colors.ts";
 import { CodeHighlighter } from "../../CodeHighlighter.tsx";
 import { OutputRenderer } from "../outputs/OutputRenderer.tsx";

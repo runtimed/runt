@@ -16,11 +16,7 @@ import { Cell } from "./Cell.tsx";
 import { CellEditor } from "./CellEditor.tsx";
 import { estimateTextHeight } from "../../utils/textUtils.ts";
 import { shouldRenderAsJson } from "../../utils/representationSelector.ts";
-import {
-  tuiCells$,
-  tuiNotebookMetadata$,
-  tuiRuntimeSessions$,
-} from "../../queries/index.ts";
+import { cells$, notebookMetadata$, runtimeSessions$ } from "@runt/schema";
 
 // Helper to estimate the height of a cell in lines (simplified and conservative)
 const estimateCellHeight = (
@@ -65,12 +61,12 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
   const [lastDKeyTime, setLastDKeyTime] = useState<number>(0);
   const { store } = useStore();
 
-  const notebookMetadata = useQuery(tuiNotebookMetadata$);
+  const notebookMetadata = useQuery(notebookMetadata$);
   const titleMetadata = notebookMetadata.filter((m) => m.key === "title");
 
-  const cells = useQuery(tuiCells$);
+  const cells = useQuery(cells$);
 
-  const runtimeSessions = useQuery(tuiRuntimeSessions$);
+  const runtimeSessions = useQuery(runtimeSessions$);
 
   const title = titleMetadata.length > 0
     ? titleMetadata[0]?.value || "Untitled Notebook"
