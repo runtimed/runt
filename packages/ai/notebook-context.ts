@@ -9,6 +9,7 @@ import type { Store } from "npm:@livestore/livestore";
 import { makeSchema, State } from "npm:@livestore/livestore";
 import {
   type CellData,
+  type CellReference,
   events,
   materializers,
   type MediaContainer,
@@ -30,7 +31,7 @@ import type { CellContextData, NotebookContextData } from "./mod.ts";
  */
 export function gatherNotebookContext(
   store: Store<typeof schema>,
-  currentCell: { id: string; position: number },
+  currentCell: CellReference,
 ): NotebookContextData {
   // Query all cells in order
   const allCells = store.query(
@@ -39,10 +40,20 @@ export function gatherNotebookContext(
 
   // Get cells before current cell that should be included in AI context
   const previousCells = allCells
-    .filter((cell: CellData) =>
-      cell.position < currentCell.position &&
-      cell.aiContextVisible !== false
-    )
+    .filter((cell: CellData) => {
+      // Skip cells that should not be visible in AI context
+      if (cell.aiContextVisible === false) {
+        return false;
+      }
+
+      // Use fractionalIndex comparison
+      if (cell.fractionalIndex != null && currentCell.fractionalIndex != null) {
+        return cell.fractionalIndex < currentCell.fractionalIndex;
+      }
+
+      // Skip cells without fractionalIndex
+      return false;
+    })
     .map((cell: CellData): CellContextData => {
       // Query outputs for this cell in order
       const outputs = store.query(
@@ -78,7 +89,7 @@ export function gatherNotebookContext(
         id: cell.id,
         cellType: cell.cellType,
         source: cell.source || "",
-        position: cell.position,
+        fractionalIndex: cell.fractionalIndex || "",
         outputs: contextOutputs,
       };
     });
@@ -86,6 +97,6 @@ export function gatherNotebookContext(
   return {
     previousCells,
     totalCells: allCells.length,
-    currentCellPosition: currentCell.position,
+    currentCellFractionalIndex: currentCell.fractionalIndex || "",
   };
 }

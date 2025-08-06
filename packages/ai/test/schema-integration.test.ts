@@ -68,7 +68,7 @@ Deno.test("Schema Integration - Conversation Building", async (t) => {
           id: "cell-1",
           cellType: "ai",
           source: "Create a code cell",
-          position: 1,
+          fractionalIndex: "a0",
           outputs: [
             {
               outputType: "display_data",
@@ -105,7 +105,7 @@ Deno.test("Schema Integration - Conversation Building", async (t) => {
         },
       ],
       totalCells: 1,
-      currentCellPosition: 1,
+      currentCellFractionalIndex: "a1",
     };
 
     const messages = buildConversationMessages(
@@ -151,7 +151,7 @@ Deno.test("Schema Integration - Conversation Building", async (t) => {
           id: "cell-1",
           cellType: "ai",
           source: "Create a code cell",
-          position: 1,
+          fractionalIndex: "a0",
           outputs: [
             {
               outputType: "display_data",
@@ -167,7 +167,7 @@ Deno.test("Schema Integration - Conversation Building", async (t) => {
         },
       ],
       totalCells: 1,
-      currentCellPosition: 1,
+      currentCellFractionalIndex: "a1",
     };
 
     const messages = buildConversationMessages(

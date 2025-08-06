@@ -30,7 +30,7 @@ Deno.test("AI conversation rendering - code cell context", () => {
         cellType: "code",
         source:
           "import pandas as pd\ndf = pd.DataFrame({'A': [1,2,3]})\nprint(df)",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "terminal",
@@ -40,7 +40,7 @@ Deno.test("AI conversation rendering - code cell context", () => {
       },
     ],
     totalCells: 2,
-    currentCellPosition: 1,
+    currentCellFractionalIndex: "a0",
   };
 
   const messages = buildConversationMessages(
@@ -71,7 +71,7 @@ Deno.test("AI conversation rendering - flattened tool calls", () => {
         id: "cell-1",
         cellType: "ai",
         source: "Create a DataFrame example",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [
           // Text response (flattened)
           {
@@ -111,7 +111,7 @@ Deno.test("AI conversation rendering - flattened tool calls", () => {
       },
     ],
     totalCells: 1,
-    currentCellPosition: 1,
+    currentCellFractionalIndex: "a0",
   };
 
   const messages = buildConversationMessages(
@@ -156,21 +156,21 @@ Deno.test("AI conversation rendering - mixed cell types", () => {
         id: "cell-1",
         cellType: "markdown",
         source: "# Data Analysis\nLet's explore some data:",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [],
       },
       {
         id: "cell-2",
         cellType: "code",
         source: "data = [1, 2, 3, 4, 5]",
-        position: 2,
+        fractionalIndex: "a1",
         outputs: [],
       },
       {
         id: "cell-3",
         cellType: "ai",
         source: "What's the average?",
-        position: 3,
+        fractionalIndex: "a2",
         outputs: [
           {
             outputType: "display_data",
@@ -181,7 +181,7 @@ Deno.test("AI conversation rendering - mixed cell types", () => {
       },
     ],
     totalCells: 4,
-    currentCellPosition: 3,
+    currentCellFractionalIndex: "a2",
   };
 
   const messages = buildConversationMessages(
@@ -223,7 +223,7 @@ Deno.test("AI conversation rendering - sequential tool call flow", () => {
         id: "cell-1",
         cellType: "ai",
         source: "Create a DataFrame and then show its info",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [
           // First AI response
           {
@@ -296,7 +296,7 @@ Deno.test("AI conversation rendering - sequential tool call flow", () => {
       },
     ],
     totalCells: 1,
-    currentCellPosition: 1,
+    currentCellFractionalIndex: "a0",
   };
 
   const messages = buildConversationMessages(
@@ -360,7 +360,7 @@ Deno.test("AI conversation rendering - empty context", () => {
   const context: NotebookContextData = {
     previousCells: [],
     totalCells: 1,
-    currentCellPosition: 0,
+    currentCellFractionalIndex: "a0",
   };
 
   const messages = buildConversationMessages(
@@ -383,7 +383,7 @@ Deno.test("AI conversation rendering - multiple AI cells in sequence", () => {
         id: "cell-1",
         cellType: "ai",
         source: "First AI question",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "display_data",
@@ -396,7 +396,7 @@ Deno.test("AI conversation rendering - multiple AI cells in sequence", () => {
         id: "cell-2",
         cellType: "ai",
         source: "Second AI question",
-        position: 2,
+        fractionalIndex: "a1",
         outputs: [
           {
             outputType: "display_data",
@@ -407,7 +407,7 @@ Deno.test("AI conversation rendering - multiple AI cells in sequence", () => {
       },
     ],
     totalCells: 3,
-    currentCellPosition: 2,
+    currentCellFractionalIndex: "a1",
   };
 
   const messages = buildConversationMessages(
@@ -434,7 +434,7 @@ Deno.test("AI conversation rendering - tool calls without text responses", () =>
         id: "cell-1",
         cellType: "ai",
         source: "Execute some code",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [
           // Just tool call, no text
           {
@@ -463,7 +463,7 @@ Deno.test("AI conversation rendering - tool calls without text responses", () =>
       },
     ],
     totalCells: 1,
-    currentCellPosition: 1,
+    currentCellFractionalIndex: "a0",
   };
 
   const messages = buildConversationMessages(
@@ -491,7 +491,7 @@ Deno.test("AI conversation rendering - mixed outputs with unknown roles", () => 
         id: "cell-1",
         cellType: "ai",
         source: "Test unknown outputs",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "display_data",
@@ -513,7 +513,7 @@ Deno.test("AI conversation rendering - mixed outputs with unknown roles", () => 
       },
     ],
     totalCells: 1,
-    currentCellPosition: 1,
+    currentCellFractionalIndex: "a0",
   };
 
   const messages = buildConversationMessages(
@@ -537,7 +537,7 @@ Deno.test("AI conversation rendering - complex interleaved conversation", () => 
         id: "cell-1",
         cellType: "code",
         source: "print('hello')",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "terminal",
@@ -549,7 +549,7 @@ Deno.test("AI conversation rendering - complex interleaved conversation", () => 
         id: "cell-2",
         cellType: "ai",
         source: "What did that print?",
-        position: 2,
+        fractionalIndex: "a1",
         outputs: [
           {
             outputType: "display_data",
@@ -562,14 +562,14 @@ Deno.test("AI conversation rendering - complex interleaved conversation", () => 
         id: "cell-3",
         cellType: "markdown",
         source: "## Analysis\nThis is a simple test.",
-        position: 3,
+        fractionalIndex: "a0",
         outputs: [],
       },
       {
         id: "cell-4",
         cellType: "ai",
         source: "Create a new cell with better output",
-        position: 4,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "display_data",
@@ -605,7 +605,7 @@ Deno.test("AI conversation rendering - complex interleaved conversation", () => 
       },
     ],
     totalCells: 5,
-    currentCellPosition: 4,
+    currentCellFractionalIndex: "a0",
   };
 
   const messages = buildConversationMessages(
@@ -662,7 +662,7 @@ Deno.test("AI conversation rendering - error handling for malformed tool data", 
         id: "cell-1",
         cellType: "ai",
         source: "Test malformed data",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "display_data",
@@ -684,7 +684,7 @@ Deno.test("AI conversation rendering - error handling for malformed tool data", 
       },
     ],
     totalCells: 1,
-    currentCellPosition: 1,
+    currentCellFractionalIndex: "a0",
   };
 
   // Should not throw - just process what it can
@@ -710,7 +710,7 @@ Deno.test("AI conversation rendering - complete integration flow", () => {
         id: "cell-1",
         cellType: "code",
         source: "data = [1, 2, 3, 4, 5]\nprint(f'Data: {data}')",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "terminal",
@@ -723,7 +723,7 @@ Deno.test("AI conversation rendering - complete integration flow", () => {
         id: "cell-2",
         cellType: "ai",
         source: "Calculate the mean and create a visualization",
-        position: 2,
+        fractionalIndex: "a0",
         outputs: [
           // AI responds with text
           {
@@ -803,7 +803,7 @@ Deno.test("AI conversation rendering - complete integration flow", () => {
       },
     ],
     totalCells: 3,
-    currentCellPosition: 2,
+    currentCellFractionalIndex: "a0",
   };
 
   const messages = buildConversationMessages(
@@ -893,7 +893,7 @@ Deno.test("AI conversation rendering - debug UI scenario", () => {
         id: "cell-1",
         cellType: "code",
         source: "import polars as pl",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [],
       },
       // Second: AI cell asking for pretty DataFrame
@@ -901,7 +901,7 @@ Deno.test("AI conversation rendering - debug UI scenario", () => {
         id: "cell-2",
         cellType: "ai",
         source: "Create a pretty DataFrame",
-        position: 2,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "display_data",
@@ -978,7 +978,7 @@ Deno.test("AI conversation rendering - debug UI scenario", () => {
         cellType: "code",
         source:
           "# Sample data with various operations\ndata = {\n    'Name': ['Alice', 'Bob', 'Charlie', 'David'],\n    'Age': [24, 30, 22, 35],\n    'City': ['New York', 'Los Angeles', 'Chicago', 'Houston'],\n    'Salary': [70000, 80000, 60000, 90000]\n}\n\n# Create DataFrame\npretty_df = pl.DataFrame(data)\npretty_df",
-        position: 2.1,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "execute_result",
@@ -991,7 +991,7 @@ Deno.test("AI conversation rendering - debug UI scenario", () => {
       },
     ],
     totalCells: 4,
-    currentCellPosition: 3,
+    currentCellFractionalIndex: "a0",
   };
 
   const messages = buildConversationMessages(
@@ -1062,7 +1062,7 @@ Deno.test("AI conversation rendering - markdown outputs as assistant messages", 
         id: "cell-1",
         cellType: "ai",
         source: "What is 2 + 2?",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [
           // AI response as markdown output (streaming response)
           {
@@ -1083,7 +1083,7 @@ Deno.test("AI conversation rendering - markdown outputs as assistant messages", 
         id: "cell-2",
         cellType: "ai",
         source: "Create a simple example",
-        position: 2,
+        fractionalIndex: "a0",
         outputs: [
           // AI response as display_data output
           {
@@ -1105,7 +1105,7 @@ Deno.test("AI conversation rendering - markdown outputs as assistant messages", 
       },
     ],
     totalCells: 2,
-    currentCellPosition: 2,
+    currentCellFractionalIndex: "a0",
   };
 
   const messages = buildConversationMessages(
@@ -1146,7 +1146,7 @@ Deno.test("AI conversation rendering - integrated code cells in conversation", (
         cellType: "code",
         source:
           "import pandas as pd\ndf = pd.DataFrame({'A': [1, 2, 3]})\nprint(df)",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "terminal",
@@ -1159,7 +1159,7 @@ Deno.test("AI conversation rendering - integrated code cells in conversation", (
         id: "cell-2",
         cellType: "ai",
         source: "What's the mean?",
-        position: 2,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "display_data",
@@ -1173,7 +1173,7 @@ Deno.test("AI conversation rendering - integrated code cells in conversation", (
         id: "cell-3",
         cellType: "code",
         source: "mean_val = df['A'].mean()\nprint(f'Mean: {mean_val}')",
-        position: 3,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "terminal",
@@ -1183,7 +1183,7 @@ Deno.test("AI conversation rendering - integrated code cells in conversation", (
       },
     ],
     totalCells: 4,
-    currentCellPosition: 3,
+    currentCellFractionalIndex: "a0",
   };
 
   const messages = buildConversationMessages(
@@ -1227,7 +1227,7 @@ Deno.test("AI conversation rendering - SQL cells integration", () => {
         id: "cell-1",
         cellType: "sql",
         source: "SELECT COUNT(*) as total FROM users WHERE active = true",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "execute_result",
@@ -1241,7 +1241,7 @@ Deno.test("AI conversation rendering - SQL cells integration", () => {
         id: "cell-2",
         cellType: "ai",
         source: "What does this show?",
-        position: 2,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "display_data",
@@ -1252,7 +1252,7 @@ Deno.test("AI conversation rendering - SQL cells integration", () => {
       },
     ],
     totalCells: 3,
-    currentCellPosition: 2,
+    currentCellFractionalIndex: "a0",
   };
 
   const messages = buildConversationMessages(
@@ -1282,14 +1282,14 @@ Deno.test("AI conversation rendering - markdown cells integration", () => {
         id: "cell-1",
         cellType: "markdown",
         source: "# Data Analysis Report\nThis notebook analyzes user behavior.",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [],
       },
       {
         id: "cell-2",
         cellType: "ai",
         source: "Start the analysis",
-        position: 2,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "display_data",
@@ -1300,7 +1300,7 @@ Deno.test("AI conversation rendering - markdown cells integration", () => {
       },
     ],
     totalCells: 3,
-    currentCellPosition: 2,
+    currentCellFractionalIndex: "a0",
   };
 
   const messages = buildConversationMessages(
@@ -1328,7 +1328,7 @@ Deno.test("AI conversation rendering - code cells with errors", () => {
         id: "cell-1",
         cellType: "code",
         source: "undefined_variable + 1",
-        position: 1,
+        fractionalIndex: "a0",
         outputs: [
           {
             outputType: "error",
@@ -1341,7 +1341,7 @@ Deno.test("AI conversation rendering - code cells with errors", () => {
       },
     ],
     totalCells: 2,
-    currentCellPosition: 1,
+    currentCellFractionalIndex: "a0",
   };
 
   const messages = buildConversationMessages(

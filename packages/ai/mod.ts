@@ -14,7 +14,12 @@ import type {
   AiToolResultData,
   MediaContainer,
 } from "@runt/schema";
-import { events, materializers, tables } from "@runt/schema";
+import {
+  type CellReference,
+  events,
+  materializers,
+  tables,
+} from "@runt/schema";
 import type { Store } from "npm:@livestore/livestore";
 import { makeSchema, State } from "npm:@livestore/livestore";
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
@@ -109,11 +114,12 @@ type ChatMessageWithToolCallId = ChatMessage & {
 // Use schema types for tool data
 export type ToolResultData = AiToolResultData;
 export type ToolCallData = AiToolCallData;
+export type { CellReference };
 
 export interface NotebookContextData {
   previousCells: CellContextData[];
   totalCells: number;
-  currentCellPosition: number;
+  currentCellFractionalIndex: string;
 }
 
 /**
@@ -123,7 +129,7 @@ export interface CellContextData {
   id: string;
   cellType: string;
   source: string;
-  position: number;
+  fractionalIndex: string;
   outputs: Array<{
     outputType: string;
     data: unknown;
@@ -160,7 +166,7 @@ export function buildConversationMessages(
   logger.debug("Building conversation messages", {
     totalCells: context.totalCells,
     previousCellsCount: context.previousCells.length,
-    currentPosition: context.currentCellPosition,
+    currentFractionalIndex: context.currentCellFractionalIndex,
   });
 
   messages.push({
@@ -176,7 +182,7 @@ export function buildConversationMessages(
         cellId: cell.id,
         cellType: cell.cellType,
         outputCount: cell.outputs?.length || 0,
-        position: cell.position,
+        fractionalIndex: cell.fractionalIndex,
       },
     );
     if (cell.cellType === "ai" && cell.outputs && cell.outputs.length > 0) {
