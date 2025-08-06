@@ -36,7 +36,7 @@ export const cellFractionalIndex = (cellId: string) =>
   );
 
 // @deprecated Use cellReferences$ instead - this returns all cells anyway
-export const adjacentCells = (cellId: string) => cellReferences$;
+export const adjacentCells = (_cellId: string) => cellReferences$;
 
 export const notebookMetadata$ = queryDb(
   tables.notebookMetadata.select("key", "value"),
