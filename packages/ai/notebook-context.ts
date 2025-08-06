@@ -30,7 +30,7 @@ import type { CellContextData, NotebookContextData } from "./mod.ts";
  */
 export function gatherNotebookContext(
   store: Store<typeof schema>,
-  currentCell: { id: string; position: number },
+  currentCell: { id: string; fractionalIndex: string | null; position: number },
 ): NotebookContextData {
   // Query all cells in order
   const allCells = store.query(
@@ -39,10 +39,20 @@ export function gatherNotebookContext(
 
   // Get cells before current cell that should be included in AI context
   const previousCells = allCells
-    .filter((cell: CellData) =>
-      cell.position < currentCell.position &&
-      cell.aiContextVisible !== false
-    )
+    .filter((cell: CellData) => {
+      // Skip cells that should not be visible in AI context
+      if (cell.aiContextVisible === false) {
+        return false;
+      }
+
+      // Use fractionalIndex comparison if both cells have it
+      if (cell.fractionalIndex != null && currentCell.fractionalIndex != null) {
+        return cell.fractionalIndex < currentCell.fractionalIndex;
+      }
+
+      // Fallback to position comparison for legacy cells
+      return cell.position < currentCell.position;
+    })
     .map((cell: CellData): CellContextData => {
       // Query outputs for this cell in order
       const outputs = store.query(
@@ -78,6 +88,7 @@ export function gatherNotebookContext(
         id: cell.id,
         cellType: cell.cellType,
         source: cell.source || "",
+        fractionalIndex: cell.fractionalIndex || "",
         position: cell.position,
         outputs: contextOutputs,
       };
@@ -86,6 +97,7 @@ export function gatherNotebookContext(
   return {
     previousCells,
     totalCells: allCells.length,
+    currentCellFractionalIndex: currentCell.fractionalIndex || "",
     currentCellPosition: currentCell.position,
   };
 }

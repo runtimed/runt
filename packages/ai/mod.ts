@@ -113,6 +113,7 @@ export type ToolCallData = AiToolCallData;
 export interface NotebookContextData {
   previousCells: CellContextData[];
   totalCells: number;
+  currentCellFractionalIndex?: string;
   currentCellPosition: number;
 }
 
@@ -123,6 +124,7 @@ export interface CellContextData {
   id: string;
   cellType: string;
   source: string;
+  fractionalIndex?: string;
   position: number;
   outputs: Array<{
     outputType: string;
@@ -160,6 +162,7 @@ export function buildConversationMessages(
   logger.debug("Building conversation messages", {
     totalCells: context.totalCells,
     previousCellsCount: context.previousCells.length,
+    currentFractionalIndex: context.currentCellFractionalIndex,
     currentPosition: context.currentCellPosition,
   });
 
@@ -176,6 +179,7 @@ export function buildConversationMessages(
         cellId: cell.id,
         cellType: cell.cellType,
         outputCount: cell.outputs?.length || 0,
+        fractionalIndex: cell.fractionalIndex,
         position: cell.position,
       },
     );
