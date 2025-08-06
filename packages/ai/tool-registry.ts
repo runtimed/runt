@@ -44,7 +44,7 @@ const NOTEBOOK_TOOLS: NotebookTool[] = [
   {
     name: "create_cell",
     description:
-      "Create a new cell in the notebook at a specified position. Use this when you want to add new code, markdown, or other content to help the user.",
+      "Create a new cell in the notebook after a specific cell. The AI knows its own cell ID and can reference any previously created cell IDs.",
     parameters: {
       type: "object",
       properties: {
@@ -57,15 +57,13 @@ const NOTEBOOK_TOOLS: NotebookTool[] = [
           type: "string",
           description: "The content/source code for the cell",
         },
-        position: {
+        after_id: {
           type: "string",
-          enum: ["after_current", "before_current", "at_end"],
           description:
-            'Where to place the new cell. Use "after_current" (default) to place right after the AI cell, "before_current" to place before it, or "at_end" only when specifically requested',
-          default: "after_current",
+            "The ID of the cell to place this new cell after. Use your own cell ID to place cells below yourself, or use a previously created cell's ID to build sequences.",
         },
       },
-      required: ["cellType", "source"],
+      required: ["cellType", "source", "after_id"],
     },
   },
   {
@@ -188,48 +186,33 @@ export function createCell(
   store: Store<typeof schema>,
   logger: Logger,
   sessionId: string,
-  currentCell: CellData,
+  _currentCell: CellData,
   args: Record<string, unknown>,
 ) {
   const cellType = String(args.cellType || "code");
   const content = String(args.source || args.content || ""); // Check source first, then content
-  const position = String(args.position || "after_current");
+  const afterId = String(args.after_id); // Now required
 
   // Get ordered cells with fractional indices
   const cellList = store.query(cellList$);
-  const currentCellIndex = cellList.findIndex((c) => c.id === currentCell.id);
+
+  // Find the cell to insert after
+  const afterCellIndex = cellList.findIndex((c) => c.id === afterId);
+  if (afterCellIndex === -1) {
+    throw new Error(`Cell with ID ${afterId} not found`);
+  }
 
   // Generate unique cell ID
   const newCellId = `cell-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-  let cellBefore = null;
-  let cellAfter = null;
-
-  switch (position) {
-    case "before_current":
-      cellBefore = currentCellIndex > 0
-        ? cellList[currentCellIndex - 1] || null
-        : null;
-      cellAfter = cellList[currentCellIndex] || null;
-      break;
-    case "at_end":
-      cellBefore = cellList.length > 0
-        ? cellList[cellList.length - 1] || null
-        : null;
-      cellAfter = null;
-      break;
-    case "after_current":
-    default:
-      cellBefore = cellList[currentCellIndex] || null;
-      cellAfter = currentCellIndex < cellList.length - 1
-        ? cellList[currentCellIndex + 1] || null
-        : null;
-      break;
-  }
+  const cellBefore = cellList[afterCellIndex]!; // Safe because we checked afterCellIndex !== -1
+  const cellAfter = afterCellIndex < cellList.length - 1
+    ? cellList[afterCellIndex + 1] || null
+    : null;
 
   logger.info("Creating cell via AI tool call", {
     cellType,
-    placement: position,
+    afterId,
     contentLength: content.length,
     cellBefore: cellBefore?.id,
     cellAfter: cellAfter?.id,
