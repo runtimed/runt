@@ -133,6 +133,21 @@ export interface CellContextData {
 }
 
 /**
+ * Create system prompt with optional current cell ID context for tool usage
+ */
+function createSystemPrompt(currentCellId?: string): string {
+  let prompt =
+    "You are an AI assistant in a collaborative notebook environment. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You can also execute code yourself using tool calls. Use the visible outputs and your execution capabilities to help analyze data and answer questions.";
+
+  if (currentCellId) {
+    prompt +=
+      ` Your current cell ID is: ${currentCellId}. When using the create_cell tool, use this ID as the after_id parameter to place new cells below yourself.`;
+  }
+
+  return prompt;
+}
+
+/**
  * Convert notebook context to conversation messages with sequential tool call flow
  */
 export function buildConversationMessages(
@@ -558,7 +573,7 @@ export async function executeAI(
       if (isOllamaReady) {
         const openaiMessages = buildConversationMessages(
           notebookContext,
-          "You are an AI assistant in a collaborative notebook environment. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You can also execute code yourself using tool calls. Use the visible outputs and your execution capabilities to help analyze data and answer questions.",
+          createSystemPrompt(cell.id),
           prompt,
         );
 
@@ -586,7 +601,6 @@ export async function executeAI(
             model,
             provider: "ollama",
             enableTools: true,
-            currentCellId: cell.id,
             maxIterations: 10,
             interruptSignal: abortSignal,
             onToolCall: async (toolCall) => {
@@ -692,7 +706,7 @@ The system will automatically pull models if they're not available locally.`;
 
       const conversationMessages = buildConversationMessages(
         notebookContext,
-        "You are an AI assistant in a collaborative notebook environment. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You can also execute code yourself using tool calls. Use the visible outputs and your execution capabilities to help analyze data and answer questions.",
+        createSystemPrompt(cell.id),
         prompt,
       );
 
@@ -710,7 +724,6 @@ The system will automatically pull models if they're not available locally.`;
           model,
           provider: "groq",
           enableTools: true,
-          currentCellId: cell.id,
           maxIterations: 10,
           interruptSignal: abortSignal,
           onToolCall: async (toolCall) => {
@@ -756,7 +769,7 @@ The system will automatically pull models if they're not available locally.`;
       // Use conversation-based approach for better AI interaction
       const conversationMessages = buildConversationMessages(
         notebookContext,
-        "You are an AI assistant in a collaborative notebook environment. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You can also execute code yourself using tool calls. Use the visible outputs and your execution capabilities to help analyze data and answer questions.",
+        createSystemPrompt(cell.id),
         prompt,
       );
 
@@ -780,9 +793,7 @@ The system will automatically pull models if they're not available locally.`;
         context,
         {
           model,
-          provider,
           enableTools: true,
-          currentCellId: cell.id,
           maxIterations: 10,
           interruptSignal: abortSignal,
           onToolCall: async (toolCall) => {

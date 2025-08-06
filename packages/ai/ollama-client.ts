@@ -265,7 +265,6 @@ export class RuntOllamaClient {
       maxTokens?: number;
       temperature?: number;
       enableTools?: boolean;
-      currentCellId?: string;
       onToolCall?: (toolCall: ToolCall) => Promise<string>;
     } & AgenticOptions = {},
   ): Promise<void> {
@@ -273,7 +272,6 @@ export class RuntOllamaClient {
       model = "llama3.1",
       temperature = 0.7,
       enableTools = true,
-      currentCellId: _currentCellId,
       onToolCall,
       maxIterations = 10,
       onIteration,
@@ -324,7 +322,8 @@ export class RuntOllamaClient {
     // Get all available tools (notebook + MCP) at the start
     const allTools = enableTools ? await getAllTools() : [];
 
-    const conversationMessages: OllamaChatMessage[] = messages;
+    const conversationMessages: OllamaChatMessage[] = [...messages];
+
     let iteration = 0;
 
     try {

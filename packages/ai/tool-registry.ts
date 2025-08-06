@@ -51,7 +51,8 @@ const NOTEBOOK_TOOLS: NotebookTool[] = [
         cellType: {
           type: "string",
           enum: ["code", "markdown", "ai", "sql"],
-          description: "The type of cell to create",
+          description:
+            "The type of cell to create (defaults to 'code' if not specified)",
         },
         source: {
           type: "string",
@@ -63,7 +64,7 @@ const NOTEBOOK_TOOLS: NotebookTool[] = [
             "The ID of the cell to place this new cell after. Use your own cell ID to place cells below yourself, or use a previously created cell's ID to build sequences.",
         },
       },
-      required: ["cellType", "source", "after_id"],
+      required: ["source", "after_id"],
     },
   },
   {
@@ -268,6 +269,43 @@ export async function handleToolCallWithResult(
   sendWorkerMessage?: (type: string, data: unknown) => Promise<unknown>,
 ): Promise<string> {
   const { name, arguments: args } = toolCall;
+
+  // Validate tool parameters against schema
+  try {
+    // Get all available tools to find the definition
+    const allTools = await getAllTools();
+    const toolDef = allTools.find((tool) => tool.name === name);
+
+    if (toolDef && toolDef.parameters?.required) {
+      const missingParams = toolDef.parameters.required.filter(
+        (param: string) => !(param in args),
+      );
+
+      if (missingParams.length > 0) {
+        const errorMessage = `Missing required parameters: ${
+          missingParams.join(", ")
+        }`;
+        logger.error("Tool call validation failed", {
+          toolName: name,
+          missingParams,
+          providedArgs: Object.keys(args),
+        });
+        throw new Error(errorMessage);
+      }
+    }
+  } catch (error) {
+    // If validation fails, log and re-throw
+    if (
+      error instanceof Error &&
+      error.message.includes("Missing required parameters")
+    ) {
+      throw error;
+    }
+    logger.warn("Could not validate tool parameters", {
+      toolName: name,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   // Check if tool requires approval - only external tools require approval
   const isBuiltInTool = NOTEBOOK_TOOLS.some((tool) => tool.name === name);

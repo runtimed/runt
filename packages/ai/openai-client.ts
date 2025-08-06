@@ -305,7 +305,6 @@ export class RuntOpenAIClient {
       maxTokens?: number;
       temperature?: number;
       enableTools?: boolean;
-      currentCellId?: string;
       onToolCall?: (toolCall: ToolCall) => Promise<string>;
     } & AgenticOptions = {},
   ): Promise<void> {
@@ -314,7 +313,6 @@ export class RuntOpenAIClient {
       maxTokens = 2000,
       temperature = 0.7,
       enableTools = true,
-      currentCellId: _currentCellId,
       onToolCall,
       maxIterations = 10,
       onIteration,
@@ -331,7 +329,7 @@ export class RuntOpenAIClient {
       return;
     }
 
-    const conversationMessages: ChatMessage[] = messages;
+    const conversationMessages: ChatMessage[] = [...messages];
 
     let iteration = 0;
 
@@ -504,6 +502,7 @@ export class RuntOpenAIClient {
             if (toolCall.type === "function") {
               let args: Record<string, unknown> = {};
               let parseError: Error | null = null;
+              let validationError: Error | null = null;
 
               try {
                 args = JSON.parse(toolCall.function.arguments);
@@ -517,10 +516,41 @@ export class RuntOpenAIClient {
                 );
               }
 
-              if (parseError) {
+              // Validate tool parameters against schema if parsing succeeded
+              if (!parseError) {
+                try {
+                  const toolDef = all_tools.find((tool) =>
+                    tool.name === toolCall.function.name
+                  );
+                  if (toolDef && toolDef.parameters?.required) {
+                    const missingParams = toolDef.parameters.required.filter(
+                      (param: string) => !(param in args),
+                    );
+                    if (missingParams.length > 0) {
+                      validationError = new Error(
+                        `Missing required parameters: ${
+                          missingParams.join(", ")
+                        }`,
+                      );
+                    }
+                  }
+                } catch (error) {
+                  validationError = error instanceof Error
+                    ? error
+                    : new Error(String(error));
+                  this.logger.error(
+                    `Error validating tool parameters for ${toolCall.function.name}`,
+                    error,
+                  );
+                }
+              }
+
+              if (parseError || validationError) {
                 _hasToolErrors = true;
+                const error = parseError || validationError!;
+                const errorType = parseError ? "parsing" : "validation";
                 const errorMessage =
-                  `Error parsing arguments: ${parseError.message}`;
+                  `Error ${errorType} arguments: ${error.message}`;
                 toolResults.push(
                   `Tool ${toolCall.function.name} failed: ${errorMessage}`,
                 );
@@ -528,7 +558,9 @@ export class RuntOpenAIClient {
                 const toolCallData: ToolCallOutput = {
                   tool_call_id: toolCall.id,
                   tool_name: toolCall.function.name,
-                  arguments: { raw_arguments: toolCall.function.arguments },
+                  arguments: parseError
+                    ? { raw_arguments: toolCall.function.arguments }
+                    : args,
                   status: "error",
                   timestamp: new Date().toISOString(),
                   result: errorMessage,
@@ -547,9 +579,9 @@ export class RuntOpenAIClient {
                   data: {
                     [AI_TOOL_CALL_MIME_TYPE]: toolCallData,
                     "text/markdown":
-                      `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError parsing arguments: ${parseError.message}`,
+                      `❌ **Tool failed**: \`${toolCall.function.name}\`\n\nError ${errorType} arguments: ${error.message}`,
                     "text/plain":
-                      `Tool failed: ${toolCall.function.name} - Error parsing arguments: ${parseError.message}`,
+                      `Tool failed: ${toolCall.function.name} - Error ${errorType} arguments: ${error.message}`,
                   },
                   metadata: {
                     anode: errorMetadata,
