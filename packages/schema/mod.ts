@@ -19,6 +19,7 @@ import { tables } from "./tables.ts";
 export { tables };
 
 export * from "./types.ts";
+export * from "./queries/index.ts";
 
 /**
  * CLIENT AUTHENTICATION PATTERNS
