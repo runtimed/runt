@@ -44,7 +44,6 @@ export const tables = {
         schema: CellTypeSchema,
       }),
       source: State.SQLite.text({ default: "" }),
-      position: State.SQLite.real(),
       fractionalIndex: State.SQLite.text({ nullable: true }), // Fractional index for deterministic ordering
 
       // Execution state

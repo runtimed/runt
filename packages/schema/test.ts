@@ -202,7 +202,7 @@ Deno.test("replay exported event log", async () => {
   const actualCellIds = cells.map((c) => ({
     id: c.id,
     type: c.cellType,
-    position: c.position,
+    fractionalIndex: c.fractionalIndex,
   }));
   console.log("Actual cells:", actualCellIds);
 
@@ -713,8 +713,9 @@ Deno.test("v2.CellCreated - mixed v1 and v2 events", async () => {
   const v1Cells = allCells.filter((c) => c.id.startsWith("v1-"));
   assertEquals(v1Cells.length, 2);
   v1Cells.forEach((cell) => {
-    assert(cell.position !== null);
-    assertEquals(cell.fractionalIndex, null);
+    assert(cell.fractionalIndex !== null);
+    // v1 cells now get fractionalIndex converted from position
+    assert(typeof cell.fractionalIndex === "string");
   });
 
   // v2 cells have fractionalIndex
@@ -722,7 +723,8 @@ Deno.test("v2.CellCreated - mixed v1 and v2 events", async () => {
   assertEquals(v2Cells.length, 2);
   v2Cells.forEach((cell) => {
     assert(cell.fractionalIndex !== null);
-    assertEquals(cell.position, 0); // Default value
+    // v2 cells have their original fractionalIndex
+    assert(typeof cell.fractionalIndex === "string");
   });
 
   store.shutdown();
