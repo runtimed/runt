@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { RuntimeAgent } from "./runtime-agent.ts";
 import { RuntimeConfig } from "./config.ts";
-import { events, type MediaContainer } from "@runt/schema";
+import { createCellBetween, events, type MediaContainer } from "@runt/schema";
 import type {
   IArtifactClient,
   RawOutputData,
@@ -65,12 +65,16 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
 
       // Create a cell first
       const cellId = "test-cell-123";
-      agent.store.commit(events.cellCreated({
-        id: cellId,
-        cellType: "code",
-        position: 0,
-        createdBy: "test-user",
-      }));
+      const createEvent = createCellBetween(
+        {
+          id: cellId,
+          cellType: "code",
+          createdBy: "test-user",
+        },
+        null,
+        null,
+      );
+      agent.store.commit(createEvent);
 
       // Request execution
       const queueId = crypto.randomUUID();
@@ -165,12 +169,16 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
 
       // Create a cell first
       const cellId = "test-cell-456";
-      agent.store.commit(events.cellCreated({
-        id: cellId,
-        cellType: "code",
-        position: 0,
-        createdBy: "test-user",
-      }));
+      const createEvent = createCellBetween(
+        {
+          id: cellId,
+          cellType: "code",
+          createdBy: "test-user",
+        },
+        null,
+        null,
+      );
+      agent.store.commit(createEvent);
 
       // Request execution
       const queueId = crypto.randomUUID();
@@ -268,12 +276,16 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
 
       // Create a cell first
       const cellId = "test-cell-789";
-      agent.store.commit(events.cellCreated({
-        id: cellId,
-        cellType: "code",
-        position: 0,
-        createdBy: "test-user",
-      }));
+      const createEvent = createCellBetween(
+        {
+          id: cellId,
+          cellType: "code",
+          createdBy: "test-user",
+        },
+        null,
+        null,
+      );
+      agent.store.commit(createEvent);
 
       // Request execution
       const queueId = crypto.randomUUID();

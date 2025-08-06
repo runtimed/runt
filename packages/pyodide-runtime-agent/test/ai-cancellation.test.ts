@@ -1,6 +1,6 @@
 import { assertEquals, assertExists } from "jsr:@std/assert@1.0.13";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
-import { events, tables } from "@runt/schema";
+import { createCellBetween, events, tables } from "@runt/schema";
 import { withQuietConsole } from "../../lib/test/test-config.ts";
 
 // Configure test environment for quiet logging
@@ -42,14 +42,16 @@ Deno.test({
 
       // Create an AI cell
       const aiCellId = "ai-cell-cancel-test";
-      agent.store.commit(
-        events.cellCreated({
+      const createAiCellEvent = createCellBetween(
+        {
           id: aiCellId,
           cellType: "ai",
-          position: 1,
           createdBy: "test",
-        }),
+        },
+        null,
+        null,
       );
+      agent.store.commit(createAiCellEvent);
 
       // Set a long-running AI prompt
       const prompt = "Explain quantum computing in great detail with examples";
@@ -63,14 +65,16 @@ Deno.test({
 
       // Create a code cell that should NOT execute if cancellation works
       const codeCellId = "code-cell-after-ai";
-      agent.store.commit(
-        events.cellCreated({
+      const createCodeCellEvent = createCellBetween(
+        {
           id: codeCellId,
           cellType: "code",
-          position: 2,
           createdBy: "test",
-        }),
+        },
+        null,
+        null,
       );
+      agent.store.commit(createCodeCellEvent);
 
       agent.store.commit(
         events.cellSourceChanged({

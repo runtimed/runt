@@ -1,4 +1,11 @@
-import { type CellData, events, materializers, tables } from "@runt/schema";
+import {
+  type CellData,
+  cellList$,
+  createCellBetween,
+  events,
+  materializers,
+  tables,
+} from "@runt/schema";
 import type { Logger } from "@runt/lib";
 import type { Store } from "npm:@livestore/livestore";
 import { makeSchema, State } from "npm:@livestore/livestore";
@@ -177,30 +184,6 @@ export async function getAllTools(): Promise<NotebookTool[]> {
  */
 export const NOTEBOOK_TOOLS_EXPORT = NOTEBOOK_TOOLS;
 
-function calculateNewCellPosition(
-  store: Store<typeof schema>,
-  currentCell: CellData,
-  placement: string,
-): number {
-  const allCells = store.query(
-    tables.cells.select().orderBy("position", "asc"),
-  ) as CellData[];
-
-  switch (placement) {
-    case "before_current":
-      return currentCell.position - 0.1;
-    case "at_end": {
-      const maxPosition = allCells.length > 0
-        ? Math.max(...allCells.map((c: CellData) => c.position))
-        : 0;
-      return maxPosition + 1;
-    }
-    case "after_current":
-    default:
-      return currentCell.position + 0.1;
-  }
-}
-
 export function createCell(
   store: Store<typeof schema>,
   logger: Logger,
@@ -212,31 +195,58 @@ export function createCell(
   const content = String(args.source || args.content || ""); // Check source first, then content
   const position = String(args.position || "after_current");
 
-  // Calculate position for new cell
-  const newPosition = calculateNewCellPosition(
-    store,
-    currentCell,
-    position,
-  );
+  // Get ordered cells with fractional indices
+  const cellList = store.query(cellList$);
+  const currentCellIndex = cellList.findIndex((c) => c.id === currentCell.id);
 
   // Generate unique cell ID
   const newCellId = `cell-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
+  let cellBefore = null;
+  let cellAfter = null;
+
+  switch (position) {
+    case "before_current":
+      cellBefore = currentCellIndex > 0
+        ? cellList[currentCellIndex - 1] || null
+        : null;
+      cellAfter = cellList[currentCellIndex] || null;
+      break;
+    case "at_end":
+      cellBefore = cellList.length > 0
+        ? cellList[cellList.length - 1] || null
+        : null;
+      cellAfter = null;
+      break;
+    case "after_current":
+    default:
+      cellBefore = cellList[currentCellIndex] || null;
+      cellAfter = currentCellIndex < cellList.length - 1
+        ? cellList[currentCellIndex + 1] || null
+        : null;
+      break;
+  }
+
   logger.info("Creating cell via AI tool call", {
     cellType,
-    position: newPosition,
+    placement: position,
     contentLength: content.length,
+    cellBefore: cellBefore?.id,
+    cellAfter: cellAfter?.id,
   });
 
-  // Create the new cell
-  store.commit(
-    events.cellCreated({
+  // Create the new cell with fractional index
+  const createEvent = createCellBetween(
+    {
       id: newCellId,
       cellType: cellType as "code" | "markdown" | "raw" | "sql" | "ai",
-      position: newPosition,
       createdBy: `ai-assistant-${sessionId}`,
-    }),
+    },
+    cellBefore,
+    cellAfter,
   );
+
+  store.commit(createEvent);
 
   // Set the cell source if provided
   if (content.length > 0) {

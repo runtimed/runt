@@ -8,7 +8,7 @@ import { assertEquals, assertExists } from "jsr:@std/assert";
 import { delay } from "jsr:@std/async/delay";
 import { crypto } from "jsr:@std/crypto";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
-import { events, tables } from "@runt/schema";
+import { createCellBetween, events, tables } from "@runt/schema";
 
 import { withQuietConsole } from "../../lib/test/test-config.ts";
 
@@ -78,12 +78,16 @@ Deno.test({
 
       // Create a cell with Python arithmetic
       const cellId = `cell-${crypto.randomUUID()}`;
-      agent.store.commit(events.cellCreated({
-        id: cellId,
-        position: 0,
-        cellType: "code",
-        createdBy: "test-user",
-      }));
+      const createEvent = createCellBetween(
+        {
+          id: cellId,
+          cellType: "code",
+          createdBy: "test-user",
+        },
+        null,
+        null,
+      );
+      agent.store.commit(createEvent);
 
       // Test basic arithmetic
       const pythonCode = "3 * 7";
