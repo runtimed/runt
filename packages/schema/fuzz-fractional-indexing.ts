@@ -11,7 +11,7 @@ import {
   isValidFractionalIndex,
   moveCellBetween,
   validateFractionalIndexOrder,
-} from "./packages/schema/mod.ts";
+} from "./mod.ts";
 
 interface FuzzTestResult {
   name: string;
