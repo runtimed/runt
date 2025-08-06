@@ -6,16 +6,8 @@
  */
 
 import {
-  assertEquals,
-  assertThrows,
-} from "https://deno.land/std@0.224.0/assert/mod.ts";
-import {
   type CellReference,
-  createCellBetween,
-  createTestJitterProvider,
   fractionalIndexBetween,
-  generateFractionalIndices,
-  initialFractionalIndex,
   isValidFractionalIndex,
   moveCellBetween,
   validateFractionalIndexOrder,
@@ -44,7 +36,7 @@ class FractionalIndexFuzzer {
     }
   }
 
-  async fuzzAdjacentStrings(iterations = 1000): Promise<FuzzTestResult> {
+  fuzzAdjacentStrings(iterations = 1000): FuzzTestResult {
     const result: FuzzTestResult = {
       name: "Adjacent strings (m/m0 type issues)",
       iterations,
@@ -137,7 +129,7 @@ class FractionalIndexFuzzer {
     return result;
   }
 
-  async fuzzRapidInsertion(iterations = 500): Promise<FuzzTestResult> {
+  fuzzRapidInsertion(iterations = 500): FuzzTestResult {
     const result: FuzzTestResult = {
       name: "Rapid insertion clustering",
       iterations,
@@ -224,7 +216,7 @@ class FractionalIndexFuzzer {
     return result;
   }
 
-  async fuzzCellMovements(iterations = 300): Promise<FuzzTestResult> {
+  fuzzCellMovements(iterations = 300): FuzzTestResult {
     const result: FuzzTestResult = {
       name: "Cell movement edge cases",
       iterations,
@@ -344,7 +336,7 @@ class FractionalIndexFuzzer {
     return result;
   }
 
-  async fuzzBoundaryConditions(iterations = 200): Promise<FuzzTestResult> {
+  fuzzBoundaryConditions(iterations = 200): FuzzTestResult {
     const result: FuzzTestResult = {
       name: "Boundary conditions and extreme values",
       iterations,
@@ -388,7 +380,7 @@ class FractionalIndexFuzzer {
           if (Math.random() < 0.1) {
             a = null;
             b = this.randomString(1, 20);
-          } else if (Math.random() < 0.1) {
+          } else if (Math.random() < 0.2) {
             a = this.randomString(1, 20);
             b = null;
           } else {
@@ -528,7 +520,7 @@ class FractionalIndexFuzzer {
   }
 }
 
-async function main() {
+function main() {
   const verbose = Deno.args.includes("--verbose") || Deno.args.includes("-v");
   const quick = Deno.args.includes("--quick");
 
@@ -553,16 +545,16 @@ async function main() {
   const fuzzer = new FractionalIndexFuzzer(verbose);
 
   console.log("\n🎯 Testing adjacent string cases (m/m0 type issues)...");
-  await fuzzer.fuzzAdjacentStrings(iterations.adjacent);
+  fuzzer.fuzzAdjacentStrings(iterations.adjacent);
 
   console.log("\n🎯 Testing rapid insertion clustering...");
-  await fuzzer.fuzzRapidInsertion(iterations.rapid);
+  fuzzer.fuzzRapidInsertion(iterations.rapid);
 
   console.log("\n🎯 Testing cell movement edge cases...");
-  await fuzzer.fuzzCellMovements(iterations.movements);
+  fuzzer.fuzzCellMovements(iterations.movements);
 
   console.log("\n🎯 Testing boundary conditions...");
-  await fuzzer.fuzzBoundaryConditions(iterations.boundary);
+  fuzzer.fuzzBoundaryConditions(iterations.boundary);
 
   const allPassed = fuzzer.printResults();
 
