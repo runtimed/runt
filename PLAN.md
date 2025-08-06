@@ -56,23 +56,19 @@ From testing with models:
 - Sometimes models don't think carefully about the proper `after_id` and cells end up in weird order
 - This suggests we might want a sensible default behavior
 
-### Recommendation: Optional after_id with Smart Default
-Make `after_id` optional with this behavior:
-- **When provided**: Place cell after the specified cell ID
-- **When omitted**: Place cell after the current AI cell (the one making the call)
-
-This gives us:
-- Explicit control when needed
-- Natural default behavior (responses appear below the AI)
-- No need for special sentinels
-- Flexibility without complexity
+### Recommendation: Required after_id
+Make `after_id` required with no default behavior:
+- **Always explicit**: AI must always specify which cell to place the new cell after
+- **Forces intentional placement**: No ambiguity about where cells will appear
+- **Enables interspersed conversations**: AI can weave through the document by referencing specific cell IDs
+- **No assumptions**: System doesn't assume AI wants to place cells below itself
 
 ## Key Concepts
 
-### 1. AI Knows Its Own Cell ID
-- The AI cell that's making the tool call has access to its own cell ID
-- This replaces the need for `position: "after_current"`
-- The AI can simply use its own ID in `after_id`
+### 1. AI Has Context of All Cell IDs
+- The AI can see cell IDs for all cells in the notebook context
+- The AI must explicitly choose which cell to place new content after
+- No default assumptions about placement relative to the AI's own cell
 
 ### 2. Chaining Cells
 - When the AI creates a cell, it receives the new cell's ID in the response
@@ -131,7 +127,7 @@ export function createCell(
 AI: create_cell({
   cellType: "markdown",
   source: "# Data Analysis",
-  after_id: "cell-ai-123"  // Using own cell ID (or could omit for same effect)
+  after_id: "cell-ai-123"  // Must specify where to place it
 })
 // Returns: "Created markdown cell: cell-abc"
 
@@ -175,23 +171,23 @@ AI: create_cell({
 ## Migration Strategy
 
 1. Update tool definition to remove `position` parameter
-2. Make `after_id` optional, defaulting to current AI cell
-3. Ensure AI has access to its own cell ID in context
-4. Update any system prompts to explain the new approach
+2. Make `after_id` required with no default behavior
+3. Ensure AI has access to all relevant cell IDs in context
+4. Update any system prompts to explain explicit placement approach
 5. Emphasize using `modify_cell` for adding imports/dependencies
 
 ## Considerations
 
-- The AI must have its own cell ID available in the context
-- The AI should see cell IDs for cells above it to enable insertion
+- The AI must have access to relevant cell IDs in the notebook context
 - Error handling for non-existent cell IDs is critical
 - The response must include the created cell ID for chaining
 - Guide models to use `modify_cell` instead of trying to insert at the top
 - Consider adding examples in prompts to help models choose appropriate after_id values
+- Support interspersed conversation patterns where AI weaves through the document
 
 ## Success Criteria
 
-- AI can create cells below itself by using its own cell ID
+- AI can create cells at any position by referencing existing cell IDs
 - AI can chain multiple cells together in sequence
-- AI can insert cells at any position by referencing existing cell IDs
-- The API is simpler and more predictable for LLM usage
+- AI can create interspersed conversation patterns throughout the notebook
+- The API is explicit and predictable for LLM usage
