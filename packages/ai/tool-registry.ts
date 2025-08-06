@@ -219,7 +219,7 @@ export function createCell(
   });
 
   // Create the new cell with fractional index
-  const createEvent = createCellBetween(
+  const createEvents = createCellBetween(
     {
       id: newCellId,
       cellType: cellType as "code" | "markdown" | "raw" | "sql" | "ai",
@@ -227,9 +227,10 @@ export function createCell(
     },
     cellBefore,
     cellAfter,
+    [...cellList],
   );
 
-  store.commit(createEvent);
+  createEvents.forEach((event) => store.commit(event));
 
   // Set the cell source if provided
   if (content.length > 0) {
