@@ -2,7 +2,6 @@
 
 import { parseArgs } from "jsr:@std/cli@^1.0.0";
 import { walk } from "jsr:@std/fs@^1.0.0";
-import { dirname, join } from "jsr:@std/path@^1.0.0";
 
 interface PackageJson {
   name?: string;
