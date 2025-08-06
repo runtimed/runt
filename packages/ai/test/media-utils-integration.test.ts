@@ -78,7 +78,7 @@ Deno.test("AI Media Utils Integration", async (t) => {
           id: "cell-1",
           cellType: "code",
           source: "print('Hello')",
-          position: 1,
+          fractionalIndex: "a0",
           outputs: [
             {
               outputType: "multimedia_result",
@@ -99,7 +99,7 @@ Deno.test("AI Media Utils Integration", async (t) => {
         },
       ],
       totalCells: 2,
-      currentCellPosition: 2,
+      currentCellFractionalIndex: "a0",
     };
 
     const messages = buildConversationMessages(
@@ -133,7 +133,7 @@ Deno.test("AI Media Utils Integration", async (t) => {
             id: "cell-1",
             cellType: "code",
             source: "print('Hello')",
-            position: 1,
+            fractionalIndex: "a0",
             outputs: [
               {
                 outputType: "multimedia_result",
@@ -145,7 +145,7 @@ Deno.test("AI Media Utils Integration", async (t) => {
           },
         ],
         totalCells: 2,
-        currentCellPosition: 2,
+        currentCellFractionalIndex: "a0",
       };
 
       const messages = buildConversationMessages(
@@ -171,7 +171,7 @@ Deno.test("AI Media Utils Integration", async (t) => {
             id: "cell-1",
             cellType: "code",
             source: "print('Hello')",
-            position: 1,
+            fractionalIndex: "a0",
             outputs: [
               {
                 outputType: "multimedia_result",
@@ -183,7 +183,7 @@ Deno.test("AI Media Utils Integration", async (t) => {
           },
         ],
         totalCells: 2,
-        currentCellPosition: 2,
+        currentCellFractionalIndex: "a0",
       };
 
       const messages = buildConversationMessages(
