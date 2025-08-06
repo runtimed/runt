@@ -1,15 +1,14 @@
 import { Events, Schema, State } from "@livestore/livestore";
-import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 
 import {
   ActorTypeSchema,
+  CellType,
   CellTypeSchema,
   MediaRepresentationSchema,
 } from "./types.ts";
 
 import type {
   ArtifactContainer,
-  CellType,
   InlineContainer,
   MediaContainer,
 } from "./types.ts";
@@ -1348,51 +1347,330 @@ export const AI_TOOL_CALL_MIME_TYPE =
 export const AI_TOOL_RESULT_MIME_TYPE =
   "application/vnd.anode.aitool.result+json" as const;
 
-// Note on fractional indexing edge cases:
-// The fractional-indexing library has inherent limitations when keys get densely packed.
-// For example, inserting many times between "a2" and "a3" eventually produces keys like
-// "a2l" and "a2V" that violate lexicographic ordering (lowercase > uppercase in ASCII).
-// Our jittering approach using multi-key generation helps avoid collisions but cannot
-// fix this fundamental limitation. In practice, this edge case is rare and occurs only
-// with extreme insertion patterns.
-
 // Export fractional indexing utilities with optional jittering
-export function fractionalIndexBetween(
+/**
+ * Binary-collation-safe fractional indexing implementation.
+ * Uses only characters 0-9 and a-z which sort correctly in binary/ASCII collation.
+ * This avoids the uppercase/lowercase sorting issues with the fractional-indexing library.
+ */
+
+const BASE36_DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz";
+const BASE = BASE36_DIGITS.length;
+
+function charToValue(char: string): number {
+  const index = BASE36_DIGITS.indexOf(char);
+  if (index === -1) {
+    throw new Error(`Invalid character: ${char}`);
+  }
+  return index;
+}
+
+function valueToChar(value: number): string {
+  if (value < 0 || value >= BASE) {
+    throw new Error(`Value out of range: ${value}`);
+  }
+  return BASE36_DIGITS[value];
+}
+
+function generateKeyBetween(
   a: string | null | undefined,
   b: string | null | undefined,
 ): string {
-  // For production, use multi-key generation to avoid collisions
-  try {
-    // Generate multiple keys and pick one randomly
-    const numKeys = 20;
-    const keys = generateNKeysBetween(a, b, numKeys);
+  // Handle null/undefined cases
+  if (!a && !b) return "m"; // Middle of the range
+  if (!a) return generateKeyBefore(b!);
+  if (!b) return generateKeyAfter(a);
 
-    // Pick a random key (not the first or last for better distribution)
-    if (keys.length > 2) {
-      const randomIndex = 1 + Math.floor(Math.random() * (keys.length - 2));
-      return keys[randomIndex]!;
-    } else if (keys.length > 0) {
-      return keys[0]!;
-    }
-  } catch (_error) {
-    // If multi-key generation fails, fall back to single key
-    console.warn(
-      `Multi-key generation failed between ${a} and ${b}, using single key`,
-    );
+  // Ensure a < b
+  if (a >= b) {
+    throw new Error(`Invalid range: ${a} >= ${b}`);
   }
 
-  // Fallback to single key generation
-  return generateKeyBetween(a, b);
+  // Find the first position where they differ
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) {
+    i++;
+  }
+
+  // If a is a prefix of b, we need special handling
+  if (i === a.length) {
+    const nextChar = b[i];
+    const nextVal = charToValue(nextChar);
+
+    // If b continues with a character > 0, we can insert a midpoint
+    if (nextVal > 0) {
+      // We can fit something between a and b
+      // For example, between "a" and "a5", we can use "a2"
+      const midVal = Math.floor(nextVal / 2);
+      if (midVal > 0) {
+        return a + valueToChar(midVal);
+      } else {
+        // nextVal is 1, so midVal is 0
+        // Return a + "0" which is between a and a + "1"
+        return a + "0";
+      }
+    } else {
+      // nextVal is 0, meaning b continues with "0" after a ends
+      // We need to find what can go between a and a+"0"
+      // Since there's nothing less than "0" in our alphabet,
+      // we must look deeper into b for space
+      if (b.length > i + 1) {
+        // b continues past the "0", so we can work within that space
+        // For example, if b = "a00", we can generate something like "a" + "0" + something < "0"
+        // But since nothing is less than "0", we need to look even deeper
+        let j = i + 1;
+        while (j < b.length && b[j] === "0") {
+          j++;
+        }
+
+        if (j < b.length) {
+          // Found a non-zero character at position j
+          // We can insert between a+"0"*count and b
+          const prefix = a + "0".repeat(j - i);
+          const nextChar = b[j];
+          const nextVal = charToValue(nextChar);
+          if (nextVal > 0) {
+            return prefix + valueToChar(Math.floor(nextVal / 2));
+          }
+        }
+        // All remaining characters are "0" or we've reached the end
+        // This means a and b are adjacent
+        throw new Error(
+          `No string exists between "${a}" and "${b}" in base36 encoding`,
+        );
+      } else {
+        // b = "a0" exactly, there's no string between "a" and "a0"
+        throw new Error(
+          `No string exists between "${a}" and "${b}" in base36 encoding`,
+        );
+      }
+    }
+  }
+
+  // If b is a prefix of a (shouldn't happen if a < b, but let's be safe)
+  if (i === b.length) {
+    throw new Error(`Invalid case: b "${b}" is a prefix of a "${a}"`);
+  }
+
+  // Get the values at position i
+  const aVal = charToValue(a[i]);
+  const bVal = charToValue(b[i]);
+
+  // If there's room between them, use the midpoint
+  if (bVal - aVal > 1) {
+    const midVal = Math.floor((aVal + bVal) / 2);
+    return a.substring(0, i) + valueToChar(midVal) + a.substring(i + 1);
+  }
+
+  // Characters are adjacent (diff is 1)
+  // We need to extend the string to find a position
+
+  // If a has more characters after position i, we can increment within a's range
+  if (i < a.length - 1) {
+    // Try to find space after a[i] but within a's remaining range
+    const prefix = a.substring(0, i + 1);
+    const remaining = a.substring(i + 1);
+
+    // Find a position between remaining and the next possible string
+    const suffix = generateKeyAfter(remaining);
+    return prefix + suffix;
+  }
+
+  // a[i] and b[i] are adjacent, and a has no more characters
+  // We need to extend a with something that keeps us less than b
+  // Since b[i] = aVal + 1, we extend a with a midpoint character
+  return a.substring(0, i + 1) + "h";
+}
+
+function generateKeyBefore(b: string): string {
+  if (!b || b.length === 0) {
+    return "m"; // Middle of range if no upper bound
+  }
+
+  // Find the first non-zero character
+  let i = 0;
+  while (i < b.length && b[i] === "0") {
+    i++;
+  }
+
+  if (i === b.length) {
+    // All zeros, prepend another zero
+    return "0" + b;
+  }
+
+  // Found a non-zero character
+  const val = charToValue(b[i]);
+
+  if (i === 0 && val > 1) {
+    // Can simply use a smaller first character
+    return valueToChar(Math.floor(val / 2));
+  }
+
+  // Need to preserve prefix and adjust
+  const prefix = b.substring(0, i);
+  if (val > 1) {
+    return prefix + valueToChar(Math.floor(val / 2));
+  }
+
+  // val is 1, so we use prefix + "0" + midpoint
+  return prefix + "0h";
+}
+
+function generateKeyAfter(a: string): string {
+  if (!a || a.length === 0) {
+    return "m"; // Middle of range if no lower bound
+  }
+
+  // Find the last character that isn't 'z'
+  let i = a.length - 1;
+  while (i >= 0 && a[i] === "z") {
+    i--;
+  }
+
+  if (i === -1) {
+    // All 'z's, need to extend
+    return a + "h"; // Append midpoint
+  }
+
+  // Can increment the character at position i
+  const prefix = a.substring(0, i);
+  const val = charToValue(a[i]);
+
+  if (val < BASE - 2) {
+    // Simple increment
+    return prefix + valueToChar(val + 1);
+  }
+
+  // val is 'y', incrementing gives 'z'
+  // To avoid getting too close to the boundary, extend instead
+  return a + "h";
+}
+
+// JitterProvider interface for testability
+export interface JitterProvider {
+  // Returns a random number between 0 and 1
+  random(): number;
+  // Returns a random integer between 0 (inclusive) and max (exclusive)
+  randomInt(max: number): number;
+}
+
+// Default jitter provider using Math.random
+export const defaultJitterProvider: JitterProvider = {
+  random: () => Math.random(),
+  randomInt: (max) => Math.floor(Math.random() * max),
+};
+
+// Deterministic jitter provider for testing
+export const createTestJitterProvider = (seed = 0): JitterProvider => {
+  let currentSeed = seed;
+
+  // Simple linear congruential generator
+  const nextRandom = () => {
+    currentSeed = (currentSeed * 1103515245 + 12345) & 0x7fffffff;
+    return currentSeed / 0x7fffffff;
+  };
+
+  return {
+    random: nextRandom,
+    randomInt: (max) => Math.floor(nextRandom() * max),
+  };
+};
+
+export function fractionalIndexBetween(
+  a: string | null | undefined,
+  b: string | null | undefined,
+  jitterProvider: JitterProvider = defaultJitterProvider,
+): string {
+  // Add some jitter to avoid clustering
+  const key = generateKeyBetween(a, b);
+
+  // For better distribution, sometimes extend the key
+  // But we must ensure the result stays within bounds
+  if (jitterProvider.random() < 0.3 && key.length < 10) {
+    const suffix = valueToChar(jitterProvider.randomInt(BASE));
+    const candidate = key + suffix;
+
+    // Verify the candidate maintains ordering
+    const isValid = (!a || candidate > a) && (!b || candidate < b);
+
+    if (isValid) {
+      return candidate;
+    }
+  }
+
+  return key;
+}
+
+export function generateFractionalIndices(
+  a: string | null | undefined,
+  b: string | null | undefined,
+  n: number,
+  jitterProvider: JitterProvider = defaultJitterProvider,
+): string[] {
+  if (n <= 0) return [];
+  if (n === 1) return [fractionalIndexBetween(a, b, jitterProvider)];
+
+  const keys: string[] = [];
+
+  // Generate n keys by repeatedly subdividing the range
+  let prev = a;
+  for (let i = 0; i < n; i++) {
+    // Calculate position in range (0 to 1)
+    const position = (i + 1) / (n + 1);
+
+    // For better distribution, we generate keys sequentially
+    // This avoids clustering that can happen with binary subdivision
+    const key = fractionalIndexBetween(prev, b, jitterProvider);
+    keys.push(key);
+    prev = key;
+  }
+
+  return keys;
 }
 
 // Helper to get initial fractional index
-export function initialFractionalIndex(): string {
-  return fractionalIndexBetween(null, null);
+export function initialFractionalIndex(
+  jitterProvider: JitterProvider = defaultJitterProvider,
+): string {
+  return fractionalIndexBetween(null, null, jitterProvider);
 }
 
 // Helper to validate fractional index (basic check)
 export function isValidFractionalIndex(index: string): boolean {
-  return typeof index === "string" && index.length > 0;
+  if (typeof index !== "string" || index.length === 0) {
+    return false;
+  }
+
+  // Check that all characters are valid base36 characters
+  for (const char of index) {
+    if (!BASE36_DIGITS.includes(char)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// Validate that fractional indices maintain proper binary collation ordering
+export function validateFractionalIndexOrder(
+  indices: (string | null | undefined)[],
+): boolean {
+  const validIndices = indices.filter((idx): idx is string =>
+    isValidFractionalIndex(idx || "")
+  );
+
+  for (let i = 1; i < validIndices.length; i++) {
+    if (validIndices[i - 1] >= validIndices[i]) {
+      console.error(
+        `Fractional index ordering violation: "${validIndices[i - 1]}" >= "${
+          validIndices[i]
+        }"`,
+      );
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -1430,6 +1708,7 @@ export function moveCellBetween(
   cellBefore: CellReference | null,
   cellAfter: CellReference | null,
   actorId?: string,
+  jitterProvider: JitterProvider = defaultJitterProvider,
 ): ReturnType<typeof events.cellMoved2> | null {
   // Cell must have a valid fractional index to be moved
   if (!cell.fractionalIndex) {
@@ -1461,7 +1740,11 @@ export function moveCellBetween(
     }
   }
 
-  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
+  const fractionalIndex = fractionalIndexBetween(
+    previousKey,
+    nextKey,
+    jitterProvider,
+  );
 
   return events.cellMoved2({
     id: cell.id,
@@ -1488,6 +1771,7 @@ export function createCellBetween(
   },
   cellBefore: CellReference | null,
   cellAfter: CellReference | null,
+  jitterProvider: JitterProvider = defaultJitterProvider,
 ): ReturnType<typeof events.cellCreated2> {
   // Determine the fractional indices for before and after
   const previousKey = cellBefore?.fractionalIndex || null;
