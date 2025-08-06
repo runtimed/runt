@@ -2188,13 +2188,6 @@ export function createCellBetween(
   });
   resultEvents.push(createEvent);
 
-  // Track metrics
-  operationMetrics.totalOperations++;
-  operationMetrics.totalEvents += resultEvents.length;
-  if (result.needsRebalancing) {
-    operationMetrics.rebalanceOperations++;
-  }
-
   return {
     events: resultEvents,
     newCellId: cellData.id,
@@ -2269,11 +2262,6 @@ export function moveCellBetweenWithRebalancing(
   if (result.needsRebalancing && result.rebalanceResult) {
     resultEvents.push(...result.rebalanceResult.events);
 
-    // Track metrics
-    operationMetrics.totalOperations++;
-    operationMetrics.totalEvents += resultEvents.length;
-    operationMetrics.rebalanceOperations++;
-
     return {
       events: resultEvents,
       moved: true,
@@ -2285,10 +2273,6 @@ export function moveCellBetweenWithRebalancing(
   // Add the move event if one was generated
   if (result.moveEvent) {
     resultEvents.push(result.moveEvent);
-
-    // Track metrics
-    operationMetrics.totalOperations++;
-    operationMetrics.totalEvents += resultEvents.length;
 
     return {
       events: resultEvents,
@@ -2371,49 +2355,6 @@ export function moveCellBetweenAndCommit<
   result.events.forEach((event) => store.commit(event));
 
   return result.moved;
-}
-
-// Performance metrics tracking (simple implementation)
-let operationMetrics = {
-  totalOperations: 0,
-  rebalanceOperations: 0,
-  totalEvents: 0,
-};
-
-/**
- * Get performance metrics for cell operations
- */
-export function getCellOperationMetrics(): {
-  rebalanceFrequency: number;
-  averageEventsPerOperation: number;
-  totalOperations: number;
-  rebalanceOperations: number;
-} {
-  const rebalanceFrequency = operationMetrics.totalOperations > 0
-    ? operationMetrics.rebalanceOperations / operationMetrics.totalOperations
-    : 0;
-
-  const averageEventsPerOperation = operationMetrics.totalOperations > 0
-    ? operationMetrics.totalEvents / operationMetrics.totalOperations
-    : 0;
-
-  return {
-    rebalanceFrequency,
-    averageEventsPerOperation,
-    totalOperations: operationMetrics.totalOperations,
-    rebalanceOperations: operationMetrics.rebalanceOperations,
-  };
-}
-
-/**
- * Reset performance metrics (useful for testing)
- */
-export function resetCellOperationMetrics(): void {
-  operationMetrics = {
-    totalOperations: 0,
-    rebalanceOperations: 0,
-    totalEvents: 0,
-  };
 }
 
 // Pre 0.7.1 -- these types should get created in clients
