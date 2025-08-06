@@ -1697,7 +1697,8 @@ export function needsRebalancing(
     } catch (error) {
       if (
         error instanceof Error &&
-        error.message.includes("No string exists between")
+        (error.message.includes("No string exists between") ||
+          error.message.includes("Invalid range"))
       ) {
         return true;
       }
@@ -1723,7 +1724,8 @@ export function needsRebalancing(
       } catch (error) {
         if (
           error instanceof Error &&
-          error.message.includes("No string exists between")
+          (error.message.includes("No string exists between") ||
+            error.message.includes("Invalid range"))
         ) {
           return true;
         }
@@ -1829,7 +1831,8 @@ export function fractionalIndexBetweenWithFallback(
   } catch (error) {
     if (
       error instanceof Error &&
-      error.message.includes("No string exists between")
+      (error.message.includes("No string exists between") ||
+        error.message.includes("Invalid range"))
     ) {
       // Check if rebalancing is needed and possible
       if (allCells.length > 0 && needsRebalancing(allCells, insertPosition)) {
