@@ -1,14 +1,12 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useQuery, useStore } from "@livestore/react";
-import { queryDb } from "@livestore/livestore";
 import {
   type CellData,
   type CellType,
   createCellBetween,
   events,
   type OutputData,
-  tables,
 } from "@runt/schema";
 import { Colors } from "../../utils/colors.ts";
 import { Header } from "../layout/Header.tsx";
@@ -19,17 +17,14 @@ import { CellEditor } from "./CellEditor.tsx";
 import { estimateTextHeight } from "../../utils/textUtils.ts";
 import { shouldRenderAsJson } from "../../utils/representationSelector.ts";
 import {
-  tuiBulkQuery,
   tuiCells$,
   tuiNotebookMetadata$,
-  tuiOutputDeltas$,
   tuiRuntimeSessions$,
 } from "../../queries/index.ts";
 
 // Helper to estimate the height of a cell in lines (simplified and conservative)
 const estimateCellHeight = (
   cell: CellData,
-  outputs: OutputData[],
   compact: boolean,
   terminalWidth: number,
 ): number => {
@@ -44,29 +39,9 @@ const estimateCellHeight = (
     height += cell.source.split("\n").length;
   }
 
-  // Outputs height (conservative estimates)
-  if (outputs.length > 0) {
-    height += 2; // "Out:" line + margin
-    for (const output of outputs) {
-      const outputText = String(output.data || "");
-      switch (output.outputType) {
-        case "terminal":
-        case "error":
-        case "markdown":
-          // Simple line count, no complex wrapping calculation
-          height += Math.max(1, outputText.split("\n").length);
-          break;
-        case "multimedia_display":
-        case "multimedia_result":
-          // Conservative placeholder for tables/images
-          height += 3;
-          break;
-        default:
-          height += 1;
-          break;
-      }
-    }
-  }
+  // Conservative estimate for potential outputs (cells handle their own outputs now)
+  // Add some buffer space for outputs that may be rendered
+  height += 5;
 
   return height;
 };
@@ -95,11 +70,7 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
 
   const cells = useQuery(tuiCells$);
 
-  const cellIds = React.useMemo(() => cells.map((c) => c.id), [cells]);
-
   const runtimeSessions = useQuery(tuiRuntimeSessions$);
-
-  const outputDeltas = useQuery(tuiOutputDeltas$);
 
   const title = titleMetadata.length > 0
     ? titleMetadata[0]?.value || "Untitled Notebook"
@@ -574,58 +545,17 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     terminalHeight - headerHeight - footerHeight - safetyMargin,
   );
 
-  // Use optimized bulk query for outputs instead of individual queries
-  const outputs = useQuery(
-    cellIds.length > 0
-      ? tuiBulkQuery.outputsByCells(cellIds)
-      : queryDb(tables.outputs.select().where({ cellId: "never-matches" })),
-  );
-
-  // Reconstruct streaming outputs by combining base outputs with deltas
-  const outputsWithDeltas = React.useMemo(() => {
-    return outputs.map((output) => {
-      if (output.outputType === "markdown") {
-        // Get deltas for this output, sorted by sequence number
-        const deltas = outputDeltas
-          .filter((delta) => delta.outputId === output.id)
-          .sort((a, b) => a.sequenceNumber - b.sequenceNumber);
-
-        if (deltas.length > 0) {
-          // Reconstruct full content by concatenating base + deltas
-          const fullContent =
-            (typeof output.data === "string" ? output.data : "") +
-            deltas.map((delta) => delta.delta).join("");
-
-          return {
-            ...output,
-            data: fullContent,
-          };
-        }
-      }
-      return output;
-    });
-  }, [outputs, outputDeltas]);
-
-  const outputsByCell = React.useMemo(() => {
-    return outputsWithDeltas.reduce((acc, output) => {
-      if (!acc[output.cellId]) {
-        acc[output.cellId] = [];
-      }
-      acc[output.cellId] = [...(acc[output.cellId] || []), output];
-      return acc;
-    }, {} as Record<string, OutputData[]>);
-  }, [outputsWithDeltas]);
+  // Individual cells will handle their own outputs via cellQuery.outputs(cellId)
 
   const cellHeights = React.useMemo(() => {
     return cells.map((cell) =>
       estimateCellHeight(
         cell,
-        outputsByCell[cell.id] || [],
         compact,
         terminalWidth,
       )
     );
-  }, [cells, outputsByCell, compact, terminalWidth]);
+  }, [cells, compact, terminalWidth]);
 
   if (cells.length === 0) {
     return (
@@ -697,7 +627,6 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
               <Cell
                 key={cell.id}
                 cell={cell}
-                outputs={outputsByCell[cell.id] || []}
                 showMetadata={showMetadata}
                 compact={compact}
                 isSelected={index === selectedCellIndex}

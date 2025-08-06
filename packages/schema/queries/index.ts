@@ -74,3 +74,15 @@ export const runtimeSessions$ = queryDb(
   tables.runtimeSessions.select().orderBy("sessionId", "desc"),
   { label: "runtime.sessions" },
 );
+
+// Full cells query - returns complete cell data (useful for TUI and full rendering)
+export const cells$ = queryDb(
+  tables.cells.select().orderBy("fractionalIndex", "asc"),
+  { label: "notebook.cells" },
+);
+
+// Output deltas query
+export const outputDeltas$ = queryDb(
+  tables.outputDeltas.select().orderBy("sequenceNumber", "asc"),
+  { label: "notebook.outputDeltas" },
+);
