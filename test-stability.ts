@@ -83,7 +83,9 @@ async function runTestMultipleTimes(
   console.log(`\n🔄 Running "${name}" ${iterations} times...`);
 
   for (let i = 0; i < iterations; i++) {
-    process.stdout.write(`\r  Progress: ${i + 1}/${iterations}`);
+    await Deno.stdout.write(
+      new TextEncoder().encode(`\r  Progress: ${i + 1}/${iterations}`),
+    );
 
     try {
       const success = await runTest(file, filter);

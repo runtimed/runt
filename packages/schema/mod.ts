@@ -1632,9 +1632,6 @@ export function generateFractionalIndices(
   // Generate n keys by repeatedly subdividing the range
   let prev = a;
   for (let i = 0; i < n; i++) {
-    // Calculate position in range (0 to 1)
-    const _position = (i + 1) / (n + 1);
-
     // For better distribution, we generate keys sequentially
     // This avoids clustering that can happen with binary subdivision
     const key = fractionalIndexBetween(prev, b, jitterProvider);
