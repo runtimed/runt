@@ -44,7 +44,7 @@ const NOTEBOOK_TOOLS: NotebookTool[] = [
   {
     name: "create_cell",
     description:
-      "Create a new cell in the notebook at a specified position. Use this when you want to add new code, markdown, or other content to help the user.",
+      "Create a new cell in the notebook. You can either specify a position relative to the current AI cell OR provide an afterId to place it after a specific cell. Use this when you want to add new code, markdown, or other content to help the user.",
     parameters: {
       type: "object",
       properties: {
@@ -61,8 +61,13 @@ const NOTEBOOK_TOOLS: NotebookTool[] = [
           type: "string",
           enum: ["after_current", "before_current", "at_end"],
           description:
-            'Where to place the new cell. Use "after_current" (default) to place right after the AI cell, "before_current" to place before it, or "at_end" only when specifically requested',
+            'Where to place the new cell relative to the current AI cell. Use "after_current" (default) to place right after the AI cell, "before_current" to place before it, or "at_end" only when specifically requested. Ignored if afterId is provided.',
           default: "after_current",
+        },
+        afterId: {
+          type: "string",
+          description:
+            "The ID of an existing cell to place the new cell after. When provided, this takes precedence over the position parameter. Use this to create cells in a specific sequence.",
         },
       },
       required: ["cellType", "source"],
@@ -194,6 +199,7 @@ export function createCell(
   const cellType = String(args.cellType || "code");
   const content = String(args.source || args.content || ""); // Check source first, then content
   const position = String(args.position || "after_current");
+  const afterId = args.afterId ? String(args.afterId) : null;
 
   // Get ordered cells with fractional indices
   const cellList = store.query(cellList$);
@@ -205,31 +211,44 @@ export function createCell(
   let cellBefore = null;
   let cellAfter = null;
 
-  switch (position) {
-    case "before_current":
-      cellBefore = currentCellIndex > 0
-        ? cellList[currentCellIndex - 1] || null
-        : null;
-      cellAfter = cellList[currentCellIndex] || null;
-      break;
-    case "at_end":
-      cellBefore = cellList.length > 0
-        ? cellList[cellList.length - 1] || null
-        : null;
-      cellAfter = null;
-      break;
-    case "after_current":
-    default:
-      cellBefore = cellList[currentCellIndex] || null;
-      cellAfter = currentCellIndex < cellList.length - 1
-        ? cellList[currentCellIndex + 1] || null
-        : null;
-      break;
+  // If afterId is provided, use that for positioning
+  if (afterId) {
+    const afterCellIndex = cellList.findIndex((c) => c.id === afterId);
+    if (afterCellIndex === -1) {
+      throw new Error(`Cell with ID ${afterId} not found`);
+    }
+    cellBefore = cellList[afterCellIndex] || null;
+    cellAfter = afterCellIndex < cellList.length - 1
+      ? cellList[afterCellIndex + 1] || null
+      : null;
+  } else {
+    // Otherwise use position parameter
+    switch (position) {
+      case "before_current":
+        cellBefore = currentCellIndex > 0
+          ? cellList[currentCellIndex - 1] || null
+          : null;
+        cellAfter = cellList[currentCellIndex] || null;
+        break;
+      case "at_end":
+        cellBefore = cellList.length > 0
+          ? cellList[cellList.length - 1] || null
+          : null;
+        cellAfter = null;
+        break;
+      case "after_current":
+      default:
+        cellBefore = cellList[currentCellIndex] || null;
+        cellAfter = currentCellIndex < cellList.length - 1
+          ? cellList[currentCellIndex + 1] || null
+          : null;
+        break;
+    }
   }
 
   logger.info("Creating cell via AI tool call", {
     cellType,
-    placement: position,
+    placement: afterId ? `after ${afterId}` : position,
     contentLength: content.length,
     cellBefore: cellBefore?.id,
     cellAfter: cellAfter?.id,

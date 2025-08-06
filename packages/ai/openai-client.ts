@@ -838,8 +838,14 @@ Once configured, your AI cells will work with real OpenAI models!`;
       case "create_cell": {
         const cellType = String(args.cellType || "code");
         const position = String(args.position || "after_current");
+        const afterId = args.afterId ? String(args.afterId) : null;
         const content = String(args.content || "");
-        return `Created **${cellType}** cell at position **${position}**\n\n` +
+
+        const positionText = afterId
+          ? `after cell **${afterId}**`
+          : `at position **${position}**`;
+
+        return `Created **${cellType}** cell ${positionText}\n\n` +
           `Content preview:\n\`\`\`${
             cellType === "code" ? "python" : cellType
           }\n${content.slice(0, 200)}${
