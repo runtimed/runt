@@ -52,3 +52,11 @@ export const getFinalContent = (
     deltaCount: deltas.length,
   };
 };
+
+/**
+ * Query all output deltas, sorted by sequence number
+ */
+export const outputDeltas$ = queryDb(
+  tables.outputDeltas.select().orderBy("sequenceNumber", "asc"),
+  { label: "notebook.outputDeltas" },
+);

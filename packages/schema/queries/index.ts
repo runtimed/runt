@@ -75,14 +75,20 @@ export const runtimeSessions$ = queryDb(
   { label: "runtime.sessions" },
 );
 
-// Full cells query - returns complete cell data (useful for TUI and full rendering)
+/**
+ * Full cells query - returns complete cell data including source, metadata, etc.
+ *
+ * ⚠️  PERFORMANCE WARNING: This loads ALL cell data at once.
+ *
+ * Use this only when you need:
+ * - Full cell properties (source, executionCount, metadata, etc.)
+ * - Operations that require all cells (like TUI navigation)
+ *
+ * For most use cases, prefer:
+ * - `cellReferences$` for cell ordering/navigation with minimal data
+ * - `cellQuery.byId(cellId)` for individual cell data
+ */
 export const cells$ = queryDb(
   tables.cells.select().orderBy("fractionalIndex", "asc"),
   { label: "notebook.cells" },
-);
-
-// Output deltas query
-export const outputDeltas$ = queryDb(
-  tables.outputDeltas.select().orderBy("sequenceNumber", "asc"),
-  { label: "notebook.outputDeltas" },
 );

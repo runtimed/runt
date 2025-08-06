@@ -9,15 +9,17 @@ export {
   cellReferences$,
   cells$,
   notebookMetadata$,
-  outputDeltas$,
   runtimeSessions$,
 } from "@runt/schema";
+
+export { outputDeltas$ } from "@runt/schema/queries";
 
 // Legacy aliases for backward compatibility
 export {
   cellQuery as tuiCellQuery,
   cells$ as tuiCells$,
   notebookMetadata$ as tuiNotebookMetadata$,
-  outputDeltas$ as tuiOutputDeltas$,
   runtimeSessions$ as tuiRuntimeSessions$,
 } from "@runt/schema";
+
+export { outputDeltas$ as tuiOutputDeltas$ } from "@runt/schema/queries";
