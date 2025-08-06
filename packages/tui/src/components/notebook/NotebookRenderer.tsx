@@ -315,7 +315,6 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     );
 
     // Create new cell after current one
-    const currentCell = cells.find((c) => c.id === cellId);
     const currentCellIndex = cells.findIndex((c) => c.id === cellId);
     const newCellId = `cell-${Date.now()}`;
 
