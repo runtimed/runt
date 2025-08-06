@@ -1696,6 +1696,7 @@ export function validateFractionalIndexOrder(
 export type CellReference = {
   id: string;
   fractionalIndex: string | null;
+  cellType: CellType;
 };
 
 /**
