@@ -362,7 +362,7 @@ Deno.test("Fractional Indexing - Stress Tests", async (t: Deno.TestContext) => {
     indices.push("c");
 
     // Keep inserting between them
-    let adjacentFound = false;
+    let _adjacentFound = false;
     for (let i = 0; i < 50; i++) {
       try {
         const idx = fractionalIndexBetween(indices[0], indices[1], noJitter);
@@ -374,7 +374,7 @@ Deno.test("Fractional Indexing - Stress Tests", async (t: Deno.TestContext) => {
         if (
           e instanceof Error && e.message.includes("No string exists between")
         ) {
-          adjacentFound = true;
+          _adjacentFound = true;
           break;
         }
         throw e;

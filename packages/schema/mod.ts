@@ -2,7 +2,7 @@ import { Events, Schema, State } from "@livestore/livestore";
 
 import {
   ActorTypeSchema,
-  CellType,
+  type CellType,
   CellTypeSchema,
   MediaRepresentationSchema,
 } from "./types.ts";
@@ -1369,7 +1369,7 @@ function valueToChar(value: number): string {
   if (value < 0 || value >= BASE) {
     throw new Error(`Value out of range: ${value}`);
   }
-  return BASE36_DIGITS[value];
+  return BASE36_DIGITS[value]!;
 }
 
 function generateKeyBetween(
@@ -1395,6 +1395,9 @@ function generateKeyBetween(
   // If a is a prefix of b, we need special handling
   if (i === a.length) {
     const nextChar = b[i];
+    if (!nextChar) {
+      throw new Error(`Invalid index ${i} for string ${b}`);
+    }
     const nextVal = charToValue(nextChar);
 
     // If b continues with a character > 0, we can insert a midpoint
@@ -1428,6 +1431,9 @@ function generateKeyBetween(
           // We can insert between a+"0"*count and b
           const prefix = a + "0".repeat(j - i);
           const nextChar = b[j];
+          if (!nextChar) {
+            throw new Error(`Invalid index ${j} for string ${b}`);
+          }
           const nextVal = charToValue(nextChar);
           if (nextVal > 0) {
             return prefix + valueToChar(Math.floor(nextVal / 2));
@@ -1453,8 +1459,13 @@ function generateKeyBetween(
   }
 
   // Get the values at position i
-  const aVal = charToValue(a[i]);
-  const bVal = charToValue(b[i]);
+  const aChar = a[i];
+  const bChar = b[i];
+  if (!aChar || !bChar) {
+    throw new Error(`Invalid index ${i} for strings ${a} and ${b}`);
+  }
+  const aVal = charToValue(aChar);
+  const bVal = charToValue(bChar);
 
   // If there's room between them, use the midpoint
   if (bVal - aVal > 1) {
@@ -1499,7 +1510,11 @@ function generateKeyBefore(b: string): string {
   }
 
   // Found a non-zero character
-  const val = charToValue(b[i]);
+  const char = b[i];
+  if (!char) {
+    throw new Error(`Invalid index ${i} for string ${b}`);
+  }
+  const val = charToValue(char);
 
   if (i === 0 && val > 1) {
     // Can simply use a smaller first character
@@ -1534,7 +1549,11 @@ function generateKeyAfter(a: string): string {
 
   // Can increment the character at position i
   const prefix = a.substring(0, i);
-  const val = charToValue(a[i]);
+  const char = a[i];
+  if (!char) {
+    throw new Error(`Invalid index ${i} for string ${a}`);
+  }
+  const val = charToValue(char);
 
   if (val < BASE - 2) {
     // Simple increment
@@ -1616,7 +1635,7 @@ export function generateFractionalIndices(
   let prev = a;
   for (let i = 0; i < n; i++) {
     // Calculate position in range (0 to 1)
-    const position = (i + 1) / (n + 1);
+    const _position = (i + 1) / (n + 1);
 
     // For better distribution, we generate keys sequentially
     // This avoids clustering that can happen with binary subdivision
@@ -1660,11 +1679,14 @@ export function validateFractionalIndexOrder(
   );
 
   for (let i = 1; i < validIndices.length; i++) {
-    if (validIndices[i - 1] >= validIndices[i]) {
+    const prev = validIndices[i - 1];
+    const curr = validIndices[i];
+    if (!prev || !curr) {
+      return false;
+    }
+    if (prev >= curr) {
       console.error(
-        `Fractional index ordering violation: "${validIndices[i - 1]}" >= "${
-          validIndices[i]
-        }"`,
+        `Fractional index ordering violation: "${prev}" >= "${curr}"`,
       );
       return false;
     }
@@ -1777,7 +1799,11 @@ export function createCellBetween(
   const previousKey = cellBefore?.fractionalIndex || null;
   const nextKey = cellAfter?.fractionalIndex || null;
 
-  const fractionalIndex = fractionalIndexBetween(previousKey, nextKey);
+  const fractionalIndex = fractionalIndexBetween(
+    previousKey,
+    nextKey,
+    jitterProvider,
+  );
 
   return events.cellCreated2({
     ...cellData,
