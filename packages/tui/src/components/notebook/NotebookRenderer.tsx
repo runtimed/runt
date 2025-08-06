@@ -1,14 +1,12 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useQuery, useStore } from "@livestore/react";
-import { queryDb } from "@livestore/livestore";
 import {
   type CellData,
   type CellType,
   createCellBetween,
   events,
   type OutputData,
-  tables,
 } from "@runt/schema";
 import { Colors } from "../../utils/colors.ts";
 import { Header } from "../layout/Header.tsx";
@@ -19,17 +17,15 @@ import { CellEditor } from "./CellEditor.tsx";
 import { estimateTextHeight } from "../../utils/textUtils.ts";
 import { shouldRenderAsJson } from "../../utils/representationSelector.ts";
 import {
-  tuiBulkQuery,
-  tuiCells$,
-  tuiNotebookMetadata$,
-  tuiOutputDeltas$,
-  tuiRuntimeSessions$,
-} from "../../queries/index.ts";
+  cellQuery,
+  cellReferences$,
+  notebookMetadata$,
+  runtimeSessions$,
+} from "@runt/schema";
 
-// Helper to estimate the height of a cell in lines (simplified and conservative)
-const estimateCellHeight = (
-  cell: CellData,
-  outputs: OutputData[],
+// Helper to estimate the height of a cell from minimal reference data
+const estimateCellHeightFromReference = (
+  cellRef: { id: string; fractionalIndex: string | null; cellType: string },
   compact: boolean,
   terminalWidth: number,
 ): number => {
@@ -38,35 +34,27 @@ const estimateCellHeight = (
   // Base height: badge line + margin (conservative)
   height += 2;
 
-  // Source code height (simple line count)
-  if (cell.source) {
-    height += 1; // marginTop
-    height += cell.source.split("\n").length;
+  // Estimate source height based on cell type (conservative)
+  // We don't have actual source, so use typical heights per type
+  switch (cellRef.cellType) {
+    case "markdown":
+      height += 4; // Typical markdown cell
+      break;
+    case "code":
+      height += 6; // Typical code cell
+      break;
+    case "sql":
+      height += 3; // Typical SQL query
+      break;
+    case "ai":
+      height += 8; // AI cells tend to be longer
+      break;
+    default:
+      height += 3; // Default estimate
   }
 
-  // Outputs height (conservative estimates)
-  if (outputs.length > 0) {
-    height += 2; // "Out:" line + margin
-    for (const output of outputs) {
-      const outputText = String(output.data || "");
-      switch (output.outputType) {
-        case "terminal":
-        case "error":
-        case "markdown":
-          // Simple line count, no complex wrapping calculation
-          height += Math.max(1, outputText.split("\n").length);
-          break;
-        case "multimedia_display":
-        case "multimedia_result":
-          // Conservative placeholder for tables/images
-          height += 3;
-          break;
-        default:
-          height += 1;
-          break;
-      }
-    }
-  }
+  // Conservative estimate for potential outputs
+  height += 5;
 
   return height;
 };
@@ -90,16 +78,12 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
   const [lastDKeyTime, setLastDKeyTime] = useState<number>(0);
   const { store } = useStore();
 
-  const notebookMetadata = useQuery(tuiNotebookMetadata$);
+  const notebookMetadata = useQuery(notebookMetadata$);
   const titleMetadata = notebookMetadata.filter((m) => m.key === "title");
 
-  const cells = useQuery(tuiCells$);
+  const cellReferences = useQuery(cellReferences$);
 
-  const cellIds = React.useMemo(() => cells.map((c) => c.id), [cells]);
-
-  const runtimeSessions = useQuery(tuiRuntimeSessions$);
-
-  const outputDeltas = useQuery(tuiOutputDeltas$);
+  const runtimeSessions = useQuery(runtimeSessions$);
 
   const title = titleMetadata.length > 0
     ? titleMetadata[0]?.value || "Untitled Notebook"
@@ -120,7 +104,9 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     const newCellId = `cell-${Date.now()}`;
 
     // Place at end: after the last cell
-    const cellBefore = cells.length > 0 ? cells[cells.length - 1] : null;
+    const cellBefore = cellReferences.length > 0
+      ? cellReferences[cellReferences.length - 1]
+      : null;
     const cellAfter = null;
 
     const createEvent = createCellBetween(
@@ -136,16 +122,16 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     store.commit(createEvent);
 
     // Select the new cell
-    setSelectedCellIndex(cells.length);
+    setSelectedCellIndex(cellReferences.length);
   };
 
   const createCellWithType = (
     cellType: CellType,
     position: "above" | "below",
   ) => {
-    if (!store || cells.length === 0) return;
+    if (!store || cellReferences.length === 0) return;
 
-    const selectedCell = cells[selectedCellIndex];
+    const selectedCellRef = cellReferences[selectedCellIndex];
     const newCellId = `cell-${Date.now()}`;
 
     let cellBefore = null;
@@ -153,14 +139,16 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     let newSelectionIndex = selectedCellIndex;
 
     if (position === "above") {
-      cellBefore = selectedCellIndex > 0 ? cells[selectedCellIndex - 1] : null;
-      cellAfter = selectedCell;
+      cellBefore = selectedCellIndex > 0
+        ? cellReferences[selectedCellIndex - 1]
+        : null;
+      cellAfter = selectedCellRef;
       newSelectionIndex = selectedCellIndex;
     } else {
       // position === "below"
-      cellBefore = selectedCell;
-      cellAfter = selectedCellIndex < cells.length - 1
-        ? cells[selectedCellIndex + 1]
+      cellBefore = selectedCellRef;
+      cellAfter = selectedCellIndex < cellReferences.length - 1
+        ? cellReferences[selectedCellIndex + 1]
         : null;
       newSelectionIndex = selectedCellIndex + 1;
     }
@@ -183,9 +171,13 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
   };
 
   const cycleCellType = () => {
-    if (!store || cells.length === 0) return;
+    if (!store || cellReferences.length === 0) return;
 
-    const selectedCell = cells[selectedCellIndex];
+    const selectedCellRef = cellReferences[selectedCellIndex];
+    if (!selectedCellRef) return;
+
+    // Query full cell data for cell type operations
+    const selectedCell = store.query(cellQuery.byId(selectedCellRef.id));
     if (!selectedCell) return;
 
     const currentTypeIndex = cellTypeOrder.indexOf(
@@ -204,10 +196,14 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
   };
 
   const cycleAiModel = () => {
-    if (!store || cells.length === 0) return;
+    if (!store || cellReferences.length === 0) return;
 
-    const selectedCell = cells[selectedCellIndex];
-    if (!selectedCell || selectedCell.cellType !== "ai") return;
+    const selectedCellRef = cellReferences[selectedCellIndex];
+    if (!selectedCellRef || selectedCellRef.cellType !== "ai") return;
+
+    // Query full cell data for AI model operations
+    const selectedCell = store.query(cellQuery.byId(selectedCellRef.id));
+    if (!selectedCell) return;
 
     if (availableAiModels.length === 0) {
       // No models available - maybe show a message?
@@ -240,29 +236,29 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
   };
 
   const deleteSelectedCell = () => {
-    if (!store || cells.length === 0) return;
+    if (!store || cellReferences.length === 0) return;
 
-    const selectedCell = cells[selectedCellIndex];
-    if (!selectedCell) return;
+    const selectedCellRef = cellReferences[selectedCellIndex];
+    if (!selectedCellRef) return;
 
     store.commit(
       events.cellDeleted({
-        id: selectedCell.id,
+        id: selectedCellRef.id,
         actorId: "tui-client",
       }),
     );
 
     // Adjust selected index if needed
-    if (selectedCellIndex >= cells.length - 1) {
-      setSelectedCellIndex(Math.max(0, cells.length - 2));
+    if (selectedCellIndex >= cellReferences.length - 1) {
+      setSelectedCellIndex(Math.max(0, cellReferences.length - 2));
     }
   };
 
   const startEditingCell = () => {
-    if (cells.length === 0) return;
-    const selectedCell = cells[selectedCellIndex];
-    if (selectedCell) {
-      setEditingCellId(selectedCell.id);
+    if (cellReferences.length === 0) return;
+    const selectedCellRef = cellReferences[selectedCellIndex];
+    if (selectedCellRef) {
+      setEditingCellId(selectedCellRef.id);
       setMode("edit");
     }
   };
@@ -301,7 +297,8 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
 
     // 2. Request execution
     const queueId = `queue-${Date.now()}`;
-    const currentCell = cells.find((c) => c.id === cellId);
+    const currentCellRef = cellReferences.find((c) => c.id === cellId);
+    const currentCell = store?.query(cellQuery.byId(cellId));
     const executionCount = (currentCell?.executionCount || 0) + 1;
 
     store.commit(
@@ -315,13 +312,13 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     );
 
     // Create new cell after current one
-    const currentCellIndex = cells.findIndex((c) => c.id === cellId);
+    const currentCellIndex = cellReferences.findIndex((c) => c.id === cellId);
     const newCellId = `cell-${Date.now()}`;
 
-    const cellBefore = currentCell || null;
+    const cellBefore = currentCellRef || null;
     const cellAfter =
-      currentCellIndex >= 0 && currentCellIndex < cells.length - 1
-        ? cells[currentCellIndex + 1]
+      currentCellIndex >= 0 && currentCellIndex < cellReferences.length - 1
+        ? cellReferences[currentCellIndex + 1]
         : null;
 
     const createEvent = createCellBetween(
@@ -356,7 +353,8 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
 
     // 2. Request execution
     const queueId = `queue-${Date.now()}`;
-    const currentCell = cells.find((c) => c.id === cellId);
+    const currentCellRef = cellReferences.find((c) => c.id === cellId);
+    const currentCell = store?.query(cellQuery.byId(cellId));
     const executionCount = (currentCell?.executionCount || 0) + 1;
 
     store.commit(
@@ -376,9 +374,13 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
 
   // Command mode execution functions (execute current cell without editing first)
   const executeCurrentCellAndCreateNew = () => {
-    if (cells.length === 0) return;
-    const selectedCell = cells[selectedCellIndex];
-    if (!selectedCell || !store) return;
+    if (cellReferences.length === 0) return;
+    const selectedCellRef = cellReferences[selectedCellIndex];
+    if (!selectedCellRef || !store) return;
+
+    // Query full cell data for execution
+    const selectedCell = store.query(cellQuery.byId(selectedCellRef.id));
+    if (!selectedCell) return;
 
     // 1. Request execution with current source
     const queueId = `queue-${Date.now()}`;
@@ -399,8 +401,8 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
 
     const cellBefore = selectedCell;
     const cellAfter =
-      selectedCellIndex >= 0 && selectedCellIndex < cells.length - 1
-        ? cells[selectedCellIndex + 1]
+      selectedCellIndex >= 0 && selectedCellIndex < cellReferences.length - 1
+        ? cellReferences[selectedCellIndex + 1]
         : null;
 
     const createEvent = createCellBetween(
@@ -420,9 +422,13 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
   };
 
   const executeCurrentCellOnly = () => {
-    if (cells.length === 0) return;
-    const selectedCell = cells[selectedCellIndex];
-    if (!selectedCell || !store) return;
+    if (cellReferences.length === 0) return;
+    const selectedCellRef = cellReferences[selectedCellIndex];
+    if (!selectedCellRef || !store) return;
+
+    // Query full cell data for execution
+    const selectedCell = store.query(cellQuery.byId(selectedCellRef.id));
+    if (!selectedCell) return;
 
     // Request execution with current source
     const queueId = `queue-${Date.now()}`;
@@ -452,7 +458,9 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     }
 
     if (key.downArrow || input.toLowerCase() === "j") {
-      setSelectedCellIndex((prev) => Math.min(cells.length - 1, prev + 1));
+      setSelectedCellIndex((prev) =>
+        Math.min(cellReferences.length - 1, prev + 1)
+      );
       return;
     }
 
@@ -514,22 +522,25 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     // Cell management (existing behavior preserved)
     if (input.toLowerCase() === "a") {
       // Insert cell above (code type - existing behavior)
-      if (!store || cells.length === 0) return;
-      const selectedCell = cells[selectedCellIndex];
+      if (!store || cellReferences.length === 0) return;
+      const selectedCellRef = cellReferences[selectedCellIndex];
       const newCellId = `cell-${Date.now()}`;
-      const newPosition = selectedCellIndex > 0
-        ? (cells[selectedCellIndex - 1].position + selectedCell.position) / 2
-        : selectedCell.position - 1;
+      // Use fractionalIndexBetween for proper string-based fractional indexing
+      const cellBefore = selectedCellIndex > 0
+        ? cellReferences[selectedCellIndex - 1]
+        : null;
+      const cellAfter = selectedCellRef;
 
-      store.commit(
-        events.cellCreated({
+      const createEvent = createCellBetween(
+        {
           id: newCellId,
           cellType: "code",
-          position: newPosition,
           createdBy: "tui-client",
-          actorId: "tui-client",
-        }),
+        },
+        cellBefore,
+        cellAfter,
       );
+      store.commit(createEvent);
       // Don't change selection - new cell is above
       return;
     }
@@ -553,10 +564,12 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
   });
 
   React.useEffect(() => {
-    if (selectedCellIndex >= cells.length && cells.length > 0) {
-      setSelectedCellIndex(cells.length - 1);
+    if (
+      selectedCellIndex >= cellReferences.length && cellReferences.length > 0
+    ) {
+      setSelectedCellIndex(cellReferences.length - 1);
     }
-  }, [cells.length, selectedCellIndex]);
+  }, [cellReferences.length, selectedCellIndex]);
 
   const { terminalWidth, terminalHeight } = React.useMemo(() => {
     const terminalSize = Deno.consoleSize();
@@ -574,60 +587,19 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     terminalHeight - headerHeight - footerHeight - safetyMargin,
   );
 
-  // Use optimized bulk query for outputs instead of individual queries
-  const outputs = useQuery(
-    cellIds.length > 0
-      ? tuiBulkQuery.outputsByCells(cellIds)
-      : queryDb(tables.outputs.select().where({ cellId: "never-matches" })),
-  );
-
-  // Reconstruct streaming outputs by combining base outputs with deltas
-  const outputsWithDeltas = React.useMemo(() => {
-    return outputs.map((output) => {
-      if (output.outputType === "markdown") {
-        // Get deltas for this output, sorted by sequence number
-        const deltas = outputDeltas
-          .filter((delta) => delta.outputId === output.id)
-          .sort((a, b) => a.sequenceNumber - b.sequenceNumber);
-
-        if (deltas.length > 0) {
-          // Reconstruct full content by concatenating base + deltas
-          const fullContent =
-            (typeof output.data === "string" ? output.data : "") +
-            deltas.map((delta) => delta.delta).join("");
-
-          return {
-            ...output,
-            data: fullContent,
-          };
-        }
-      }
-      return output;
-    });
-  }, [outputs, outputDeltas]);
-
-  const outputsByCell = React.useMemo(() => {
-    return outputsWithDeltas.reduce((acc, output) => {
-      if (!acc[output.cellId]) {
-        acc[output.cellId] = [];
-      }
-      acc[output.cellId] = [...(acc[output.cellId] || []), output];
-      return acc;
-    }, {} as Record<string, OutputData[]>);
-  }, [outputsWithDeltas]);
+  // Individual cells will handle their own outputs via cellQuery.outputs(cellId)
 
   const cellHeights = React.useMemo(() => {
-    return cells.map((cell) =>
-      estimateCellHeight(
-        cell,
-        outputsByCell[cell.id] || [],
+    return cellReferences.map((cellRef) =>
+      estimateCellHeightFromReference(
+        cellRef,
         compact,
         terminalWidth,
       )
     );
-  }, [cells, outputsByCell, compact, terminalWidth]);
+  }, [cellReferences, compact, terminalWidth]);
 
-  if (cells.length === 0) {
+  if (cellReferences.length === 0) {
     return (
       <Box flexDirection="column">
         {!compact && (
@@ -668,7 +640,7 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
         <Header
           title={title}
           notebookId={notebookId}
-          cellCount={cells.length}
+          cellCount={cellReferences.length}
           terminalWidth={terminalWidth}
           syncUrl={syncUrl}
         />
@@ -680,8 +652,12 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
         showOverflowIndicator={!compact}
         itemHeights={cellHeights}
       >
-        {cells.map((cell, index) => (
-          editingCellId === cell.id
+        {cellReferences.map((cellRef, index) => {
+          // Query full cell data only for rendering
+          const cell = store?.query(cellQuery.byId(cellRef.id));
+          if (!cell) return null;
+
+          return editingCellId === cell.id
             ? (
               <CellEditor
                 key={cell.id}
@@ -697,15 +673,14 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
               <Cell
                 key={cell.id}
                 cell={cell}
-                outputs={outputsByCell[cell.id] || []}
                 showMetadata={showMetadata}
                 compact={compact}
                 isSelected={index === selectedCellIndex}
                 mode={mode}
                 cellIndex={index}
               />
-            )
-        ))}
+            );
+        })}
       </ScrollableWithSelection>
 
       {!compact && (

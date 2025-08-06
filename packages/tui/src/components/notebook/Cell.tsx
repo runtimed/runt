@@ -1,7 +1,9 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { Badge } from "@inkjs/ui";
+import { useQuery } from "@livestore/react";
 import type { CellData, OutputData } from "@runt/schema";
+import { cellQuery, outputDeltas$ } from "@runt/schema";
 import { Colors } from "../../utils/colors.ts";
 import { CodeHighlighter } from "../../CodeHighlighter.tsx";
 import { OutputRenderer } from "../outputs/OutputRenderer.tsx";
@@ -9,7 +11,6 @@ import { MarkdownRenderer } from "../outputs/MarkdownRenderer.tsx";
 
 interface CellProps {
   cell: CellData;
-  outputs: OutputData[];
   showMetadata?: boolean;
   compact?: boolean;
   isSelected?: boolean;
@@ -19,13 +20,41 @@ interface CellProps {
 
 export const Cell: React.FC<CellProps> = ({
   cell,
-  outputs,
   showMetadata = true,
   compact = false,
   isSelected = false,
   mode = "command",
   cellIndex,
 }) => {
+  // Query outputs for this cell
+  const baseOutputs = useQuery(cellQuery.outputs(cell.id));
+  const outputDeltas = useQuery(outputDeltas$);
+
+  // Reconstruct streaming outputs by combining base outputs with deltas
+  const outputs = React.useMemo(() => {
+    return baseOutputs.map((output) => {
+      if (output.outputType === "markdown") {
+        // Get deltas for this output, sorted by sequence number
+        const deltas = outputDeltas
+          .filter((delta) => delta.outputId === output.id)
+          .sort((a, b) => a.sequenceNumber - b.sequenceNumber);
+
+        if (deltas.length > 0) {
+          // Reconstruct full content by concatenating base + deltas
+          const fullContent =
+            (typeof output.data === "string" ? output.data : "") +
+            deltas.map((delta) => delta.delta).join("");
+
+          return {
+            ...output,
+            data: fullContent,
+          };
+        }
+      }
+      return output;
+    });
+  }, [baseOutputs, outputDeltas]);
+
   const getCellTypeColor = (cellType: string) => {
     return (
       Colors.CellType[cellType as keyof typeof Colors.CellType] ||
