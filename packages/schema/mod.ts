@@ -631,7 +631,9 @@ export const materializers = State.SQLite.materializers(events, {
       .insert({
         id,
         cellType,
-        position,
+        // Convert position to deterministic fractional index in base36 format
+        // Position 0 -> "a0", Position 1 -> "a1", etc.
+        fractionalIndex: "a" + Math.floor(position).toString(36),
         createdBy,
       })
       .onConflict("id", "ignore"),
@@ -649,7 +651,6 @@ export const materializers = State.SQLite.materializers(events, {
         .insert({
           id,
           cellType,
-          position: 0, // Keep position for backward compatibility
           fractionalIndex, // New fractional index
           createdBy,
         })
@@ -688,7 +689,12 @@ export const materializers = State.SQLite.materializers(events, {
 
   "v1.CellMoved": ({ id, newPosition, actorId }) => {
     const ops = [];
-    ops.push(tables.cells.update({ position: newPosition }).where({ id }));
+    // Convert position to deterministic fractional index in base36 format
+    ops.push(
+      tables.cells.update({
+        fractionalIndex: "a" + Math.floor(newPosition).toString(36),
+      }).where({ id }),
+    );
     if (actorId) {
       ops.push(updatePresence(actorId, id));
     }

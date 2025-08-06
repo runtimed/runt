@@ -14,7 +14,7 @@ Deno.test("ExecutionContext - method signatures", () => {
       id: "test-cell",
       cellType: "code",
       source: "print('test')",
-      position: 0,
+      fractionalIndex: "a0",
     } as ExecutionContext["cell"],
     queueEntry: {
       id: "test-queue",

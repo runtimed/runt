@@ -27,7 +27,7 @@ function createMockExecutionContext(): {
       id: "test-cell",
       cellType: "ai",
       source: "test ai call",
-      position: 0,
+      fractionalIndex: "a0",
     } as ExecutionContext["cell"],
     queueEntry: {
       id: "test-queue",
