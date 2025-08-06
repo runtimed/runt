@@ -13,6 +13,7 @@ import type { ExecutionContext } from "@runt/lib";
 import { createLogger } from "@runt/lib";
 import { type MediaBundle, validateMediaBundle } from "@runt/lib";
 import {
+  cellReferences$,
   isJsonMimeType,
   isTextBasedMimeType,
   KNOWN_MIME_TYPES,
@@ -332,7 +333,15 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
 
     // When an AI cell, hand it off to `@runt/ai` to handle, providing it notebook context
     if (cell.cellType === "ai") {
-      const notebookContext = gatherNotebookContext(this.store, cell);
+      // Find the current cell reference for context gathering
+      const cellReferences = this.store.query(cellReferences$);
+      const currentCellRef = cellReferences.find((ref) => ref.id === cell.id);
+
+      if (!currentCellRef) {
+        throw new Error(`Could not find cell reference for cell ${cell.id}`);
+      }
+
+      const notebookContext = gatherNotebookContext(this.store, currentCellRef);
 
       // Track AI execution for cancellation
       const aiAbortController = new AbortController();

@@ -9,6 +9,7 @@ import type { Store } from "npm:@livestore/livestore";
 import { makeSchema, State } from "npm:@livestore/livestore";
 import {
   type CellData,
+  type CellReference,
   events,
   materializers,
   type MediaContainer,
@@ -30,7 +31,7 @@ import type { CellContextData, NotebookContextData } from "./mod.ts";
  */
 export function gatherNotebookContext(
   store: Store<typeof schema>,
-  currentCell: { id: string; fractionalIndex: string | null; position: number },
+  currentCell: CellReference,
 ): NotebookContextData {
   // Query all cells in order
   const allCells = store.query(
@@ -45,13 +46,13 @@ export function gatherNotebookContext(
         return false;
       }
 
-      // Use fractionalIndex comparison if both cells have it
+      // Use fractionalIndex comparison
       if (cell.fractionalIndex != null && currentCell.fractionalIndex != null) {
         return cell.fractionalIndex < currentCell.fractionalIndex;
       }
 
-      // Fallback to position comparison for legacy cells
-      return cell.position < currentCell.position;
+      // Skip cells without fractionalIndex
+      return false;
     })
     .map((cell: CellData): CellContextData => {
       // Query outputs for this cell in order
@@ -89,7 +90,6 @@ export function gatherNotebookContext(
         cellType: cell.cellType,
         source: cell.source || "",
         fractionalIndex: cell.fractionalIndex || "",
-        position: cell.position,
         outputs: contextOutputs,
       };
     });
@@ -98,6 +98,5 @@ export function gatherNotebookContext(
     previousCells,
     totalCells: allCells.length,
     currentCellFractionalIndex: currentCell.fractionalIndex || "",
-    currentCellPosition: currentCell.position,
   };
 }
