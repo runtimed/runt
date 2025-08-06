@@ -901,7 +901,7 @@ Deno.test("fractional indexing - edge cases", async () => {
     // Validate indices
     const validIndex = fractionalIndexBetween(null, null);
     assert(isValidFractionalIndex(validIndex));
-    assert(isValidFractionalIndex("a0V8p")); // Valid jittered key format
+    assert(isValidFractionalIndex("a0v8p")); // Valid jittered key format (lowercase only)
     assert(!isValidFractionalIndex(""));
 
     // Many inserts in sequence (deterministic)
@@ -928,15 +928,15 @@ Deno.test("fractional indexing - edge cases", async () => {
   }
 });
 
-Deno.test("fractional indexing - base62 ordering edge case (a2l/a2V)", async () => {
+Deno.test("fractional indexing - base36 ordering edge case", async () => {
   const { fractionalIndexBetween } = await import("@runt/schema");
 
   // Mock Math.random for deterministic tests
   const _mathRandomStub = stub(Math, "random", () => 0);
 
   try {
-    // This tests the specific edge case where inserting between certain patterns
-    // like a2l and a2V can cause ordering issues in base62
+    // This tests edge cases in our base36 implementation
+    // We use only lowercase letters and numbers (0-9, a-z)
 
     // First, we need to generate indices that would create these patterns
     // Starting from a2, we'll create insertions that lead to a2l
@@ -950,17 +950,13 @@ Deno.test("fractional indexing - base62 ordering edge case (a2l/a2V)", async () 
       current = next;
     }
 
-    // Find indices that match our edge case patterns
-    const _a2lIndex = indices.find((idx) => idx === "a2l");
-    const _a2VIndex = indices.find((idx) => idx === "a2V");
-
-    // Test inserting between various problematic patterns
+    // Test inserting between various patterns
     const testPatterns = [
       { a: "a2l", b: "a2m", name: "a2l to a2m" },
-      { a: "a2V", b: "a2W", name: "a2V to a2W" },
-      { a: "a2l", b: "a2V", name: "a2l to a2V (specific edge case)" },
-      { a: "a2", b: "a2l", name: "a2 to a2l" },
-      { a: "a2V", b: "a3", name: "a2V to a3" },
+      { a: "a2y", b: "a2z", name: "a2y to a2z" },
+      { a: "a2", b: "a20", name: "a2 to a20" },
+      { a: "a29", b: "a2a", name: "a29 to a2a (number to letter transition)" },
+      { a: "a2z", b: "a3", name: "a2z to a3" },
     ];
 
     for (const pattern of testPatterns) {
@@ -1003,23 +999,32 @@ Deno.test("fractional indexing - base62 ordering edge case (a2l/a2V)", async () 
     restore();
   }
 
-  // Test with randomness to ensure proper ordering
-  const withRandom1 = fractionalIndexBetween("a2l", "a2m");
-  const withRandom2 = fractionalIndexBetween("a2l", "a2m");
+  // Test with jitter to ensure different indices
+  const { defaultJitterProvider } = await import("@runt/schema");
+  const withJitter1 = fractionalIndexBetween(
+    "a2l",
+    "a2m",
+    defaultJitterProvider,
+  );
+  const withJitter2 = fractionalIndexBetween(
+    "a2l",
+    "a2m",
+    defaultJitterProvider,
+  );
 
   // Both should be between a2l and a2m
   assert(
-    withRandom1 > "a2l" && withRandom1 < "a2m",
-    `${withRandom1} should be between a2l and a2m`,
+    withJitter1 > "a2l" && withJitter1 < "a2m",
+    `${withJitter1} should be between a2l and a2m`,
   );
   assert(
-    withRandom2 > "a2l" && withRandom2 < "a2m",
-    `${withRandom2} should be between a2l and a2m`,
+    withJitter2 > "a2l" && withJitter2 < "a2m",
+    `${withJitter2} should be between a2l and a2m`,
   );
 
   // They should maintain proper ordering
-  assert("a2l" < withRandom1, `a2l should be < ${withRandom1}`);
-  assert(withRandom1 < "a2m", `${withRandom1} should be < a2m`);
+  assert("a2l" < withJitter1, `a2l should be < ${withJitter1}`);
+  assert(withJitter1 < "a2m", `${withJitter1} should be < a2m`);
 });
 
 Deno.test("v2.CellCreated - concurrent insertions triggering edge case", async () => {
@@ -1429,15 +1434,20 @@ Deno.test("v2.CellMoved - edge cases", async () => {
 
 Deno.test("v2.CellMoved - concurrent movements", async () => {
   const store = await setupStore();
-  const { fractionalIndexBetween, moveCellBetween } = await import(
-    "@runt/schema"
-  );
+  const { fractionalIndexBetween, moveCellBetween, defaultJitterProvider } =
+    await import(
+      "@runt/schema"
+    );
 
   // Create initial cells
   const cells = [];
   let prevKey: string | null = null;
   for (let i = 1; i <= 4; i++) {
-    const fractionalIndex = fractionalIndexBetween(prevKey, null);
+    const fractionalIndex = fractionalIndexBetween(
+      prevKey,
+      null,
+      defaultJitterProvider,
+    );
     cells.push({ id: `cell-${i}`, fractionalIndex });
     prevKey = fractionalIndex;
 
@@ -1456,11 +1466,23 @@ Deno.test("v2.CellMoved - concurrent movements", async () => {
   const cell3 = cells.find((c) => c.id === "cell-3")!;
   const cell4 = cells.find((c) => c.id === "cell-4")!;
 
-  const move1 = moveCellBetween(cell4, cell1, cell2, "user1");
+  const move1 = moveCellBetween(
+    cell4,
+    cell1,
+    cell2,
+    "user1",
+    defaultJitterProvider,
+  );
   assertExists(move1);
 
   // User 2 moves cell-3 after cell-1 (same target position)
-  const move2 = moveCellBetween(cell3, cell1, cell2, "user2");
+  const move2 = moveCellBetween(
+    cell3,
+    cell1,
+    cell2,
+    "user2",
+    defaultJitterProvider,
+  );
   assertExists(move2);
 
   // Both moves should have different fractional indices
