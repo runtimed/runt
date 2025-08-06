@@ -1,6 +1,6 @@
 import { assertEquals, assertExists } from "jsr:@std/assert@1.0.13";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
-import { events, tables } from "@runt/schema";
+import { createCellBetween, events, tables } from "@runt/schema";
 import { withQuietConsole } from "../../lib/test/test-config.ts";
 
 // Configure test environment for quiet logging
@@ -43,14 +43,16 @@ Deno.test({
 
       // Create an AI cell with empty content
       const aiCellId = "ai-cell-empty";
-      agent.store.commit(
-        events.cellCreated({
+      const createEvent = createCellBetween(
+        {
           id: aiCellId,
           cellType: "ai",
-          position: 1,
           createdBy: "test",
-        }),
+        },
+        null,
+        null,
       );
+      agent.store.commit(createEvent);
 
       // Don't set any source (empty cell)
 

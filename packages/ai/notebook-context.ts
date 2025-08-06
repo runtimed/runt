@@ -34,7 +34,7 @@ export function gatherNotebookContext(
 ): NotebookContextData {
   // Query all cells in order
   const allCells = store.query(
-    tables.cells.select().orderBy("position", "asc"),
+    tables.cells.select().orderBy("fractionalIndex", "asc"),
   );
 
   // Get cells before current cell that should be included in AI context

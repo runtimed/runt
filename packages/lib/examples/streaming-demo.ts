@@ -6,7 +6,7 @@
 
 import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
 import type { ExecutionContext } from "@runt/lib";
-import { events, tables } from "@runt/schema";
+import { createCellBetween, events, tables } from "@runt/schema";
 
 class StreamingDemoAgent {
   private agent: RuntimeAgent;
@@ -63,12 +63,16 @@ class StreamingDemoAgent {
 
         // Create a cell with help command
         const cellId = crypto.randomUUID();
-        this.agent.store.commit(events.cellCreated({
-          id: cellId,
-          cellType: "code",
-          position: 0,
-          createdBy: "streaming-demo-runtime",
-        }));
+        const createEvent = createCellBetween(
+          {
+            id: cellId,
+            cellType: "code",
+            createdBy: "streaming-demo-runtime",
+          },
+          null, // cellBefore
+          null, // cellAfter
+        );
+        this.agent.store.commit(createEvent);
 
         // Update the cell with source content
         this.agent.store.commit(events.cellSourceChanged({

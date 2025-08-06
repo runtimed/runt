@@ -10,7 +10,7 @@ import { queryDb } from "@livestore/livestore";
 
 // Core cell queries optimized for TUI display
 export const tuiCells$ = queryDb(
-  tables.cells.select().orderBy("position", "asc"),
+  tables.cells.select().orderBy("fractionalIndex", "asc"),
   { label: "tui.cells" },
 );
 

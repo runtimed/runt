@@ -5,6 +5,7 @@ import { queryDb } from "@livestore/livestore";
 import {
   type CellData,
   type CellType,
+  createCellBetween,
   events,
   type OutputData,
   tables,
@@ -117,19 +118,22 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     if (!store) return;
 
     const newCellId = `cell-${Date.now()}`;
-    const newPosition = cells.length > 0
-      ? Math.max(...cells.map((c) => c.position)) + 1
-      : 0;
 
-    store.commit(
-      events.cellCreated({
+    // Place at end: after the last cell
+    const cellBefore = cells.length > 0 ? cells[cells.length - 1] : null;
+    const cellAfter = null;
+
+    const createEvent = createCellBetween(
+      {
         id: newCellId,
         cellType: "code",
-        position: newPosition,
         createdBy: "tui-client",
-        actorId: "tui-client",
-      }),
+      },
+      cellBefore,
+      cellAfter,
     );
+
+    store.commit(createEvent);
 
     // Select the new cell
     setSelectedCellIndex(cells.length);
@@ -144,31 +148,34 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
     const selectedCell = cells[selectedCellIndex];
     const newCellId = `cell-${Date.now()}`;
 
-    let newPosition: number;
+    let cellBefore = null;
+    let cellAfter = null;
     let newSelectionIndex = selectedCellIndex;
 
     if (position === "above") {
-      newPosition = selectedCellIndex > 0
-        ? (cells[selectedCellIndex - 1].position + selectedCell.position) / 2
-        : selectedCell.position - 1;
-      // Don't change selection - new cell is above
+      cellBefore = selectedCellIndex > 0 ? cells[selectedCellIndex - 1] : null;
+      cellAfter = selectedCell;
+      newSelectionIndex = selectedCellIndex;
     } else {
       // position === "below"
-      newPosition = selectedCellIndex < cells.length - 1
-        ? (selectedCell.position + cells[selectedCellIndex + 1].position) / 2
-        : selectedCell.position + 1;
+      cellBefore = selectedCell;
+      cellAfter = selectedCellIndex < cells.length - 1
+        ? cells[selectedCellIndex + 1]
+        : null;
       newSelectionIndex = selectedCellIndex + 1;
     }
 
-    store.commit(
-      events.cellCreated({
+    const createEvent = createCellBetween(
+      {
         id: newCellId,
         cellType,
-        position: newPosition,
         createdBy: "tui-client",
-        actorId: "tui-client",
-      }),
+      },
+      cellBefore,
+      cellAfter,
     );
+
+    store.commit(createEvent);
 
     if (position === "below") {
       setSelectedCellIndex(newSelectionIndex);
@@ -307,24 +314,27 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
       }),
     );
 
-    // 3. Create new cell after current one
+    // Create new cell after current one
     const currentCellIndex = cells.findIndex((c) => c.id === cellId);
     const newCellId = `cell-${Date.now()}`;
-    const newPosition =
-      currentCellIndex >= 0 && currentCellIndex < cells.length - 1
-        ? (cells[currentCellIndex].position +
-          cells[currentCellIndex + 1].position) / 2
-        : (currentCell?.position || 0) + 1;
 
-    store.commit(
-      events.cellCreated({
+    const cellBefore = currentCell || null;
+    const cellAfter =
+      currentCellIndex >= 0 && currentCellIndex < cells.length - 1
+        ? cells[currentCellIndex + 1]
+        : null;
+
+    const createEvent = createCellBetween(
+      {
         id: newCellId,
         cellType: "code",
-        position: newPosition,
         createdBy: "tui-client",
-        actorId: "tui-client",
-      }),
+      },
+      cellBefore,
+      cellAfter,
     );
+
+    store.commit(createEvent);
 
     // 4. Exit editing mode and select the new cell
     setEditingCellId(null);
@@ -386,21 +396,24 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
 
     // 2. Create new cell after current one
     const newCellId = `cell-${Date.now()}`;
-    const newPosition =
-      selectedCellIndex >= 0 && selectedCellIndex < cells.length - 1
-        ? (cells[selectedCellIndex].position +
-          cells[selectedCellIndex + 1].position) / 2
-        : (selectedCell.position || 0) + 1;
 
-    store.commit(
-      events.cellCreated({
+    const cellBefore = selectedCell;
+    const cellAfter =
+      selectedCellIndex >= 0 && selectedCellIndex < cells.length - 1
+        ? cells[selectedCellIndex + 1]
+        : null;
+
+    const createEvent = createCellBetween(
+      {
         id: newCellId,
         cellType: "code",
-        position: newPosition,
         createdBy: "tui-client",
-        actorId: "tui-client",
-      }),
+      },
+      cellBefore,
+      cellAfter,
     );
+
+    store.commit(createEvent);
 
     // 3. Select the new cell
     setSelectedCellIndex(selectedCellIndex + 1);
