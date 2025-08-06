@@ -1434,7 +1434,7 @@ Deno.test("v2.CellMoved - edge cases", async () => {
 
 Deno.test("v2.CellMoved - concurrent movements", async () => {
   const store = await setupStore();
-  const { fractionalIndexBetween, moveCellBetween, defaultJitterProvider } =
+  const { fractionalIndexBetween, moveCellBetween, createTestJitterProvider } =
     await import(
       "@runt/schema"
     );
@@ -1442,11 +1442,12 @@ Deno.test("v2.CellMoved - concurrent movements", async () => {
   // Create initial cells
   const cells = [];
   let prevKey: string | null = null;
+  const setupJitter = createTestJitterProvider(42);
   for (let i = 1; i <= 4; i++) {
     const fractionalIndex = fractionalIndexBetween(
       prevKey,
       null,
-      defaultJitterProvider,
+      setupJitter,
     );
     cells.push({ id: `cell-${i}`, fractionalIndex });
     prevKey = fractionalIndex;
@@ -1466,12 +1467,16 @@ Deno.test("v2.CellMoved - concurrent movements", async () => {
   const cell3 = cells.find((c) => c.id === "cell-3")!;
   const cell4 = cells.find((c) => c.id === "cell-4")!;
 
+  // Use different jitter providers for each user to simulate concurrent operations
+  const user1Jitter = createTestJitterProvider(123);
+  const user2Jitter = createTestJitterProvider(456);
+
   const move1 = moveCellBetween(
     cell4,
     cell1,
     cell2,
     "user1",
-    defaultJitterProvider,
+    user1Jitter,
   );
   assertExists(move1);
 
@@ -1481,7 +1486,7 @@ Deno.test("v2.CellMoved - concurrent movements", async () => {
     cell1,
     cell2,
     "user2",
-    defaultJitterProvider,
+    user2Jitter,
   );
   assertExists(move2);
 

@@ -1,6 +1,6 @@
 {
   "name": "@runt/ai",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Runtime AI Clients",
   "license": "BSD-3-Clause",
   "repository": {
@@ -12,7 +12,7 @@
   },
   "imports": {
     "@runt/lib": "jsr:@runt/lib@^0.9.0",
-    "@runt/schema": "jsr:@runt/schema@^0.9.0",
+    "@runt/schema": "jsr:@runt/schema@^0.9.1",
     "npm:pyodide": "npm:pyodide@^0.27.7",
     "@std/async": "jsr:@std/async@^1.0.0",
     "@std/path": "jsr:@std/path@^1.0.0",
