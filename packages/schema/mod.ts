@@ -1810,14 +1810,6 @@ export function fractionalIndexBetween(
   return generateKeyBetween(a, b);
 }
 
-export function generateFractionalIndices(
-  a: string | null | undefined,
-  b: string | null | undefined,
-  n: number,
-): string[] {
-  return generateNKeysBetween(a, b, n);
-}
-
 // Helper to get initial fractional index
 export function initialFractionalIndex(): string {
   return fractionalIndexBetween(null, null);
