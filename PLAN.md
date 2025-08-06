@@ -2,16 +2,20 @@
 
 ## Current State
 
-The `create_cell` tool currently uses a `position` parameter to place cells relative to the current AI cell:
+The `create_cell` tool currently uses a `position` parameter to place cells
+relative to the current AI cell:
+
 - `after_current`: places the cell after the AI cell (default)
 - `before_current`: places the cell before the AI cell
 - `at_end`: places the cell at the end of the notebook
 
-This approach limits the AI's ability to build complex notebook structures or place cells in specific sequences.
+This approach limits the AI's ability to build complex notebook structures or
+place cells in specific sequences.
 
 ## Proposed Change
 
-Replace the `position` parameter with `after_id` as the sole method for cell positioning.
+Replace the `position` parameter with `after_id` as the sole method for cell
+positioning.
 
 ### New API Design
 
@@ -46,36 +50,48 @@ Replace the `position` parameter with `after_id` as the sole method for cell pos
 From testing with models:
 
 ### The "Insert at Top" Problem
+
 - There's no cell ID before the first cell, so no way to insert at the top
-- Considered special sentinels (e.g., `runt:top`, `runt:last`) but this feels messy
-- **Better approach**: Use `modify_cell` when you need to add imports or dependencies to existing cells
+- Considered special sentinels (e.g., `runt:top`, `runt:last`) but this feels
+  messy
+- **Better approach**: Use `modify_cell` when you need to add imports or
+  dependencies to existing cells
 - Inserting at the top is rarely needed in practice
 
 ### Model Behavior Observations
+
 - Models generally work well with the `after_id` approach
-- Sometimes models don't think carefully about the proper `after_id` and cells end up in weird order
+- Sometimes models don't think carefully about the proper `after_id` and cells
+  end up in weird order
 - This suggests we might want a sensible default behavior
 
 ### Recommendation: Required after_id
+
 Make `after_id` required with no default behavior:
-- **Always explicit**: AI must always specify which cell to place the new cell after
+
+- **Always explicit**: AI must always specify which cell to place the new cell
+  after
 - **Forces intentional placement**: No ambiguity about where cells will appear
-- **Enables interspersed conversations**: AI can weave through the document by referencing specific cell IDs
+- **Enables interspersed conversations**: AI can weave through the document by
+  referencing specific cell IDs
 - **No assumptions**: System doesn't assume AI wants to place cells below itself
 
 ## Key Concepts
 
 ### 1. AI Has Context of All Cell IDs
+
 - The AI can see cell IDs for all cells in the notebook context
 - The AI must explicitly choose which cell to place new content after
 - No default assumptions about placement relative to the AI's own cell
 
 ### 2. Chaining Cells
+
 - When the AI creates a cell, it receives the new cell's ID in the response
 - The AI can then use this ID to create subsequent cells in sequence
 - This enables building complex notebook structures
 
 ### 3. Looking Up
+
 - The AI has context about cells above it
 - It can reference any visible cell ID to insert content at specific locations
 - This replaces the need for `position: "before_current"`
@@ -95,24 +111,24 @@ export function createCell(
   const cellType = String(args.cellType || "code");
   const content = String(args.source || args.content || "");
   const afterId = String(args.after_id); // Now required
-  
+
   // Get ordered cells with fractional indices
   const cellList = store.query(cellList$);
-  
+
   // Find the cell to insert after
   const afterCellIndex = cellList.findIndex((c) => c.id === afterId);
   if (afterCellIndex === -1) {
     throw new Error(`Cell with ID ${afterId} not found`);
   }
-  
+
   const cellBefore = cellList[afterCellIndex];
   const cellAfter = afterCellIndex < cellList.length - 1
     ? cellList[afterCellIndex + 1]
     : null;
-  
+
   // Generate unique cell ID
   const newCellId = `cell-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  
+
   // ... rest of implementation
 }
 ```
@@ -120,6 +136,7 @@ export function createCell(
 ## Usage Examples
 
 ### Example 1: Building a Simple Analysis
+
 ```javascript
 // AI's current cell ID: "cell-ai-123"
 
@@ -127,28 +144,29 @@ export function createCell(
 AI: create_cell({
   cellType: "markdown",
   source: "# Data Analysis",
-  after_id: "cell-ai-123"  // Must specify where to place it
-})
+  after_id: "cell-ai-123", // Must specify where to place it
+});
 // Returns: "Created markdown cell: cell-abc"
 
 // Step 2: Create import cell
 AI: create_cell({
   cellType: "code",
   source: "import pandas as pd\nimport numpy as np",
-  after_id: "cell-abc"  // Chaining after header
-})
+  after_id: "cell-abc", // Chaining after header
+});
 // Returns: "Created code cell: cell-def"
 
 // Step 3: Create data loading cell
 AI: create_cell({
   cellType: "code",
   source: "df = pd.read_csv('data.csv')",
-  after_id: "cell-def"  // Continuing the chain
-})
+  after_id: "cell-def", // Continuing the chain
+});
 // Returns: "Created code cell: cell-ghi"
 ```
 
 ### Example 2: Inserting Above
+
 ```javascript
 // User: "Add an explanation above the imports"
 // AI can see cell IDs in context
@@ -156,8 +174,8 @@ AI: create_cell({
 AI: create_cell({
   cellType: "markdown",
   source: "First, we need to import the necessary libraries:",
-  after_id: "cell-ai-123"  // Insert after AI cell but before imports
-})
+  after_id: "cell-ai-123", // Insert after AI cell but before imports
+});
 ```
 
 ## Benefits
@@ -182,8 +200,10 @@ AI: create_cell({
 - Error handling for non-existent cell IDs is critical
 - The response must include the created cell ID for chaining
 - Guide models to use `modify_cell` instead of trying to insert at the top
-- Consider adding examples in prompts to help models choose appropriate after_id values
-- Support interspersed conversation patterns where AI weaves through the document
+- Consider adding examples in prompts to help models choose appropriate after_id
+  values
+- Support interspersed conversation patterns where AI weaves through the
+  document
 
 ## Success Criteria
 
