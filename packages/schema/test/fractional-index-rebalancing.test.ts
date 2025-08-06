@@ -233,7 +233,7 @@ Deno.test("Fractional Index Rebalancing - fractionalIndexBetweenWithFallback", a
     });
 
     assertEquals(result.needsRebalancing, true);
-    assertEquals(result.index, undefined);
+    assertEquals(typeof result.index, "string");
     assertExists(result.rebalanceResult);
 
     // Rebalancing should provide new indices for all cells

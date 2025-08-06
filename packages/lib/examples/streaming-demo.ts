@@ -6,7 +6,12 @@
 
 import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
 import type { ExecutionContext } from "@runt/lib";
-import { createCellBetween, events, tables } from "@runt/schema";
+import {
+  cellReferences$,
+  createCellBetween,
+  events,
+  tables,
+} from "@runt/schema";
 
 class StreamingDemoAgent {
   private agent: RuntimeAgent;
@@ -63,7 +68,8 @@ class StreamingDemoAgent {
 
         // Create a cell with help command
         const cellId = crypto.randomUUID();
-        const createEvent = createCellBetween(
+        const cellList = this.agent.store.query(cellReferences$);
+        const createResult = createCellBetween(
           {
             id: cellId,
             cellType: "code",
@@ -71,8 +77,9 @@ class StreamingDemoAgent {
           },
           null, // cellBefore
           null, // cellAfter
+          cellList,
         );
-        this.agent.store.commit(createEvent);
+        createResult.events.forEach((event) => this.agent.store.commit(event));
 
         // Update the cell with source content
         this.agent.store.commit(events.cellSourceChanged({

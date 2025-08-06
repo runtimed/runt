@@ -1,7 +1,12 @@
 import { assertEquals } from "@std/assert";
 import { RuntimeAgent } from "./runtime-agent.ts";
 import { RuntimeConfig } from "./config.ts";
-import { createCellBetween, events, type MediaContainer } from "@runt/schema";
+import {
+  cellReferences$,
+  createCellBetween,
+  events,
+  type MediaContainer,
+} from "@runt/schema";
 import type {
   IArtifactClient,
   RawOutputData,
@@ -65,7 +70,8 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
 
       // Create a cell first
       const cellId = "test-cell-123";
-      const createEvent = createCellBetween(
+      const cellList = agent.store.query(cellReferences$);
+      const createResult = createCellBetween(
         {
           id: cellId,
           cellType: "code",
@@ -73,8 +79,9 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         },
         null,
         null,
+        cellList,
       );
-      agent.store.commit(createEvent);
+      createResult.events.forEach((event) => agent.store.commit(event));
 
       // Request execution
       const queueId = crypto.randomUUID();
@@ -169,7 +176,8 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
 
       // Create a cell first
       const cellId = "test-cell-456";
-      const createEvent = createCellBetween(
+      const cellList = agent.store.query(cellReferences$);
+      const createResult = createCellBetween(
         {
           id: cellId,
           cellType: "code",
@@ -177,8 +185,9 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         },
         null,
         null,
+        cellList,
       );
-      agent.store.commit(createEvent);
+      createResult.events.forEach((event) => agent.store.commit(event));
 
       // Request execution
       const queueId = crypto.randomUUID();
@@ -276,7 +285,8 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
 
       // Create a cell first
       const cellId = "test-cell-789";
-      const createEvent = createCellBetween(
+      const cellList = agent.store.query(cellReferences$);
+      const createResult = createCellBetween(
         {
           id: cellId,
           cellType: "code",
@@ -284,8 +294,9 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         },
         null,
         null,
+        cellList,
       );
-      agent.store.commit(createEvent);
+      createResult.events.forEach((event) => agent.store.commit(event));
 
       // Request execution
       const queueId = crypto.randomUUID();

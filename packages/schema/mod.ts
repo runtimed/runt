@@ -1667,11 +1667,36 @@ export interface RebalanceOptions {
   bufferCells?: number;
 }
 
+export interface CellOperationResult {
+  /** Events to apply for the cell operation (may include rebalancing) */
+  events: Array<
+    | ReturnType<typeof events.cellCreated2>
+    | ReturnType<typeof events.cellMoved2>
+  >;
+  /** ID of the newly created cell */
+  newCellId: string;
+  /** Whether rebalancing was performed */
+  needsRebalancing: boolean;
+  /** Number of cells rebalanced (for debugging/metrics) */
+  rebalanceCount?: number;
+}
+
+export interface MoveOperationResult {
+  /** Events to apply for the move operation (may include rebalancing) */
+  events: Array<ReturnType<typeof events.cellMoved2>>;
+  /** Whether the cell was actually moved */
+  moved: boolean;
+  /** Whether rebalancing was performed */
+  needsRebalancing: boolean;
+  /** Number of cells rebalanced (for debugging/metrics) */
+  rebalanceCount?: number;
+}
+
 /**
  * Determines if a range of cells needs rebalancing due to crowded indices
  */
 export function needsRebalancing(
-  cells: CellReference[],
+  cells: readonly CellReference[],
   insertPosition?: number,
 ): boolean {
   if (cells.length < 2) return false;
@@ -1740,7 +1765,7 @@ export function needsRebalancing(
  * Rebalances fractional indices for a range of cells to create space for insertions
  */
 export function rebalanceCellIndices(
-  cells: CellReference[],
+  cells: readonly CellReference[],
   options: RebalanceOptions = {},
 ): RebalanceResult {
   const {
@@ -1800,6 +1825,39 @@ export function rebalanceCellIndices(
 }
 
 /**
+ * Calculate insertion index after rebalancing has been performed
+ */
+function calculateInsertionIndexAfterRebalancing(
+  insertPosition: number,
+  rebalanceResult: RebalanceResult,
+  jitterProvider: JitterProvider,
+): string {
+  // Get the new indices after rebalancing
+  const newIndices = rebalanceResult.newIndices.map((item) =>
+    item.fractionalIndex
+  );
+  newIndices.sort();
+
+  // Calculate where to insert based on the position
+  if (insertPosition === 0) {
+    // Insert at beginning - generate index before first cell
+    const firstIndex = newIndices[0];
+    return fractionalIndexBetween(null, firstIndex, jitterProvider);
+  }
+
+  if (insertPosition >= newIndices.length) {
+    // Insert at end - generate index after last cell
+    const lastIndex = newIndices[newIndices.length - 1];
+    return fractionalIndexBetween(lastIndex, null, jitterProvider);
+  }
+
+  // Insert between cells at insertPosition-1 and insertPosition
+  const beforeIndex = newIndices[insertPosition - 1];
+  const afterIndex = newIndices[insertPosition];
+  return fractionalIndexBetween(beforeIndex, afterIndex, jitterProvider);
+}
+
+/**
  * Enhanced fractional index generation with automatic rebalancing fallback
  */
 export function fractionalIndexBetweenWithFallback(
@@ -1807,7 +1865,7 @@ export function fractionalIndexBetweenWithFallback(
   b: string | null | undefined,
   context: {
     /** All cells in the current context for rebalancing */
-    allCells?: CellReference[];
+    allCells?: readonly CellReference[];
     /** Position where insertion is intended */
     insertPosition?: number;
     /** Jitter provider */
@@ -1839,7 +1897,17 @@ export function fractionalIndexBetweenWithFallback(
         const rebalanceResult = rebalanceCellIndices(allCells, {
           jitterProvider,
         });
+
+        // Calculate the insertion index after rebalancing
+        const position = insertPosition ?? allCells.length;
+        const insertionIndex = calculateInsertionIndexAfterRebalancing(
+          position,
+          rebalanceResult,
+          jitterProvider,
+        );
+
         return {
+          index: insertionIndex,
           needsRebalancing: true,
           rebalanceResult,
         };
@@ -1858,7 +1926,7 @@ export function moveCellWithRebalancing(
   cell: CellReference,
   cellBefore: CellReference | null,
   cellAfter: CellReference | null,
-  allCells: CellReference[],
+  allCells: readonly CellReference[],
   options: {
     actorId?: string;
     jitterProvider?: JitterProvider;
@@ -2053,22 +2121,240 @@ export function createCellBetween(
   },
   cellBefore: CellReference | null,
   cellAfter: CellReference | null,
+  allCells: readonly CellReference[],
   jitterProvider: JitterProvider = defaultJitterProvider,
-): ReturnType<typeof events.cellCreated2> {
+): CellOperationResult {
   // Determine the fractional indices for before and after
-  const previousKey = cellBefore?.fractionalIndex || null;
-  const nextKey = cellAfter?.fractionalIndex || null;
+  let previousKey = cellBefore?.fractionalIndex || null;
+  let nextKey = cellAfter?.fractionalIndex || null;
 
-  const fractionalIndex = fractionalIndexBetween(
+  // Special case: if both are null but we have existing cells, insert at end
+  if (!cellBefore && !cellAfter && allCells.length > 0) {
+    // Sort cells by fractional index to find the last one
+    const sortedCells = [...allCells].sort((a, b) =>
+      (a.fractionalIndex || "").localeCompare(b.fractionalIndex || "")
+    );
+    const lastCell = sortedCells[sortedCells.length - 1];
+    if (lastCell?.fractionalIndex) {
+      previousKey = lastCell.fractionalIndex;
+      nextKey = null; // Insert after the last cell
+    }
+  }
+
+  // Calculate insertion position for rebalancing context
+  let insertPosition = 0;
+  if (cellBefore && cellAfter) {
+    // Find position between the two cells
+    const beforeIndex = allCells.findIndex((cell) => cell.id === cellBefore.id);
+    insertPosition = beforeIndex + 1;
+  } else if (cellBefore) {
+    // Insert after cellBefore
+    const beforeIndex = allCells.findIndex((cell) => cell.id === cellBefore.id);
+    insertPosition = beforeIndex + 1;
+  } else if (cellAfter) {
+    // Insert before cellAfter
+    const afterIndex = allCells.findIndex((cell) => cell.id === cellAfter.id);
+    insertPosition = afterIndex;
+  } else {
+    // Insert at end
+    insertPosition = allCells.length;
+  }
+
+  // Use the robust fractional index generation with fallback
+  const result = fractionalIndexBetweenWithFallback(
     previousKey,
     nextKey,
+    {
+      allCells,
+      insertPosition,
+      jitterProvider,
+    },
+  );
+
+  const resultEvents: Array<
+    | ReturnType<typeof events.cellCreated2>
+    | ReturnType<typeof events.cellMoved2>
+  > = [];
+
+  // Add rebalancing events if needed
+  if (result.needsRebalancing && result.rebalanceResult) {
+    resultEvents.push(...result.rebalanceResult.events);
+  }
+
+  // Create the new cell with the calculated fractional index
+  const createEvent = events.cellCreated2({
+    ...cellData,
+    fractionalIndex: result.index!,
+  });
+  resultEvents.push(createEvent);
+
+  return {
+    events: resultEvents,
+    newCellId: cellData.id,
+    needsRebalancing: result.needsRebalancing,
+    ...(result.rebalanceResult && {
+      rebalanceCount: result.rebalanceResult.newIndices.length,
+    }),
+  };
+}
+
+/**
+ * Move a cell between two other cells with automatic rebalancing
+ */
+export function moveCellBetweenWithRebalancing(
+  cell: CellReference,
+  cellBefore: CellReference | null,
+  cellAfter: CellReference | null,
+  allCells: readonly CellReference[],
+  actorId?: string,
+  jitterProvider: JitterProvider = defaultJitterProvider,
+): MoveOperationResult {
+  // Cell must have a valid fractional index to be moved
+  if (!cell.fractionalIndex) {
+    return {
+      events: [],
+      moved: false,
+      needsRebalancing: false,
+    };
+  }
+
+  // Calculate target position
+  let targetPosition = 0;
+  if (cellBefore && cellAfter) {
+    // Find position between the two cells
+    const beforeIndex = allCells.findIndex((c) => c.id === cellBefore.id);
+    targetPosition = beforeIndex + 1;
+  } else if (cellBefore) {
+    // Move after cellBefore
+    const beforeIndex = allCells.findIndex((c) => c.id === cellBefore.id);
+    targetPosition = beforeIndex + 1;
+  } else if (cellAfter) {
+    // Move before cellAfter
+    const afterIndex = allCells.findIndex((c) => c.id === cellAfter.id);
+    targetPosition = afterIndex;
+  } else {
+    // Move to end
+    targetPosition = allCells.length - 1; // Account for the cell being moved
+  }
+
+  // Check if already in target position
+  const currentPosition = allCells.findIndex((c) => c.id === cell.id);
+  if (currentPosition === targetPosition) {
+    return {
+      events: [],
+      moved: false,
+      needsRebalancing: false,
+    };
+  }
+
+  // Use the existing moveCellWithRebalancing function
+  const result = moveCellWithRebalancing(
+    cell,
+    cellBefore,
+    cellAfter,
+    allCells,
+    { ...(actorId && { actorId }), jitterProvider },
+  );
+
+  const resultEvents: Array<ReturnType<typeof events.cellMoved2>> = [];
+
+  // Add rebalancing events if needed
+  if (result.needsRebalancing && result.rebalanceResult) {
+    resultEvents.push(...result.rebalanceResult.events);
+
+    return {
+      events: resultEvents,
+      moved: true,
+      needsRebalancing: true,
+      rebalanceCount: result.rebalanceResult.newIndices.length,
+    };
+  }
+
+  // Add the move event if one was generated
+  if (result.moveEvent) {
+    resultEvents.push(result.moveEvent);
+
+    return {
+      events: resultEvents,
+      moved: true,
+      needsRebalancing: false,
+    };
+  }
+
+  // No move was needed
+  return {
+    events: [],
+    moved: false,
+    needsRebalancing: false,
+  };
+}
+
+/**
+ * Convenience function for simple cell creation with automatic event commitment
+ * Returns the new cell ID for immediate use
+ */
+export function createCellBetweenAndCommit<
+  T extends {
+    commit: (
+      event:
+        | ReturnType<typeof events.cellCreated2>
+        | ReturnType<typeof events.cellMoved2>,
+    ) => void;
+  },
+>(
+  store: T,
+  cellData: {
+    id: string;
+    cellType: CellType;
+    createdBy: string;
+  },
+  cellBefore: CellReference | null,
+  cellAfter: CellReference | null,
+  allCells: readonly CellReference[],
+  jitterProvider: JitterProvider = defaultJitterProvider,
+): string {
+  const result = createCellBetween(
+    cellData,
+    cellBefore,
+    cellAfter,
+    allCells,
     jitterProvider,
   );
 
-  return events.cellCreated2({
-    ...cellData,
-    fractionalIndex,
-  });
+  // Commit all events
+  result.events.forEach((event) => store.commit(event));
+
+  return result.newCellId;
+}
+
+/**
+ * Convenience function for simple cell movement with automatic event commitment
+ * Returns whether the cell was actually moved
+ */
+export function moveCellBetweenAndCommit<
+  T extends { commit: (event: ReturnType<typeof events.cellMoved2>) => void },
+>(
+  store: T,
+  cell: CellReference,
+  cellBefore: CellReference | null,
+  cellAfter: CellReference | null,
+  allCells: readonly CellReference[],
+  actorId?: string,
+  jitterProvider: JitterProvider = defaultJitterProvider,
+): boolean {
+  const result = moveCellBetweenWithRebalancing(
+    cell,
+    cellBefore,
+    cellAfter,
+    allCells,
+    actorId,
+    jitterProvider,
+  );
+
+  // Commit all events
+  result.events.forEach((event) => store.commit(event));
+
+  return result.moved;
 }
 
 // Pre 0.7.1 -- these types should get created in clients

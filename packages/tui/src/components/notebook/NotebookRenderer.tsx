@@ -109,7 +109,7 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
       : null;
     const cellAfter = null;
 
-    const createEvent = createCellBetween(
+    const createResult = createCellBetween(
       {
         id: newCellId,
         cellType: "code",
@@ -117,9 +117,10 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
       },
       cellBefore,
       cellAfter,
+      cellReferences,
     );
 
-    store.commit(createEvent);
+    createResult.events.forEach((event) => store.commit(event));
 
     // Select the new cell
     setSelectedCellIndex(cellReferences.length);
@@ -153,17 +154,18 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
       newSelectionIndex = selectedCellIndex + 1;
     }
 
-    const createEvent = createCellBetween(
+    const createResult = createCellBetween(
       {
         id: newCellId,
-        cellType,
+        cellType: cellType as CellType,
         createdBy: "tui-client",
       },
       cellBefore,
       cellAfter,
+      cellReferences,
     );
 
-    store.commit(createEvent);
+    createResult.events.forEach((event) => store.commit(event));
 
     if (position === "below") {
       setSelectedCellIndex(newSelectionIndex);
@@ -321,7 +323,7 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
         ? cellReferences[currentCellIndex + 1]
         : null;
 
-    const createEvent = createCellBetween(
+    const createResult = createCellBetween(
       {
         id: newCellId,
         cellType: "code",
@@ -329,9 +331,10 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
       },
       cellBefore,
       cellAfter,
+      cellReferences,
     );
 
-    store.commit(createEvent);
+    createResult.events.forEach((event) => store.commit(event));
 
     // 4. Exit editing mode and select the new cell
     setEditingCellId(null);
@@ -405,7 +408,7 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
         ? cellReferences[selectedCellIndex + 1]
         : null;
 
-    const createEvent = createCellBetween(
+    const createResult = createCellBetween(
       {
         id: newCellId,
         cellType: "code",
@@ -413,9 +416,10 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
       },
       cellBefore,
       cellAfter,
+      cellReferences,
     );
 
-    store.commit(createEvent);
+    createResult.events.forEach((event) => store.commit(event));
 
     // 3. Select the new cell
     setSelectedCellIndex(selectedCellIndex + 1);
@@ -531,7 +535,7 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
         : null;
       const cellAfter = selectedCellRef;
 
-      const createEvent = createCellBetween(
+      const createResult = createCellBetween(
         {
           id: newCellId,
           cellType: "code",
@@ -539,8 +543,9 @@ export const NotebookRenderer: React.FC<NotebookRendererProps> = ({
         },
         cellBefore,
         cellAfter,
+        cellReferences,
       );
-      store.commit(createEvent);
+      createResult.events.forEach((event) => store.commit(event));
       // Don't change selection - new cell is above
       return;
     }

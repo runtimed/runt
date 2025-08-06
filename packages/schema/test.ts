@@ -1718,9 +1718,10 @@ Deno.test("v2.CellMoved - moveCellBetween API", async () => {
 
 Deno.test("v2.CellCreated - createCellBetween API", async () => {
   const store = await setupStore();
-  const { fractionalIndexBetween, createCellBetween } = await import(
-    "@runt/schema"
-  );
+  const { fractionalIndexBetween, createCellBetween, cellReferences$ } =
+    await import(
+      "@runt/schema"
+    );
   type CellReference = import("@runt/schema").CellReference;
 
   // Create initial cells to insert between
@@ -1754,11 +1755,15 @@ Deno.test("v2.CellCreated - createCellBetween API", async () => {
     },
     null,
     cell1,
+    store.query(cellReferences$),
   );
-  store.commit(newCell1);
+  newCell1.events.forEach((event) => store.commit(event));
 
   // Verify it's before cell1
-  assert(newCell1.args.fractionalIndex < cell1.fractionalIndex!);
+  const newCell1Event = newCell1.events.find((e) =>
+    e.name === "v2.CellCreated"
+  )!;
+  assert(newCell1Event.args.fractionalIndex < cell1.fractionalIndex!);
 
   // Test 2: Create cell between cell1 and cell2
   const newCell2 = createCellBetween(
@@ -1769,49 +1774,63 @@ Deno.test("v2.CellCreated - createCellBetween API", async () => {
     },
     cell1,
     cell2,
+    store.query(cellReferences$),
   );
-  store.commit(newCell2);
+  newCell2.events.forEach((event) => store.commit(event));
 
   // Verify it's between cell1 and cell2
-  assert(newCell2.args.fractionalIndex > cell1.fractionalIndex!);
-  assert(newCell2.args.fractionalIndex < cell2.fractionalIndex!);
+  const newCell2Event = newCell2.events.find((e) =>
+    e.name === "v2.CellCreated"
+  )!;
+  assert(newCell2Event.args.fractionalIndex > cell1.fractionalIndex!);
+  assert(newCell2Event.args.fractionalIndex < cell2.fractionalIndex!);
 
   // Test 3: Create cell at the end (after cell2)
   const newCell3 = createCellBetween(
     {
       id: "new-3",
-      cellType: "ai",
+      cellType: "markdown",
       createdBy: "user3",
     },
     cell2,
     null,
+    store.query(cellReferences$),
   );
-  store.commit(newCell3);
+  newCell3.events.forEach((event) => store.commit(event));
 
   // Verify it's after cell2
-  assert(newCell3.args.fractionalIndex > cell2.fractionalIndex!);
+  const newCell3Event = newCell3.events.find((e) =>
+    e.name === "v2.CellCreated"
+  )!;
+  assert(newCell3Event.args.fractionalIndex > cell2.fractionalIndex!);
 
   // Test 4: Create between two cells that were just created
   const newCell4 = createCellBetween(
     {
       id: "new-4",
-      cellType: "sql",
+      cellType: "markdown",
       createdBy: "user1",
     },
     {
       id: "new-1",
-      fractionalIndex: newCell1.args.fractionalIndex,
-      cellType: "code" as const,
+      fractionalIndex: newCell1Event.args.fractionalIndex,
+      cellType: "markdown" as const,
     },
     cell1,
+    store.query(cellReferences$),
   );
-  store.commit(newCell4);
+  newCell4.events.forEach((event) => store.commit(event));
 
-  // Verify ordering
-  assert(newCell4.args.fractionalIndex > newCell1.args.fractionalIndex);
-  assert(newCell4.args.fractionalIndex < cell1.fractionalIndex!);
+  // Verify it's between new-1 and cell1
+  const newCell4Event = newCell4.events.find((e) =>
+    e.name === "v2.CellCreated"
+  )!;
+  assert(
+    newCell4Event.args.fractionalIndex > newCell1Event.args.fractionalIndex,
+  );
+  assert(newCell4Event.args.fractionalIndex < cell1.fractionalIndex!);
 
-  // Test 5: Create first cell in empty notebook
+  // Test 5: Create cell with no positioning (should go at beginning)
   const firstCell = createCellBetween(
     {
       id: "first",
@@ -1820,8 +1839,13 @@ Deno.test("v2.CellCreated - createCellBetween API", async () => {
     },
     null,
     null,
+    store.query(cellReferences$),
   );
-  assertExists(firstCell.args.fractionalIndex);
+  firstCell.events.forEach((event) => store.commit(event));
+  const firstCellEvent = firstCell.events.find((e) =>
+    e.name === "v2.CellCreated"
+  )!;
+  assertExists(firstCellEvent.args.fractionalIndex);
 
   // Verify all cells maintain proper ordering
   const allCells = store.query(
@@ -1832,6 +1856,7 @@ Deno.test("v2.CellCreated - createCellBetween API", async () => {
   for (let i = 1; i < allCells.length; i++) {
     const prev = allCells[i - 1].fractionalIndex!;
     const curr = allCells[i].fractionalIndex!;
+
     assert(prev < curr, `Ordering violated: ${prev} should be < ${curr}`);
   }
 

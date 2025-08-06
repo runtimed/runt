@@ -435,7 +435,7 @@ Deno.test("Fractional Indexing Fuzz - Character Encoding Validation", async (t) 
       insertPosition: 1,
     });
     assertEquals(result.needsRebalancing, true);
-    assertEquals(result.index, undefined);
+    assertEquals(typeof result.index, "string");
     assertEquals(typeof result.rebalanceResult, "object");
 
     // Test normal case with fallback

@@ -336,7 +336,7 @@ Deno.test("Fractional Indexing - Cell Integration", async (t: Deno.TestContext) 
     ];
 
     // Create a cell between cell-1 and cell-2
-    const createEvent = createCellBetween(
+    const createResult = createCellBetween(
       {
         id: "cell-3",
         cellType: "code",
@@ -344,8 +344,12 @@ Deno.test("Fractional Indexing - Cell Integration", async (t: Deno.TestContext) 
       },
       cells[0],
       cells[1],
+      cells,
     );
 
+    const createEvent = createResult.events.find((e) =>
+      e.name === "v2.CellCreated"
+    )!;
     assertEquals(createEvent.name, "v2.CellCreated");
     assertEquals(createEvent.args.id, "cell-3");
     assertEquals(createEvent.args.fractionalIndex > "a", true);

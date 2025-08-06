@@ -1,6 +1,11 @@
 import { assertEquals, assertExists } from "jsr:@std/assert@1.0.13";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
-import { createCellBetween, events, tables } from "@runt/schema";
+import {
+  cellReferences$,
+  createCellBetween,
+  events,
+  tables,
+} from "@runt/schema";
 import { withQuietConsole } from "../../lib/test/test-config.ts";
 
 // Configure test environment for quiet logging
@@ -43,7 +48,8 @@ Deno.test({
 
       // Create an AI cell with empty content
       const aiCellId = "ai-cell-empty";
-      const createEvent = createCellBetween(
+      const cellList = agent.store.query(cellReferences$);
+      const createResult = createCellBetween(
         {
           id: aiCellId,
           cellType: "ai",
@@ -51,8 +57,9 @@ Deno.test({
         },
         null,
         null,
+        cellList,
       );
-      agent.store.commit(createEvent);
+      createResult.events.forEach((event) => agent!.store.commit(event));
 
       // Don't set any source (empty cell)
 
