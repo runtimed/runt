@@ -9,10 +9,14 @@
     ".": {
       "import": "./mod.ts",
       "types": "./mod.ts"
+    },
+    "./queries": {
+      "import": "./queries/index.ts",
+      "types": "./queries/index.ts"
     }
   },
   "files": [
-    "mod.ts",
+    "**/*.ts",
     "README.md"
   ],
   "dependencies": {
