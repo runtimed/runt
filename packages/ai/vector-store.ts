@@ -4,8 +4,11 @@ import {
   Document,
 } from "llamaindex";
 import { OpenAIEmbedding, OpenAI } from "@llamaindex/openai";
+import { SimpleDirectoryReader } from "@llamaindex/readers/directory";
+import { TextFileReader } from "@llamaindex/readers/text";
 import { createLogger } from "@runt/lib";
 import type { Logger } from "@runt/lib";
+import { join, dirname } from "@std/path";
 
 // Initialize logger for vector store operations
 const vectorLogger = createLogger("vector-store");
@@ -138,21 +141,26 @@ export class VectorStoreService {
   }
 
   /**
-   * Perform the actual file ingestion
+   * Perform the actual file ingestion using SimpleDirectoryReader
    */
   private async performIngestion(
     mountData: Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }>,
   ): Promise<void> {
-    console.log("🔄 Starting performIngestion...");
+    console.log("🔄 Starting performIngestion with SimpleDirectoryReader...");
     
-    const documents: Document[] = [];
     let totalFiles = 0;
     let ingestedFiles = 0;
     let skippedFiles = 0;
+    let tempDir: string | null = null;
 
     try {
       console.log(`📁 Processing ${mountData.length} mount paths...`);
       
+      // Create temporary directory for file processing
+      tempDir = await Deno.makeTempDir({ prefix: "runt_vector_ingestion_" });
+      console.log(`📁 Created temporary directory: ${tempDir}`);
+      
+      // Write all files to temporary directory maintaining structure
       for (const { hostPath, files } of mountData) {
         console.log(`📂 Processing mount path: ${hostPath} with ${files.length} files`);
         this.logger.info(`Processing mount path: ${hostPath}`);
@@ -176,75 +184,83 @@ export class VectorStoreService {
           }
 
           try {
-            // Convert Uint8Array to string
-            const textContent = new TextDecoder().decode(content);
+            // Create the full file path in temp directory
+            const tempFilePath = join(tempDir, path);
+            const tempFileDir = dirname(tempFilePath);
             
-            // Only process files that appear to be text-based
-            if (this.isTextFile(textContent)) {
-              const document = new Document({
-                text: textContent,
-                metadata: {
-                  path,
-                  hostPath,
-                  size: content.length,
-                },
-              });
-              
-              documents.push(document);
-              ingestedFiles++;
-              this.logger.debug(`Prepared for ingestion: ${path}`);
-              
-              // Log every 10th file for progress tracking
-              if (ingestedFiles % 10 === 0) {
-                console.log(`📄 Processed ${ingestedFiles} text files so far...`);
-              }
-            } else {
-              skippedFiles++;
-              this.logger.debug(`Skipping non-text file: ${path}`);
+            // Ensure directory exists
+            await Deno.mkdir(tempFileDir, { recursive: true });
+            
+            // Write file content
+            await Deno.writeFile(tempFilePath, content);
+            ingestedFiles++;
+            
+            this.logger.debug(`Written to temp: ${tempFilePath}`);
+            
+            // Log every 20th file for progress tracking
+            if (ingestedFiles % 20 === 0) {
+              console.log(`📄 Written ${ingestedFiles} files to temp directory...`);
             }
           } catch (error) {
             skippedFiles++;
-            console.error(`❌ Failed to process file: ${path}`, error);
-            this.logger.warn(`Failed to process file: ${path}`, { error: String(error) });
+            console.error(`❌ Failed to write file: ${path}`, error);
+            this.logger.warn(`Failed to write file: ${path}`, { error: String(error) });
           }
         }
       }
 
-      console.log(`📊 File processing complete. Total: ${totalFiles}, Ingested: ${ingestedFiles}, Skipped: ${skippedFiles}`);
+      console.log(`📊 File writing complete. Total: ${totalFiles}, Written: ${ingestedFiles}, Skipped: ${skippedFiles}`);
       this.logger.info(
-        `File processing complete. Total: ${totalFiles}, Ingested: ${ingestedFiles}, Skipped: ${skippedFiles}`,
+        `File writing complete. Total: ${totalFiles}, Written: ${ingestedFiles}, Skipped: ${skippedFiles}`,
       );
 
-      if (documents.length > 0) {
+      if (ingestedFiles > 0) {
         const embeddingModel = this.getEmbeddingModelInfo();
-        console.log(`🚀 Creating vector index from ${documents.length} documents using ${embeddingModel} embeddings...`);
-        this.logger.info(`Creating vector index from ${documents.length} documents using ${embeddingModel} embeddings...`);
+        console.log(`🚀 Loading documents from temp directory using SimpleDirectoryReader with ${embeddingModel} embeddings...`);
+        this.logger.info(`Loading documents from temp directory using SimpleDirectoryReader`);
         
         try {
-          // Create the vector index from documents (uses default in-memory vector store)
-          console.log("📦 Calling VectorStoreIndex.fromDocuments...");
-          const index = await VectorStoreIndex.fromDocuments(documents);
-          console.log("✅ VectorStoreIndex created successfully");
+          // Create SimpleDirectoryReader with TextFileReader as default
+          const reader = new SimpleDirectoryReader();
+          console.log("📦 Loading documents with SimpleDirectoryReader...");
           
-          // Create retriever
-          console.log("🔧 Creating retriever...");
-          this.retriever = index.asRetriever();
-          console.log("✅ Retriever created successfully");
+          const documents = await reader.loadData({
+            directoryPath: tempDir,
+            defaultReader: new TextFileReader(),
+            numWorkers: 4, // Use 4 concurrent workers for better performance
+          });
           
-          // Create query engine
-          console.log("🔧 Creating query engine...");
-          this.queryEngine = index.asQueryEngine();
-          console.log("✅ Query engine created successfully");
+          console.log(`✅ Loaded ${documents.length} documents successfully`);
           
-          console.log(`🎉 Vector index created successfully with ${documents.length} documents`);
-          this.logger.info(`Vector index created successfully with ${documents.length} documents`);
+          if (documents.length > 0) {
+            // Create the vector index from documents
+            console.log("📦 Creating VectorStoreIndex from documents...");
+            const index = await VectorStoreIndex.fromDocuments(documents);
+            console.log("✅ VectorStoreIndex created successfully");
+            
+            // Create retriever
+            console.log("🔧 Creating retriever...");
+            this.retriever = index.asRetriever();
+            console.log("✅ Retriever created successfully");
+            
+            // Create query engine
+            console.log("🔧 Creating query engine...");
+            this.queryEngine = index.asQueryEngine();
+            console.log("✅ Query engine created successfully");
+            
+            console.log(`🎉 Vector index created successfully with ${documents.length} documents`);
+            this.logger.info(`Vector index created successfully with ${documents.length} documents`);
+          } else {
+            console.log("⚠️  No documents loaded by SimpleDirectoryReader");
+            this.logger.warn("No documents loaded by SimpleDirectoryReader");
+          }
         } catch (indexError) {
           console.error("❌ Failed to create vector index:", indexError);
           throw new Error(`Vector index creation failed: ${indexError instanceof Error ? indexError.message : String(indexError)}`);
         }
       } else {
-        console.log("⚠️  No documents to ingest");
-        this.logger.warn("No documents to ingest");
+        console.log("⚠️  No files to ingest");
+        this.logger.warn("No files to ingest");
       }
       
       console.log("✅ performIngestion completed successfully");
@@ -254,6 +270,20 @@ export class VectorStoreService {
         console.error("Stack trace:", error.stack);
       }
       throw error;
+    } finally {
+      // Clean up temporary directory
+      if (tempDir) {
+        try {
+          console.log(`🧹 Cleaning up temporary directory: ${tempDir}`);
+          await Deno.remove(tempDir, { recursive: true });
+          console.log("✅ Temporary directory cleaned up");
+        } catch (cleanupError) {
+          console.warn("⚠️  Failed to clean up temporary directory:", cleanupError);
+          this.logger.warn(`Failed to clean up temporary directory: ${tempDir}`, { 
+            error: String(cleanupError) 
+          });
+        }
+      }
     }
   }
 
@@ -281,24 +311,7 @@ export class VectorStoreService {
     return skipPatterns.some(pattern => pattern.test(path));
   }
 
-  /**
-   * Check if content appears to be text-based
-   */
-  private isTextFile(content: string): boolean {
-    // Check for null bytes which indicate binary files
-    if (content.includes('\0')) {
-      return false;
-    }
 
-    // Check for reasonable ratio of printable characters
-    const printableCount = content.split('').filter(char => {
-      const code = char.charCodeAt(0);
-      return code >= 32 && code <= 126 || code === 9 || code === 10 || code === 13;
-    }).length;
-
-    const ratio = printableCount / content.length;
-    return ratio > 0.7; // At least 70% printable characters
-  }
 
   /**
    * Query the vector store
