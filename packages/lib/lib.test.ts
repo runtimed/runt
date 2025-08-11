@@ -17,7 +17,7 @@ Deno.test("Library exports are available", () => {
 Deno.test("DEFAULT_CONFIG has expected values", () => {
   assertEquals(
     DEFAULT_CONFIG.syncUrl,
-    "wss://anode-docworker.rgbkrk.workers.dev",
+    "wss://localhost:8787",
   );
 });
 
