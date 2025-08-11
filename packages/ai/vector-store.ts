@@ -232,6 +232,13 @@ export class VectorStoreService {
           
           console.log(`✅ Loaded ${documents.length} documents successfully`);
           
+          // Fix document metadata to use final pyodide mount paths instead of temp paths
+          if (documents.length > 0 && tempDir) {
+            console.log("🔧 Fixing document metadata to use final mount paths...");
+            this.fixDocumentMetadataPaths(documents, tempDir, mountData);
+            console.log("✅ Document metadata paths fixed");
+          }
+          
           if (documents.length > 0) {
             // Create the vector index from documents
             console.log("📦 Creating VectorStoreIndex from documents...");
@@ -282,6 +289,64 @@ export class VectorStoreService {
           this.logger.warn(`Failed to clean up temporary directory: ${tempDir}`, { 
             error: String(cleanupError) 
           });
+        }
+      }
+    }
+  }
+
+  /**
+   * Fix document metadata to use final pyodide mount paths instead of temporary directory paths
+   */
+  private fixDocumentMetadataPaths(
+    documents: Document[],
+    tempDir: string,
+    mountData: Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }>,
+  ): void {
+    // Create a mapping from temp paths to final mount paths
+    const pathMapping = new Map<string, string>();
+    
+    for (const { hostPath, files } of mountData) {
+      // Create sanitized mount point (same logic as pyodide-worker.ts)
+      const mountPoint = `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      
+      for (const { path } of files) {
+        const tempFilePath = join(tempDir, path);
+        const finalMountPath = `${mountPoint}/${path}`;
+        pathMapping.set(tempFilePath, finalMountPath);
+      }
+    }
+    
+    // Update document metadata
+    for (const document of documents) {
+      if (document.metadata && typeof document.metadata === 'object') {
+        // Handle both 'path' and 'file_path' properties that might exist in metadata
+        if ('path' in document.metadata && typeof document.metadata.path === 'string') {
+          const finalPath = pathMapping.get(document.metadata.path);
+          if (finalPath) {
+            document.metadata.path = finalPath;
+            document.metadata.file_path = finalPath; // Also set file_path for consistency
+          }
+        }
+        
+        if ('file_path' in document.metadata && typeof document.metadata.file_path === 'string') {
+          const finalPath = pathMapping.get(document.metadata.file_path);
+          if (finalPath) {
+            document.metadata.file_path = finalPath;
+            document.metadata.path = finalPath; // Also set path for consistency
+          }
+        }
+        
+        // Add the original hostPath information for potential future use
+        const tempPath = document.metadata.path || document.metadata.file_path;
+        if (typeof tempPath === 'string') {
+          for (const { hostPath } of mountData) {
+            const mountPoint = `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+            if (tempPath.startsWith(mountPoint)) {
+              document.metadata.hostPath = hostPath;
+              document.metadata.mountPoint = mountPoint;
+              break;
+            }
+          }
         }
       }
     }
@@ -375,19 +440,21 @@ export class VectorStoreService {
         for (const item of response) {
           if (item && item.node && item.node.metadata) {
             const metadata = item.node.metadata;
-            if (metadata.path) {
-              // Use hostPath + path for full path, or just path if hostPath not available
-              const fullPath = metadata.hostPath ? `${metadata.hostPath}/${metadata.path}`.replace(/\/+/g, '/') : metadata.path;
-              filePaths.push(fullPath);
+            // Use file_path or path - these now contain the final mount paths
+            const filePath = metadata.file_path || metadata.path;
+            if (filePath && typeof filePath === 'string') {
+              filePaths.push(filePath);
             }
           }
         }
       } else if (response && typeof response === 'object') {
         // Handle single response object
-        if (response.node && response.node.metadata && response.node.metadata.path) {
+        if (response.node && response.node.metadata) {
           const metadata = response.node.metadata;
-          const fullPath = metadata.hostPath ? `${metadata.hostPath}/${metadata.path}`.replace(/\/+/g, '/') : metadata.path;
-          filePaths.push(fullPath);
+          const filePath = metadata.file_path || metadata.path;
+          if (filePath && typeof filePath === 'string') {
+            filePaths.push(filePath);
+          }
         }
       }
 

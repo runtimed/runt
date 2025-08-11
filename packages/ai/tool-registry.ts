@@ -105,30 +105,30 @@ const NOTEBOOK_TOOLS: NotebookTool[] = [
     },
   },
   {
-    name: "query_documents",
-    description:
-      "Search through documents that have been mounted to the runtime using the --mount flag. This uses a vector store to find relevant content based on semantic similarity to your query. The query will wait for document ingestion to complete if it's still in progress.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "The search query to find relevant documents or content",
-        },
-      },
-      required: ["query"],
-    },
-  },
-  {
     name: "retrieve_document",
     description:
-      "Retrieve file information for documents that match a search query using the vector store retriever. This returns the filename and mounted directory path for files that are semantically similar to your query from mounted documents.",
+      "Useful for answering natural language questions about the documents that have been mounted to the runtime using the --mount flag.",
     parameters: {
       type: "object",
       properties: {
         query: {
           type: "string",
           description: "The search query to find relevant document files",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "query_documents",
+    description:
+      "Useful for retrieving metadata about the documents that have been mounted to the runtime using the --mount flag.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "The search query to find relevant documents or content",
         },
       },
       required: ["query"],
