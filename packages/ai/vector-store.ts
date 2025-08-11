@@ -3,7 +3,7 @@ import {
   VectorStoreIndex,
   Document,
 } from "llamaindex";
-import { OpenAIEmbedding } from "@llamaindex/openai";
+import { OpenAIEmbedding, OpenAI } from "@llamaindex/openai";
 import { createLogger } from "@runt/lib";
 import type { Logger } from "@runt/lib";
 
@@ -24,44 +24,70 @@ export class VectorStoreService {
   private logger: Logger;
 
   constructor() {
+    console.log("🏗️  Creating VectorStoreService instance...");
     this.logger = vectorLogger;
-    this.configureEmbeddingModel();
+    
+    try {
+      this.configureModel();
+      console.log("✅ VectorStoreService created successfully");
+    } catch (error) {
+      console.error("❌ Failed to create VectorStoreService:", error);
+      throw error;
+    }
   }
 
   /**
    * Configure the embedding model based on available API keys and environment
    */
-  private configureEmbeddingModel(): void {
+  private configureModel(): void {
     // Only configure embeddings once globally to prevent "already imported" issues
     if (embeddingConfigured) {
+      console.log("🔧 Embedding model already configured, skipping");
       this.logger.debug("Embedding model already configured, skipping");
       return;
     }
+
+    console.log("🔧 Configuring embedding model...");
 
     try {
       // Use OpenAI embeddings if API key is available
       const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
       
       if (openaiApiKey) {
+        console.log("🔑 OpenAI API key found, configuring OpenAI embeddings...");
         this.logger.info("Configuring OpenAI embeddings for vector store");
-        Settings.embedModel = new OpenAIEmbedding({
-          model: "text-embedding-3-small", // Faster and cheaper than text-embedding-3-large
-          apiKey: openaiApiKey,
-        });
-        this.logger.info("OpenAI embeddings configured successfully");
-        embeddingConfigured = true;
-        return;
+        
+        try {
+          Settings.embedModel = new OpenAIEmbedding({
+            model: "text-embedding-3-small", // Faster and cheaper than text-embedding-3-large
+            apiKey: openaiApiKey,
+          });
+          Settings.llm = new OpenAI({
+            model: "gpt-4o-mini",
+            apiKey: openaiApiKey,
+          });
+          console.log("✅ OpenAI embeddings configured successfully");
+          this.logger.info("OpenAI embeddings configured successfully");
+          embeddingConfigured = true;
+          return;
+        } catch (openaiError) {
+          console.error("❌ Failed to configure OpenAI embeddings:", openaiError);
+          throw openaiError;
+        }
       }
 
       // No OpenAI API key available
+      console.log("⚠️  No OpenAI API key found, using default embeddings");
       this.logger.warn("No OpenAI API key found. Vector store will use default embeddings, but performance may be limited.");
       this.logger.info("To use optimal embeddings, set OPENAI_API_KEY environment variable");
       embeddingConfigured = true;
       
     } catch (error) {
+      console.error("❌ Failed to configure embedding model:", error);
       this.logger.error("Failed to configure embedding model", { error: String(error) });
       this.logger.warn("Using default embedding model as fallback");
       embeddingConfigured = true;
+      throw error; // Re-throw to surface the actual error
     }
   }
 
@@ -77,7 +103,12 @@ export class VectorStoreService {
     }
 
     this.isIngesting = true;
-    this.logger.info("Starting vector store ingestion...");
+    this.logger.info(`Starting vector store ingestion with ${mountData.length} mount paths...`);
+    
+    // Log mount data details
+    for (const { hostPath, files } of mountData) {
+      this.logger.info(`Mount path: ${hostPath} contains ${files.length} files`);
+    }
 
     this.ingestionPromise = this.performIngestion(mountData);
     
@@ -90,7 +121,18 @@ export class VectorStoreService {
       })
       .catch((error) => {
         this.isIngesting = false;
-        this.logger.error("Vector store ingestion failed", { error: String(error) });
+        this.logger.error("Vector store ingestion failed", { 
+          error: String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          mountDataLength: mountData.length,
+          totalFiles: mountData.reduce((sum, mount) => sum + mount.files.length, 0)
+        });
+        
+        // Also log to console for immediate visibility
+        console.error("❌ Vector store ingestion failed:", error);
+        if (error instanceof Error && error.stack) {
+          console.error("Stack trace:", error.stack);
+        }
       });
   }
 
@@ -100,77 +142,112 @@ export class VectorStoreService {
   private async performIngestion(
     mountData: Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }>,
   ): Promise<void> {
+    console.log("🔄 Starting performIngestion...");
+    
     const documents: Document[] = [];
     let totalFiles = 0;
     let ingestedFiles = 0;
     let skippedFiles = 0;
 
-    for (const { hostPath, files } of mountData) {
-      this.logger.info(`Processing mount path: ${hostPath}`);
+    try {
+      console.log(`📁 Processing ${mountData.length} mount paths...`);
       
-      for (const { path, content } of files) {
-        totalFiles++;
+      for (const { hostPath, files } of mountData) {
+        console.log(`📂 Processing mount path: ${hostPath} with ${files.length} files`);
+        this.logger.info(`Processing mount path: ${hostPath}`);
         
-        // Skip .git directories and hidden files
-        if (this.shouldSkipFile(path)) {
-          skippedFiles++;
-          this.logger.debug(`Skipping file: ${path} (filtered)`);
-          continue;
-        }
-
-        // Skip large files (> 50MB)
-        if (content.length > 50 * 1024 * 1024) {
-          skippedFiles++;
-          this.logger.debug(`Skipping file: ${path} (size: ${content.length} bytes > 50MB)`);
-          continue;
-        }
-
-        try {
-          // Convert Uint8Array to string
-          const textContent = new TextDecoder().decode(content);
+        for (const { path, content } of files) {
+          totalFiles++;
           
-          // Only process files that appear to be text-based
-          if (this.isTextFile(textContent)) {
-            const document = new Document({
-              text: textContent,
-              metadata: {
-                path,
-                hostPath,
-                size: content.length,
-              },
-            });
-            
-            documents.push(document);
-            ingestedFiles++;
-            this.logger.debug(`Prepared for ingestion: ${path}`);
-          } else {
+          // Skip .git directories and hidden files
+          if (this.shouldSkipFile(path)) {
             skippedFiles++;
-            this.logger.debug(`Skipping non-text file: ${path}`);
+            this.logger.debug(`Skipping file: ${path} (filtered)`);
+            continue;
           }
-        } catch (error) {
-          skippedFiles++;
-          this.logger.warn(`Failed to process file: ${path}`, { error: String(error) });
+
+          // Skip large files (> 50MB)
+          if (content.length > 50 * 1024 * 1024) {
+            skippedFiles++;
+            this.logger.debug(`Skipping file: ${path} (size: ${content.length} bytes > 50MB)`);
+            console.log(`⚠️  Skipping large file: ${path} (${content.length} bytes)`);
+            continue;
+          }
+
+          try {
+            // Convert Uint8Array to string
+            const textContent = new TextDecoder().decode(content);
+            
+            // Only process files that appear to be text-based
+            if (this.isTextFile(textContent)) {
+              const document = new Document({
+                text: textContent,
+                metadata: {
+                  path,
+                  hostPath,
+                  size: content.length,
+                },
+              });
+              
+              documents.push(document);
+              ingestedFiles++;
+              this.logger.debug(`Prepared for ingestion: ${path}`);
+              
+              // Log every 10th file for progress tracking
+              if (ingestedFiles % 10 === 0) {
+                console.log(`📄 Processed ${ingestedFiles} text files so far...`);
+              }
+            } else {
+              skippedFiles++;
+              this.logger.debug(`Skipping non-text file: ${path}`);
+            }
+          } catch (error) {
+            skippedFiles++;
+            console.error(`❌ Failed to process file: ${path}`, error);
+            this.logger.warn(`Failed to process file: ${path}`, { error: String(error) });
+          }
         }
       }
-    }
 
-    this.logger.info(
-      `File processing complete. Total: ${totalFiles}, Ingested: ${ingestedFiles}, Skipped: ${skippedFiles}`,
-    );
+      console.log(`📊 File processing complete. Total: ${totalFiles}, Ingested: ${ingestedFiles}, Skipped: ${skippedFiles}`);
+      this.logger.info(
+        `File processing complete. Total: ${totalFiles}, Ingested: ${ingestedFiles}, Skipped: ${skippedFiles}`,
+      );
 
-    if (documents.length > 0) {
-      const embeddingModel = this.getEmbeddingModelInfo();
-      this.logger.info(`Creating vector index from ${documents.length} documents using ${embeddingModel} embeddings...`);
+      if (documents.length > 0) {
+        const embeddingModel = this.getEmbeddingModelInfo();
+        console.log(`🚀 Creating vector index from ${documents.length} documents using ${embeddingModel} embeddings...`);
+        this.logger.info(`Creating vector index from ${documents.length} documents using ${embeddingModel} embeddings...`);
+        
+        try {
+          // Create the vector index from documents (uses default in-memory vector store)
+          console.log("📦 Calling VectorStoreIndex.fromDocuments...");
+          const index = await VectorStoreIndex.fromDocuments(documents);
+          console.log("✅ VectorStoreIndex created successfully");
+          
+          // Create query engine
+          console.log("🔧 Creating query engine...");
+          this.queryEngine = index.asQueryEngine();
+          console.log("✅ Query engine created successfully");
+          
+          console.log(`🎉 Vector index created successfully with ${documents.length} documents`);
+          this.logger.info(`Vector index created successfully with ${documents.length} documents`);
+        } catch (indexError) {
+          console.error("❌ Failed to create vector index:", indexError);
+          throw new Error(`Vector index creation failed: ${indexError instanceof Error ? indexError.message : String(indexError)}`);
+        }
+      } else {
+        console.log("⚠️  No documents to ingest");
+        this.logger.warn("No documents to ingest");
+      }
       
-      // Create the vector index from documents (uses default in-memory vector store)
-      const index = await VectorStoreIndex.fromDocuments(documents);
-      
-      // Create query engine
-      this.queryEngine = index.asQueryEngine();
-      
-      this.logger.info(`Vector index created successfully with ${documents.length} documents`);
-    } else {
-      this.logger.warn("No documents to ingest");
+      console.log("✅ performIngestion completed successfully");
+    } catch (error) {
+      console.error("❌ Error in performIngestion:", error);
+      if (error instanceof Error && error.stack) {
+        console.error("Stack trace:", error.stack);
+      }
+      throw error;
     }
   }
 
@@ -305,8 +382,20 @@ let vectorStoreInstance: VectorStoreService | null = null;
  * Get the singleton vector store instance
  */
 export function getVectorStore(): VectorStoreService {
+  console.log("🔍 getVectorStore() called");
+  
   if (!vectorStoreInstance) {
-    vectorStoreInstance = new VectorStoreService();
+    console.log("📦 Creating new VectorStoreService singleton...");
+    try {
+      vectorStoreInstance = new VectorStoreService();
+      console.log("✅ VectorStoreService singleton created successfully");
+    } catch (error) {
+      console.error("❌ Failed to create VectorStoreService singleton:", error);
+      throw error;
+    }
+  } else {
+    console.log("♻️  Returning existing VectorStoreService instance");
   }
+  
   return vectorStoreInstance;
 }
