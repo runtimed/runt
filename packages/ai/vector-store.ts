@@ -99,7 +99,7 @@ export class VectorStoreService {
    * Start asynchronous ingestion of files from mount data
    */
   async startIngestion(
-    mountData: Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }>,
+    mountData: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }> }>,
   ): Promise<void> {
     if (this.isIngesting || this.ingestionComplete) {
       this.logger.warn("Ingestion already started or completed");
@@ -144,7 +144,7 @@ export class VectorStoreService {
    * Perform the actual file ingestion using SimpleDirectoryReader
    */
   private async performIngestion(
-    mountData: Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }>,
+    mountData: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }> }>,
   ): Promise<void> {
     console.log("🔄 Starting performIngestion with SimpleDirectoryReader...");
     
@@ -300,14 +300,14 @@ export class VectorStoreService {
   private fixDocumentMetadataPaths(
     documents: Document[],
     tempDir: string,
-    mountData: Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }>,
+    mountData: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }> }>,
   ): void {
     // Create a mapping from temp paths to final mount paths
     const pathMapping = new Map<string, string>();
     
-    for (const { hostPath, files } of mountData) {
-      // Create sanitized mount point (same logic as pyodide-worker.ts)
-      const mountPoint = `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    for (const { hostPath, targetPath, files } of mountData) {
+      // Use specified target path or create sanitized mount point (same logic as pyodide-worker.ts)
+      const mountPoint = targetPath || `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
       
       for (const { path } of files) {
         const tempFilePath = join(tempDir, path);

@@ -35,6 +35,7 @@ export class RuntimeConfig {
   public readonly imageArtifactThresholdBytes: number;
   public readonly artifactClient: IArtifactClient;
   public readonly mountPaths: string[];
+  public readonly mountMappings: Array<{ hostPath: string; targetPath: string }>;
 
   constructor(options: RuntimeAgentOptions) {
     this.runtimeId = options.runtimeId;
@@ -47,6 +48,7 @@ export class RuntimeConfig {
     this.imageArtifactThresholdBytes = options.imageArtifactThresholdBytes ??
       DEFAULT_CONFIG.imageArtifactThresholdBytes;
     this.mountPaths = options.mountPaths ?? [];
+    this.mountMappings = options.mountMappings ?? [];
 
     // Use injected artifact client or create default one
     this.artifactClient = options.artifactClient ??
@@ -200,13 +202,18 @@ Optional Options:
                              (default: <runtime-type>-runtime-{pid})
   --runtime-type, -T <type>  Runtime type identifier
                              (default: "runtime")
-  --mount, -m <path>         Host directory to mount (can be specified multiple times)
+  --mount, -m <path>         Host directory to mount. Supports two formats:
+                             1. Simple: /path/to/local (mounts to auto-generated /mnt/ path)
+                             2. Docker-style: /path/to/local:/target/path
+                             Examples: --mount /data or --mount /data:/dataset
+                             (can be specified multiple times)
   --help, -h                 Show this help message
 
 Examples:
   deno run --allow-net --allow-env main.ts -n my-notebook -t your-token
   deno run --allow-net --allow-env main.ts --notebook=test --auth-token=abc123
   deno run --allow-net --allow-env main.ts -n my-notebook -t token --mount /path/to/data
+  deno run --allow-net --allow-env main.ts -n my-notebook -t token --mount /host/data:/data/dataset
 
 Environment Variables (fallback):
   NOTEBOOK_ID, AUTH_TOKEN, LIVESTORE_SYNC_URL, RUNTIME_ID, RUNTIME_TYPE
@@ -256,12 +263,33 @@ Logging Configuration:
     };
   }
 
-  // Handle mount paths
+  // Handle mount paths - support both simple paths and Docker-style local:target format
   if (parsed.mount && parsed.mount.length > 0) {
-    const mountPaths = Array.isArray(parsed.mount) ? parsed.mount : [parsed.mount];
+    const mountArgs = Array.isArray(parsed.mount) ? parsed.mount : [parsed.mount];
+    const mountPaths: string[] = [];
+    const mountMappings: Array<{ hostPath: string; targetPath: string }> = [];
+    
+    for (const mountArg of mountArgs) {
+      if (mountArg.includes(':')) {
+        // Docker-style mount: local-path:target-path
+        const [hostPath, targetPath] = mountArg.split(':', 2);
+        if (hostPath && targetPath) {
+          mountMappings.push({ hostPath, targetPath });
+          // Also add to mountPaths for backward compatibility
+          mountPaths.push(hostPath);
+        } else {
+          throw new Error(`Invalid mount format: ${mountArg}. Expected format: <local-path>:<target-path>`);
+        }
+      } else {
+        // Simple path format (legacy)
+        mountPaths.push(mountArg);
+      }
+    }
+    
     result = {
       ...result,
       mountPaths,
+      mountMappings,
     };
   }
 

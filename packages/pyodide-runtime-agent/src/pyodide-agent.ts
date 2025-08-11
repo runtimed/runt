@@ -43,6 +43,7 @@ interface PyodideAgentOptions {
   packages?: string[];
   discoverAiModels?: boolean;
   mountPaths?: string[];
+  mountMappings?: Array<{ hostPath: string; targetPath: string }>;
 }
 
 /**
@@ -119,6 +120,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     this.options = {
       ...options,
       mountPaths: options.mountPaths || config.mountPaths || [],
+      mountMappings: options.mountMappings || config.mountMappings || [],
     };
     this.onExecution(this.executeCell.bind(this));
     this.onCancellation(this.handlePyodideCancellation.bind(this));
@@ -197,9 +199,9 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       });
 
       // Read mount directories if provided
-      let mountData: Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }> = [];
+      let mountData: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }> }> = [];
       if (this.options.mountPaths && this.options.mountPaths.length > 0) {
-        mountData = await this.readMountDirectories(this.options.mountPaths);
+        mountData = await this.readMountDirectories(this.options.mountPaths, this.options.mountMappings);
         
         // Start vector store ingestion asynchronously
         const vectorStore = getVectorStore();
@@ -732,8 +734,11 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
   /**
    * Read directory contents recursively for mounting
    */
-  private async readMountDirectories(mountPaths: string[]): Promise<Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }>> {
-    const mountData: Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }> = [];
+  private async readMountDirectories(
+    mountPaths: string[], 
+    mountMappings?: Array<{ hostPath: string; targetPath: string }>
+  ): Promise<Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }> }>> {
+    const mountData: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }> }> = [];
 
     for (const hostPath of mountPaths) {
       try {
@@ -742,9 +747,16 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         // Recursively read all files in the directory
         await this.readDirectoryRecursive(hostPath, hostPath, files);
         
-        mountData.push({ hostPath, files });
+        // Find the target path from mount mappings
+        const targetPath = mountMappings?.find(m => m.hostPath === hostPath)?.targetPath;
         
-        this.logger.info(`Read ${files.length} files from mount path: ${hostPath}`);
+        // Only include targetPath if it's defined
+        const mountEntry = targetPath 
+          ? { hostPath, targetPath, files }
+          : { hostPath, files };
+        mountData.push(mountEntry);
+        
+        this.logger.info(`Read ${files.length} files from mount path: ${hostPath}${targetPath ? ` -> ${targetPath}` : ''}`);
       } catch (error) {
         this.logger.warn(`Failed to read mount directory: ${hostPath}`, { error });
       }

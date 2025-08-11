@@ -122,7 +122,7 @@ await run_registered_tool("${data.toolName}", kwargs_string)
 async function initializePyodide(
   buffer: SharedArrayBuffer,
   packagesToLoad?: string[],
-  mountData?: Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }>,
+  mountData?: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }> }>,
 ): Promise<void> {
   self.postMessage({
     type: "log",
@@ -252,13 +252,13 @@ async function initializePyodide(
       // /mnt might already exist, ignore error
     }
 
-    for (const { hostPath, files } of mountData) {
+    for (const { hostPath, targetPath, files } of mountData) {
       try {
-        // Create a mount point with sanitized name
-        const mountPoint = `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        // Use specified target path or create a mount point with sanitized name
+        const mountPoint = targetPath || `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
         
-        // Create the mount directory
-        pyodide.FS.mkdir(mountPoint);
+        // Create the mount directory and any parent directories
+        pyodide.FS.mkdirTree(mountPoint);
         
         // Copy all files to the virtual filesystem
         let fileCount = 0;
