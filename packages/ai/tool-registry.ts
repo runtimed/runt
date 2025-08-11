@@ -104,21 +104,7 @@ const NOTEBOOK_TOOLS: NotebookTool[] = [
       required: ["cellId"],
     },
   },
-  {
-    name: "retrieve_document",
-    description:
-      "Useful for answering natural language questions about the documents that have been mounted to the runtime using the --mount flag.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "The search query to find relevant document files",
-        },
-      },
-      required: ["query"],
-    },
-  },
+
   {
     name: "query_documents",
     description:
@@ -729,65 +715,6 @@ export async function handleToolCallWithResult(
       }
     }
 
-    case "retrieve_document": {
-      const query = String(args.query || "");
-
-      if (!query) {
-        logger.error("retrieve_document: query is required");
-        throw new Error("retrieve_document: query is required");
-      }
-
-      logger.info("Retrieving document paths from vector store", {
-        query,
-        queryLength: query.length,
-      });
-
-      try {
-        // Import vector store here to avoid circular dependencies
-        const { getVectorStore } = await import("./vector-store.ts");
-        const vectorStore = getVectorStore();
-        
-        // Check vector store status
-        const status = vectorStore.getStatus();
-        
-        if (status.isIngesting && !status.ingestionComplete) {
-          logger.info("Vector store ingestion in progress, waiting for completion");
-        }
-        
-        // Retrieve document information using the vector store retriever
-        const fileInfos = await vectorStore.retrieveFilePaths(query);
-        console.log("🔍 Retrieved file information:", fileInfos);
-
-        logger.info("Vector store document retrieval completed successfully", {
-          fileCount: fileInfos.length,
-        });
-
-        if (fileInfos.length > 0) {
-          const formattedResults = fileInfos.map(info => 
-            `Filename: ${info.filename}\nMounted Path: ${info.mountedPath}`
-          ).join('\n\n');
-          
-          return `Found ${fileInfos.length} matching file(s):\n\n${formattedResults}`;
-        } else {
-          return "No matching documents found for the query.";
-        }
-      } catch (error) {
-        logger.error("Vector store document retrieval failed", {
-          query,
-          error: String(error),
-        });
-        
-        if (error instanceof Error && error.message.includes("not initialized")) {
-          return "No documents have been mounted to search. Use the --mount flag when starting the runtime to add documents to the vector store.";
-        }
-        
-        throw new Error(
-          `Document retrieval failed: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
 
     default:
       // Handle unknown tools via Python worker if available
