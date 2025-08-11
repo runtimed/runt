@@ -18,6 +18,7 @@ let embeddingConfigured = false;
  */
 export class VectorStoreService {
   private retriever: any | null = null;
+  private queryEngine: any | null = null;
   private isIngesting = false;
   private ingestionComplete = false;
   private ingestionPromise: Promise<void> | null = null;
@@ -59,11 +60,11 @@ export class VectorStoreService {
         
         try {
           Settings.embedModel = new OpenAIEmbedding({
-            model: "text-embedding-3-small", // Faster and cheaper than text-embedding-3-large
+            model: "text-embedding-3-large", // Faster and cheaper than text-embedding-3-large
             apiKey: openaiApiKey,
-          });
+          })
           Settings.llm = new OpenAI({
-            model: "gpt-4o-mini",
+            model: "gpt-4o",
             apiKey: openaiApiKey,
           });
           console.log("✅ OpenAI embeddings configured successfully");
@@ -230,6 +231,11 @@ export class VectorStoreService {
           this.retriever = index.asRetriever();
           console.log("✅ Retriever created successfully");
           
+          // Create query engine
+          console.log("🔧 Creating query engine...");
+          this.queryEngine = index.asQueryEngine();
+          console.log("✅ Query engine created successfully");
+          
           console.log(`🎉 Vector index created successfully with ${documents.length} documents`);
           this.logger.info(`Vector index created successfully with ${documents.length} documents`);
         } catch (indexError) {
@@ -307,14 +313,14 @@ export class VectorStoreService {
       }
     }
 
-    if (!this.retriever) {
+    if (!this.queryEngine) {
       throw new Error("Vector store not initialized or no documents ingested");
     }
 
     this.logger.info(`Executing query: "${queryText}"`);
     
     try {
-      const response = await this.retriever.retrieve(queryText);
+      const response = await this.queryEngine.query({ query: queryText });
       console.log("🔍 Retriever response:", response);
       const result = response.toString();
       
@@ -323,6 +329,67 @@ export class VectorStoreService {
     } catch (error) {
       this.logger.error("Query execution failed", { error: String(error) });
       throw new Error(`Query failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Retrieve file paths that match a query
+   */
+  async retrieveFilePaths(queryText: string): Promise<string[]> {
+    // Check if ingestion is still in progress
+    if (this.isIngesting && !this.ingestionComplete) {
+      this.logger.info("File path retrieval requested while ingestion in progress, waiting for completion...");
+      
+      if (this.ingestionPromise) {
+        await this.ingestionPromise;
+      }
+    }
+
+    if (!this.retriever) {
+      throw new Error("Vector store not initialized or no documents ingested");
+    }
+
+    this.logger.info(`Executing file path retrieval for query: "${queryText}"`);
+
+    try {
+      const response = await this.retriever.retrieve({ query: queryText });
+      console.log("🔍 Retriever response for file paths:", response);
+      
+      // Extract file paths from the retrieval results
+      const filePaths: string[] = [];
+      
+      if (Array.isArray(response)) {
+        for (const item of response) {
+          if (item && item.node && item.node.metadata) {
+            const metadata = item.node.metadata;
+            if (metadata.path) {
+              // Use hostPath + path for full path, or just path if hostPath not available
+              const fullPath = metadata.hostPath ? `${metadata.hostPath}/${metadata.path}`.replace(/\/+/g, '/') : metadata.path;
+              filePaths.push(fullPath);
+            }
+          }
+        }
+      } else if (response && typeof response === 'object') {
+        // Handle single response object
+        if (response.node && response.node.metadata && response.node.metadata.path) {
+          const metadata = response.node.metadata;
+          const fullPath = metadata.hostPath ? `${metadata.hostPath}/${metadata.path}`.replace(/\/+/g, '/') : metadata.path;
+          filePaths.push(fullPath);
+        }
+      }
+
+      // Remove duplicates
+      const uniqueFilePaths = [...new Set(filePaths)];
+
+      this.logger.info(`File path retrieval completed successfully`, {
+        uniquePathCount: uniqueFilePaths.length,
+        totalItems: Array.isArray(response) ? response.length : 1,
+      });
+
+      return uniqueFilePaths;
+    } catch (error) {
+      this.logger.error("File path retrieval execution failed", { error: String(error) });
+      throw new Error(`File path retrieval failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -368,6 +435,7 @@ export class VectorStoreService {
    */
   reset(): void {
     this.queryEngine = null;
+    this.retriever = null;
     this.isIngesting = false;
     this.ingestionComplete = false;
     this.ingestionPromise = null;

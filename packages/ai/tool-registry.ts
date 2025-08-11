@@ -119,6 +119,21 @@ const NOTEBOOK_TOOLS: NotebookTool[] = [
       required: ["query"],
     },
   },
+  {
+    name: "retrieve_document",
+    description:
+      "Retrieve file information for documents that match a search query using the vector store retriever. This returns the filename and mounted directory path for files that are semantically similar to your query from mounted documents.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "The search query to find relevant document files",
+        },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 /**
@@ -217,27 +232,27 @@ export function createCell(
   // Generate unique cell ID
   const newCellId = `cell-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-  let cellBefore = null;
-  let cellAfter = null;
+  let cellBefore: CellData | null = null;
+  let cellAfter: CellData | null = null;
 
   switch (position) {
     case "before_current":
-      cellBefore = currentCellIndex > 0
-        ? cellList[currentCellIndex - 1] || null
+      cellBefore = currentCellIndex > 0 && cellList[currentCellIndex - 1]
+        ? cellList[currentCellIndex - 1]
         : null;
       cellAfter = cellList[currentCellIndex] || null;
       break;
     case "at_end":
-      cellBefore = cellList.length > 0
-        ? cellList[cellList.length - 1] || null
+      cellBefore = cellList.length > 0 && cellList[cellList.length - 1]
+        ? cellList[cellList.length - 1]
         : null;
       cellAfter = null;
       break;
     case "after_current":
     default:
       cellBefore = cellList[currentCellIndex] || null;
-      cellAfter = currentCellIndex < cellList.length - 1
-        ? cellList[currentCellIndex + 1] || null
+      cellAfter = currentCellIndex < cellList.length - 1 && cellList[currentCellIndex + 1]
+        ? cellList[currentCellIndex + 1]
         : null;
       break;
   }
@@ -708,6 +723,66 @@ export async function handleToolCallWithResult(
         
         throw new Error(
           `Document search failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    case "retrieve_document": {
+      const query = String(args.query || "");
+
+      if (!query) {
+        logger.error("retrieve_document: query is required");
+        throw new Error("retrieve_document: query is required");
+      }
+
+      logger.info("Retrieving document paths from vector store", {
+        query,
+        queryLength: query.length,
+      });
+
+      try {
+        // Import vector store here to avoid circular dependencies
+        const { getVectorStore } = await import("./vector-store.ts");
+        const vectorStore = getVectorStore();
+        
+        // Check vector store status
+        const status = vectorStore.getStatus();
+        
+        if (status.isIngesting && !status.ingestionComplete) {
+          logger.info("Vector store ingestion in progress, waiting for completion");
+        }
+        
+        // Retrieve document information using the vector store retriever
+        const fileInfos = await vectorStore.retrieveFilePaths(query);
+        console.log("🔍 Retrieved file information:", fileInfos);
+
+        logger.info("Vector store document retrieval completed successfully", {
+          fileCount: fileInfos.length,
+        });
+
+        if (fileInfos.length > 0) {
+          const formattedResults = fileInfos.map(info => 
+            `Filename: ${info.filename}\nMounted Path: ${info.mountedPath}`
+          ).join('\n\n');
+          
+          return `Found ${fileInfos.length} matching file(s):\n\n${formattedResults}`;
+        } else {
+          return "No matching documents found for the query.";
+        }
+      } catch (error) {
+        logger.error("Vector store document retrieval failed", {
+          query,
+          error: String(error),
+        });
+        
+        if (error instanceof Error && error.message.includes("not initialized")) {
+          return "No documents have been mounted to search. Use the --mount flag when starting the runtime to add documents to the vector store.";
+        }
+        
+        throw new Error(
+          `Document retrieval failed: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
