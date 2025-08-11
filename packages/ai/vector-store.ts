@@ -17,7 +17,7 @@ let embeddingConfigured = false;
  * Vector store service for managing document ingestion and querying
  */
 export class VectorStoreService {
-  private queryEngine: any | null = null;
+  private retriever: any | null = null;
   private isIngesting = false;
   private ingestionComplete = false;
   private ingestionPromise: Promise<void> | null = null;
@@ -225,10 +225,10 @@ export class VectorStoreService {
           const index = await VectorStoreIndex.fromDocuments(documents);
           console.log("✅ VectorStoreIndex created successfully");
           
-          // Create query engine
-          console.log("🔧 Creating query engine...");
-          this.queryEngine = index.asQueryEngine();
-          console.log("✅ Query engine created successfully");
+          // Create retriever
+          console.log("🔧 Creating retriever...");
+          this.retriever = index.asRetriever();
+          console.log("✅ Retriever created successfully");
           
           console.log(`🎉 Vector index created successfully with ${documents.length} documents`);
           this.logger.info(`Vector index created successfully with ${documents.length} documents`);
@@ -307,14 +307,15 @@ export class VectorStoreService {
       }
     }
 
-    if (!this.queryEngine) {
+    if (!this.retriever) {
       throw new Error("Vector store not initialized or no documents ingested");
     }
 
     this.logger.info(`Executing query: "${queryText}"`);
     
     try {
-      const response = await this.queryEngine.query({ query: queryText });
+      const response = await this.retriever.retrieve(queryText);
+      console.log("🔍 Retriever response:", response);
       const result = response.toString();
       
       this.logger.info(`Query completed successfully`);

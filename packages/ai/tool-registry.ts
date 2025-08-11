@@ -689,6 +689,7 @@ export async function handleToolCallWithResult(
         
         // Query the vector store (will wait for ingestion if needed)
         const result = await vectorStore.query(query);
+        console.log("🔍 Query result:", result);
 
         logger.info("Vector store query completed successfully", {
           resultLength: result.length,
