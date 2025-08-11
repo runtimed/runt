@@ -104,17 +104,31 @@ const NOTEBOOK_TOOLS: NotebookTool[] = [
       required: ["cellId"],
     },
   },
-
   {
     name: "query_documents",
     description:
-      "Useful for retrieving metadata about the documents that have been mounted to the runtime using the --mount flag.",
+      "Useful for answering natural language questions about the files that have been mounted to the runtime using the --mount flag.",
     parameters: {
       type: "object",
       properties: {
         query: {
           type: "string",
           description: "The search query to find relevant documents or content",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "find_mounted_file",
+    description:
+      "Find the full file path to mounted data files based on a query. Use this tool whenever you need to write code cells that require loading data files. This tool returns file paths that can be used in data loading functions like pd.read_csv(), np.loadtxt(), or open(). Always call this tool before writing code that loads data to ensure you have the correct file paths.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query to find data files (e.g., 'CSV files', 'customer data', 'sales report', etc.)",
         },
       },
       required: ["query"],
@@ -709,6 +723,64 @@ export async function handleToolCallWithResult(
         
         throw new Error(
           `Document search failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    case "find_mounted_file": {
+      const query = String(args.query || "");
+
+      if (!query) {
+        logger.error("find_mounted_file: query is required");
+        throw new Error("find_mounted_file: query is required");
+      }
+
+      logger.info("Finding mounted file paths", {
+        query,
+        queryLength: query.length,
+      });
+
+      try {
+        // Import vector store here to avoid circular dependencies
+        const { getVectorStore } = await import("./vector-store.ts");
+        const vectorStore = getVectorStore();
+        
+        // Check vector store status
+        const status = vectorStore.getStatus();
+        
+        if (status.isIngesting && !status.ingestionComplete) {
+          logger.info("Vector store ingestion in progress, waiting for completion");
+        }
+        
+        // Retrieve file paths using the vector store (will wait for ingestion if needed)
+        const filePaths = await vectorStore.retrieveFilePaths(query);
+        console.log("📁 Found file paths:", filePaths);
+
+        logger.info("File path retrieval completed successfully", {
+          pathCount: filePaths.length,
+        });
+
+        if (filePaths.length === 0) {
+          return "No matching files found for the query. Please refine your search or check if files have been mounted using the --mount flag.";
+        }
+
+        // Format the response with file paths
+        const response = `Found ${filePaths.length} matching file(s):\n\n${filePaths.map(path => `• ${path}`).join('\n')}`;
+        return response;
+      } catch (error) {
+        logger.error("File path retrieval failed", {
+          query,
+          error: String(error),
+        });
+        
+        if (error instanceof Error && error.message.includes("not initialized")) {
+          return "No files have been mounted to search. Use the --mount flag when starting the runtime to add files to the vector store.";
+        }
+        
+        throw new Error(
+          `File path search failed: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
