@@ -11,8 +11,10 @@
     ".": "./mod.ts"
   },
   "imports": {
+    "@llamaindex/openai": "npm:@llamaindex/openai@^0.4.16",
     "@runt/lib": "jsr:@runt/lib@^0.9.2",
     "@runt/schema": "jsr:@runt/schema@^0.9.2",
+    "llamaindex": "npm:llamaindex@^0.11.26",
     "npm:pyodide": "npm:pyodide@^0.27.7",
     "@std/async": "jsr:@std/async@^1.0.0",
     "@std/path": "jsr:@std/path@^1.0.0",
@@ -20,7 +22,7 @@
     "@openai/openai": "jsr:@openai/openai@^4.98.0",
     "npm:ollama": "npm:ollama@^0.5.16",
     "strip-ansi": "npm:strip-ansi@^7.1.0",
-    "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk@^1.0.5"
+    "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk@^1.0.5",
   },
   "tasks": {
     "check": "deno check mod.ts src/*.ts examples/*.ts",
@@ -39,6 +41,7 @@
       "tool-registry.ts",
       "media-utils.ts",
       "notebook-context.ts",
+      "vector-store.ts",
       "README.md"
     ],
     "exclude": ["**/*.test.ts", "**/test_*.ts", "examples/"]

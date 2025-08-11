@@ -34,6 +34,7 @@ import {
   gatherNotebookContext,
   type NotebookTool,
 } from "@runt/ai";
+import { getVectorStore } from "@runt/ai";
 
 /**
  * Configuration options for PyodideRuntimeAgent
@@ -199,6 +200,12 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       let mountData: Array<{ hostPath: string; files: Array<{ path: string; content: Uint8Array }> }> = [];
       if (this.options.mountPaths && this.options.mountPaths.length > 0) {
         mountData = await this.readMountDirectories(this.options.mountPaths);
+        
+        // Start vector store ingestion asynchronously
+        const vectorStore = getVectorStore();
+        vectorStore.startIngestion(mountData).catch((error) => {
+          this.logger.error("Vector store ingestion failed", { error: String(error) });
+        });
       }
 
       // Initialize Pyodide in worker

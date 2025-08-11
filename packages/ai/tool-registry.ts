@@ -104,6 +104,21 @@ const NOTEBOOK_TOOLS: NotebookTool[] = [
       required: ["cellId"],
     },
   },
+  {
+    name: "query_documents",
+    description:
+      "Search through documents that have been mounted to the runtime using the --mount flag. This uses a vector store to find relevant content based on semantic similarity to your query. The query will wait for document ingestion to complete if it's still in progress.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "The search query to find relevant documents or content",
+        },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 /**
@@ -645,6 +660,57 @@ export async function handleToolCallWithResult(
 
       // Wait for execution to complete and return the result
       return await executionCompletePromise;
+    }
+
+    case "query_documents": {
+      const query = String(args.query || "");
+
+      if (!query) {
+        logger.error("query_documents: query is required");
+        throw new Error("query_documents: query is required");
+      }
+
+      logger.info("Querying vector store", {
+        query,
+        queryLength: query.length,
+      });
+
+      try {
+        // Import vector store here to avoid circular dependencies
+        const { getVectorStore } = await import("./vector-store.ts");
+        const vectorStore = getVectorStore();
+        
+        // Check vector store status
+        const status = vectorStore.getStatus();
+        
+        if (status.isIngesting && !status.ingestionComplete) {
+          logger.info("Vector store ingestion in progress, waiting for completion");
+        }
+        
+        // Query the vector store (will wait for ingestion if needed)
+        const result = await vectorStore.query(query);
+
+        logger.info("Vector store query completed successfully", {
+          resultLength: result.length,
+        });
+
+        return result;
+      } catch (error) {
+        logger.error("Vector store query failed", {
+          query,
+          error: String(error),
+        });
+        
+        if (error instanceof Error && error.message.includes("not initialized")) {
+          return "No documents have been mounted to search. Use the --mount flag when starting the runtime to add documents to the vector store.";
+        }
+        
+        throw new Error(
+          `Document search failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
 
     default:
