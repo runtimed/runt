@@ -44,7 +44,9 @@ interface PyodideAgentOptions {
   discoverAiModels?: boolean;
   mountPaths?: string[];
   mountMappings?: Array<{ hostPath: string; targetPath: string }>;
+  outputDir?: string;
   indexMountedFiles?: boolean;
+  mountReadonly?: boolean;
 }
 
 /**
@@ -122,7 +124,9 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       ...options,
       mountPaths: options.mountPaths || config.mountPaths || [],
       mountMappings: options.mountMappings || config.mountMappings || [],
+      outputDir: options.outputDir || config.outputDir,
       indexMountedFiles: options.indexMountedFiles ?? config.indexMountedFiles ?? false,
+      mountReadonly: options.mountReadonly ?? config.mountReadonly ?? false,
     };
     this.onExecution(this.executeCell.bind(this));
     this.onCancellation(this.handlePyodideCancellation.bind(this));
@@ -201,9 +205,14 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       });
 
       // Read mount directories if provided
-      let mountData: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }> }> = [];
+      let mountData: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }>; readonly?: boolean }> = [];
       if (this.options.mountPaths && this.options.mountPaths.length > 0) {
         mountData = await this.readMountDirectories(this.options.mountPaths, this.options.mountMappings);
+        
+        // Add readonly flag to all mount entries if mountReadonly is enabled
+        if (this.options.mountReadonly) {
+          mountData = mountData.map(entry => ({ ...entry, readonly: true }));
+        }
         
         // Start vector store ingestion asynchronously only if indexing is enabled
         if (this.options.indexMountedFiles) {
@@ -517,6 +526,11 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           result(this.formatRichOutput(executionResult.result));
         }
 
+        // Sync /outputs directory back to host if outputDir is configured
+        if (this.options.outputDir) {
+          await this.syncOutputsToHost();
+        }
+
         return { success: true };
       } finally {
         abortSignal.removeEventListener("abort", abortHandler);
@@ -807,6 +821,64 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       }
     } catch (error) {
       this.logger.warn(`Failed to read directory: ${currentPath}`, { error });
+    }
+  }
+
+  /**
+   * Sync files from /outputs directory back to host filesystem
+   */
+  private async syncOutputsToHost(): Promise<void> {
+    if (!this.options.outputDir) {
+      return;
+    }
+
+    try {
+      // Get files from /outputs directory via worker
+      const result = await this.sendWorkerMessage("sync_outputs", {}) as {
+        files: Array<{ path: string; content: Uint8Array }>;
+      };
+
+      if (!result.files || result.files.length === 0) {
+        this.logger.debug("No files found in /outputs directory to sync");
+        return;
+      }
+
+      // Ensure output directory exists on host
+      try {
+        await Deno.mkdir(this.options.outputDir, { recursive: true });
+      } catch (error) {
+        // Directory might already exist, ignore error
+      }
+
+      // Write each file to the host filesystem
+      let syncedCount = 0;
+      for (const { path, content } of result.files) {
+        try {
+          const hostPath = `${this.options.outputDir}/${path}`;
+          
+          // Create parent directories if needed
+          const parentDir = hostPath.substring(0, hostPath.lastIndexOf('/'));
+          if (parentDir !== this.options.outputDir) {
+            try {
+              await Deno.mkdir(parentDir, { recursive: true });
+            } catch (error) {
+              // Directory might already exist, ignore
+            }
+          }
+          
+          // Write file to host
+          await Deno.writeFile(hostPath, content);
+          syncedCount++;
+        } catch (error) {
+          this.logger.warn(`Failed to sync file ${path} to host: ${error}`);
+        }
+      }
+
+      if (syncedCount > 0) {
+        this.logger.info(`Synced ${syncedCount} files from /outputs to ${this.options.outputDir}`);
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to sync outputs to host: ${error}`);
     }
   }
 }

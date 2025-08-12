@@ -43,6 +43,8 @@ EOF
 
 ## Running the Pyodide Agent with Mounted Directories
 
+### Standard (Writable) Mounting
+
 ```bash
 deno run --allow-all "jsr:@runt/pyodide-runtime-agent" \
   --notebook demo-notebook \
@@ -51,13 +53,26 @@ deno run --allow-all "jsr:@runt/pyodide-runtime-agent" \
   --mount /tmp/runt-demo-scripts
 ```
 
+### Read-Only Mounting (Recommended for Data Protection)
+
+```bash
+deno run --allow-all "jsr:@runt/pyodide-runtime-agent" \
+  --notebook demo-notebook \
+  --auth-token demo-token \
+  --mount /tmp/runt-demo-data \
+  --mount /tmp/runt-demo-scripts \
+  --mount-readonly
+```
+
+With `--mount-readonly`, all mounted files will be protected from modification, ensuring your original data remains unchanged.
+
 You should see log messages like:
 ```
 Read 3 files from mount path: /tmp/runt-demo-data
 Read 1 files from mount path: /tmp/runt-demo-scripts
 Mounting 2 host directories...
-Successfully mounted '/tmp/runt-demo-data' at '/mnt/_tmp_runt-demo-data' with 3 files
-Successfully mounted '/tmp/runt-demo-scripts' at '/mnt/_tmp_runt-demo-scripts' with 1 files
+Successfully mounted '/tmp/runt-demo-data' at '/mnt/_tmp_runt-demo-data' with 3 files (read-only)
+Successfully mounted '/tmp/runt-demo-scripts' at '/mnt/_tmp_runt-demo-scripts' with 1 files (read-only)
 ```
 
 ## Using Mounted Directories in Python Cells
@@ -100,15 +115,31 @@ for key, value in results.items():
     print(f"  {key}: {value}")
 ```
 
-### Cell 3: Save results back to mounted directory
+### Cell 3: Save results (behavior depends on mount mode)
 ```python
-# Create a summary and save it back
+# Create a summary
 summary_df = pd.DataFrame([results])
-summary_df.to_csv('/mnt/_tmp_runt-demo-data/analysis_summary.csv', index=False)
 
-print("Summary saved to analysis_summary.csv")
+# If mounted as read-only, this will fail with PermissionError
+try:
+    summary_df.to_csv('/mnt/_tmp_runt-demo-data/analysis_summary.csv', index=False)
+    print("Summary saved to mounted directory")
+except PermissionError:
+    print("Cannot write to read-only mount - saving to /outputs instead")
+    summary_df.to_csv('/outputs/analysis_summary.csv', index=False)
+    print("Summary saved to /outputs directory")
 
-# Note: Files saved to the virtual filesystem are not automatically 
+# Also test other operations that will fail with read-only mounts
+try:
+    import os
+    os.mkdir('/mnt/_tmp_runt-demo-data/new_folder')
+    print("Directory created in mount")
+except PermissionError:
+    print("Cannot create directories in read-only mount")
+    os.makedirs('/outputs/new_folder', exist_ok=True)
+    print("Directory created in /outputs instead")
+
+# Note: Files saved to mounted directories (if writable) are not automatically 
 # written back to the host - this is by design for security
 ```
 
@@ -174,5 +205,19 @@ This mounting functionality enables:
 - **Workflow Continuity**: Work with existing file-based workflows
 - **Development Efficiency**: Test and iterate without manual file copying
 - **Security**: Isolated virtual filesystem prevents accidental host modifications
+- **Data Protection**: Read-only mounting ensures important data cannot be modified accidentally
+- **Safe Experimentation**: Work with production data safely using read-only mounts
+
+### Read-Only Mounting Benefits
+
+Using `--mount-readonly` provides additional safety:
+
+- **Prevents Data Corruption**: Original files cannot be accidentally modified or deleted
+- **Prevents File System Pollution**: New files and directories cannot be created in mounted locations
+- **Enables Safe Production Data Access**: Work with live datasets without risk
+- **Enforces Good Practices**: Encourages using `/outputs` for results instead of modifying inputs
+- **Reduces Security Risks**: Limits potential damage from untrusted or experimental code
+- **Maintains Data Integrity**: Ensures reproducible analysis with unchanged source data
+- **Complete Directory Protection**: Both files and directories are protected from all write operations
 
 The mount feature bridges the gap between local development and notebook-based data analysis, making Runt a powerful tool for both exploration and production data workflows. 

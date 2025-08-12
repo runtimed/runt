@@ -74,6 +74,10 @@ export interface RuntimeAgentOptions {
   readonly mountMappings?: Array<{ hostPath: string; targetPath: string }>;
   /** Whether to index mounted files in vector store for AI search */
   readonly indexMountedFiles?: boolean;
+  /** Whether to mount directories as read-only */
+  readonly mountReadonly?: boolean;
+  /** Host directory where files from /outputs will be synced */
+  readonly outputDir?: string;
   /** Environment-related options for the runtime */
   readonly environmentOptions: Readonly<{
     /** Path to the python executable to use (default: "python3") */

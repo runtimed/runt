@@ -37,6 +37,8 @@ export class RuntimeConfig {
   public readonly mountPaths: string[];
   public readonly mountMappings: Array<{ hostPath: string; targetPath: string }>;
   public readonly indexMountedFiles: boolean;
+  public readonly mountReadonly: boolean;
+  public readonly outputDir?: string;
 
   constructor(options: RuntimeAgentOptions) {
     this.runtimeId = options.runtimeId;
@@ -51,6 +53,8 @@ export class RuntimeConfig {
     this.mountPaths = options.mountPaths ?? [];
     this.mountMappings = options.mountMappings ?? [];
     this.indexMountedFiles = options.indexMountedFiles ?? false;
+    this.mountReadonly = options.mountReadonly ?? false;
+    this.outputDir = options.outputDir;
 
     // Use injected artifact client or create default one
     this.artifactClient = options.artifactClient ??
@@ -171,8 +175,9 @@ export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
       "runtime-package-manager",
       "image-artifact-threshold",
       "mount",
+      "output-dir",
     ],
-    boolean: ["help", "runtime-env-externally-managed", "index-mounted-files"],
+    boolean: ["help", "runtime-env-externally-managed", "index-mounted-files", "mount-readonly"],
     alias: {
       n: "notebook",
       t: "auth-token",
@@ -209,6 +214,9 @@ Optional Options:
                              2. Docker-style: /path/to/local:/target/path
                              Examples: --mount /data or --mount /data:/dataset
                              (can be specified multiple times)
+  --output-dir <path>        Host directory to sync /outputs to after each cell execution
+  --mount-readonly           Mount directories as read-only (prevents modification)
+                             (only applies when --mount is also used)
   --index-mounted-files      Enable vector store indexing of mounted files for AI search
                              (only applies when --mount is also used)
   --help, -h                 Show this help message
@@ -302,6 +310,23 @@ Logging Configuration:
     result = {
       ...result,
       indexMountedFiles: true,
+    };
+  }
+
+  // Handle mount-readonly flag
+  if (parsed["mount-readonly"]) {
+    result = {
+      ...result,
+      mountReadonly: true,
+    };
+  }
+
+  // Handle output-dir option
+  const outputDir = parsed["output-dir"] || Deno.env.get("OUTPUT_DIR");
+  if (outputDir && typeof outputDir === "string") {
+    result = {
+      ...result,
+      outputDir,
     };
   }
 
