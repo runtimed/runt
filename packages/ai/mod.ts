@@ -533,6 +533,20 @@ export async function executeAI(
       return { success: false, error: "Execution cancelled" };
     }
 
+    // Extract file path references from the prompt (pattern: @/path/to/file)
+    const filePathPattern = /@([^\s]+)/g;
+    const filePathMatches = prompt.match(filePathPattern);
+    const extractedFilePaths = filePathMatches 
+      ? filePathMatches.map(match => match.substring(1)) // Remove the @ symbol
+      : [];
+
+    // Build enhanced system prompt
+    const baseSystemPrompt = "You are an AI assistant in a collaborative notebook environment. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You can also execute code yourself using tool calls. Use the visible outputs and your execution capabilities to help analyze data and answer questions.";
+    
+    const enhancedSystemPrompt = extractedFilePaths.length > 0
+      ? `${baseSystemPrompt}\n\n${extractedFilePaths.map(path => `The following question directly pertains to ${path} which you can query using the query tool.`).join('\n')}`
+      : baseSystemPrompt;
+
     const provider = cell.aiProvider || "openai";
     const model = cell.aiModel || getDefaultModel(provider);
 
@@ -559,7 +573,7 @@ export async function executeAI(
       if (isOllamaReady) {
         const openaiMessages = buildConversationMessages(
           notebookContext,
-          "You are an AI assistant in a collaborative notebook environment. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You can also execute code yourself using tool calls. Use the visible outputs and your execution capabilities to help analyze data and answer questions.",
+          enhancedSystemPrompt,
           prompt,
         );
 
@@ -693,7 +707,7 @@ The system will automatically pull models if they're not available locally.`;
 
       const conversationMessages = buildConversationMessages(
         notebookContext,
-        "You are an AI assistant in a collaborative notebook environment. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You can also execute code yourself using tool calls. Use the visible outputs and your execution capabilities to help analyze data and answer questions.",
+        enhancedSystemPrompt,
         prompt,
       );
 
@@ -757,7 +771,7 @@ The system will automatically pull models if they're not available locally.`;
       // Use conversation-based approach for better AI interaction
       const conversationMessages = buildConversationMessages(
         notebookContext,
-        "You are an AI assistant in a collaborative notebook environment. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You can also execute code yourself using tool calls. Use the visible outputs and your execution capabilities to help analyze data and answer questions.",
+        enhancedSystemPrompt,
         prompt,
       );
 
