@@ -2,7 +2,7 @@
 
 The AI agent now supports three classes of tools
 
-- built-in tools: create cell, modify cell, and execute cell
+- built-in tools: create cell, modify cell, execute cell, and vector store tools (when files are mounted)
 - user-defined tools: A Python function decorated with with `@tool`
 - MCP (Model Context Protocol) tools: Configure MCPs with the `~/.runt/mcp.json`
   file
@@ -55,6 +55,43 @@ In order to register your function for the AI Agent call it must
 When functions are executed by the AI Agent it uses the full state of your
 Python kernel. You can depend on variables executed in other cells and utilized
 all of your installed packages.
+
+## Vector store tools
+
+When you mount directories using the `--mount` flag and enable indexing with `--index-mounted-files`, the AI agent automatically gains access to additional vector store tools for working with your mounted files:
+
+### `query_documents`
+
+Search and retrieve relevant content from mounted files based on natural language queries.
+
+```text
+Example: "Find functions that handle user authentication"
+```
+
+### `find_mounted_file`
+
+Find specific file paths based on search criteria. This is particularly useful when you need to write code that loads data files.
+
+```text
+Example: "Find CSV files containing sales data"
+```
+
+### `list_indexed_files`
+
+Lists all file paths that have been successfully indexed from mounted directories. Use this tool to see what files are available for analysis.
+
+```text
+Example: Returns all mounted file paths like:
+• /mnt/project_data/sales.csv
+• /mnt/project_data/customers.json
+• /mnt/scripts/analysis.py
+```
+
+These tools are automatically available when:
+
+1. You start the runtime with `--mount /path/to/directory`
+2. Files are successfully indexed into the vector store
+3. The indexing process has completed
 
 ## MCP integration
 

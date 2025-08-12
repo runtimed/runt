@@ -138,6 +138,16 @@ const VECTOR_STORE_TOOLS: NotebookTool[] = [
       required: ["query"],
     },
   },
+  {
+    name: "list_indexed_files",
+    description:
+      "List all file paths that have been indexed from mounted directories. This tool returns the full paths of all files that were successfully mounted and indexed for AI search. Use this tool when you need to see all available files in the mounted directories.",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
 ];
 
 // Combined notebook tools
@@ -811,6 +821,51 @@ export async function handleToolCallWithResult(
       }
     }
 
+    case "list_indexed_files": {
+      logger.info("Listing all indexed file paths");
+
+      try {
+        // Import vector store here to avoid circular dependencies
+        const { getVectorStore } = await import("./vector-store.ts");
+        const vectorStore = getVectorStore();
+        
+        // Check vector store status
+        const status = vectorStore.getStatus();
+        
+        if (status.isIngesting && !status.ingestionComplete) {
+          logger.info("Vector store ingestion in progress, waiting for completion");
+        }
+        
+        // Get all indexed file paths
+        const filePaths = await vectorStore.getAllIndexedFilePaths();
+
+        logger.info("Retrieved all indexed file paths successfully", {
+          pathCount: filePaths.length,
+        });
+
+        if (filePaths.length === 0) {
+          return "No indexed files found. Please ensure files have been mounted using the --mount flag and indexing is enabled.";
+        }
+
+        // Format the response with all file paths
+        const response = `Found ${filePaths.length} indexed file(s) in mounted directories:\n\n${filePaths.map(path => `• ${path}`).join('\n')}`;
+        return response;
+      } catch (error) {
+        logger.error("Failed to list indexed files", {
+          error: String(error),
+        });
+        
+        if (error instanceof Error && error.message.includes("not initialized")) {
+          return "No files have been mounted and indexed. Use the --mount flag when starting the runtime to add files to the vector store.";
+        }
+        
+        throw new Error(
+          `Failed to list indexed files: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
 
     default:
       // Handle unknown tools via Python worker if available

@@ -26,6 +26,7 @@ export class VectorStoreService {
   private ingestionComplete = false;
   private ingestionPromise: Promise<void> | null = null;
   private logger: Logger;
+  private indexedFilePaths: string[] = [];
 
   constructor() {
     this.logger = vectorLogger;
@@ -141,6 +142,9 @@ export class VectorStoreService {
     let ingestedFiles = 0;
     let skippedFiles = 0;
     let tempDir: string | null = null;
+    
+    // Clear previous indexed files list
+    this.indexedFilePaths = [];
 
     try {
       this.logger.debug(`Processing ${mountData.length} mount paths...`);
@@ -150,8 +154,11 @@ export class VectorStoreService {
       this.logger.debug(`Created temporary directory: ${tempDir}`);
       
       // Write all files to temporary directory maintaining structure
-      for (const { hostPath, files } of mountData) {
+      for (const { hostPath, targetPath, files } of mountData) {
         this.logger.debug(`Processing mount path: ${hostPath} with ${files.length} files`);
+        
+        // Calculate the final mount point for this hostPath
+        const mountPoint = targetPath || `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
         
         for (const { path, content } of files) {
           totalFiles++;
@@ -182,7 +189,11 @@ export class VectorStoreService {
             await Deno.writeFile(tempFilePath, content);
             ingestedFiles++;
             
-            this.logger.debug(`Written to temp: ${tempFilePath}`);
+            // Track the final mounted path for this successfully processed file
+            const finalMountPath = `${mountPoint}/${path}`;
+            this.indexedFilePaths.push(finalMountPath);
+            
+            this.logger.debug(`Written to temp: ${tempFilePath} -> final path: ${finalMountPath}`);
             
             // Log every 100th file for progress tracking (reduced frequency)
             if (ingestedFiles % 100 === 0) {
@@ -251,7 +262,7 @@ export class VectorStoreService {
         this.logger.warn("No files to ingest");
       }
       
-      this.logger.info("Vector store ingestion completed successfully");
+      this.logger.info(`Vector store ingestion completed successfully. Tracked ${this.indexedFilePaths.length} indexed file paths.`);
     } catch (error) {
       this.logger.error("Error in performIngestion", { 
         error: String(error),
@@ -452,6 +463,35 @@ export class VectorStoreService {
   }
 
   /**
+   * Get all indexed file paths without requiring a query
+   */
+  async getAllIndexedFilePaths(): Promise<string[]> {
+    // Check if ingestion is still in progress
+    if (this.isIngesting && !this.ingestionComplete) {
+      this.logger.info("File path listing requested while ingestion in progress, waiting for completion...");
+      
+      if (this.ingestionPromise) {
+        await this.ingestionPromise;
+      }
+    }
+
+    if (!this.ingestionComplete) {
+      throw new Error("Vector store not initialized or no documents ingested");
+    }
+
+    this.logger.info("Retrieving all indexed file paths from stored list");
+
+    // Return the stored list of indexed file paths (already sorted during ingestion)
+    const sortedPaths = [...this.indexedFilePaths].sort();
+
+    this.logger.info("Retrieved all indexed file paths successfully", {
+      totalFiles: sortedPaths.length,
+    });
+
+    return sortedPaths;
+  }
+
+  /**
    * Get the current status of the vector store
    */
   getStatus(): {
@@ -497,6 +537,7 @@ export class VectorStoreService {
     this.isIngesting = false;
     this.ingestionComplete = false;
     this.ingestionPromise = null;
+    this.indexedFilePaths = [];
     embeddingConfigured = false; // Allow reconfiguration after reset
     this.logger.info("Vector store reset");
   }
