@@ -409,7 +409,7 @@ const getDefaultModel = (provider: string): string => {
 export { OpenAIClient, RuntOllamaClient };
 export { closeMCPClient, getMCPClient, MCPClient } from "./mcp-client.ts";
 export { getAllTools } from "./tool-registry.ts";
-export { getVectorStore, VectorStoreService } from "./vector-store.ts";
+export { getVectorStore, VectorStoreService, enableVectorStoreIndexing, isVectorStoreIndexingEnabled } from "./vector-store.ts";
 
 /**
  * Discover available AI models from all configured providers

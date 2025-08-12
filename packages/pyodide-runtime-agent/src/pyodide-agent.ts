@@ -34,7 +34,7 @@ import {
   gatherNotebookContext,
   type NotebookTool,
 } from "@runt/ai";
-import { getVectorStore } from "@runt/ai";
+
 
 /**
  * Configuration options for PyodideRuntimeAgent
@@ -44,6 +44,7 @@ interface PyodideAgentOptions {
   discoverAiModels?: boolean;
   mountPaths?: string[];
   mountMappings?: Array<{ hostPath: string; targetPath: string }>;
+  indexMountedFiles?: boolean;
 }
 
 /**
@@ -121,6 +122,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       ...options,
       mountPaths: options.mountPaths || config.mountPaths || [],
       mountMappings: options.mountMappings || config.mountMappings || [],
+      indexMountedFiles: options.indexMountedFiles ?? config.indexMountedFiles ?? false,
     };
     this.onExecution(this.executeCell.bind(this));
     this.onCancellation(this.handlePyodideCancellation.bind(this));
@@ -203,11 +205,18 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       if (this.options.mountPaths && this.options.mountPaths.length > 0) {
         mountData = await this.readMountDirectories(this.options.mountPaths, this.options.mountMappings);
         
-        // Start vector store ingestion asynchronously
-        const vectorStore = getVectorStore();
-        vectorStore.startIngestion(mountData).catch((error) => {
-          this.logger.error("Vector store ingestion failed", { error: String(error) });
-        });
+        // Start vector store ingestion asynchronously only if indexing is enabled
+        if (this.options.indexMountedFiles) {
+          const { getVectorStore, enableVectorStoreIndexing } = await import("@runt/ai");
+          enableVectorStoreIndexing();
+          const vectorStore = getVectorStore();
+          vectorStore.startIngestion(mountData).catch((error) => {
+            this.logger.error("Vector store ingestion failed", { error: String(error) });
+          });
+          this.logger.info("Vector store indexing enabled for mounted files");
+        } else {
+          this.logger.info("Vector store indexing disabled - mounted files will not be indexed for AI search");
+        }
       }
 
       // Initialize Pyodide in worker

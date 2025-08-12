@@ -39,8 +39,8 @@ interface ToolParameter {
   required?: string[]; // For object types
 }
 
-// Define available notebook tools
-const NOTEBOOK_TOOLS: NotebookTool[] = [
+// Define basic notebook tools (always available)
+const BASIC_NOTEBOOK_TOOLS: NotebookTool[] = [
   {
     name: "create_cell",
     description:
@@ -104,6 +104,10 @@ const NOTEBOOK_TOOLS: NotebookTool[] = [
       required: ["cellId"],
     },
   },
+];
+
+// Define vector store tools (only available when indexing is enabled)
+const VECTOR_STORE_TOOLS: NotebookTool[] = [
   {
     name: "query_documents",
     description:
@@ -135,6 +139,9 @@ const NOTEBOOK_TOOLS: NotebookTool[] = [
     },
   },
 ];
+
+// Combined notebook tools
+const NOTEBOOK_TOOLS = [...BASIC_NOTEBOOK_TOOLS, ...VECTOR_STORE_TOOLS];
 
 /**
  * Convert MCP parameter schema to ToolParameter format
@@ -177,6 +184,14 @@ function convertMcpParameterToToolParameter(
  */
 export async function getAllTools(): Promise<NotebookTool[]> {
   try {
+    // Import vector store checking function to avoid circular dependencies
+    const { isVectorStoreIndexingEnabled } = await import("./vector-store.ts");
+    
+    // Determine which notebook tools to include based on vector store indexing status
+    const notebookTools = isVectorStoreIndexingEnabled() 
+      ? [...BASIC_NOTEBOOK_TOOLS, ...VECTOR_STORE_TOOLS]
+      : BASIC_NOTEBOOK_TOOLS;
+
     const mcpClient = await getMCPClient();
     const mcpTools = mcpClient.getTools();
 
@@ -200,12 +215,23 @@ export async function getAllTools(): Promise<NotebookTool[]> {
       },
     }));
 
-    return [...NOTEBOOK_TOOLS, ...convertedMcpTools];
+    return [...notebookTools, ...convertedMcpTools];
   } catch (error) {
     toolLogger.warn("Failed to get MCP tools, using only notebook tools", {
       error: String(error),
     });
-    return [...NOTEBOOK_TOOLS];
+    
+    // Import vector store checking function to avoid circular dependencies
+    try {
+      const { isVectorStoreIndexingEnabled } = await import("./vector-store.ts");
+      const notebookTools = isVectorStoreIndexingEnabled() 
+        ? [...BASIC_NOTEBOOK_TOOLS, ...VECTOR_STORE_TOOLS]
+        : BASIC_NOTEBOOK_TOOLS;
+      return [...notebookTools];
+    } catch (vectorStoreError) {
+      // If we can't check vector store status, default to basic tools only
+      return [...BASIC_NOTEBOOK_TOOLS];
+    }
   }
 }
 

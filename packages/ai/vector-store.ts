@@ -524,6 +524,22 @@ export class VectorStoreService {
 
 // Global singleton instance
 let vectorStoreInstance: VectorStoreService | null = null;
+// Global flag to track if vector store indexing is enabled
+let vectorStoreIndexingEnabled = false;
+
+/**
+ * Enable vector store indexing globally
+ */
+export function enableVectorStoreIndexing(): void {
+  vectorStoreIndexingEnabled = true;
+}
+
+/**
+ * Check if vector store indexing is enabled
+ */
+export function isVectorStoreIndexingEnabled(): boolean {
+  return vectorStoreIndexingEnabled;
+}
 
 /**
  * Get the singleton vector store instance
