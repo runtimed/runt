@@ -704,7 +704,6 @@ export async function handleToolCallWithResult(
         
         // Query the vector store (will wait for ingestion if needed)
         const result = await vectorStore.query(query);
-        console.log("🔍 Query result:", result);
 
         logger.info("Vector store query completed successfully", {
           resultLength: result.length,
@@ -756,7 +755,6 @@ export async function handleToolCallWithResult(
         
         // Retrieve file paths using the vector store (will wait for ingestion if needed)
         const filePaths = await vectorStore.retrieveFilePaths(query);
-        console.log("📁 Found file paths:", filePaths);
 
         logger.info("File path retrieval completed successfully", {
           pathCount: filePaths.length,

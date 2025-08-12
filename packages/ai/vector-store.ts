@@ -399,7 +399,6 @@ export class VectorStoreService {
     
     try {
       const response = await this.queryEngine.query({ query: queryText });
-      console.log("🔍 Retriever response:", response);
       const result = response.toString();
       
       this.logger.info(`Query completed successfully`);
@@ -431,7 +430,6 @@ export class VectorStoreService {
 
     try {
       const response = await this.retriever.retrieve({ query: queryText });
-      console.log("🔍 Retriever response for file paths:", response);
       
       // Extract file paths from the retrieval results
       const filePaths: string[] = [];
