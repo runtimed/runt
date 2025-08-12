@@ -408,6 +408,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       ) as NotebookTool[];
 
       try {
+        const maxIterations = this.config.aiMaxIterations || 10;
         return await executeAI(
           aiContext,
           notebookContext,
@@ -415,6 +416,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           this.store,
           this.config.sessionId,
           notebookTools,
+          maxIterations,
         );
       } finally {
         this.currentAIExecution = null;

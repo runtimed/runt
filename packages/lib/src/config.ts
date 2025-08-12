@@ -39,6 +39,7 @@ export class RuntimeConfig {
   public readonly indexMountedFiles: boolean;
   public readonly mountReadonly: boolean;
   public readonly outputDir?: string;
+  public readonly aiMaxIterations: number;
 
   constructor(options: RuntimeAgentOptions) {
     this.runtimeId = options.runtimeId;
@@ -55,6 +56,7 @@ export class RuntimeConfig {
     this.indexMountedFiles = options.indexMountedFiles ?? false;
     this.mountReadonly = options.mountReadonly ?? false;
     this.outputDir = options.outputDir;
+    this.aiMaxIterations = options.aiMaxIterations ?? 10;
 
     // Use injected artifact client or create default one
     this.artifactClient = options.artifactClient ??
@@ -176,6 +178,7 @@ export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
       "image-artifact-threshold",
       "mount",
       "output-dir",
+      "ai-max-iterations",
     ],
     boolean: ["help", "runtime-env-externally-managed", "index-mounted-files", "mount-readonly"],
     alias: {
@@ -219,6 +222,8 @@ Optional Options:
                              (only applies when --mount is also used)
   --index-mounted-files      Enable vector store indexing of mounted files for AI search
                              (only applies when --mount is also used)
+  --ai-max-iterations <num>  Maximum iterations for AI agent tool calling loops
+                             (default: 10)
   --help, -h                 Show this help message
 
 Examples:
@@ -364,6 +369,19 @@ Logging Configuration:
       result = {
         ...result,
         imageArtifactThresholdBytes: threshold,
+      };
+    }
+  }
+
+  // Parse AI max iterations
+  const aiMaxIterationsArg = parsed["ai-max-iterations"] ||
+    Deno.env.get("AI_MAX_ITERATIONS");
+  if (aiMaxIterationsArg) {
+    const aiMaxIterations = parseInt(aiMaxIterationsArg, 10);
+    if (!isNaN(aiMaxIterations) && aiMaxIterations > 0) {
+      result = {
+        ...result,
+        aiMaxIterations,
       };
     }
   }

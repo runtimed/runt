@@ -513,6 +513,7 @@ export async function executeAI(
   store: Store<typeof schema>,
   sessionId: string,
   notebookTools: NotebookTool[] = [],
+  maxIterations: number = 10,
 ): Promise<{ success: boolean; error?: string }> {
   const {
     cell,
@@ -602,7 +603,7 @@ export async function executeAI(
             provider: "ollama",
             enableTools: true,
             currentCellId: cell.id,
-            maxIterations: 10,
+            maxIterations,
             interruptSignal: abortSignal,
             onToolCall: async (toolCall) => {
               logger.info("AI requested tool call", {
@@ -726,7 +727,7 @@ The system will automatically pull models if they're not available locally.`;
           provider: "groq",
           enableTools: true,
           currentCellId: cell.id,
-          maxIterations: 10,
+          maxIterations,
           interruptSignal: abortSignal,
           onToolCall: async (toolCall) => {
             logger.info("AI requested tool call", {
@@ -798,7 +799,7 @@ The system will automatically pull models if they're not available locally.`;
           provider,
           enableTools: true,
           currentCellId: cell.id,
-          maxIterations: 10,
+          maxIterations,
           interruptSignal: abortSignal,
           onToolCall: async (toolCall) => {
             logger.info("AI requested tool call", {

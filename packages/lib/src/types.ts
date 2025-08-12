@@ -89,6 +89,8 @@ export interface RuntimeAgentOptions {
     /** If true, treat the environment as externally managed (default: false) */
     readonly runtimeEnvExternallyManaged?: boolean;
   }>;
+  /** Maximum iterations for AI agent tool calling loops (default: 10) */
+  readonly aiMaxIterations?: number;
 }
 
 /**
