@@ -22,6 +22,7 @@ let embeddingConfigured = false;
 export class VectorStoreService {
   private retriever: any | null = null;
   private queryEngine: any | null = null;
+  private index: VectorStoreIndex | null = null;
   private isIngesting = false;
   private ingestionComplete = false;
   private ingestionPromise: Promise<void> | null = null;
@@ -237,17 +238,17 @@ export class VectorStoreService {
           if (documents.length > 0) {
             // Create the vector index from documents
             this.logger.debug("Creating VectorStoreIndex from documents...");
-            const index = await VectorStoreIndex.fromDocuments(documents);
+            this.index = await VectorStoreIndex.fromDocuments(documents);
             this.logger.debug("VectorStoreIndex created successfully");
             
             // Create retriever
             this.logger.debug("Creating retriever...");
-            this.retriever = index.asRetriever();
+            this.retriever = this.index.asRetriever();
             this.logger.debug("Retriever created successfully");
             
             // Create query engine
             this.logger.debug("Creating query engine...");
-            this.queryEngine = index.asQueryEngine();
+            this.queryEngine = this.index.asQueryEngine();
             this.logger.debug("Query engine created successfully");
             
             this.logger.info(`Vector index created successfully with ${documents.length} documents`);
@@ -492,6 +493,76 @@ export class VectorStoreService {
   }
 
   /**
+   * Get all nodes corresponding to a specific file path from the index docstore
+   */
+  async getNodesByFilePath(filePath: string): Promise<any[]> {
+    // Check if ingestion is still in progress
+    if (this.isIngesting && !this.ingestionComplete) {
+      this.logger.info("Node retrieval requested while ingestion in progress, waiting for completion...");
+      
+      if (this.ingestionPromise) {
+        await this.ingestionPromise;
+      }
+    }
+
+    if (!this.index) {
+      throw new Error("Vector store not initialized or no documents ingested");
+    }
+
+    this.logger.info(`Retrieving nodes for file path: "${filePath}"`);
+
+    try {
+      // Access the docstore from the index
+      const docstore = this.index.docStore;
+      
+      if (!docstore) {
+        throw new Error("Docstore not available from index");
+      }
+
+      // Get all nodes from the docstore
+      const allNodes: any[] = [];
+      
+      // The docstore should have a method to get all nodes
+      // LlamaIndex typically exposes nodes through various methods
+      if (typeof docstore.getNodes === 'function') {
+        const nodes = await docstore.getNodes();
+        allNodes.push(...Object.values(nodes));
+      } else if (typeof docstore.getAllNodes === 'function') {
+        const nodes = await docstore.getAllNodes();
+        allNodes.push(...nodes);
+      } else if (docstore.docs && typeof docstore.docs === 'object') {
+        // Fallback: if docstore has a docs property
+        allNodes.push(...Object.values(docstore.docs));
+      } else {
+        this.logger.warn("Unable to access nodes from docstore - unknown docstore structure");
+        return [];
+      }
+
+      // Filter nodes by the specified file path
+      const matchingNodes = allNodes.filter(node => {
+        if (!node || !node.metadata) {
+          return false;
+        }
+        
+        const metadata = node.metadata;
+        const nodePath = metadata.file_path || metadata.path;
+        
+        return nodePath === filePath;
+      });
+
+      this.logger.info(`Found ${matchingNodes.length} nodes for file path: "${filePath}"`);
+      
+      return matchingNodes;
+    } catch (error) {
+      this.logger.error("Failed to retrieve nodes by file path", { 
+        error: String(error),
+        filePath 
+      });
+      throw new Error(`Node retrieval failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
    * Get the current status of the vector store
    */
   getStatus(): {
@@ -534,6 +605,7 @@ export class VectorStoreService {
   reset(): void {
     this.queryEngine = null;
     this.retriever = null;
+    this.index = null;
     this.isIngesting = false;
     this.ingestionComplete = false;
     this.ingestionPromise = null;
