@@ -151,7 +151,7 @@ const VECTOR_STORE_TOOLS: NotebookTool[] = [
 ];
 
 // Combined notebook tools
-const NOTEBOOK_TOOLS = [...BASIC_NOTEBOOK_TOOLS, ...VECTOR_STORE_TOOLS];
+const NOTEBOOK_TOOLS = [ ...VECTOR_STORE_TOOLS, ...BASIC_NOTEBOOK_TOOLS];
 
 /**
  * Convert MCP parameter schema to ToolParameter format
