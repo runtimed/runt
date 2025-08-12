@@ -28,16 +28,8 @@ export class VectorStoreService {
   private logger: Logger;
 
   constructor() {
-    console.log("🏗️  Creating VectorStoreService instance...");
     this.logger = vectorLogger;
-    
-    try {
-      this.configureModel();
-      console.log("✅ VectorStoreService created successfully");
-    } catch (error) {
-      console.error("❌ Failed to create VectorStoreService:", error);
-      throw error;
-    }
+    // Don't configure model in constructor - defer until needed
   }
 
   /**
@@ -46,19 +38,17 @@ export class VectorStoreService {
   private configureModel(): void {
     // Only configure embeddings once globally to prevent "already imported" issues
     if (embeddingConfigured) {
-      console.log("🔧 Embedding model already configured, skipping");
       this.logger.debug("Embedding model already configured, skipping");
       return;
     }
 
-    console.log("🔧 Configuring embedding model...");
+    this.logger.debug("Configuring embedding model...");
 
     try {
       // Use OpenAI embeddings if API key is available
       const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
       
       if (openaiApiKey) {
-        console.log("🔑 OpenAI API key found, configuring OpenAI embeddings...");
         this.logger.info("Configuring OpenAI embeddings for vector store");
         
         try {
@@ -70,24 +60,21 @@ export class VectorStoreService {
             model: "gpt-4o",
             apiKey: openaiApiKey,
           });
-          console.log("✅ OpenAI embeddings configured successfully");
           this.logger.info("OpenAI embeddings configured successfully");
           embeddingConfigured = true;
           return;
         } catch (openaiError) {
-          console.error("❌ Failed to configure OpenAI embeddings:", openaiError);
+          this.logger.error("Failed to configure OpenAI embeddings", { error: String(openaiError) });
           throw openaiError;
         }
       }
 
       // No OpenAI API key available
-      console.log("⚠️  No OpenAI API key found, using default embeddings");
       this.logger.warn("No OpenAI API key found. Vector store will use default embeddings, but performance may be limited.");
       this.logger.info("To use optimal embeddings, set OPENAI_API_KEY environment variable");
       embeddingConfigured = true;
       
     } catch (error) {
-      console.error("❌ Failed to configure embedding model:", error);
       this.logger.error("Failed to configure embedding model", { error: String(error) });
       this.logger.warn("Using default embedding model as fallback");
       embeddingConfigured = true;
@@ -109,10 +96,18 @@ export class VectorStoreService {
     this.isIngesting = true;
     this.logger.info(`Starting vector store ingestion with ${mountData.length} mount paths...`);
     
-    // Log mount data details
-    for (const { hostPath, files } of mountData) {
-      this.logger.info(`Mount path: ${hostPath} contains ${files.length} files`);
+    // Configure model before starting ingestion
+    try {
+      this.configureModel();
+    } catch (error) {
+      this.logger.error("Failed to configure vector store model", { error: String(error) });
+      this.isIngesting = false;
+      return;
     }
+    
+    // Log mount data details (reduced logging)
+    const totalFiles = mountData.reduce((sum, mount) => sum + mount.files.length, 0);
+    this.logger.info(`Vector store ingestion starting: ${mountData.length} mount paths, ${totalFiles} total files`);
 
     this.ingestionPromise = this.performIngestion(mountData);
     
@@ -131,12 +126,6 @@ export class VectorStoreService {
           mountDataLength: mountData.length,
           totalFiles: mountData.reduce((sum, mount) => sum + mount.files.length, 0)
         });
-        
-        // Also log to console for immediate visibility
-        console.error("❌ Vector store ingestion failed:", error);
-        if (error instanceof Error && error.stack) {
-          console.error("Stack trace:", error.stack);
-        }
       });
   }
 
@@ -146,7 +135,7 @@ export class VectorStoreService {
   private async performIngestion(
     mountData: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }> }>,
   ): Promise<void> {
-    console.log("🔄 Starting performIngestion with SimpleDirectoryReader...");
+    this.logger.info("Starting vector store ingestion with SimpleDirectoryReader");
     
     let totalFiles = 0;
     let ingestedFiles = 0;
@@ -154,16 +143,15 @@ export class VectorStoreService {
     let tempDir: string | null = null;
 
     try {
-      console.log(`📁 Processing ${mountData.length} mount paths...`);
+      this.logger.debug(`Processing ${mountData.length} mount paths...`);
       
       // Create temporary directory for file processing
       tempDir = await Deno.makeTempDir({ prefix: "runt_vector_ingestion_" });
-      console.log(`📁 Created temporary directory: ${tempDir}`);
+      this.logger.debug(`Created temporary directory: ${tempDir}`);
       
       // Write all files to temporary directory maintaining structure
       for (const { hostPath, files } of mountData) {
-        console.log(`📂 Processing mount path: ${hostPath} with ${files.length} files`);
-        this.logger.info(`Processing mount path: ${hostPath}`);
+        this.logger.debug(`Processing mount path: ${hostPath} with ${files.length} files`);
         
         for (const { path, content } of files) {
           totalFiles++;
@@ -179,7 +167,6 @@ export class VectorStoreService {
           if (content.length > 50 * 1024 * 1024) {
             skippedFiles++;
             this.logger.debug(`Skipping file: ${path} (size: ${content.length} bytes > 50MB)`);
-            console.log(`⚠️  Skipping large file: ${path} (${content.length} bytes)`);
             continue;
           }
 
@@ -197,32 +184,29 @@ export class VectorStoreService {
             
             this.logger.debug(`Written to temp: ${tempFilePath}`);
             
-            // Log every 20th file for progress tracking
-            if (ingestedFiles % 20 === 0) {
-              console.log(`📄 Written ${ingestedFiles} files to temp directory...`);
+            // Log every 100th file for progress tracking (reduced frequency)
+            if (ingestedFiles % 100 === 0) {
+              this.logger.info(`Vector store ingestion progress: ${ingestedFiles} files processed`);
             }
           } catch (error) {
             skippedFiles++;
-            console.error(`❌ Failed to write file: ${path}`, error);
             this.logger.warn(`Failed to write file: ${path}`, { error: String(error) });
           }
         }
       }
 
-      console.log(`📊 File writing complete. Total: ${totalFiles}, Written: ${ingestedFiles}, Skipped: ${skippedFiles}`);
       this.logger.info(
         `File writing complete. Total: ${totalFiles}, Written: ${ingestedFiles}, Skipped: ${skippedFiles}`,
       );
 
       if (ingestedFiles > 0) {
         const embeddingModel = this.getEmbeddingModelInfo();
-        console.log(`🚀 Loading documents from temp directory using SimpleDirectoryReader with ${embeddingModel} embeddings...`);
-        this.logger.info(`Loading documents from temp directory using SimpleDirectoryReader`);
+        this.logger.info(`Loading documents from temp directory using SimpleDirectoryReader with ${embeddingModel} embeddings`);
         
         try {
           // Create SimpleDirectoryReader with TextFileReader as default
           const reader = new SimpleDirectoryReader();
-          console.log("📦 Loading documents with SimpleDirectoryReader...");
+          this.logger.debug("Loading documents with SimpleDirectoryReader...");
           
           const documents = await reader.loadData({
             directoryPath: tempDir,
@@ -230,62 +214,58 @@ export class VectorStoreService {
             numWorkers: 4, // Use 4 concurrent workers for better performance
           });
           
-          console.log(`✅ Loaded ${documents.length} documents successfully`);
+          this.logger.info(`Loaded ${documents.length} documents successfully`);
           
           // Fix document metadata to use final pyodide mount paths instead of temp paths
           if (documents.length > 0 && tempDir) {
-            console.log("🔧 Fixing document metadata to use final mount paths...");
+            this.logger.debug("Fixing document metadata to use final mount paths...");
             this.fixDocumentMetadataPaths(documents, tempDir, mountData);
-            console.log("✅ Document metadata paths fixed");
+            this.logger.debug("Document metadata paths fixed");
           }
           
           if (documents.length > 0) {
             // Create the vector index from documents
-            console.log("📦 Creating VectorStoreIndex from documents...");
+            this.logger.debug("Creating VectorStoreIndex from documents...");
             const index = await VectorStoreIndex.fromDocuments(documents);
-            console.log("✅ VectorStoreIndex created successfully");
+            this.logger.debug("VectorStoreIndex created successfully");
             
             // Create retriever
-            console.log("🔧 Creating retriever...");
+            this.logger.debug("Creating retriever...");
             this.retriever = index.asRetriever();
-            console.log("✅ Retriever created successfully");
+            this.logger.debug("Retriever created successfully");
             
             // Create query engine
-            console.log("🔧 Creating query engine...");
+            this.logger.debug("Creating query engine...");
             this.queryEngine = index.asQueryEngine();
-            console.log("✅ Query engine created successfully");
+            this.logger.debug("Query engine created successfully");
             
-            console.log(`🎉 Vector index created successfully with ${documents.length} documents`);
             this.logger.info(`Vector index created successfully with ${documents.length} documents`);
           } else {
-            console.log("⚠️  No documents loaded by SimpleDirectoryReader");
             this.logger.warn("No documents loaded by SimpleDirectoryReader");
           }
         } catch (indexError) {
-          console.error("❌ Failed to create vector index:", indexError);
+          this.logger.error("Failed to create vector index", { error: String(indexError) });
           throw new Error(`Vector index creation failed: ${indexError instanceof Error ? indexError.message : String(indexError)}`);
         }
       } else {
-        console.log("⚠️  No files to ingest");
         this.logger.warn("No files to ingest");
       }
       
-      console.log("✅ performIngestion completed successfully");
+      this.logger.info("Vector store ingestion completed successfully");
     } catch (error) {
-      console.error("❌ Error in performIngestion:", error);
-      if (error instanceof Error && error.stack) {
-        console.error("Stack trace:", error.stack);
-      }
+      this.logger.error("Error in performIngestion", { 
+        error: String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       throw error;
     } finally {
       // Clean up temporary directory
       if (tempDir) {
         try {
-          console.log(`🧹 Cleaning up temporary directory: ${tempDir}`);
+          this.logger.debug(`Cleaning up temporary directory: ${tempDir}`);
           await Deno.remove(tempDir, { recursive: true });
-          console.log("✅ Temporary directory cleaned up");
+          this.logger.debug("Temporary directory cleaned up");
         } catch (cleanupError) {
-          console.warn("⚠️  Failed to clean up temporary directory:", cleanupError);
           this.logger.warn(`Failed to clean up temporary directory: ${tempDir}`, { 
             error: String(cleanupError) 
           });
@@ -545,19 +525,14 @@ export function isVectorStoreIndexingEnabled(): boolean {
  * Get the singleton vector store instance
  */
 export function getVectorStore(): VectorStoreService {
-  console.log("🔍 getVectorStore() called");
-  
   if (!vectorStoreInstance) {
-    console.log("📦 Creating new VectorStoreService singleton...");
     try {
       vectorStoreInstance = new VectorStoreService();
-      console.log("✅ VectorStoreService singleton created successfully");
+      vectorLogger.debug("VectorStoreService singleton created");
     } catch (error) {
-      console.error("❌ Failed to create VectorStoreService singleton:", error);
+      vectorLogger.error("Failed to create VectorStoreService singleton", { error: String(error) });
       throw error;
     }
-  } else {
-    console.log("♻️  Returning existing VectorStoreService instance");
   }
   
   return vectorStoreInstance;

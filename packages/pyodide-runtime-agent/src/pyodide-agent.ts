@@ -207,13 +207,19 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         
         // Start vector store ingestion asynchronously only if indexing is enabled
         if (this.options.indexMountedFiles) {
-          const { getVectorStore, enableVectorStoreIndexing } = await import("@runt/ai");
-          enableVectorStoreIndexing();
-          const vectorStore = getVectorStore();
-          vectorStore.startIngestion(mountData).catch((error) => {
-            this.logger.error("Vector store ingestion failed", { error: String(error) });
+          // Initialize vector store in background to avoid blocking pyodide startup
+          Promise.resolve().then(async () => {
+            try {
+              const { getVectorStore, enableVectorStoreIndexing } = await import("@runt/ai");
+              enableVectorStoreIndexing();
+              const vectorStore = getVectorStore();
+              await vectorStore.startIngestion(mountData);
+              this.logger.info("Vector store indexing completed for mounted files");
+            } catch (error) {
+              this.logger.error("Vector store ingestion failed", { error: String(error) });
+            }
           });
-          this.logger.info("Vector store indexing enabled for mounted files");
+          this.logger.info("Vector store indexing enabled - initialization started in background");
         } else {
           this.logger.info("Vector store indexing disabled - mounted files will not be indexed for AI search");
         }
