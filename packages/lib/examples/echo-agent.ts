@@ -22,11 +22,11 @@ try {
   console.error(error instanceof Error ? error.message : String(error));
   console.error("\nExample usage:");
   console.error(
-    "  deno run --allow-all --env-file=.env echo-agent.ts --notebook my-notebook --auth-token your-token",
+    "  deno run --allow-all --env-file=.env echo-agent.ts --notebook my-notebook --auth-token your-runt-api-key",
   );
   console.error("\nOr set environment variables:");
   console.error("  NOTEBOOK_ID=my-notebook");
-  console.error("  AUTH_TOKEN=your-token");
+  console.error("  RUNT_API_KEY=your-runt-api-key");
   Deno.exit(1);
 }
 
