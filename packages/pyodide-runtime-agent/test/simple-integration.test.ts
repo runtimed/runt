@@ -143,6 +143,26 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
       Deno.env.delete("AUTH_TOKEN");
     }
   });
+
+  await t.step("prioritizes RUNT_API_KEY over AUTH_TOKEN", () => {
+    Deno.env.set("RUNTIME_ID", "env-runtime");
+    Deno.env.set("NOTEBOOK_ID", "env-notebook");
+    Deno.env.set("AUTH_TOKEN", "fallback-token");
+    Deno.env.set("RUNT_API_KEY", "api-key-token");
+
+    try {
+      const agent = new PyodideRuntimeAgent([]);
+
+      assertEquals(agent.config.runtimeId, "env-runtime");
+      assertEquals(agent.config.notebookId, "env-notebook");
+      assertEquals(agent.config.authToken, "api-key-token"); // Should use RUNT_API_KEY
+    } finally {
+      Deno.env.delete("RUNTIME_ID");
+      Deno.env.delete("NOTEBOOK_ID");
+      Deno.env.delete("AUTH_TOKEN");
+      Deno.env.delete("RUNT_API_KEY");
+    }
+  });
 });
 
 Deno.test("PyodideRuntimeAgent - Methods", async (t) => {

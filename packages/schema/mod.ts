@@ -30,7 +30,7 @@ export * from "./queries/index.ts";
  * - Runtime agents: clientId = runtimeId (e.g. "python-runtime-123")
  * - Notebook runners: clientId = "automation-client" (headless execution)
  * - TUI clients: clientId = "tui-client" (terminal interface)
- * - Service clients use AUTH_TOKEN for authentication
+ * - Service clients use RUNT_API_KEY for user authentication (AUTH_TOKEN as service fallback)
  * - ClientId must be non-numeric to prevent user impersonation
  *
  * USER CLIENTS (runtime: false/undefined):

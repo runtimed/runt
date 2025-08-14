@@ -7,7 +7,7 @@ Deno.test("PythonRuntimeAgent - Basic Functionality (Stub)", async (t) => {
   const env = {
     RUNTIME_ID: "test-runtime",
     NOTEBOOK_ID: "test-notebook",
-    AUTH_TOKEN: "test-token",
+    RUNT_API_KEY: "test-token",
   };
   for (const [k, v] of Object.entries(env)) {
     Deno.env.set(k, v);
