@@ -44,6 +44,7 @@ import { decodeBase64 } from "@std/encoding/base64";
  */
 export class RuntimeAgent {
   #store!: Store<typeof schema>;
+  protected logger!: ReturnType<typeof createLogger>;
   private isShuttingDown = false;
   private processedExecutions = new Set<string>();
 
@@ -68,7 +69,7 @@ export class RuntimeAgent {
     try {
       await this.handlers.onStartup?.(this.config.environmentOptions);
 
-      const logger = createLogger(`${this.config.runtimeType}-agent`, {
+      this.logger = createLogger(`${this.config.runtimeType}-agent`, {
         context: {
           notebookId: this.config.notebookId,
           runtimeId: this.config.runtimeId,
@@ -76,10 +77,24 @@ export class RuntimeAgent {
         },
       });
 
-      logger.info("Starting runtime agent", {
+      this.logger.info("Starting runtime agent", {
+        runtimeId: this.config.runtimeId,
         runtimeType: this.config.runtimeType,
         notebookId: this.config.notebookId,
       });
+
+      // Discover authenticated user identity
+      const userId = await this.discoverUserIdentity();
+      this.logger.info("Authenticated as user", { userId });
+
+      // Pretty console output for successful authentication
+      const syncUrl = new URL(this.config.syncUrl);
+      const protocol = syncUrl.protocol === "wss:" ? "https:" : "http:";
+      const apiHost = `${protocol}//${syncUrl.host}`;
+
+      console.log(`\n🔐 \x1b[32m✅ Successfully authenticated\x1b[0m`);
+      console.log(`   \x1b[36mEndpoint:\x1b[0m ${apiHost}`);
+      console.log(`   \x1b[36mUser ID:\x1b[0m  ${userId}`);
 
       // Create LiveStore adapter for real-time collaboration
       const adapter = makeAdapter({
@@ -99,7 +114,7 @@ export class RuntimeAgent {
           runtime: true,
           runtimeId: this.config.runtimeId,
           sessionId: this.config.sessionId,
-          clientId: this.config.runtimeId,
+          clientId: userId,
         },
       });
 
@@ -134,7 +149,20 @@ export class RuntimeAgent {
       }));
 
       await this.handlers.onConnected?.();
-      logger.info("Runtime agent connected and ready");
+      this.logger.info("Runtime agent connected and ready");
+
+      // Pretty console output for successful connection
+      const connectionUrl = new URL(this.config.syncUrl);
+      const hostname = connectionUrl.hostname;
+
+      console.log(`\n🚀 \x1b[32m✅ Runtime agent connected and ready!\x1b[0m`);
+      console.log(`   \x1b[36mNotebook ID:\x1b[0m ${this.config.notebookId}`);
+      console.log(`   \x1b[36mConnected to:\x1b[0m ${hostname}`);
+      console.log(`   \x1b[36mRuntime Type:\x1b[0m ${this.config.runtimeType}`);
+      console.log(`   \x1b[36mSession ID:\x1b[0m  ${this.config.sessionId}`);
+      console.log(
+        `\n\x1b[33m💡 Runtime is now listening for notebook events...\x1b[0m\n`,
+      );
 
       // Set up shutdown handlers
       this.setupShutdownHandlers();
@@ -149,7 +177,113 @@ export class RuntimeAgent {
   }
 
   /**
-   * Stop the runtime agent and clean up resources
+   * Discover authenticated user identity via /api/me endpoint
+   */
+  private async discoverUserIdentity(): Promise<string> {
+    const logger = createLogger(`${this.config.runtimeType}-agent`);
+
+    // Skip authentication in test environments
+    const isTestEnvironment = Deno.env.get("DENO_TESTING") === "true" ||
+      Deno.args.some((arg) => arg.includes("test"));
+
+    if (isTestEnvironment) {
+      logger.debug("Skipping authentication in test environment");
+      return "test-user-id";
+    }
+
+    // Convert sync URL to API base URL
+    const syncUrl = new URL(this.config.syncUrl);
+    // Convert WebSocket URLs to HTTP URLs
+    const protocol = syncUrl.protocol === "wss:" ? "https:" : "http:";
+    const apiBaseUrl = `${protocol}//${syncUrl.host}`;
+    const meEndpoint = `${apiBaseUrl}/api/me`;
+
+    try {
+      const response = await fetch(meEndpoint, {
+        headers: {
+          "Authorization": `Bearer ${this.config.authToken}`,
+          "User-Agent": "runt-runtime-agent/1.0",
+        },
+      });
+
+      if (!response.ok) {
+        let errorBody = "";
+        try {
+          errorBody = await response.text();
+        } catch (_) {
+          errorBody = "Unable to read response body";
+        }
+
+        logger.error("Authentication request failed", {
+          endpoint: meEndpoint,
+          status: response.status,
+          statusText: response.statusText,
+          responseBody: errorBody,
+        });
+
+        throw new Error(
+          `HTTP ${response.status} ${response.statusText}: ${errorBody}`,
+        );
+      }
+
+      const userInfo = await response.json() as {
+        id: string;
+        email: string;
+        name?: string;
+      };
+
+      if (!userInfo.id) {
+        logger.error("Invalid user info response", {
+          endpoint: meEndpoint,
+          responseBody: JSON.stringify(userInfo),
+        });
+        throw new Error("User ID not found in response");
+      }
+
+      logger.debug("User identity discovered", {
+        userId: userInfo.id,
+        email: userInfo.email,
+        name: userInfo.name,
+      });
+
+      return userInfo.id;
+    } catch (error) {
+      // If we haven't already logged the error above, log it here
+      if (!(error instanceof Error && error.message.startsWith("HTTP "))) {
+        logger.error("Network or parsing error during identity discovery", {
+          endpoint: meEndpoint,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          errorType: error instanceof Error
+            ? error.constructor.name
+            : typeof error,
+        });
+      }
+
+      // Pretty console output for authentication failure
+      const syncUrl = new URL(this.config.syncUrl);
+      const hostname = syncUrl.hostname;
+
+      console.log(`\n❌ \x1b[31mAuthentication Failed\x1b[0m`);
+      console.log(`   \x1b[36mEndpoint:\x1b[0m https://${hostname}`);
+      console.log(`   \x1b[36mNotebook:\x1b[0m ${this.config.notebookId}`);
+      console.log(
+        `   \x1b[36mError:\x1b[0m    ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      console.log(
+        `\n\x1b[33m💡 Check your RUNT_API_KEY and network connection\x1b[0m\n`,
+      );
+
+      throw new Error(
+        `Authentication failed: Could not verify identity with ${meEndpoint}. ` +
+          `Error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Shutdown the runtime agent and clean up resources
    */
   async shutdown(): Promise<void> {
     if (this.isShuttingDown) return;
