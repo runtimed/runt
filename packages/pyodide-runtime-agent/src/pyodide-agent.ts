@@ -105,7 +105,6 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     }
 
     super(config, config.capabilities, {
-      onStartup: undefined,
       onShutdown: () => {
         this.cleanupWorker();
       },
