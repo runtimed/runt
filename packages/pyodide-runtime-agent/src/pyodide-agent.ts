@@ -10,7 +10,7 @@ import {
   type RuntimeConfig,
 } from "@runt/lib";
 import type { ExecutionContext } from "@runt/lib";
-import { createLogger } from "@runt/lib";
+
 import { type MediaBundle, validateMediaBundle } from "@runt/lib";
 import {
   cellReferences$,
@@ -71,7 +71,6 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     resolve: (result: unknown) => void;
     reject: (error: unknown) => void;
   }>();
-  private logger = createLogger("pyodide-agent");
   private options: PyodideAgentOptions;
 
   constructor(args: string[] = Deno.args, options: PyodideAgentOptions = {}) {
@@ -123,6 +122,9 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
    * Start the Pyodide runtime agent
    */
   override async start(): Promise<void> {
+    // Call parent start first to initialize logger and LiveStore
+    await super.start();
+
     this.logger.info("Starting Pyodide Python runtime agent");
 
     // Discover available AI models if enabled
@@ -141,14 +143,12 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
             `Discovered ${models.length} AI models from providers`,
           );
         }
-      } catch (_error) {
-        this.logger.warn(
-          "AI model discovery failed - AI features will be limited",
-        );
+      } catch (error) {
+        this.logger.error("Failed to discover AI models", {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
-
-    await super.start();
   }
 
   /**
@@ -200,7 +200,9 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       this.isInitialized = true;
       this.logger.info("Pyodide worker initialized successfully");
     } catch (error) {
-      this.logger.error("Failed to initialize Pyodide worker", error);
+      this.logger.error("Failed to initialize Pyodide worker", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }

@@ -44,6 +44,7 @@ import { decodeBase64 } from "@std/encoding/base64";
  */
 export class RuntimeAgent {
   #store!: Store<typeof schema>;
+  protected logger!: ReturnType<typeof createLogger>;
   private isShuttingDown = false;
   private processedExecutions = new Set<string>();
 
@@ -68,7 +69,7 @@ export class RuntimeAgent {
     try {
       await this.handlers.onStartup?.(this.config.environmentOptions);
 
-      const logger = createLogger(`${this.config.runtimeType}-agent`, {
+      this.logger = createLogger(`${this.config.runtimeType}-agent`, {
         context: {
           notebookId: this.config.notebookId,
           runtimeId: this.config.runtimeId,
@@ -76,10 +77,15 @@ export class RuntimeAgent {
         },
       });
 
-      logger.info("Starting runtime agent", {
+      this.logger.info("Starting runtime agent", {
+        runtimeId: this.config.runtimeId,
         runtimeType: this.config.runtimeType,
         notebookId: this.config.notebookId,
       });
+
+      // Discover authenticated user identity
+      const userId = await this.discoverUserIdentity();
+      this.logger.info("Authenticated as user", { userId });
 
       // Create LiveStore adapter for real-time collaboration
       const adapter = makeAdapter({
@@ -99,7 +105,7 @@ export class RuntimeAgent {
           runtime: true,
           runtimeId: this.config.runtimeId,
           sessionId: this.config.sessionId,
-          clientId: this.config.runtimeId,
+          clientId: userId,
         },
       });
 
@@ -134,7 +140,7 @@ export class RuntimeAgent {
       }));
 
       await this.handlers.onConnected?.();
-      logger.info("Runtime agent connected and ready");
+      this.logger.info("Runtime agent connected and ready");
 
       // Set up shutdown handlers
       this.setupShutdownHandlers();
@@ -149,7 +155,59 @@ export class RuntimeAgent {
   }
 
   /**
-   * Stop the runtime agent and clean up resources
+   * Discover authenticated user identity via /api/me endpoint
+   */
+  private async discoverUserIdentity(): Promise<string> {
+    const logger = createLogger(`${this.config.runtimeType}-agent`);
+
+    // Convert sync URL to API base URL
+    const syncUrl = new URL(this.config.syncUrl);
+    const apiBaseUrl = `${syncUrl.protocol}//${syncUrl.host}`;
+    const meEndpoint = `${apiBaseUrl}/api/me`;
+
+    try {
+      const response = await fetch(meEndpoint, {
+        headers: {
+          "Authorization": `Bearer ${this.config.authToken}`,
+          "User-Agent": "runt-runtime-agent/1.0",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const userInfo = await response.json() as {
+        id: string;
+        email: string;
+        name?: string;
+      };
+
+      if (!userInfo.id) {
+        throw new Error("User ID not found in response");
+      }
+
+      logger.debug("User identity discovered", {
+        userId: userInfo.id,
+        email: userInfo.email,
+        name: userInfo.name,
+      });
+
+      return userInfo.id;
+    } catch (error) {
+      logger.error("Failed to discover user identity", {
+        endpoint: meEndpoint,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new Error(
+        `Authentication failed: Could not verify identity with ${meEndpoint}. ` +
+          `Check your RUNT_API_KEY and network connection.`,
+      );
+    }
+  }
+
+  /**
+   * Shutdown the runtime agent and clean up resources
    */
   async shutdown(): Promise<void> {
     if (this.isShuttingDown) return;
