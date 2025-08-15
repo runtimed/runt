@@ -542,7 +542,7 @@ export async function executeAI(
       : [];
 
     // Build enhanced system prompt
-    const baseSystemPrompt = "You are an AI assistant in a collaborative notebook environment. You have access to files using the query tool. With that you can find names of files and query their contents. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You can also execute code yourself using tool calls. Use the visible outputs and your execution capabilities to help analyze data and answer questions. Should you need to write data for any reason you will only be able to write to the /outputs directory.";
+    const baseSystemPrompt = "You are an AI assistant in a collaborative notebook environment. You have access to files using the query tool. With that you can find names of files and query their contents. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You can also execute code yourself using tool calls. When you write code, use caution not to double encode new lines. Use the visible outputs and your execution capabilities to help analyze data and answer questions. Should you need to write data for any reason you will only be able to write to the /outputs directory.";
     
     const enhancedSystemPrompt = extractedFilePaths.length > 0
       ? `${baseSystemPrompt}\n\n${extractedFilePaths.map(path => `The following question directly pertains to ${path} which you can query using the query tool.`).join('\n')}`
