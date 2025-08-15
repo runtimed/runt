@@ -87,6 +87,15 @@ export class RuntimeAgent {
       const userId = await this.discoverUserIdentity();
       this.logger.info("Authenticated as user", { userId });
 
+      // Pretty console output for successful authentication
+      const syncUrl = new URL(this.config.syncUrl);
+      const protocol = syncUrl.protocol === "wss:" ? "https:" : "http:";
+      const apiHost = `${protocol}//${syncUrl.host}`;
+
+      console.log(`\n🔐 \x1b[32m✅ Successfully authenticated\x1b[0m`);
+      console.log(`   \x1b[36mEndpoint:\x1b[0m ${apiHost}`);
+      console.log(`   \x1b[36mUser ID:\x1b[0m  ${userId}`);
+
       // Create LiveStore adapter for real-time collaboration
       const adapter = makeAdapter({
         storage: { type: "in-memory" },
@@ -142,6 +151,19 @@ export class RuntimeAgent {
       await this.handlers.onConnected?.();
       this.logger.info("Runtime agent connected and ready");
 
+      // Pretty console output for successful connection
+      const connectionUrl = new URL(this.config.syncUrl);
+      const hostname = connectionUrl.hostname;
+
+      console.log(`\n🚀 \x1b[32m✅ Runtime agent connected and ready!\x1b[0m`);
+      console.log(`   \x1b[36mNotebook ID:\x1b[0m ${this.config.notebookId}`);
+      console.log(`   \x1b[36mConnected to:\x1b[0m ${hostname}`);
+      console.log(`   \x1b[36mRuntime Type:\x1b[0m ${this.config.runtimeType}`);
+      console.log(`   \x1b[36mSession ID:\x1b[0m  ${this.config.sessionId}`);
+      console.log(
+        `\n\x1b[33m💡 Runtime is now listening for notebook events...\x1b[0m\n`,
+      );
+
       // Set up shutdown handlers
       this.setupShutdownHandlers();
 
@@ -162,7 +184,9 @@ export class RuntimeAgent {
 
     // Convert sync URL to API base URL
     const syncUrl = new URL(this.config.syncUrl);
-    const apiBaseUrl = `${syncUrl.protocol}//${syncUrl.host}`;
+    // Convert WebSocket URLs to HTTP URLs
+    const protocol = syncUrl.protocol === "wss:" ? "https:" : "http:";
+    const apiBaseUrl = `${protocol}//${syncUrl.host}`;
     const meEndpoint = `${apiBaseUrl}/api/me`;
 
     try {
@@ -174,7 +198,23 @@ export class RuntimeAgent {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        let errorBody = "";
+        try {
+          errorBody = await response.text();
+        } catch (_) {
+          errorBody = "Unable to read response body";
+        }
+
+        logger.error("Authentication request failed", {
+          endpoint: meEndpoint,
+          status: response.status,
+          statusText: response.statusText,
+          responseBody: errorBody,
+        });
+
+        throw new Error(
+          `HTTP ${response.status} ${response.statusText}: ${errorBody}`,
+        );
       }
 
       const userInfo = await response.json() as {
@@ -184,6 +224,10 @@ export class RuntimeAgent {
       };
 
       if (!userInfo.id) {
+        logger.error("Invalid user info response", {
+          endpoint: meEndpoint,
+          responseBody: JSON.stringify(userInfo),
+        });
         throw new Error("User ID not found in response");
       }
 
@@ -195,13 +239,36 @@ export class RuntimeAgent {
 
       return userInfo.id;
     } catch (error) {
-      logger.error("Failed to discover user identity", {
-        endpoint: meEndpoint,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      // If we haven't already logged the error above, log it here
+      if (!(error instanceof Error && error.message.startsWith("HTTP "))) {
+        logger.error("Network or parsing error during identity discovery", {
+          endpoint: meEndpoint,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          errorType: error instanceof Error
+            ? error.constructor.name
+            : typeof error,
+        });
+      }
+
+      // Pretty console output for authentication failure
+      const syncUrl = new URL(this.config.syncUrl);
+      const hostname = syncUrl.hostname;
+
+      console.log(`\n❌ \x1b[31mAuthentication Failed\x1b[0m`);
+      console.log(`   \x1b[36mEndpoint:\x1b[0m https://${hostname}`);
+      console.log(`   \x1b[36mNotebook:\x1b[0m ${this.config.notebookId}`);
+      console.log(
+        `   \x1b[36mError:\x1b[0m    ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      console.log(
+        `\n\x1b[33m💡 Check your RUNT_API_KEY and network connection\x1b[0m\n`,
+      );
+
       throw new Error(
         `Authentication failed: Could not verify identity with ${meEndpoint}. ` +
-          `Check your RUNT_API_KEY and network connection.`,
+          `Error: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }

@@ -105,9 +105,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     }
 
     super(config, config.capabilities, {
-      onStartup: async () => {
-        await this.initializePyodideWorker();
-      },
+      onStartup: undefined,
       onShutdown: () => {
         this.cleanupWorker();
       },
@@ -149,6 +147,9 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         });
       }
     }
+
+    // Initialize Pyodide worker after logger is available
+    await this.initializePyodideWorker();
   }
 
   /**
@@ -183,11 +184,18 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         this.handleWorkerMessage.bind(this),
       );
       this.worker.addEventListener("error", (error) => {
-        this.logger.error("Worker error", { error });
+        this.logger.error("Worker error", {
+          message: error.message || "Unknown worker error",
+          filename: error.filename,
+          lineno: error.lineno,
+        });
         this.handleWorkerCrash("Worker error event");
       });
       this.worker.addEventListener("messageerror", (error) => {
-        this.logger.error("Worker message error", { error });
+        this.logger.error("Worker message error", {
+          type: error.type,
+          data: error.data,
+        });
         this.handleWorkerCrash("Worker message error");
       });
 
