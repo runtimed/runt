@@ -250,6 +250,17 @@ export async function getAllTools(): Promise<NotebookTool[]> {
  */
 export const NOTEBOOK_TOOLS_EXPORT = NOTEBOOK_TOOLS;
 
+/**
+ * Convert escaped newlines and other common escape sequences to their actual characters
+ */
+function unescapeContent(content: string): string {
+  return content
+    .replace(/\\n/g, '\n')  // Convert \n to actual newlines
+    .replace(/\\t/g, '\t')  // Convert \t to actual tabs
+    .replace(/\\r/g, '\r')  // Convert \r to actual carriage returns
+    .replace(/\\\\/g, '\\'); // Convert \\ to single backslash
+}
+
 export function createCell(
   store: Store<typeof schema>,
   logger: Logger,
@@ -258,7 +269,8 @@ export function createCell(
   args: Record<string, unknown>,
 ) {
   const cellType = String(args.cellType || "code");
-  const content = String(args.source || args.content || ""); // Check source first, then content
+  const rawContent = String(args.source || args.content || ""); // Check source first, then content
+  const content = unescapeContent(rawContent); // Process escaped characters
   const position = String(args.position || "after_current");
 
   // Get ordered cells with fractional indices
@@ -268,8 +280,8 @@ export function createCell(
   // Generate unique cell ID
   const newCellId = `cell-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-  let cellBefore: CellData | null = null;
-  let cellAfter: CellData | null = null;
+  let cellBefore: { id: string; fractionalIndex: string | null } | null = null;
+  let cellAfter: { id: string; fractionalIndex: string | null } | null = null;
 
   switch (position) {
     case "before_current":
@@ -485,7 +497,8 @@ export async function handleToolCallWithResult(
 
     case "modify_cell": {
       const cellId = String(args.cellId || "");
-      const content = String(args.source || args.content || "");
+      const rawContent = String(args.source || args.content || "");
+      const content = unescapeContent(rawContent); // Process escaped characters
 
       if (!cellId) {
         logger.error("modify_cell: cellId is required");
