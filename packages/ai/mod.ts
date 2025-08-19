@@ -14,7 +14,12 @@ import type {
   AiToolResultData,
   MediaContainer,
 } from "@runt/schema";
-import { events, materializers, tables } from "@runt/schema";
+import {
+  type CellReference,
+  events,
+  materializers,
+  tables,
+} from "@runt/schema";
 import type { Store } from "npm:@livestore/livestore";
 import { makeSchema, State } from "npm:@livestore/livestore";
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
@@ -109,11 +114,12 @@ type ChatMessageWithToolCallId = ChatMessage & {
 // Use schema types for tool data
 export type ToolResultData = AiToolResultData;
 export type ToolCallData = AiToolCallData;
+export type { CellReference };
 
 export interface NotebookContextData {
   previousCells: CellContextData[];
   totalCells: number;
-  currentCellPosition: number;
+  currentCellFractionalIndex: string;
 }
 
 /**
@@ -123,13 +129,38 @@ export interface CellContextData {
   id: string;
   cellType: string;
   source: string;
-  position: number;
+  fractionalIndex: string;
   outputs: Array<{
     outputType: string;
     data: unknown;
     metadata?: Record<string, unknown>;
     representations?: Record<string, MediaContainer>;
   }>;
+}
+
+/**
+ * Create system prompt with optional current cell ID context for tool usage
+ */
+function createSystemPrompt(currentCellId?: string, filepaths?: string[]): string {
+  let prompt = `You are an AI assistant in a collaborative notebook environment. 
+You have access to files using the query tool. With that you can find names of files and query their contents. 
+You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. 
+You can also execute code yourself using tool calls. 
+When you write code use caution not to double encode new lines. 
+Use the visible outputs and your execution capabilities to help analyze data and answer questions. 
+Should you need to write data for any reason you will only be able to write to the /outputs directory.`;
+
+  if (currentCellId) {
+    prompt +=
+      ` Your current cell ID is: ${currentCellId}. When using the create_cell tool, use this ID as the after_id parameter to place new cells below yourself.`;
+  }
+
+  // Add file path context if provided
+  if (filepaths && filepaths.length > 0) {
+    prompt += `\n\n${filepaths.map(path => `The following question directly pertains to ${path} which you can query using the query tool.`).join('\n')}`;
+  }
+
+  return prompt;
 }
 
 /**
@@ -145,7 +176,7 @@ export function buildConversationMessages(
   logger.debug("Building conversation messages", {
     totalCells: context.totalCells,
     previousCellsCount: context.previousCells.length,
-    currentPosition: context.currentCellPosition,
+    currentFractionalIndex: context.currentCellFractionalIndex,
   });
 
   messages.push({
@@ -161,7 +192,7 @@ export function buildConversationMessages(
         cellId: cell.id,
         cellType: cell.cellType,
         outputCount: cell.outputs?.length || 0,
-        position: cell.position,
+        fractionalIndex: cell.fractionalIndex,
       },
     );
     if (cell.cellType === "ai" && cell.outputs && cell.outputs.length > 0) {
@@ -541,20 +572,6 @@ export async function executeAI(
       ? filePathMatches.map(match => match.substring(1)) // Remove the @ symbol
       : [];
 
-    // Build enhanced system prompt
-    const baseSystemPrompt = `
-You are an AI assistant in a collaborative notebook environment. 
-You have access to files using the query tool. With that you can find names of files and query their contents. 
-You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. 
-You can also execute code yourself using tool calls. 
-When you write code use caution not to double encode new lines. 
-Use the visible outputs and your execution capabilities to help analyze data and answer questions. 
-Should you need to write data for any reason you will only be able to write to the /outputs directory.`;
-    
-    const enhancedSystemPrompt = extractedFilePaths.length > 0
-      ? `${baseSystemPrompt}\n\n${extractedFilePaths.map(path => `The following question directly pertains to ${path} which you can query using the query tool.`).join('\n')}`
-      : baseSystemPrompt;
-
     const provider = cell.aiProvider || "openai";
     const model = cell.aiModel || getDefaultModel(provider);
 
@@ -581,7 +598,7 @@ Should you need to write data for any reason you will only be able to write to t
       if (isOllamaReady) {
         const openaiMessages = buildConversationMessages(
           notebookContext,
-          enhancedSystemPrompt,
+          createSystemPrompt(cell.id, extractedFilePaths),
           prompt,
         );
 
@@ -609,7 +626,6 @@ Should you need to write data for any reason you will only be able to write to t
             model,
             provider: "ollama",
             enableTools: true,
-            currentCellId: cell.id,
             maxIterations,
             interruptSignal: abortSignal,
             onToolCall: async (toolCall) => {
@@ -715,7 +731,7 @@ The system will automatically pull models if they're not available locally.`;
 
       const conversationMessages = buildConversationMessages(
         notebookContext,
-        enhancedSystemPrompt,
+        createSystemPrompt(cell.id, extractedFilePaths),
         prompt,
       );
 
@@ -733,7 +749,6 @@ The system will automatically pull models if they're not available locally.`;
           model,
           provider: "groq",
           enableTools: true,
-          currentCellId: cell.id,
           maxIterations,
           interruptSignal: abortSignal,
           onToolCall: async (toolCall) => {
@@ -779,7 +794,7 @@ The system will automatically pull models if they're not available locally.`;
       // Use conversation-based approach for better AI interaction
       const conversationMessages = buildConversationMessages(
         notebookContext,
-        enhancedSystemPrompt,
+        createSystemPrompt(cell.id, extractedFilePaths),
         prompt,
       );
 
@@ -803,9 +818,7 @@ The system will automatically pull models if they're not available locally.`;
         context,
         {
           model,
-          provider,
           enableTools: true,
-          currentCellId: cell.id,
           maxIterations,
           interruptSignal: abortSignal,
           onToolCall: async (toolCall) => {

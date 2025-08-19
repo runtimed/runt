@@ -10,9 +10,10 @@ import {
   type RuntimeConfig,
 } from "@runt/lib";
 import type { ExecutionContext } from "@runt/lib";
-import { createLogger } from "@runt/lib";
+
 import { type MediaBundle, validateMediaBundle } from "@runt/lib";
 import {
+  cellReferences$,
   isJsonMimeType,
   isTextBasedMimeType,
   KNOWN_MIME_TYPES,
@@ -76,7 +77,6 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     resolve: (result: unknown) => void;
     reject: (error: unknown) => void;
   }>();
-  private logger = createLogger("pyodide-agent");
   private options: PyodideAgentOptions;
 
   constructor(args: string[] = Deno.args, options: PyodideAgentOptions = {}) {
@@ -97,11 +97,11 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       console.error(error instanceof Error ? error.message : String(error));
       console.error("\nExample usage:");
       console.error(
-        '  deno run --allow-all "jsr:@runt/pyodide-runtime-agent" --notebook my-notebook --auth-token your-token',
+        '  deno run --allow-all "jsr:@runt/pyodide-runtime-agent" --notebook my-notebook --auth-token your-runt-api-key',
       );
       console.error("\nOr set environment variables in .env:");
       console.error("  NOTEBOOK_ID=my-notebook");
-      console.error("  AUTH_TOKEN=your-token");
+      console.error("  RUNT_API_KEY=your-runt-api-key");
       console.error("\nOr install globally:");
       console.error(
         "  deno install -gf --allow-all jsr:@runt/pyodide-runtime-agent",
@@ -111,9 +111,6 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     }
 
     super(config, config.capabilities, {
-      onStartup: async () => {
-        await this.initializePyodideWorker();
-      },
       onShutdown: () => {
         this.cleanupWorker();
       },
@@ -136,6 +133,9 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
    * Start the Pyodide runtime agent
    */
   override async start(): Promise<void> {
+    // Call parent start first to initialize logger and LiveStore
+    await super.start();
+
     this.logger.info("Starting Pyodide Python runtime agent");
 
     // Discover available AI models if enabled
@@ -154,14 +154,15 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
             `Discovered ${models.length} AI models from providers`,
           );
         }
-      } catch (_error) {
-        this.logger.warn(
-          "AI model discovery failed - AI features will be limited",
-        );
+      } catch (error) {
+        this.logger.error("Failed to discover AI models", {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
 
-    await super.start();
+    // Initialize Pyodide worker after logger is available
+    await this.initializePyodideWorker();
   }
 
   /**
@@ -196,11 +197,18 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         this.handleWorkerMessage.bind(this),
       );
       this.worker.addEventListener("error", (error) => {
-        this.logger.error("Worker error", { error });
+        this.logger.error("Worker error", {
+          message: error.message || "Unknown worker error",
+          filename: error.filename,
+          lineno: error.lineno,
+        });
         this.handleWorkerCrash("Worker error event");
       });
       this.worker.addEventListener("messageerror", (error) => {
-        this.logger.error("Worker message error", { error });
+        this.logger.error("Worker message error", {
+          type: error.type,
+          data: error.data,
+        });
         this.handleWorkerCrash("Worker message error");
       });
 
@@ -244,7 +252,9 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       this.isInitialized = true;
       this.logger.info("Pyodide worker initialized successfully");
     } catch (error) {
-      this.logger.error("Failed to initialize Pyodide worker", error);
+      this.logger.error("Failed to initialize Pyodide worker", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }
@@ -377,7 +387,15 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
 
     // When an AI cell, hand it off to `@runt/ai` to handle, providing it notebook context
     if (cell.cellType === "ai") {
-      const notebookContext = gatherNotebookContext(this.store, cell);
+      // Find the current cell reference for context gathering
+      const cellReferences = this.store.query(cellReferences$);
+      const currentCellRef = cellReferences.find((ref) => ref.id === cell.id);
+
+      if (!currentCellRef) {
+        throw new Error(`Could not find cell reference for cell ${cell.id}`);
+      }
+
+      const notebookContext = gatherNotebookContext(this.store, currentCellRef);
 
       // Track AI execution for cancellation
       const aiAbortController = new AbortController();

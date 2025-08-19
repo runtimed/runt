@@ -9,13 +9,16 @@ export const cellIDs$ = queryDb(
   { label: "notebook.cellIds" },
 );
 
-// Fine-grained query for cell list with fractional indices
-export const cellList$ = queryDb(
+// Primary query for cell references - returns CellReference objects
+export const cellReferences$ = queryDb(
   tables.cells
-    .select("id", "fractionalIndex")
+    .select("id", "fractionalIndex", "cellType")
     .orderBy("fractionalIndex", "asc"),
-  { label: "notebook.cellList" },
+  { label: "notebook.cellReferences" },
 );
+
+// @deprecated Use cellReferences$ instead
+export const cellList$ = cellReferences$;
 
 // Query for getting a specific cell's fractional index
 export const cellFractionalIndex = (cellId: string) =>
@@ -32,17 +35,8 @@ export const cellFractionalIndex = (cellId: string) =>
     },
   );
 
-// Query for getting adjacent cells (useful for cell insertion)
-export const adjacentCells = (cellId: string) =>
-  queryDb(
-    tables.cells
-      .select("id", "fractionalIndex")
-      .orderBy("fractionalIndex", "asc"),
-    {
-      deps: [cellId],
-      label: `adjacentCells.${cellId}`,
-    },
-  );
+// @deprecated Use cellReferences$ instead - this returns all cells anyway
+export const adjacentCells = (_cellId: string) => cellReferences$;
 
 export const notebookMetadata$ = queryDb(
   tables.notebookMetadata.select("key", "value"),
@@ -79,4 +73,22 @@ export const cellQuery = {
 export const runtimeSessions$ = queryDb(
   tables.runtimeSessions.select().orderBy("sessionId", "desc"),
   { label: "runtime.sessions" },
+);
+
+/**
+ * Full cells query - returns complete cell data including source, metadata, etc.
+ *
+ * ⚠️  PERFORMANCE WARNING: This loads ALL cell data at once.
+ *
+ * Use this only when you need:
+ * - Full cell properties (source, executionCount, metadata, etc.)
+ * - Operations that require all cells (like TUI navigation)
+ *
+ * For most use cases, prefer:
+ * - `cellReferences$` for cell ordering/navigation with minimal data
+ * - `cellQuery.byId(cellId)` for individual cell data
+ */
+export const cells$ = queryDb(
+  tables.cells.select().orderBy("fractionalIndex", "asc"),
+  { label: "notebook.cells" },
 );

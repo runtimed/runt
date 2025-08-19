@@ -1,6 +1,6 @@
 {
   "name": "@runt/ai",
-  "version": "0.9.2",
+  "version": "0.11.1",
   "description": "Runtime AI Clients",
   "license": "BSD-3-Clause",
   "repository": {
@@ -13,9 +13,9 @@
   "imports": {
     "@llamaindex/openai": "npm:@llamaindex/openai@^0.4.16",
     "@llamaindex/readers": "npm:@llamaindex/readers@^3.1.18",
-    "@runt/lib": "jsr:@runt/lib@^0.9.2",
-    "@runt/schema": "jsr:@runt/schema@^0.9.2",
     "llamaindex": "npm:llamaindex@^0.11.26",
+    "@runt/lib": "jsr:@runt/lib@^0.11.1",
+    "@runt/schema": "jsr:@runt/schema@^0.11.1",
     "npm:pyodide": "npm:pyodide@^0.27.7",
     "@std/async": "jsr:@std/async@^1.0.0",
     "@std/path": "jsr:@std/path@^1.0.0",
@@ -45,6 +45,10 @@
       "vector-store.ts",
       "README.md"
     ],
-    "exclude": ["**/*.test.ts", "**/test_*.ts", "examples/"]
+    "exclude": [
+      "**/*.test.ts",
+      "**/test_*.ts",
+      "examples/"
+    ]
   }
 }

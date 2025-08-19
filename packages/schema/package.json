@@ -1,6 +1,6 @@
 {
   "name": "@runt/schema",
-  "version": "0.9.2",
+  "version": "0.11.1",
   "description": "This package.json is solely here to make linking possible for npm users",
   "type": "module",
   "main": "./mod.ts",
@@ -9,10 +9,14 @@
     ".": {
       "import": "./mod.ts",
       "types": "./mod.ts"
+    },
+    "./queries": {
+      "import": "./queries/index.ts",
+      "types": "./queries/index.ts"
     }
   },
   "files": [
-    "mod.ts",
+    "**/*.ts",
     "README.md"
   ],
   "dependencies": {

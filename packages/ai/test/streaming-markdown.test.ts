@@ -24,7 +24,7 @@ function createMockExecutionContext(): {
       id: "test-cell",
       cellType: "ai",
       source: "test ai call",
-      position: 0,
+      fractionalIndex: "a0",
     } as ExecutionContext["cell"],
     queueEntry: {
       id: "test-queue",
@@ -234,7 +234,10 @@ Deno.test({
               delta: {
                 tool_calls: [{
                   index: 0,
-                  function: { arguments: '{"cell_type": "code"}' },
+                  function: {
+                    arguments:
+                      '{"cellType": "code", "source": "print(\\"hello\\")\\n", "after_id": "mock-cell-123"}',
+                  },
                 }],
               },
             }],
@@ -263,7 +266,7 @@ Deno.test({
       ) => {
         assertEquals(toolCall.name, "create_cell");
         assertEquals(
-          (toolCall.arguments as { cell_type: string }).cell_type,
+          (toolCall.arguments as { cellType: string }).cellType,
           "code",
         );
         toolCallReceived = true;
@@ -305,7 +308,8 @@ Deno.test({
                 id: "call_456",
                 function: {
                   name: "create_cell",
-                  arguments: '{"cell_type": "code"}',
+                  arguments:
+                    '{"cellType": "code", "source": "print(\\"hello\\")\\n", "after_id": "mock-cell-123"}',
                 },
               }],
             },

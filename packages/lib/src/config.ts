@@ -101,7 +101,8 @@ export class RuntimeConfig {
     if (!this.authToken) {
       missing.push({
         field: "authToken",
-        suggestion: "--auth-token <token> or AUTH_TOKEN env var",
+        suggestion:
+          "--auth-token <token> or RUNT_API_KEY env var (AUTH_TOKEN as fallback)",
       });
     }
     if (!this.notebookId) {
@@ -233,8 +234,9 @@ Examples:
   deno run --allow-net --allow-env main.ts -n my-notebook -t token --mount /host/data:/data/dataset --index-mounted-files
 
 Environment Variables (fallback):
-  NOTEBOOK_ID, AUTH_TOKEN, LIVESTORE_SYNC_URL, RUNTIME_ID, RUNTIME_TYPE
+  NOTEBOOK_ID, RUNT_API_KEY, LIVESTORE_SYNC_URL, RUNTIME_ID, RUNTIME_TYPE
   IMAGE_ARTIFACT_THRESHOLD_BYTES
+  AUTH_TOKEN (legacy fallback for service-level authentication)
 
 Logging Configuration:
   RUNT_LOG_LEVEL             Set to DEBUG, INFO, WARN, or ERROR (default: INFO)
@@ -256,7 +258,9 @@ Logging Configuration:
     };
   }
 
-  const authToken = parsed["auth-token"] || Deno.env.get("AUTH_TOKEN");
+  const authToken = parsed["auth-token"] ||
+    Deno.env.get("RUNT_API_KEY") ||
+    Deno.env.get("AUTH_TOKEN");
   if (authToken) {
     result = {
       ...result,
