@@ -1,6 +1,5 @@
 // RuntimeAgent - Base class for building Anode runtime agents
 
-import { makeAdapter } from "npm:@livestore/adapter-node";
 import {
   createStorePromise,
   queryDb,
@@ -36,6 +35,7 @@ import type {
   RuntimeSessionData,
 } from "./types.ts";
 import type { RuntimeConfig } from "./config.ts";
+import { getTestingMode } from "./config.ts";
 
 import { decodeBase64 } from "@std/encoding/base64";
 
@@ -96,12 +96,9 @@ export class RuntimeAgent {
       console.log(`   \x1b[36mUser ID:\x1b[0m  ${userId}`);
 
       // Create LiveStore adapter for real-time collaboration
-      const adapter = makeAdapter({
-        storage: { type: "in-memory" },
-        sync: {
-          backend: makeCfSync({ url: this.config.syncUrl }),
-          onSyncError: "ignore",
-        },
+      const adapter = this.config.makeAdapter({
+        backend: makeCfSync({ url: this.config.syncUrl }),
+        onSyncError: "ignore",
       });
 
       this.#store = await createStorePromise({
@@ -180,6 +177,12 @@ export class RuntimeAgent {
    */
   private async discoverUserIdentity(): Promise<string> {
     const logger = createLogger(`${this.config.runtimeType}-agent`);
+
+    // Skip authentication in test environments
+    if (getTestingMode()) {
+      logger.debug("Skipping authentication in test environment");
+      return "test-user-id";
+    }
 
     // Convert sync URL to API base URL
     const syncUrl = new URL(this.config.syncUrl);

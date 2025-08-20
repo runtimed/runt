@@ -10,6 +10,21 @@ import type {
   RuntimeCapabilities,
 } from "./types.ts";
 import { ArtifactClient } from "./artifact-client.ts";
+import type { Adapter } from "npm:@livestore/livestore";
+import type { SyncOptions } from "npm:@livestore/common";
+
+/**
+ * Testing mode configuration
+ */
+let testing = false;
+
+export function getTestingMode(): boolean {
+  return testing;
+}
+
+export function setTestingMode(value: boolean): void {
+  testing = value;
+}
 
 /**
  * Default configuration values
@@ -34,6 +49,7 @@ export class RuntimeConfig {
   public readonly imageArtifactThresholdBytes: number;
   public readonly artifactClient: IArtifactClient;
   public readonly signalHandlers?: RuntimeAgentOptions["signalHandlers"];
+  public readonly makeAdapter: (syncOptions: SyncOptions) => Adapter;
 
   constructor(options: RuntimeAgentOptions) {
     this.runtimeId = options.runtimeId;
@@ -46,6 +62,7 @@ export class RuntimeConfig {
     this.imageArtifactThresholdBytes = options.imageArtifactThresholdBytes ??
       DEFAULT_CONFIG.imageArtifactThresholdBytes;
     this.signalHandlers = options.signalHandlers;
+    this.makeAdapter = options.makeAdapter;
 
     // Use injected artifact client or create default one
     this.artifactClient = options.artifactClient ??

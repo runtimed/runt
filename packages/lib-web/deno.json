@@ -27,10 +27,10 @@
     "npm:@opentelemetry/api": "npm:@opentelemetry/api@^1.9.0"
   },
   "tasks": {
-    "test": "deno test --allow-net --allow-env --allow-read",
-    "test:unit": "deno test --allow-net --allow-env --allow-read src/",
-    "test:watch": "deno test --allow-net --allow-env --allow-read --watch",
-    "test:summary": "echo '🧪 Running @runt/lib-web test suite...' && deno test --allow-net --allow-env --allow-read --reporter=pretty && echo '✅ All tests completed!'",
+    "test": "deno test --allow-net --allow-env --allow-read --unstable-broadcast-channel",
+    "test:unit": "deno test --allow-net --allow-env --allow-read --unstable-broadcast-channel src/",
+    "test:watch": "deno test --allow-net --allow-env --allow-read --unstable-broadcast-channel --watch",
+    "test:summary": "echo '🧪 Running @runt/lib-web test suite...' && deno test --allow-net --allow-env --allow-read --unstable-broadcast-channel --reporter=pretty && echo '✅ All tests completed!'",
     "check": "deno check mod.ts src/*.ts",
     "fmt": "deno fmt",
     "lint": "deno lint"

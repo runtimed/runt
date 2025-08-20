@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { RuntimeAgent } from "../src/runtime-agent.ts";
-import { RuntimeConfig } from "../src/config.ts";
+import { RuntimeConfig, setTestingMode } from "../src/config.ts";
 import {
   cellReferences$,
   createCellBetween,
@@ -13,6 +13,10 @@ import type {
   RuntimeCapabilities,
 } from "../src/types.ts";
 import { queryDb, Schema, sql } from "npm:@livestore/livestore";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
+
+// Set testing mode for all tests in this file
+setTestingMode(true);
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -42,6 +46,10 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         authToken: "test-token",
         capabilities,
         environmentOptions: {},
+        makeAdapter: (syncOptions) =>
+          makeInMemoryAdapter({
+            sync: syncOptions,
+          }),
       });
 
       const agent = new RuntimeAgent(config, capabilities);
@@ -153,6 +161,10 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         capabilities,
         environmentOptions: {},
         imageArtifactThresholdBytes: 10, // Very low threshold to trigger artifacting
+        makeAdapter: (syncOptions) =>
+          makeInMemoryAdapter({
+            sync: syncOptions,
+          }),
       });
 
       const agent = new RuntimeAgent(config, capabilities);
@@ -265,6 +277,10 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         environmentOptions: {},
         imageArtifactThresholdBytes: 10, // Very low threshold to trigger artifacting
         artifactClient: mockArtifactClient,
+        makeAdapter: (syncOptions) =>
+          makeInMemoryAdapter({
+            sync: syncOptions,
+          }),
       });
 
       const agent = new RuntimeAgent(config, capabilities);
