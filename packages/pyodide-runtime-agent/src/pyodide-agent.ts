@@ -4,7 +4,7 @@
 // IPython integration, rich display support, and true interruption support
 // via Pyodide's built-in interrupt system.
 
-import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
+import { createRuntimeConfig, DenoRuntimeAgent } from "@runt/lib";
 import type { RuntimeConfig } from "@runt/lib-web";
 import type { ExecutionContext } from "@runt/lib-web";
 
@@ -48,7 +48,7 @@ interface PyodideAgentOptions {
  * including IPython integration, rich display support, matplotlib output,
  * pandas HTML tables, and error formatting.
  */
-export class PyodideRuntimeAgent extends RuntimeAgent {
+export class PyodideRuntimeAgent extends DenoRuntimeAgent {
   private worker: Worker | null = null;
   private interruptBuffer?: SharedArrayBuffer;
   private isInitialized = false;
