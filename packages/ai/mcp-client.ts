@@ -5,7 +5,7 @@ import {
   CallToolResultSchema,
   ListToolsResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { createLogger } from "@runt/lib";
+import { createLogger } from "@runt/lib-web";
 import { join } from "@std/path";
 
 const logger = createLogger("mcp-client");

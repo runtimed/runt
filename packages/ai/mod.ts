@@ -1,12 +1,8 @@
 import stripAnsi from "strip-ansi";
 import type OpenAI from "@openai/openai";
 
-import type {
-  AiModel,
-  ExecutionContext,
-  Logger,
-  ModelCapability,
-} from "@runt/lib";
+import type { AiModel, ExecutionContext, ModelCapability } from "@runt/lib-web";
+import type { Logger } from "@runt/lib-web";
 
 import { handleToolCallWithResult } from "./tool-registry.ts";
 import type {
@@ -20,10 +16,10 @@ import {
   materializers,
   tables,
 } from "@runt/schema";
-import type { Store } from "npm:@livestore/livestore";
-import { makeSchema, State } from "npm:@livestore/livestore";
+import type { Store } from "@livestore/livestore";
+import { makeSchema, State } from "@livestore/livestore";
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
-import { createLogger } from "@runt/lib";
+import { createLogger } from "@runt/lib-web";
 
 // Create schema locally
 const state = State.SQLite.makeState({ tables, materializers });

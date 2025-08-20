@@ -1,11 +1,9 @@
 import { assert, assertEquals, assertThrows } from "jsr:@std/assert";
 import { stub } from "jsr:@std/testing/mock";
-import {
-  createRuntimeConfig,
-  DEFAULT_CONFIG,
-  parseRuntimeArgs,
-  RuntimeConfig,
-} from "../src/config.ts";
+import { createRuntimeConfig, parseRuntimeArgs } from "../src/config.ts";
+import { DEFAULT_CONFIG, RuntimeConfig } from "@runt/lib-web";
+import { makeInMemoryAdapter } from "@livestore/adapter-web";
+import type { SyncOptions } from "@livestore/common";
 
 const REQUIRED_PARAMS = ["--notebook", "nb", "--auth-token", "tok"];
 function addRequiredParams(args: string[]): string[] {
@@ -30,6 +28,10 @@ function makeBaseConfig(overrides: Partial<Record<string, unknown>> = {}) {
       runtimeEnvPath: "/tmp/venv",
       ...overrides,
     },
+    makeAdapter: (syncOptions: SyncOptions) =>
+      makeInMemoryAdapter({
+        sync: syncOptions,
+      }),
   };
 }
 

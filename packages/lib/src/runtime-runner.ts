@@ -1,5 +1,5 @@
-import { createLogger } from "./logging.ts";
-import type { RuntimeAgent } from "./runtime-agent.ts";
+import { createLogger } from "@runt/lib-web";
+import type { RuntimeAgent } from "@runt/lib-web";
 
 /**
  * Helper function to implement a CLI entrypoint for python agents

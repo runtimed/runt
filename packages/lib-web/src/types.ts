@@ -4,10 +4,11 @@
 // the runtime agent library, importing existing types from @runt/schema
 // and adding runtime-specific extensions.
 
-import type { Store } from "npm:@livestore/livestore";
+import type { Adapter, Store } from "@livestore/livestore";
 import type { CellData, ExecutionQueueData, OutputType } from "@runt/schema";
 import { events, materializers, tables } from "@runt/schema";
-import { makeSchema, State } from "npm:@livestore/livestore";
+import { makeSchema, State } from "@livestore/livestore";
+import type { SyncOptions } from "@livestore/common";
 
 // Create schema locally
 const state = State.SQLite.makeState({ tables, materializers });
@@ -68,6 +69,15 @@ export interface RuntimeAgentOptions {
   readonly imageArtifactThresholdBytes?: number;
   /** Artifact client for dependency injection (optional) */
   readonly artifactClient?: IArtifactClient;
+  /** Signal handling functions for dependency injection (optional) */
+  readonly signalHandlers?: {
+    /** Function to set up signal handlers */
+    setup: (shutdown: () => void) => void;
+    /** Function to clean up signal handlers */
+    cleanup: () => void;
+  };
+  /** Adapter creation function for dependency injection */
+  readonly makeAdapter: (syncOptions: SyncOptions) => Adapter;
   /** Environment-related options for the runtime */
   readonly environmentOptions: Readonly<{
     /** Path to the python executable to use (default: "python3") */

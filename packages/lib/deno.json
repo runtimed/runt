@@ -10,8 +10,7 @@
   "exports": {
     ".": "./mod.ts",
     "./agent": "./src/runtime-agent.ts",
-    "./config": "./src/config.ts",
-    "./types": "./src/types.ts"
+    "./config": "./src/config.ts"
   },
   "imports": {
     "@runt/schema": "jsr:@runt/schema@^0.11.1",
@@ -21,9 +20,7 @@
     "@std/encoding": "jsr:@std/encoding@^1.0.0",
     "@std/fs": "jsr:@std/fs@^1.0.0",
     "@std/path": "jsr:@std/path@^1.0.0",
-    "npm:@livestore/adapter-node": "npm:@livestore/adapter-node@^0.3.1",
-    "npm:@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
-    "npm:@livestore/sync-cf": "npm:@livestore/sync-cf@^0.3.1",
+
     "npm:@opentelemetry/api": "npm:@opentelemetry/api@^1.9.0"
   },
   "tasks": {

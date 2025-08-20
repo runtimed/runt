@@ -4,8 +4,8 @@
 // real-world streaming scenarios using ExecutionContext methods. Watch how outputs
 // are grouped and appended in real-time.
 
-import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
-import type { ExecutionContext } from "@runt/lib";
+import { createRuntimeConfig, DenoRuntimeAgent } from "@runt/lib";
+import type { ExecutionContext } from "@runt/lib-web";
 import {
   cellReferences$,
   createCellBetween,
@@ -14,7 +14,7 @@ import {
 } from "@runt/schema";
 
 class StreamingDemoAgent {
-  private agent: RuntimeAgent;
+  private agent: DenoRuntimeAgent;
 
   constructor() {
     let config;
@@ -37,7 +37,7 @@ class StreamingDemoAgent {
       Deno.exit(1);
     }
 
-    this.agent = new RuntimeAgent(config, config.capabilities);
+    this.agent = new DenoRuntimeAgent(config, config.capabilities);
     this.agent.onExecution(this.executeCode.bind(this));
   }
 

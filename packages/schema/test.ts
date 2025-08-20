@@ -7,7 +7,7 @@ import {
   type Store as LiveStore,
 } from "@livestore/livestore";
 
-import { makeAdapter } from "npm:@livestore/adapter-node";
+import { makeAdapter } from "@livestore/adapter-node";
 
 import {
   assert,

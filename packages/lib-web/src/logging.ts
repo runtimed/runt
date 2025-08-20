@@ -4,12 +4,7 @@
 // for structured, observable logging. It automatically detects the available
 // OpenTelemetry API through LiveStore's dependency chain.
 
-import {
-  context,
-  SpanKind,
-  SpanStatusCode,
-  trace,
-} from "npm:@opentelemetry/api";
+import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 
 /**
  * Log levels in order of severity
@@ -255,35 +250,10 @@ export function createLogger(
   service: string,
   options: Partial<LoggerConfig> = {},
 ): Logger {
-  const level = getLogLevelFromEnv();
-  const console = !Deno.env.get("RUNT_DISABLE_CONSOLE_LOGS");
-
   return new Logger({
-    service,
-    level,
-    console,
     ...options,
+    service,
   });
-}
-
-/**
- * Get log level from environment variables
- */
-function getLogLevelFromEnv(): LogLevel {
-  const envLevel = Deno.env.get("RUNT_LOG_LEVEL")?.toUpperCase();
-  switch (envLevel) {
-    case "DEBUG":
-      return LogLevel.DEBUG;
-    case "INFO":
-      return LogLevel.INFO;
-    case "WARN":
-    case "WARNING":
-      return LogLevel.WARN;
-    case "ERROR":
-      return LogLevel.ERROR;
-    default:
-      return LogLevel.ERROR;
-  }
 }
 
 /**

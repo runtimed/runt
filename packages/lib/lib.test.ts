@@ -1,14 +1,12 @@
 import { assertEquals } from "jsr:@std/assert";
-import {
-  createRuntimeConfig,
-  DEFAULT_CONFIG,
-  RuntimeAgent,
-  RuntimeConfig,
-} from "./mod.ts";
+import { createRuntimeConfig, DenoRuntimeAgent } from "./mod.ts";
+import { DEFAULT_CONFIG, RuntimeConfig } from "@runt/lib-web";
+import { makeInMemoryAdapter } from "@livestore/adapter-web";
+import type { SyncOptions } from "@livestore/common";
 
 Deno.test("Library exports are available", () => {
   // Test that main exports are defined
-  assertEquals(typeof RuntimeAgent, "function");
+  assertEquals(typeof DenoRuntimeAgent, "function");
   assertEquals(typeof RuntimeConfig, "function");
   assertEquals(typeof createRuntimeConfig, "function");
   assertEquals(typeof DEFAULT_CONFIG, "object");
@@ -36,6 +34,10 @@ Deno.test("RuntimeConfig validation works", () => {
         canExecuteAi: false,
       },
       environmentOptions: {},
+      makeAdapter: (syncOptions: SyncOptions) =>
+        makeInMemoryAdapter({
+          sync: syncOptions,
+        }),
     });
     config.validate();
     throw new Error("Should have thrown validation error");
@@ -59,6 +61,10 @@ Deno.test("RuntimeConfig validation works", () => {
       canExecuteAi: false,
     },
     environmentOptions: {},
+    makeAdapter: (syncOptions: SyncOptions) =>
+      makeInMemoryAdapter({
+        sync: syncOptions,
+      }),
   });
 
   // Should not throw

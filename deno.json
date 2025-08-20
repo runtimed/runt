@@ -3,6 +3,7 @@
     "./packages/ai",
     "./packages/schema",
     "./packages/lib",
+    "./packages/lib-web",
     "./packages/pyodide-runtime-agent",
     "./packages/python-runtime-agent",
     "./packages/tui"
@@ -11,22 +12,33 @@
     "@runt/ai": "./packages/ai/mod.ts",
     "@runt/schema": "./packages/schema/mod.ts",
     "@runt/lib": "./packages/lib/mod.ts",
+    "@runt/lib-web": "./packages/lib-web/mod.ts",
     "@runt/pyodide-runtime-agent": "./packages/pyodide-runtime-agent/src/mod.ts",
     "@runt/python-runtime-agent": "./packages/python-runtime-agent/mod.ts",
-    "@runt/tui": "./packages/tui/src/cli.tsx"
+    "@runt/tui": "./packages/tui/src/cli.tsx",
+    "@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
+    "@livestore/adapter-node": "npm:@livestore/adapter-node@^0.3.1",
+    "@livestore/adapter-web": "npm:@livestore/adapter-web@^0.3.1",
+    "@livestore/sync-cf": "npm:@livestore/sync-cf@^0.3.1",
+    "@livestore/common": "npm:@livestore/common@^0.3.1",
+    "@livestore/react": "npm:@livestore/react@^0.3.1"
   },
   "lint": {
     "rules": {
-      "exclude": ["no-slow-types"]
+      "exclude": [
+        "no-slow-types"
+      ]
     },
-    "exclude": ["packages/tui/"]
+    "exclude": [
+      "packages/tui/"
+    ]
   },
   "lock": false,
   "tasks": {
     "dev": "deno run --allow-net --allow-env packages/lib/examples/echo-agent.ts",
-    "test": "DENO_TESTING=true RUNT_LOG_LEVEL=ERROR RUNT_DISABLE_CONSOLE_LOGS=true deno test --allow-env --allow-net --allow-read --allow-write --allow-sys --allow-run --reporter=dot",
-    "test:watch": "DENO_TESTING=true deno test --allow-env --allow-net --allow-read --watch",
-    "test:coverage": "DENO_TESTING=true deno test --allow-env --allow-net --allow-read --allow-write --allow-sys --allow-run --coverage=cov/ --reporter=dot && deno coverage --lcov cov/ > cov.lcov",
+    "test": "DENO_TESTING=true RUNT_LOG_LEVEL=ERROR RUNT_DISABLE_CONSOLE_LOGS=true deno test --allow-env --allow-net --allow-read --allow-write --allow-sys --allow-run --unstable-broadcast-channel --reporter=dot",
+    "test:watch": "DENO_TESTING=true deno test --allow-env --allow-net --allow-read --unstable-broadcast-channel --watch",
+    "test:coverage": "DENO_TESTING=true deno test --allow-env --allow-net --allow-read --allow-write --allow-sys --allow-run --unstable-broadcast-channel --coverage=cov/ --reporter=dot && deno coverage --lcov cov/ > cov.lcov",
     "test:unit": "DENO_TESTING=true RUNT_LOG_LEVEL=ERROR RUNT_DISABLE_CONSOLE_LOGS=true deno test --allow-env --allow-net --allow-read --allow-write --allow-sys --allow-run packages/lib/src/ --reporter=dot",
     "test:integration": "DENO_TESTING=true RUNT_LOG_LEVEL=ERROR RUNT_DISABLE_CONSOLE_LOGS=true deno test --allow-env --allow-net --allow-read --allow-write --allow-sys --allow-run packages/lib/test/ --reporter=dot",
     "test:examples": "DENO_TESTING=true RUNT_LOG_LEVEL=ERROR RUNT_DISABLE_CONSOLE_LOGS=true deno test --allow-env --allow-net --allow-read --allow-write --allow-sys --allow-run packages/lib/examples/ --reporter=dot",

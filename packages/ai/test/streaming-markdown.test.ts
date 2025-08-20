@@ -1,6 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { RuntOpenAIClient } from "../openai-client.ts";
-import type { ExecutionContext } from "@runt/lib";
+import type { ExecutionContext } from "@runt/lib-web";
 
 // Test utilities
 interface TestOutput {

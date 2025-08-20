@@ -12,13 +12,13 @@
   },
   "imports": {
     "@runt/lib": "jsr:@runt/lib@^0.11.1",
+    "@runt/lib-web": "jsr:@runt/lib-web@^0.11.1",
     "@runt/schema": "jsr:@runt/schema@^0.11.1",
     "npm:pyodide": "npm:pyodide@^0.27.7",
     "@std/async": "jsr:@std/async@^1.0.0",
     "@std/path": "jsr:@std/path@^1.0.0",
-    "npm:@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
     "@openai/openai": "jsr:@openai/openai@^4.98.0",
-    "npm:ollama": "npm:ollama@^0.5.16",
+    "ollama": "npm:ollama@^0.5.16",
     "strip-ansi": "npm:strip-ansi@^7.1.0",
     "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk@^1.0.5"
   },

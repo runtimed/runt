@@ -1,11 +1,11 @@
 // Enhanced Output Example
 
-import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
-import type { ExecutionContext } from "@runt/lib";
+import { createRuntimeConfig, DenoRuntimeAgent } from "@runt/lib";
+import type { ExecutionContext } from "@runt/lib-web";
 
 // Python-like runtime with streaming output support
 class ExamplePythonRuntime {
-  private agent: RuntimeAgent;
+  private agent: DenoRuntimeAgent;
 
   constructor() {
     // Create config from CLI args and environment variables
@@ -32,7 +32,7 @@ class ExamplePythonRuntime {
       Deno.exit(1);
     }
 
-    this.agent = new RuntimeAgent(config, config.capabilities);
+    this.agent = new DenoRuntimeAgent(config, config.capabilities);
 
     // Register execution handler with enhanced output support
     this.agent.onExecution(this.executeCode.bind(this));

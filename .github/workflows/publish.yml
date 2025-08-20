@@ -20,7 +20,7 @@ on:
 
 env:
   DENO_VERSION: v2.x
-  BUILD_ORDER: '["schema","lib", "ai", "pyodide-runtime-agent", "python-runtime-agent", "tui"]'
+  BUILD_ORDER: '["schema","lib-web","lib", "ai", "pyodide-runtime-agent", "python-runtime-agent", "tui"]'
 
 jobs:
   generate-build-order:
@@ -41,6 +41,8 @@ jobs:
               - 'packages/schema/**'
             lib:
               - 'packages/lib/**'
+            lib-web:
+              - 'packages/lib-web/**'
             ai:
               - 'packages/ai/**'
             pyodide-runtime-agent:

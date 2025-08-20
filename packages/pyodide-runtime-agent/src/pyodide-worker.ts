@@ -7,7 +7,7 @@
 
 /// <reference lib="webworker" />
 
-import { loadPyodide, type PyodideInterface } from "npm:pyodide";
+import { loadPyodide, type PyodideInterface } from "pyodide";
 import {
   getBootstrapPackages,
   getCacheConfig,

@@ -6,10 +6,10 @@ import {
   materializers,
   tables,
 } from "@runt/schema";
-import type { Logger } from "@runt/lib";
-import type { Store } from "npm:@livestore/livestore";
-import { makeSchema, State } from "npm:@livestore/livestore";
-import { createLogger } from "@runt/lib";
+import type { Logger } from "@runt/lib-web";
+import type { Store } from "@livestore/livestore";
+import { makeSchema, State } from "@livestore/livestore";
+import { createLogger } from "@runt/lib-web";
 import { getMCPClient } from "./mcp-client.ts";
 
 // Create schema locally

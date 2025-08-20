@@ -5,13 +5,14 @@
 
 import { assertEquals, assertExists, assertInstanceOf } from "jsr:@std/assert";
 
-import { RuntimeAgent } from "./runtime-agent.ts";
-import { RuntimeConfig } from "./config.ts";
+import { RuntimeAgent } from "../src/runtime-agent.ts";
+import { RuntimeConfig } from "../src/config.ts";
 import type {
   ExecutionContext,
   RuntimeAgentEventHandlers,
   RuntimeCapabilities,
-} from "./types.ts";
+} from "../src/types.ts";
+import { makeInMemoryAdapter } from "@livestore/adapter-web";
 
 // Simple mock functions
 interface MockFunction {
@@ -58,6 +59,10 @@ Deno.test("RuntimeAgent", async (t) => {
       authToken: "test-token",
       capabilities,
       environmentOptions: {},
+      makeAdapter: (syncOptions) =>
+        makeInMemoryAdapter({
+          sync: syncOptions,
+        }),
     });
   };
 
@@ -175,6 +180,10 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteAi: true,
       },
       environmentOptions: {},
+      makeAdapter: (syncOptions) =>
+        makeInMemoryAdapter({
+          sync: syncOptions,
+        }),
     });
 
     assertEquals(config.runtimeId, "test-runtime");
@@ -198,6 +207,10 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteAi: false,
       },
       environmentOptions: {},
+      makeAdapter: (syncOptions) =>
+        makeInMemoryAdapter({
+          sync: syncOptions,
+        }),
     });
 
     const config2 = new RuntimeConfig({
@@ -212,6 +225,10 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteAi: false,
       },
       environmentOptions: {},
+      makeAdapter: (syncOptions) =>
+        makeInMemoryAdapter({
+          sync: syncOptions,
+        }),
     });
 
     // Session IDs should be different
@@ -232,6 +249,10 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteAi: false,
       },
       environmentOptions: {},
+      makeAdapter: (syncOptions) =>
+        makeInMemoryAdapter({
+          sync: syncOptions,
+        }),
     });
   });
 });

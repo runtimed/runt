@@ -14,12 +14,16 @@ import {
   events,
   tables,
 } from "@runt/schema";
+import { setTestingMode } from "@runt/lib-web";
 
 import { withQuietConsole } from "../../lib/test/test-config.ts";
 
 // Configure test environment for quiet logging
 Deno.env.set("RUNT_LOG_LEVEL", "ERROR");
 Deno.env.set("RUNT_DISABLE_CONSOLE_LOGS", "true");
+
+// Enable testing mode to skip authentication
+setTestingMode(true);
 
 Deno.test({
   name: "PyodideRuntimeAgent - Complete Integration",
@@ -35,19 +39,22 @@ Deno.test({
         const notebookId = `test-${crypto.randomUUID()}`;
         const runtimeId = `runtime-${crypto.randomUUID()}`;
 
-        // Use a local-only sync URL - LiveStore works purely in-memory
-        const agentArgs = [
-          "--runtime-id",
-          runtimeId,
+        // Set environment variables for the agent constructor
+        Deno.env.set("NOTEBOOK_ID", notebookId);
+        Deno.env.set("RUNT_API_KEY", "test-token");
+        Deno.env.set("RUNTIME_ID", runtimeId);
+
+        // Create agent with minimal arguments
+        agent = new PyodideRuntimeAgent([
           "--notebook",
           notebookId,
           "--auth-token",
           "test-token",
+          "--runtime-id",
+          runtimeId,
           "--sync-url",
-          "ws://localhost:9999", // Won't connect, but that's fine
-        ];
-
-        agent = new PyodideRuntimeAgent(agentArgs);
+          "ws://localhost:9999",
+        ], { packages: [] });
 
         assertExists(agent);
         assertEquals(agent.config.notebookId, notebookId);
