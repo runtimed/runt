@@ -10,7 +10,7 @@ import type {
   ExecutionContext,
   ExecutionResult,
   RawOutputData,
-} from "@runt/lib/types";
+} from "@runt/lib-web";
 
 // Create test agent with minimal packages for speed
 function createTestAgent(packages?: string[]): PyodideRuntimeAgent {

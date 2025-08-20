@@ -1,7 +1,7 @@
 // Enhanced Output Example
 
 import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
-import type { ExecutionContext } from "@runt/lib";
+import type { ExecutionContext } from "@runt/lib-web";
 
 // Python-like runtime with streaming output support
 class ExamplePythonRuntime {

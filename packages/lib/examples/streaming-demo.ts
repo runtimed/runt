@@ -5,7 +5,7 @@
 // are grouped and appended in real-time.
 
 import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
-import type { ExecutionContext } from "@runt/lib";
+import type { ExecutionContext } from "@runt/lib-web";
 import {
   cellReferences$,
   createCellBetween,

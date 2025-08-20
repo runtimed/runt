@@ -10,7 +10,7 @@ import type {
   ArtifactSubmissionOptions,
   ArtifactSubmissionResult,
   IArtifactClient,
-} from "./types.ts";
+} from "@runt/lib-web";
 
 /**
  * Client for interacting with the anode artifact service

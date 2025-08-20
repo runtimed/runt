@@ -5,6 +5,7 @@ import {
   RuntimeAgent,
   RuntimeConfig,
 } from "./mod.ts";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 
 Deno.test("Library exports are available", () => {
   // Test that main exports are defined
@@ -36,6 +37,10 @@ Deno.test("RuntimeConfig validation works", () => {
         canExecuteAi: false,
       },
       environmentOptions: {},
+      makeAdapter: (syncOptions) =>
+        makeInMemoryAdapter({
+          sync: syncOptions,
+        }),
     });
     config.validate();
     throw new Error("Should have thrown validation error");
@@ -59,6 +64,10 @@ Deno.test("RuntimeConfig validation works", () => {
       canExecuteAi: false,
     },
     environmentOptions: {},
+    makeAdapter: (syncOptions) =>
+      makeInMemoryAdapter({
+        sync: syncOptions,
+      }),
   });
 
   // Should not throw

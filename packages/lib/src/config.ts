@@ -9,7 +9,7 @@ import type {
   IArtifactClient,
   RuntimeAgentOptions,
   RuntimeCapabilities,
-} from "./types.ts";
+} from "@runt/lib-web";
 import { ArtifactClient } from "./artifact-client.ts";
 
 /**
@@ -34,6 +34,7 @@ export class RuntimeConfig {
   public readonly environmentOptions: RuntimeAgentOptions["environmentOptions"];
   public readonly imageArtifactThresholdBytes: number;
   public readonly artifactClient: IArtifactClient;
+  public readonly makeAdapter: RuntimeAgentOptions["makeAdapter"];
 
   constructor(options: RuntimeAgentOptions) {
     this.runtimeId = options.runtimeId;
@@ -49,6 +50,9 @@ export class RuntimeConfig {
     // Use injected artifact client or create default one
     this.artifactClient = options.artifactClient ??
       new ArtifactClient(this.getArtifactServiceUrl(options.syncUrl));
+
+    // Set up adapter creation function
+    this.makeAdapter = options.makeAdapter;
 
     // Generate unique session ID
     this.sessionId = `${this.runtimeType}-${this.runtimeId}-${Date.now()}-${

@@ -2,7 +2,8 @@
 
 // Echo Agent - Basic runtime agent example
 
-import { createLogger, createRuntimeConfig, RuntimeAgent } from "@runt/lib";
+import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
+import { createLogger, type ExecutionContext } from "@runt/lib-web";
 
 const logger = createLogger("echo-agent");
 
@@ -35,13 +36,13 @@ const agent = new RuntimeAgent(config, config.capabilities, {
   onStartup: () => logger.info("Echo agent starting"),
   onConnected: () => logger.info("Connected to LiveStore"),
   onShutdown: () => logger.info("Echo agent shutting down"),
-  onExecutionError: (error, context) => {
+  onExecutionError: (error: Error, context: ExecutionContext) => {
     logger.error("Execution error", error, { cellId: context.cell.id });
   },
 });
 
 // Register the execution handler
-agent.onExecution(async (context) => {
+agent.onExecution(async (context: ExecutionContext) => {
   const { cell } = context;
   await new Promise((resolve) => setTimeout(resolve, 0));
 

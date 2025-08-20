@@ -7,14 +7,12 @@ import {
   type Store,
 } from "npm:@livestore/livestore";
 import { makeCfSync } from "npm:@livestore/sync-cf";
+import { events, materializers, tables } from "@runt/schema";
 import {
-  events,
   type ImageMimeType,
   isImageMimeType,
-  materializers,
   type MediaContainer,
-  tables,
-} from "@runt/schema";
+} from "@runt/schema/types";
 import { createLogger } from "@runt/lib-web";
 import { makeSchema, State } from "npm:@livestore/livestore";
 
@@ -34,7 +32,7 @@ import type {
   RuntimeAgentEventHandlers,
   RuntimeCapabilities,
   RuntimeSessionData,
-} from "./types.ts";
+} from "@runt/lib-web";
 import type { RuntimeConfig } from "./config.ts";
 
 import { decodeBase64 } from "@std/encoding/base64";

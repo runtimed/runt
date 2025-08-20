@@ -1,7 +1,7 @@
 import stripAnsi from "strip-ansi";
 import type OpenAI from "@openai/openai";
 
-import type { AiModel, ExecutionContext, ModelCapability } from "@runt/lib";
+import type { AiModel, ExecutionContext, ModelCapability } from "@runt/lib-web";
 import type { Logger } from "@runt/lib-web";
 
 import { handleToolCallWithResult } from "./tool-registry.ts";

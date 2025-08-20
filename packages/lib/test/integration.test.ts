@@ -11,7 +11,9 @@ import type {
   ExecutionContext,
   RuntimeAgentEventHandlers,
   RuntimeCapabilities,
-} from "../src/types.ts";
+} from "@runt/lib-web";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
+import type { SyncOptions } from "npm:@livestore/common";
 
 // Simple mock function creator
 interface MockFunction {
@@ -58,6 +60,10 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       authToken: "test-integration-token",
       environmentOptions: {},
       capabilities,
+      makeAdapter: (syncOptions: SyncOptions) =>
+        makeInMemoryAdapter({
+          sync: syncOptions,
+        }),
     });
   };
 
@@ -147,6 +153,10 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         authToken: "valid-token",
         capabilities: capabilities,
         environmentOptions: {},
+        makeAdapter: (syncOptions: SyncOptions) =>
+          makeInMemoryAdapter({
+            sync: syncOptions,
+          }),
       });
 
       const agent = new RuntimeAgent(validConfig, capabilities);
@@ -167,6 +177,10 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
           authToken: "token",
           capabilities: capabilities,
           environmentOptions: {},
+          makeAdapter: (syncOptions: SyncOptions) =>
+            makeInMemoryAdapter({
+              sync: syncOptions,
+            }),
         });
         config.validate(); // Explicitly call validate
       } catch (e) {
@@ -215,7 +229,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       const agent = new RuntimeAgent(config, capabilities);
 
       // Register a handler that captures the context
-      agent.onExecution((_context) => {
+      agent.onExecution((_context: ExecutionContext) => {
         return Promise.resolve({ success: true });
       });
 
@@ -243,6 +257,10 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteAi: true,
       },
       environmentOptions: {},
+      makeAdapter: (syncOptions: SyncOptions) =>
+        makeInMemoryAdapter({
+          sync: syncOptions,
+        }),
     });
 
     assertEquals(config.runtimeId, "test-runtime");
@@ -266,6 +284,10 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteAi: false,
       },
       environmentOptions: {},
+      makeAdapter: (syncOptions: SyncOptions) =>
+        makeInMemoryAdapter({
+          sync: syncOptions,
+        }),
     });
 
     const config2 = new RuntimeConfig({
@@ -280,6 +302,10 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteAi: false,
       },
       environmentOptions: {},
+      makeAdapter: (syncOptions: SyncOptions) =>
+        makeInMemoryAdapter({
+          sync: syncOptions,
+        }),
     });
 
     // Session IDs should be different
@@ -300,6 +326,10 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteAi: false,
       },
       environmentOptions: {},
+      makeAdapter: (syncOptions: SyncOptions) =>
+        makeInMemoryAdapter({
+          sync: syncOptions,
+        }),
     });
   });
 });

@@ -9,7 +9,7 @@ import {
   RuntimeAgent,
   type RuntimeConfig,
 } from "@runt/lib";
-import type { ExecutionContext } from "@runt/lib";
+import type { ExecutionContext } from "@runt/lib-web";
 
 import { type MediaBundle, validateMediaBundle } from "@runt/lib";
 import {

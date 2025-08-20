@@ -6,6 +6,8 @@ import {
   parseRuntimeArgs,
   RuntimeConfig,
 } from "../src/config.ts";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
+import type { SyncOptions } from "npm:@livestore/common";
 
 const REQUIRED_PARAMS = ["--notebook", "nb", "--auth-token", "tok"];
 function addRequiredParams(args: string[]): string[] {
@@ -30,6 +32,10 @@ function makeBaseConfig(overrides: Partial<Record<string, unknown>> = {}) {
       runtimeEnvPath: "/tmp/venv",
       ...overrides,
     },
+    makeAdapter: (syncOptions: SyncOptions) =>
+      makeInMemoryAdapter({
+        sync: syncOptions,
+      }),
   };
 }
 

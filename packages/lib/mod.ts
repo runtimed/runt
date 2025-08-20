@@ -7,22 +7,6 @@ export {
   parseRuntimeArgs,
   RuntimeConfig,
 } from "./src/config.ts";
-export type {
-  AiModel,
-  CancellationHandler,
-  CellData,
-  ExecutionContext,
-  ExecutionHandler,
-  ExecutionQueueData,
-  ExecutionResult,
-  ModelCapability,
-  OutputType,
-  RawOutputData,
-  RuntimeAgentEventHandlers,
-  RuntimeAgentOptions,
-  RuntimeCapabilities,
-  RuntimeSessionData,
-} from "./src/types.ts";
 
 // Media types and utilities for rich content handling
 export * from "./src/media/mod.ts";
@@ -33,10 +17,5 @@ export {
   createArtifactClient,
   PngProcessor,
 } from "./src/artifact-client.ts";
-
-export type {
-  ArtifactSubmissionOptions,
-  ArtifactSubmissionResult,
-} from "./src/types.ts";
 
 export { runner } from "./src/runtime-runner.ts";
