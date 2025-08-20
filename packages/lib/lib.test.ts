@@ -1,12 +1,12 @@
 import { assertEquals } from "jsr:@std/assert";
-import { createRuntimeConfig, RuntimeAgent } from "./mod.ts";
+import { createRuntimeConfig, DenoRuntimeAgent } from "./mod.ts";
 import { DEFAULT_CONFIG, RuntimeConfig } from "@runt/lib-web";
 import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 import type { SyncOptions } from "npm:@livestore/common";
 
 Deno.test("Library exports are available", () => {
   // Test that main exports are defined
-  assertEquals(typeof RuntimeAgent, "function");
+  assertEquals(typeof DenoRuntimeAgent, "function");
   assertEquals(typeof RuntimeConfig, "function");
   assertEquals(typeof createRuntimeConfig, "function");
   assertEquals(typeof DEFAULT_CONFIG, "object");

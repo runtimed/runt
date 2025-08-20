@@ -11,6 +11,10 @@ import type {
   ExecutionResult,
   RawOutputData,
 } from "@runt/lib-web";
+import { setTestingMode } from "@runt/lib-web";
+
+// Enable testing mode to skip authentication
+setTestingMode(true);
 
 // Create test agent with minimal packages for speed
 function createTestAgent(packages?: string[]): PyodideRuntimeAgent {

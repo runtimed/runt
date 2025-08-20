@@ -10,6 +10,8 @@ import {
   type RuntimeAgentOptions,
   RuntimeConfig,
 } from "@runt/lib-web";
+import { makeAdapter } from "npm:@livestore/adapter-node";
+import type { SyncOptions } from "npm:@livestore/common";
 
 /**
  * Parse command-line arguments for runtime agent configuration
@@ -180,6 +182,11 @@ export function createRuntimeConfig(
       runtimeEnvExternallyManaged: false,
       ...(defaults.environmentOptions ?? {}),
     },
+    makeAdapter: (syncOptions: SyncOptions) =>
+      makeAdapter({
+        storage: { type: "in-memory" },
+        sync: syncOptions,
+      }),
     ...defaults,
   };
 

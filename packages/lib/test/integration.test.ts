@@ -5,7 +5,7 @@
 
 import { assertEquals, assertExists } from "jsr:@std/assert";
 
-import { RuntimeAgent } from "../src/runtime-agent.ts";
+import { RuntimeAgent } from "@runt/lib-web";
 import { RuntimeConfig } from "@runt/lib-web";
 import type {
   ExecutionContext,

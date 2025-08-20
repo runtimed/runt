@@ -1,6 +1,7 @@
 // @runt/lib - Core library for building Anode runtime agents
 
-export { RuntimeAgent } from "./src/runtime-agent.ts";
+export { RuntimeAgent } from "@runt/lib-web";
+export { DenoRuntimeAgent } from "./src/runtime-agent.ts";
 export { createRuntimeConfig, parseRuntimeArgs } from "./src/config.ts";
 
 // Media types and utilities for rich content handling

@@ -2,7 +2,7 @@
 
 // Echo Agent - Basic runtime agent example
 
-import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
+import { createRuntimeConfig, DenoRuntimeAgent } from "@runt/lib";
 import { createLogger, type ExecutionContext } from "@runt/lib-web";
 
 const logger = createLogger("echo-agent");
@@ -32,7 +32,7 @@ try {
 }
 
 // Create the runtime agent
-const agent = new RuntimeAgent(config, config.capabilities, {
+const agent = new DenoRuntimeAgent(config, config.capabilities, {
   onStartup: () => logger.info("Echo agent starting"),
   onConnected: () => logger.info("Connected to LiveStore"),
   onShutdown: () => logger.info("Echo agent shutting down"),

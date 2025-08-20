@@ -7,10 +7,14 @@ import {
   tables,
 } from "@runt/schema";
 import { withQuietConsole } from "../../lib/test/test-config.ts";
+import { setTestingMode } from "@runt/lib-web";
 
 // Configure test environment for quiet logging
 Deno.env.set("RUNT_LOG_LEVEL", "ERROR");
 Deno.env.set("RUNT_DISABLE_CONSOLE_LOGS", "true");
+
+// Enable testing mode to skip authentication
+setTestingMode(true);
 
 Deno.test({
   name: "PyodideRuntimeAgent - AI Cell Error Handling",
