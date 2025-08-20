@@ -1,0 +1,37 @@
+{
+  "name": "@runt/lib-web",
+  "version": "0.11.1",
+  "description": "Web-compatible logging library for Runt applications",
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/runtimed/anode.git"
+  },
+  "exports": {
+    ".": "./mod.ts",
+    "./logging": "./src/logging.ts"
+  },
+  "imports": {
+    "npm:@opentelemetry/api": "npm:@opentelemetry/api@^1.9.0"
+  },
+  "tasks": {
+    "test": "deno test --allow-net --allow-env --allow-read",
+    "test:unit": "deno test --allow-net --allow-env --allow-read src/",
+    "test:watch": "deno test --allow-net --allow-env --allow-read --watch",
+    "test:summary": "echo '🧪 Running @runt/lib-web test suite...' && deno test --allow-net --allow-env --allow-read --reporter=pretty && echo '✅ All tests completed!'",
+    "check": "deno check mod.ts src/*.ts",
+    "fmt": "deno fmt",
+    "lint": "deno lint"
+  },
+  "publish": {
+    "include": [
+      "mod.ts",
+      "src/",
+      "README.md"
+    ],
+    "exclude": [
+      "**/*.test.ts",
+      "**/test_*.ts"
+    ]
+  }
+}
