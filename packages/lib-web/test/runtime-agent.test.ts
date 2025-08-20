@@ -12,7 +12,7 @@ import type {
   RuntimeAgentEventHandlers,
   RuntimeCapabilities,
 } from "../src/types.ts";
-import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
+import { makeInMemoryAdapter } from "@livestore/adapter-web";
 
 // Simple mock functions
 interface MockFunction {

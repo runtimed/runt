@@ -10,8 +10,8 @@ import type {
   RuntimeCapabilities,
 } from "./types.ts";
 import { ArtifactClient } from "./artifact-client.ts";
-import type { Adapter } from "npm:@livestore/livestore";
-import type { SyncOptions } from "npm:@livestore/common";
+import type { Adapter } from "@livestore/livestore";
+import type { SyncOptions } from "@livestore/common";
 
 /**
  * Testing mode configuration

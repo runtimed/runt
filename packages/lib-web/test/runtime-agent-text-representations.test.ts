@@ -12,8 +12,8 @@ import type {
   RawOutputData,
   RuntimeCapabilities,
 } from "../src/types.ts";
-import { queryDb, Schema, sql } from "npm:@livestore/livestore";
-import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
+import { queryDb, Schema, sql } from "@livestore/livestore";
+import { makeInMemoryAdapter } from "@livestore/adapter-web";
 
 // Set testing mode for all tests in this file
 setTestingMode(true);

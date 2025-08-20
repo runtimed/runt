@@ -4,8 +4,8 @@ import {
   createStorePromise,
   queryDb,
   type Store,
-} from "npm:@livestore/livestore";
-import { makeCfSync } from "npm:@livestore/sync-cf";
+} from "@livestore/livestore";
+import { makeCfSync } from "@livestore/sync-cf";
 import {
   events,
   type ImageMimeType,
@@ -15,7 +15,7 @@ import {
   tables,
 } from "@runt/schema";
 import { createLogger } from "./logging.ts";
-import { makeSchema, State } from "npm:@livestore/livestore";
+import { makeSchema, State } from "@livestore/livestore";
 
 // Create schema locally
 const state = State.SQLite.makeState({ tables, materializers });

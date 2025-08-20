@@ -4,11 +4,11 @@
 // the runtime agent library, importing existing types from @runt/schema
 // and adding runtime-specific extensions.
 
-import type { Adapter, Store } from "npm:@livestore/livestore";
+import type { Adapter, Store } from "@livestore/livestore";
 import type { CellData, ExecutionQueueData, OutputType } from "@runt/schema";
 import { events, materializers, tables } from "@runt/schema";
-import { makeSchema, State } from "npm:@livestore/livestore";
-import type { SyncOptions } from "npm:@livestore/common";
+import { makeSchema, State } from "@livestore/livestore";
+import type { SyncOptions } from "@livestore/common";
 
 // Create schema locally
 const state = State.SQLite.makeState({ tables, materializers });
