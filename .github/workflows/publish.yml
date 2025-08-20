@@ -41,6 +41,8 @@ jobs:
               - 'packages/schema/**'
             lib:
               - 'packages/lib/**'
+            lib-web:
+              - 'packages/lib-web/**'
             ai:
               - 'packages/ai/**'
             pyodide-runtime-agent:
