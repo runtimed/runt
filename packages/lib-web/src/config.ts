@@ -33,6 +33,7 @@ export class RuntimeConfig {
   public readonly environmentOptions: RuntimeAgentOptions["environmentOptions"];
   public readonly imageArtifactThresholdBytes: number;
   public readonly artifactClient: IArtifactClient;
+  public readonly signalHandlers?: RuntimeAgentOptions["signalHandlers"];
 
   constructor(options: RuntimeAgentOptions) {
     this.runtimeId = options.runtimeId;
@@ -44,6 +45,7 @@ export class RuntimeConfig {
     this.environmentOptions = options.environmentOptions;
     this.imageArtifactThresholdBytes = options.imageArtifactThresholdBytes ??
       DEFAULT_CONFIG.imageArtifactThresholdBytes;
+    this.signalHandlers = options.signalHandlers;
 
     // Use injected artifact client or create default one
     this.artifactClient = options.artifactClient ??

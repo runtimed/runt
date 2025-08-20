@@ -7,6 +7,8 @@
 // Configuration and runtime setup
 export { DEFAULT_CONFIG, RuntimeConfig } from "./src/config.ts";
 
+export { RuntimeAgent } from "./src/runtime-agent.ts";
+
 // Artifact handling
 export {
   ArtifactClient,

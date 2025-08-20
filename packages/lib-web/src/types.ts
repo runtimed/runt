@@ -68,6 +68,13 @@ export interface RuntimeAgentOptions {
   readonly imageArtifactThresholdBytes?: number;
   /** Artifact client for dependency injection (optional) */
   readonly artifactClient?: IArtifactClient;
+  /** Signal handling functions for dependency injection (optional) */
+  readonly signalHandlers?: {
+    /** Function to set up signal handlers */
+    setup: (shutdown: () => void) => void;
+    /** Function to clean up signal handlers */
+    cleanup: () => void;
+  };
   /** Environment-related options for the runtime */
   readonly environmentOptions: Readonly<{
     /** Path to the python executable to use (default: "python3") */

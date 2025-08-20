@@ -80,6 +80,45 @@ Set environment variables to configure logging:
 - `RUNT_LOG_LEVEL`: Set log level (DEBUG, INFO, WARN, ERROR)
 - `RUNT_DISABLE_CONSOLE_LOGS`: Disable console output
 
+### Signal Handling (Runtime Agent)
+
+For runtime agents, you can inject custom signal handling functions:
+
+```typescript
+import { RuntimeAgent, RuntimeConfig } from "@runt/lib-web";
+
+const signalHandlers = {
+  setup: (shutdown: () => void) => {
+    // Set up your signal handlers here
+    // For example, in a web environment:
+    window.addEventListener('beforeunload', shutdown);
+    
+    // Or in a Node.js environment:
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+  },
+  cleanup: () => {
+    // Clean up your signal handlers here
+    // For example:
+    window.removeEventListener('beforeunload', shutdown);
+  }
+};
+
+const options = {
+  runtimeId: "my-runtime",
+  runtimeType: "python",
+  capabilities: { canExecuteCode: true, canExecuteSql: false, canExecuteAi: false },
+  syncUrl: "wss://example.com",
+  authToken: "your-token",
+  notebookId: "your-notebook",
+  signalHandlers, // Inject the signal handlers
+  environmentOptions: {}
+};
+
+const config = new RuntimeConfig(options);
+const agent = new RuntimeAgent(config, options.capabilities);
+```
+
 ## API Reference
 
 ### Classes
