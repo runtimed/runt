@@ -15,7 +15,13 @@
     "@runt/lib-web": "./packages/lib-web/mod.ts",
     "@runt/pyodide-runtime-agent": "./packages/pyodide-runtime-agent/src/mod.ts",
     "@runt/python-runtime-agent": "./packages/python-runtime-agent/mod.ts",
-    "@runt/tui": "./packages/tui/src/cli.tsx"
+    "@runt/tui": "./packages/tui/src/cli.tsx",
+    "@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
+    "@livestore/adapter-node": "npm:@livestore/adapter-node@^0.3.1",
+    "@livestore/adapter-web": "npm:@livestore/adapter-web@^0.3.1",
+    "@livestore/sync-cf": "npm:@livestore/sync-cf@^0.3.1",
+    "@livestore/common": "npm:@livestore/common@^0.3.1",
+    "@livestore/react": "npm:@livestore/react@^0.3.1"
   },
   "lint": {
     "rules": {

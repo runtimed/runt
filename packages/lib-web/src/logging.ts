@@ -4,12 +4,7 @@
 // for structured, observable logging. It automatically detects the available
 // OpenTelemetry API through LiveStore's dependency chain.
 
-import {
-  context,
-  SpanKind,
-  SpanStatusCode,
-  trace,
-} from "npm:@opentelemetry/api";
+import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 
 /**
  * Log levels in order of severity

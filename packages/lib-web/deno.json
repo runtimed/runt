@@ -27,7 +27,7 @@
     "@livestore/sync-cf": "npm:@livestore/sync-cf@^0.3.1",
     "@livestore/common": "npm:@livestore/common@^0.3.1",
     "@livestore/adapter-web": "npm:@livestore/adapter-web@^0.3.1",
-    "npm:@opentelemetry/api": "npm:@opentelemetry/api@^1.9.0"
+    "@opentelemetry/api": "npm:@opentelemetry/api@^1.9.0"
   },
   "tasks": {
     "test": "deno test --allow-net --allow-env --allow-read --unstable-broadcast-channel",

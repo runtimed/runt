@@ -2,8 +2,8 @@ import { assert, assertEquals, assertThrows } from "jsr:@std/assert";
 import { stub } from "jsr:@std/testing/mock";
 import { createRuntimeConfig, parseRuntimeArgs } from "../src/config.ts";
 import { DEFAULT_CONFIG, RuntimeConfig } from "@runt/lib-web";
-import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
-import type { SyncOptions } from "npm:@livestore/common";
+import { makeInMemoryAdapter } from "@livestore/adapter-web";
+import type { SyncOptions } from "@livestore/common";
 
 const REQUIRED_PARAMS = ["--notebook", "nb", "--auth-token", "tok"];
 function addRequiredParams(args: string[]): string[] {

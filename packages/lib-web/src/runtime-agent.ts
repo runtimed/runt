@@ -1,10 +1,6 @@
 // RuntimeAgent - Base class for building Anode runtime agents
 
-import {
-  createStorePromise,
-  queryDb,
-  type Store,
-} from "@livestore/livestore";
+import { createStorePromise, queryDb, type Store } from "@livestore/livestore";
 import { makeCfSync } from "@livestore/sync-cf";
 import {
   events,

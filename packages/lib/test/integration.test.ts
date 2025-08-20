@@ -12,8 +12,8 @@ import type {
   RuntimeAgentEventHandlers,
   RuntimeCapabilities,
 } from "@runt/lib-web";
-import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
-import type { SyncOptions } from "npm:@livestore/common";
+import { makeInMemoryAdapter } from "@livestore/adapter-web";
+import type { SyncOptions } from "@livestore/common";
 
 // Simple mock function creator
 interface MockFunction {

@@ -5,8 +5,8 @@
  * for AI execution, preserving conversation flow and tool call information.
  */
 
-import type { Store } from "npm:@livestore/livestore";
-import { makeSchema, State } from "npm:@livestore/livestore";
+import type { Store } from "@livestore/livestore";
+import { makeSchema, State } from "@livestore/livestore";
 import {
   type CellData,
   type CellReference,

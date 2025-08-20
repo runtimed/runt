@@ -1,5 +1,5 @@
-import { Ollama } from "npm:ollama";
-import type { Message, Tool } from "npm:ollama";
+import { Ollama } from "ollama";
+import type { Message, Tool } from "ollama";
 import type { AiModel, ExecutionContext, ModelCapability } from "@runt/lib-web";
 import { createLogger } from "@runt/lib-web";
 

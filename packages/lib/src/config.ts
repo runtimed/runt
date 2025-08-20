@@ -10,8 +10,8 @@ import {
   type RuntimeAgentOptions,
   RuntimeConfig,
 } from "@runt/lib-web";
-import { makeAdapter } from "npm:@livestore/adapter-node";
-import type { SyncOptions } from "npm:@livestore/common";
+import { makeAdapter } from "@livestore/adapter-node";
+import type { SyncOptions } from "@livestore/common";
 
 /**
  * Parse command-line arguments for runtime agent configuration
