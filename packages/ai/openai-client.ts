@@ -1,9 +1,5 @@
 import OpenAI from "@openai/openai";
-import {
-  type AiModel,
-  type ExecutionContext,
-  type ModelCapability,
-} from "@runt/lib-web";
+import type { AiModel, ExecutionContext, ModelCapability } from "@runt/lib-web";
 import { createLogger } from "@runt/lib-web";
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
 

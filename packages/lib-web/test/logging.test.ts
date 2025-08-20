@@ -97,8 +97,8 @@ Deno.test("Logger - should trace operations", async () => {
     console: false,
   });
 
-  const result = await testLogger.trace("test trace", async () => {
-    return "traced result";
+  const result = await testLogger.trace("test trace", () => {
+    return Promise.resolve("traced result");
   });
 
   assertEquals(result, "traced result");
@@ -111,7 +111,7 @@ Deno.test("Logger - should handle traced operation errors", async () => {
   });
 
   try {
-    await testLogger.trace("failing operation", async () => {
+    await testLogger.trace("failing operation", () => {
       throw new Error("Test error");
     });
     throw new Error("Should have thrown");
@@ -128,7 +128,7 @@ Deno.test("Logger - should handle timed operation errors", async () => {
   });
 
   try {
-    await testLogger.time("failing operation", async () => {
+    await testLogger.time("failing operation", () => {
       throw new Error("Test error");
     });
     throw new Error("Should have thrown");
