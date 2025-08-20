@@ -194,8 +194,8 @@ This script will:
     console.log(`  1. Run 'deno task ci' to verify everything works`);
     console.log(`  2. Commit your changes`);
     console.log(`  3. Run 'deno task publish:dry-run' to test publishing`);
-  } catch (error) {
-    console.error(`❌ Error updating versions: ${error.message}`);
+  } catch (error: unknown) {
+    console.error(`❌ Error updating versions: ${(error as Error).message}`);
     Deno.exit(1);
   }
 }
