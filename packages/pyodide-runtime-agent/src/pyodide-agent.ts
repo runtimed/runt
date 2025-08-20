@@ -4,11 +4,8 @@
 // IPython integration, rich display support, and true interruption support
 // via Pyodide's built-in interrupt system.
 
-import {
-  createRuntimeConfig,
-  RuntimeAgent,
-  type RuntimeConfig,
-} from "@runt/lib";
+import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
+import type { RuntimeConfig } from "@runt/lib-web";
 import type { ExecutionContext } from "@runt/lib-web";
 
 import { type MediaBundle, validateMediaBundle } from "@runt/lib";

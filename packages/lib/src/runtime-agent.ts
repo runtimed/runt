@@ -33,7 +33,7 @@ import type {
   RuntimeCapabilities,
   RuntimeSessionData,
 } from "@runt/lib-web";
-import type { RuntimeConfig } from "./config.ts";
+import type { RuntimeConfig } from "@runt/lib-web";
 
 import { decodeBase64 } from "@std/encoding/base64";
 

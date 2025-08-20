@@ -1,11 +1,8 @@
 import { assertEquals } from "jsr:@std/assert";
-import {
-  createRuntimeConfig,
-  DEFAULT_CONFIG,
-  RuntimeAgent,
-  RuntimeConfig,
-} from "./mod.ts";
+import { createRuntimeConfig, RuntimeAgent } from "./mod.ts";
+import { DEFAULT_CONFIG, RuntimeConfig } from "@runt/lib-web";
 import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
+import type { SyncOptions } from "npm:@livestore/common";
 
 Deno.test("Library exports are available", () => {
   // Test that main exports are defined
@@ -37,7 +34,7 @@ Deno.test("RuntimeConfig validation works", () => {
         canExecuteAi: false,
       },
       environmentOptions: {},
-      makeAdapter: (syncOptions) =>
+      makeAdapter: (syncOptions: SyncOptions) =>
         makeInMemoryAdapter({
           sync: syncOptions,
         }),
@@ -64,7 +61,7 @@ Deno.test("RuntimeConfig validation works", () => {
       canExecuteAi: false,
     },
     environmentOptions: {},
-    makeAdapter: (syncOptions) =>
+    makeAdapter: (syncOptions: SyncOptions) =>
       makeInMemoryAdapter({
         sync: syncOptions,
       }),

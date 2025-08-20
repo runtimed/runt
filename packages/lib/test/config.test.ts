@@ -1,11 +1,7 @@
 import { assert, assertEquals, assertThrows } from "jsr:@std/assert";
 import { stub } from "jsr:@std/testing/mock";
-import {
-  createRuntimeConfig,
-  DEFAULT_CONFIG,
-  parseRuntimeArgs,
-  RuntimeConfig,
-} from "../src/config.ts";
+import { createRuntimeConfig, parseRuntimeArgs } from "../src/config.ts";
+import { DEFAULT_CONFIG, RuntimeConfig } from "@runt/lib-web";
 import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 import type { SyncOptions } from "npm:@livestore/common";
 
