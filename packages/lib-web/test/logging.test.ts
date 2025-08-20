@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 import { assertEquals, assertExists } from "jsr:@std/assert@^1.0.0";
 import {
   createLogger,

@@ -7,6 +7,15 @@
     "type": "git",
     "url": "https://github.com/runtimed/anode.git"
   },
+  "compilerOptions": {
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "es2024"
+    ],
+    "types": [],
+    "strict": true
+  },
   "exports": {
     ".": "./mod.ts",
     "./logging": "./src/logging.ts"
