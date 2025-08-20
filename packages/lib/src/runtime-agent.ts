@@ -15,7 +15,7 @@ import {
   type MediaContainer,
   tables,
 } from "@runt/schema";
-import { createLogger } from "./logging.ts";
+import { createLogger } from "@runt/lib-web";
 import { makeSchema, State } from "npm:@livestore/livestore";
 
 // Create schema locally

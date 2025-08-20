@@ -5,7 +5,12 @@
 // and structured logging.
 
 // Configuration and runtime setup
-export { DEFAULT_CONFIG, RuntimeConfig } from "./src/config.ts";
+export {
+  DEFAULT_CONFIG,
+  getTestingMode,
+  RuntimeConfig,
+  setTestingMode,
+} from "./src/config.ts";
 
 export { RuntimeAgent } from "./src/runtime-agent.ts";
 

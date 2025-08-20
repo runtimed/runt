@@ -15,6 +15,7 @@
   },
   "imports": {
     "@runt/lib": "jsr:@runt/lib@^0.11.1",
+    "@runt/lib-web": "jsr:@runt/lib-web@^0.11.1",
     "@runt/schema": "jsr:@runt/schema@^0.11.1"
   },
   "tasks": {

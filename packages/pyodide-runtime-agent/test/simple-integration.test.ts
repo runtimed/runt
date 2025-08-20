@@ -129,7 +129,7 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
   await t.step("supports environment variables", () => {
     Deno.env.set("RUNTIME_ID", "env-runtime");
     Deno.env.set("NOTEBOOK_ID", "env-notebook");
-    Deno.env.set("AUTH_TOKEN", "env-token");
+    Deno.env.set("RUNT_API_KEY", "env-token");
 
     try {
       const agent = new PyodideRuntimeAgent([]);
@@ -140,7 +140,7 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
     } finally {
       Deno.env.delete("RUNTIME_ID");
       Deno.env.delete("NOTEBOOK_ID");
-      Deno.env.delete("AUTH_TOKEN");
+      Deno.env.delete("RUNT_API_KEY");
     }
   });
 

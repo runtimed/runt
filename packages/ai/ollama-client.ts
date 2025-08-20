@@ -1,7 +1,8 @@
 import { Ollama } from "npm:ollama";
 import type { Message, Tool } from "npm:ollama";
 import type { AiModel, ModelCapability } from "@runt/lib";
-import { createLogger, type ExecutionContext } from "@runt/lib";
+import { type ExecutionContext } from "@runt/lib";
+import { createLogger } from "@runt/lib-web";
 
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
 

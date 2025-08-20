@@ -1,4 +1,4 @@
-import { createLogger } from "./logging.ts";
+import { createLogger } from "@runt/lib-web";
 import type { RuntimeAgent } from "./runtime-agent.ts";
 
 /**

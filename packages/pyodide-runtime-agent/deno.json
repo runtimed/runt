@@ -16,6 +16,7 @@
   "imports": {
     "@runt/ai": "jsr:@runt/ai@^0.11.1",
     "@runt/lib": "jsr:@runt/lib@^0.11.1",
+    "@runt/lib-web": "jsr:@runt/lib-web@^0.11.1",
     "@runt/schema": "jsr:@runt/schema@^0.11.1",
     "npm:pyodide": "npm:pyodide@^0.27.7",
     "@std/async": "jsr:@std/async@^1.0.0",
