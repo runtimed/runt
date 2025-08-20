@@ -31,5 +31,4 @@ export {
   withQuietLogging,
 } from "./src/logging.ts";
 
-// Type definitions
-export type * from "./src/types.ts";
+export * from "./src/types.ts";
