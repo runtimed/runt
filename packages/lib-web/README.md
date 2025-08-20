@@ -2,7 +2,9 @@
 
 Web-compatible logging library for Runt applications.
 
-This package provides a lightweight, web-compatible version of the Runt logging system, containing only the essential logging functionality without the full runtime agent capabilities.
+This package provides a lightweight, web-compatible version of the Runt logging
+system, containing only the essential logging functionality without the full
+runtime agent capabilities.
 
 ## Features
 
@@ -18,7 +20,7 @@ This package provides a lightweight, web-compatible version of the Runt logging 
 ### Basic Usage
 
 ```typescript
-import { logger, createLogger } from "@runt/lib-web";
+import { createLogger, logger } from "@runt/lib-web";
 
 // Use the default logger
 logger.info("Application started");
@@ -39,7 +41,7 @@ const logger = new Logger({
   level: LogLevel.DEBUG,
   service: "my-service",
   console: true,
-  context: { version: "1.0.0" }
+  context: { version: "1.0.0" },
 });
 ```
 
@@ -47,9 +49,9 @@ const logger = new Logger({
 
 ```typescript
 const parentLogger = createLogger("parent");
-const childLogger = parentLogger.child({ 
-  userId: "123", 
-  sessionId: "abc" 
+const childLogger = parentLogger.child({
+  userId: "123",
+  sessionId: "abc",
 });
 
 childLogger.info("User action performed"); // Includes parent and child context
@@ -91,28 +93,32 @@ const signalHandlers = {
   setup: (shutdown: () => void) => {
     // Set up your signal handlers here
     // For example, in a web environment:
-    window.addEventListener('beforeunload', shutdown);
-    
+    window.addEventListener("beforeunload", shutdown);
+
     // Or in a Node.js environment:
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
   },
   cleanup: () => {
     // Clean up your signal handlers here
     // For example:
-    window.removeEventListener('beforeunload', shutdown);
-  }
+    window.removeEventListener("beforeunload", shutdown);
+  },
 };
 
 const options = {
   runtimeId: "my-runtime",
   runtimeType: "python",
-  capabilities: { canExecuteCode: true, canExecuteSql: false, canExecuteAi: false },
+  capabilities: {
+    canExecuteCode: true,
+    canExecuteSql: false,
+    canExecuteAi: false,
+  },
   syncUrl: "wss://example.com",
   authToken: "your-token",
   notebookId: "your-notebook",
   signalHandlers, // Inject the signal handlers
-  environmentOptions: {}
+  environmentOptions: {},
 };
 
 const config = new RuntimeConfig(options);
@@ -128,11 +134,13 @@ const agent = new RuntimeAgent(config, options.capabilities);
 The main logging class.
 
 **Constructor:**
+
 ```typescript
 new Logger(config?: Partial<LoggerConfig>)
 ```
 
 **Methods:**
+
 - `debug(message: string, data?: Record<string, unknown>): void`
 - `info(message: string, data?: Record<string, unknown>): void`
 - `warn(message: string, data?: Record<string, unknown>): void`
