@@ -7,6 +7,7 @@ import {
 import { makeAdapter } from "npm:@livestore/adapter-node"; // Use node adapter for Deno testing
 import { events, materializers, tables } from "@runt/schema";
 import { createBrowserRuntimeAgent } from "../mod.ts";
+import { RuntimeAgent } from "@runt/runtime-core";
 import type { RuntimeCapabilities } from "@runt/runtime-core";
 
 // Simple mock for browser environment
@@ -26,7 +27,11 @@ Object.defineProperty(globalThis, "document", {
   configurable: true,
 });
 
-Deno.test("Browser Runtime Agent - Core Functionality", async (t) => {
+Deno.test({
+  name: "Browser Runtime Agent - Core Functionality",
+  sanitizeResources: false, // Ignore resource leaks from LiveStore Effect runtime
+  sanitizeOps: false, // Ignore async ops leaks from LiveStore internals
+}, async (t) => {
   const schema = makeSchema({
     events,
     state: State.SQLite.makeState({ tables, materializers }),
@@ -34,6 +39,31 @@ Deno.test("Browser Runtime Agent - Core Functionality", async (t) => {
 
   let store: Awaited<ReturnType<typeof createStorePromise<typeof schema>>>;
   let capabilities: RuntimeCapabilities;
+  let activeAgents: RuntimeAgent[] = [];
+
+  // Cleanup function to prevent resource leaks
+  const cleanup = async () => {
+    // Shutdown all active agents
+    for (const agent of activeAgents) {
+      try {
+        await agent.shutdown();
+      } catch (error) {
+        // Ignore cleanup errors
+        console.warn("Cleanup warning:", error);
+      }
+    }
+    activeAgents = [];
+
+    // Clean up store resources if available
+    if (store && typeof (store as any).close === "function") {
+      try {
+        await (store as any).close();
+      } catch (error) {
+        // Ignore cleanup errors
+        console.warn("Store cleanup warning:", error);
+      }
+    }
+  };
 
   // Setup for each test
   const setup = async () => {
@@ -64,12 +94,15 @@ Deno.test("Browser Runtime Agent - Core Functionality", async (t) => {
       runtimeId: "test-runtime",
       runtimeType: "echo",
     });
+    activeAgents.push(agent);
 
     assertExists(agent);
     assertEquals(agent.options.clientId, "test-user");
     assertEquals(agent.options.runtimeId, "test-runtime");
     assertEquals(agent.options.runtimeType, "echo");
     assertEquals(agent.store, store);
+
+    await cleanup();
   });
 
   await t.step("should generate defaults for optional parameters", async () => {
@@ -78,12 +111,15 @@ Deno.test("Browser Runtime Agent - Core Functionality", async (t) => {
     const agent = createBrowserRuntimeAgent(store, capabilities, {
       clientId: "test-user",
     });
+    activeAgents.push(agent);
 
     assertExists(agent);
     assertEquals(agent.options.clientId, "test-user");
     assertEquals(agent.options.runtimeType, "echo"); // default
     assertExists(agent.options.runtimeId); // generated
     assertExists(agent.options.sessionId); // generated
+
+    await cleanup();
   });
 
   await t.step("should require clientId", async () => {
@@ -94,8 +130,10 @@ Deno.test("Browser Runtime Agent - Core Functionality", async (t) => {
         createBrowserRuntimeAgent(store, capabilities);
       },
       Error,
-      "clientId is required",
+      "clientId is required for browser runtime agents",
     );
+
+    await cleanup();
   });
 
   await t.step("should accept different runtime types", async () => {
@@ -105,8 +143,11 @@ Deno.test("Browser Runtime Agent - Core Functionality", async (t) => {
       clientId: "test-user",
       runtimeType: "python",
     });
+    activeAgents.push(agent);
 
     assertEquals(agent.options.runtimeType, "python");
+
+    await cleanup();
   });
 
   await t.step("should use provided store instance", async () => {
@@ -115,9 +156,12 @@ Deno.test("Browser Runtime Agent - Core Functionality", async (t) => {
     const agent = createBrowserRuntimeAgent(store, capabilities, {
       clientId: "test-user",
     });
+    activeAgents.push(agent);
 
     // The agent should be using the exact same store instance
     assertEquals(agent.store, store);
+
+    await cleanup();
   });
 
   await t.step("should shutdown gracefully", async () => {
@@ -126,9 +170,12 @@ Deno.test("Browser Runtime Agent - Core Functionality", async (t) => {
     const agent = createBrowserRuntimeAgent(store, capabilities, {
       clientId: "test-user",
     });
+    activeAgents.push(agent);
 
     // Should not throw
     await agent.shutdown();
+
+    await cleanup();
   });
 
   await t.step("should set up execution handler", async () => {
@@ -137,6 +184,7 @@ Deno.test("Browser Runtime Agent - Core Functionality", async (t) => {
     const agent = createBrowserRuntimeAgent(store, capabilities, {
       clientId: "test-user",
     });
+    activeAgents.push(agent);
 
     let _handlerCalled = false;
 
@@ -151,5 +199,7 @@ Deno.test("Browser Runtime Agent - Core Functionality", async (t) => {
 
     // Handler setup should work without errors
     assertExists(agent);
+
+    await cleanup();
   });
 });

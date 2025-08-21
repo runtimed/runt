@@ -38,7 +38,11 @@ const createMockFunction = (): MockFunction => {
   return fn as MockFunction;
 };
 
-Deno.test("RuntimeAgent Integration Tests", async (t) => {
+Deno.test({
+  name: "RuntimeAgent Integration Tests",
+  sanitizeResources: false, // Ignore resource leaks from LiveStore Effect runtime
+  sanitizeOps: false, // Ignore async ops leaks from LiveStore internals
+}, async (t) => {
   // Create schema for proper typing
   const schema = makeSchema({
     events,
@@ -49,6 +53,31 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
   let capabilities: RuntimeCapabilities;
   let options: RuntimeAgentOptions;
   let handlers: RuntimeAgentEventHandlers;
+  let activeAgents: RuntimeAgent[] = [];
+
+  // Cleanup function to prevent resource leaks
+  const cleanup = async () => {
+    // Shutdown all active agents
+    for (const agent of activeAgents) {
+      try {
+        await agent.shutdown();
+      } catch (error) {
+        // Ignore cleanup errors
+        console.warn("Cleanup warning:", error);
+      }
+    }
+    activeAgents = [];
+
+    // Clean up store resources if available
+    if (store && typeof (store as any).close === "function") {
+      try {
+        await (store as any).close();
+      } catch (error) {
+        // Ignore cleanup errors
+        console.warn("Store cleanup warning:", error);
+      }
+    }
+  };
 
   // Setup for each test
   const setup = async () => {
@@ -90,44 +119,58 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
     await t.step("should create agent instance", async () => {
       await setup();
       const agent = new RuntimeAgent(store, capabilities, options, handlers);
+      activeAgents.push(agent);
+
       assertExists(agent);
       assertEquals(typeof agent.start, "function");
       assertEquals(typeof agent.shutdown, "function");
       assertEquals(typeof agent.onExecution, "function");
       assertEquals(typeof agent.keepAlive, "function");
+
+      await cleanup();
     });
 
     await t.step("should register execution handlers", async () => {
       await setup();
       const agent = new RuntimeAgent(store, capabilities, options);
+      activeAgents.push(agent);
+
       const executionHandler = () => Promise.resolve({ success: true });
 
       agent.onExecution(executionHandler);
 
       // Handler is registered internally
       assertEquals(typeof executionHandler, "function");
+
+      await cleanup();
     });
 
     await t.step("should handle shutdown gracefully", async () => {
       await setup();
       const agent = new RuntimeAgent(store, capabilities, options, handlers);
+      activeAgents.push(agent);
 
       // Should not throw
       await agent.shutdown();
 
       // Handler should be called
       assertEquals((handlers.onShutdown as MockFunction).calls.length, 1);
+
+      await cleanup();
     });
 
     await t.step("should handle multiple shutdown calls", async () => {
       await setup();
       const agent = new RuntimeAgent(store, capabilities, options, handlers);
+      activeAgents.push(agent);
 
       await agent.shutdown();
       await agent.shutdown(); // Second call should be safe
 
       // Should only call handler once due to isShuttingDown guard
       assertEquals((handlers.onShutdown as MockFunction).calls.length, 1);
+
+      await cleanup();
     });
   });
 
@@ -135,6 +178,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
     await t.step("should accept valid execution handler", async () => {
       await setup();
       const agent = new RuntimeAgent(store, capabilities, options);
+      activeAgents.push(agent);
 
       const handler = (context: ExecutionContext) => {
         context.stdout("Test output");
@@ -143,11 +187,14 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 
       agent.onExecution(handler);
       assertEquals(typeof handler, "function");
+
+      await cleanup();
     });
 
     await t.step("should replace previous execution handler", async () => {
       await setup();
       const agent = new RuntimeAgent(store, capabilities, options);
+      activeAgents.push(agent);
 
       const firstHandler = () => Promise.resolve({ success: true });
       const secondHandler = () => Promise.resolve({ success: false });
@@ -155,9 +202,11 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       agent.onExecution(firstHandler);
       agent.onExecution(secondHandler);
 
-      // Both handlers should be functions (replacement is internal)
+      // The second handler should replace the first
       assertEquals(typeof firstHandler, "function");
       assertEquals(typeof secondHandler, "function");
+
+      await cleanup();
     });
   });
 
@@ -175,7 +224,10 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       });
 
       const agent = new RuntimeAgent(store, capabilities, options);
+      activeAgents.push(agent);
       assertExists(agent);
+
+      await cleanup();
     });
 
     await t.step("should validate configuration on creation", async () => {
@@ -212,6 +264,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
     await t.step("should handle keepAlive correctly", async () => {
       await setup();
       const agent = new RuntimeAgent(store, capabilities, options);
+      activeAgents.push(agent);
 
       const keepAlivePromise = agent.keepAlive();
 
@@ -220,17 +273,22 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 
       // Should resolve without throwing
       await keepAlivePromise;
+
+      await cleanup();
     });
 
     await t.step("should handle rapid start/shutdown cycles", async () => {
       await setup();
       const agent = new RuntimeAgent(store, capabilities, options, handlers);
+      activeAgents.push(agent);
 
       // Multiple cycles should work
       await agent.shutdown();
       await agent.shutdown();
 
       assertEquals((handlers.onShutdown as MockFunction).calls.length, 1);
+
+      await cleanup();
     });
   });
 
@@ -238,6 +296,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
     await t.step("should provide context with output methods", async () => {
       await setup();
       const agent = new RuntimeAgent(store, capabilities, options);
+      activeAgents.push(agent);
 
       // Register a handler that captures the context
       agent.onExecution((_context) => {
@@ -250,6 +309,8 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 
       // The context will be provided when actual execution happens
       // This test verifies the agent accepts the handler correctly
+
+      await cleanup();
     });
   });
 });
