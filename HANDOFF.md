@@ -113,16 +113,57 @@ constructor(
 
 ## 🎯 Next Steps: Phase 2 Implementation
 
+### Priority 0: Cleanup Duplicated Files ⚠️ IMPORTANT
+
+**The scaffolded packages contain too many copied files. Clean up first:**
+
+**`@runt/runtime-core` (already cleaned) ✅**
+- Correctly contains only platform-agnostic files
+- No cleanup needed
+
+**`@runt/runtime-browser` - DELETE these files:**
+```bash
+cd packages/runtime-browser
+rm -rf examples/                    # Browser doesn't need CLI examples
+rm -rf test/                        # Will create browser-specific tests
+rm lib.test.ts                      # Not applicable
+rm src/config.ts                    # CLI parsing not needed in browser
+rm src/runtime-runner.ts            # CLI runner not needed in browser
+rm src/runtime-agent.ts             # Will use @runt/runtime-core instead
+rm src/types.ts                     # Will use @runt/runtime-core types
+rm src/logging.ts                   # Will use @runt/runtime-core logging
+rm src/artifact-client.ts           # Will use @runt/runtime-core version
+rm src/media/                       # Will use @runt/runtime-core media
+rm src/*.test.ts                    # Remove all copied tests
+```
+
+**`@runt/runtime-node` - DELETE these files:**
+```bash
+cd packages/runtime-node
+rm src/runtime-agent.ts             # Will use @runt/runtime-core instead
+rm src/types.ts                     # Will use @runt/runtime-core types (extend as needed)
+rm src/logging.ts                   # Will use @runt/runtime-core logging
+rm src/artifact-client.ts           # Will use @runt/runtime-core version
+rm src/media/                       # Will use @runt/runtime-core media
+rm src/execution-context.test.ts    # Will use @runt/runtime-core tests
+rm src/artifact-client.test.ts      # Not platform-specific
+rm lib.test.ts                      # Will create node-specific tests
+```
+
+**Keep in `@runt/runtime-node`:**
+- `src/config.ts` - CLI parsing and env vars (node-specific)
+- `src/runtime-runner.ts` - CLI entrypoint (node-specific)  
+- `examples/` - CLI examples (node-specific)
+- `test/` - Node integration tests
+- Platform-specific test files
+
 ### Priority 1: Browser Package Implementation
 
-**Create `@runt/runtime-browser`:**
+**Create `@runt/runtime-browser` (after cleanup):**
+</text>
 
-1. **Clean up copied files**
-   ```bash
-   cd packages/runtime-browser
-   rm -rf src/config.ts src/runtime-runner.ts examples/
-   rm src/*.test.ts  # Remove tests that don't apply
-   ```
+<old_text line=152>
+2. **Create browser-specific exports in `mod.ts`:**
 
 2. **Create browser-specific exports in `mod.ts`:**
    ```typescript
@@ -134,7 +175,7 @@ constructor(
    export type { BrowserRuntimeOptions } from "./src/browser-types.ts";
    ```
 
-3. **Implement `src/browser-runtime.ts`:**
+2. **Implement `src/browser-runtime.ts`:**
    ```typescript
    export function createBrowserRuntimeAgent(
      store: Store<typeof schema>,
@@ -160,7 +201,7 @@ constructor(
    }
    ```
 
-4. **Create echo agent example:**
+3. **Create echo agent example:**
    ```typescript
    // Simple echo execution handler for testing
    agent.onExecution(async (context) => {
@@ -173,15 +214,14 @@ constructor(
 
 ### Priority 2: Node Package Implementation
 
-**Create `@runt/runtime-node`:**
+**Create `@runt/runtime-node` (after cleanup):**
 
-1. **Move platform-specific code from `@runt/lib`:**
-   - `src/config.ts` (CLI parsing, env vars)
-   - `src/runtime-runner.ts` (CLI entrypoint)
-   - Signal handlers (SIGINT/SIGTERM)
-   - Authentication discovery logic
+1. **Update existing files to use `@runt/runtime-core`:**
+   - `src/config.ts` - Keep CLI parsing, remove duplicated types
+   - `src/runtime-runner.ts` - Update to use core RuntimeAgent
+   - Add signal handlers and auth discovery logic
 
-2. **Create node-specific wrapper:**
+2. **Create node-specific wrapper in `src/node-runtime.ts`:**
    ```typescript
    export async function createNodeRuntimeAgent(
      args: string[],
@@ -291,17 +331,29 @@ const useBrowserRuntime = () => {
 
 ## 🐛 Known Issues & Gotchas
 
-1. **Test Files Removed**: Platform-specific tests were removed from core package
+1. **File Duplication**: Scaffolded packages have too many copied files
+   - **MUST clean up first** - see Priority 0 cleanup section above
+   - Only keep platform-specific files in each package
+   - Use `@runt/runtime-core` for shared functionality
+
+2. **Test Files Removed**: Platform-specific tests were removed from core package
    - Need to recreate relevant tests in platform packages
    - Original tests can be found in git history
 
-2. **Dependencies**: Core package has minimal dependencies
+3. **Dependencies**: Core package has minimal dependencies
    - No `@livestore/adapter-node` or CLI parsing libraries
    - Platform packages add their specific dependencies
 
-3. **Media/Artifact Handling**: Simplified in core
+4. **Media/Artifact Handling**: Simplified in core
    - Size-based artifact upload logic can be added by platform packages
    - Core just returns inline content for images
+
+5. **Import Strategy**: Platform packages should re-export from core
+   ```typescript
+   // In platform package mod.ts
+   export * from "@runt/runtime-core";
+   export { platformSpecificFunction } from "./src/platform-specific.ts";
+   ```
 
 ## 📚 Reference Materials
 
