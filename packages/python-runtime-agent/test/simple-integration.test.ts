@@ -15,14 +15,22 @@ Deno.test("PythonRuntimeAgent - Basic Functionality (Stub)", async (t) => {
   try {
     await t.step("can be constructed with minimal args", async () => {
       const agent = await PythonRuntimeAgent.create([]);
-      assertExists(agent);
+      try {
+        assertExists(agent);
+      } finally {
+        await agent.shutdown();
+      }
     });
 
     await t.step("exposes required methods (stub)", async () => {
       const agent = await PythonRuntimeAgent.create([]);
-      assertEquals(typeof agent.start, "function");
-      assertEquals(typeof agent.shutdown, "function");
-      assertEquals(typeof agent.keepAlive, "function");
+      try {
+        assertEquals(typeof agent.start, "function");
+        assertEquals(typeof agent.shutdown, "function");
+        assertEquals(typeof agent.keepAlive, "function");
+      } finally {
+        await agent.shutdown();
+      }
     });
 
     await t.step("has a config property (stub)", async () => {
@@ -32,7 +40,11 @@ Deno.test("PythonRuntimeAgent - Basic Functionality (Stub)", async (t) => {
         "--auth-token",
         "test-token",
       ]);
-      assertExists(agent.config);
+      try {
+        assertExists(agent.config);
+      } finally {
+        await agent.shutdown();
+      }
     });
   } finally {
     for (const k of Object.keys(env)) {
