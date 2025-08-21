@@ -1,27 +1,41 @@
-// @runt/lib - Core library for building Anode runtime agents
+// @runt/lib - Backward compatibility wrapper for runtime agents
+//
+// This package re-exports functionality from the new runtime packages:
+// - @runt/runtime-core: Platform-agnostic runtime agent core
+// - @runt/runtime-deno: Deno-specific CLI configuration and utilities
+//
+// For new projects, consider using the specific packages directly:
+// - Use @runt/runtime-core for platform-agnostic runtime agents
+// - Use @runt/runtime-deno for Deno/Node.js applications with CLI support
+// - Use @runt/runtime-browser for browser-based applications
 
-export { RuntimeAgent } from "./src/runtime-agent.ts";
+// Core runtime agent functionality (from @runt/runtime-core)
 export {
-  createRuntimeConfig,
-  DEFAULT_CONFIG,
-  parseRuntimeArgs,
-  RuntimeConfig,
-} from "./src/config.ts";
-export {
+  ArtifactClient,
+  createArtifactClient,
   createLogger,
   Logger,
   logger,
   LogLevel,
+  type MediaBundle,
+  PngProcessor,
+  RuntimeAgent,
+  validateMediaBundle,
   withQuietLogging,
-} from "./src/logging.ts";
+} from "@runt/runtime-core";
+
+// Type exports (from @runt/runtime-core)
 export type {
   AiModel,
+  ArtifactSubmissionOptions,
+  ArtifactSubmissionResult,
   CancellationHandler,
   CellData,
   ExecutionContext,
   ExecutionHandler,
   ExecutionQueueData,
   ExecutionResult,
+  LoggerConfig,
   ModelCapability,
   OutputType,
   RawOutputData,
@@ -29,22 +43,13 @@ export type {
   RuntimeAgentOptions,
   RuntimeCapabilities,
   RuntimeSessionData,
-} from "./src/types.ts";
-export type { LoggerConfig } from "./src/logging.ts";
+} from "@runt/runtime-core";
 
-// Media types and utilities for rich content handling (re-exported from runtime-core)
-export { type MediaBundle, validateMediaBundle } from "@runt/runtime-core";
-
-// Artifact service client for submitting artifacts to anode
+// Deno-specific functionality (from @runt/runtime-deno)
 export {
-  ArtifactClient,
-  createArtifactClient,
-  PngProcessor,
-} from "./src/artifact-client.ts";
-
-export type {
-  ArtifactSubmissionOptions,
-  ArtifactSubmissionResult,
-} from "./src/types.ts";
-
-export { runner } from "./src/runtime-runner.ts";
+  createRuntimeConfig,
+  DEFAULT_CONFIG,
+  parseRuntimeArgs,
+  runner,
+  type RuntimeConfig,
+} from "@runt/runtime-deno";
