@@ -2,7 +2,10 @@
 
 ## 🎯 Project Goal
 
-Refactor the runtime agent system to support browser usage by extracting platform-agnostic core logic and creating platform-specific adapters. This enables browser-based runtime agents (like Pyodide) that can share a LiveStore instance with React UI components.
+Refactor the runtime agent system to support browser usage by extracting
+platform-agnostic core logic and creating platform-specific adapters. This
+enables browser-based runtime agents (like Pyodide) that can share a LiveStore
+instance with React UI components.
 
 ## ✅ Current Status: Phase 1 Complete
 
@@ -27,19 +30,21 @@ Refactor the runtime agent system to support browser usage by extracting platfor
 ### Key Architecture Changes
 
 **Before (Platform-Coupled):**
+
 ```typescript
-const config = createRuntimeConfig(args) // CLI/env parsing
-const agent = new RuntimeAgent(config, capabilities) // Creates own store
+const config = createRuntimeConfig(args); // CLI/env parsing
+const agent = new RuntimeAgent(config, capabilities); // Creates own store
 ```
 
 **After (Store-First):**
+
 ```typescript
-const store = await createStorePromise({ adapter, schema }) // From React app
+const store = await createStorePromise({ adapter, schema }); // From React app
 const agent = new RuntimeAgent(store, capabilities, {
-  runtimeId: 'browser-echo',
-  runtimeType: 'echo',
+  runtimeId: "browser-echo",
+  runtimeType: "echo",
   clientId: user.sub, // CRITICAL: Must be authenticated user ID
-})
+});
 ```
 
 ## 📁 Current File Structure
@@ -69,6 +74,7 @@ runt/
 ## 🔄 Key Interface Changes
 
 ### RuntimeAgentOptions (Simplified)
+
 ```typescript
 // OLD: Complex platform-specific options
 interface RuntimeAgentOptions {
@@ -93,6 +99,7 @@ interface RuntimeAgentOptions {
 ```
 
 ### RuntimeAgent Constructor
+
 ```typescript
 // OLD: Takes config, creates own store
 constructor(
@@ -118,10 +125,12 @@ constructor(
 **The scaffolded packages contain too many copied files. Clean up first:**
 
 **`@runt/runtime-core` (already cleaned) ✅**
+
 - Correctly contains only platform-agnostic files
 - No cleanup needed
 
 **`@runt/runtime-browser` - DELETE these files:**
+
 ```bash
 cd packages/runtime-browser
 rm -rf examples/                    # Browser doesn't need CLI examples
@@ -138,6 +147,7 @@ rm src/*.test.ts                    # Remove all copied tests
 ```
 
 **`@runt/runtime-node` - DELETE these files:**
+
 ```bash
 cd packages/runtime-node
 rm src/runtime-agent.ts             # Will use @runt/runtime-core instead
@@ -151,8 +161,9 @@ rm lib.test.ts                      # Will create node-specific tests
 ```
 
 **Keep in `@runt/runtime-node`:**
+
 - `src/config.ts` - CLI parsing and env vars (node-specific)
-- `src/runtime-runner.ts` - CLI entrypoint (node-specific)  
+- `src/runtime-runner.ts` - CLI entrypoint (node-specific)
 - `examples/` - CLI examples (node-specific)
 - `test/` - Node integration tests
 - Platform-specific test files
@@ -162,54 +173,53 @@ rm lib.test.ts                      # Will create node-specific tests
 **Create `@runt/runtime-browser` (after cleanup):**
 </text>
 
-<old_text line=152>
-2. **Create browser-specific exports in `mod.ts`:**
+<old_text line=152> 2. **Create browser-specific exports in `mod.ts`:**
 
 2. **Create browser-specific exports in `mod.ts`:**
    ```typescript
    // Re-export core
    export * from "@runt/runtime-core";
-   
+
    // Browser-specific utilities
    export { createBrowserRuntimeAgent } from "./src/browser-runtime.ts";
    export type { BrowserRuntimeOptions } from "./src/browser-types.ts";
    ```
 
-2. **Implement `src/browser-runtime.ts`:**
+3. **Implement `src/browser-runtime.ts`:**
    ```typescript
    export function createBrowserRuntimeAgent(
      store: Store<typeof schema>,
      capabilities: RuntimeCapabilities,
-     options?: Partial<RuntimeAgentOptions>
+     options?: Partial<RuntimeAgentOptions>,
    ): RuntimeAgent {
      const agent = new RuntimeAgent(store, capabilities, {
        runtimeId: options?.runtimeId || `browser-${crypto.randomUUID()}`,
-       runtimeType: options?.runtimeType || 'echo',
+       runtimeType: options?.runtimeType || "echo",
        clientId: options?.clientId, // MUST be provided - user ID
-       ...options
-     })
-     
+       ...options,
+     });
+
      // Browser-specific lifecycle
-     setupBrowserLifecycle(agent)
-     
-     return agent
+     setupBrowserLifecycle(agent);
+
+     return agent;
    }
-   
+
    function setupBrowserLifecycle(agent: RuntimeAgent) {
-     const cleanup = () => agent.shutdown()
-     window.addEventListener('beforeunload', cleanup)
+     const cleanup = () => agent.shutdown();
+     window.addEventListener("beforeunload", cleanup);
    }
    ```
 
-3. **Create echo agent example:**
+4. **Create echo agent example:**
    ```typescript
    // Simple echo execution handler for testing
    agent.onExecution(async (context) => {
-     await context.result({ 
-       'text/plain': `Echo: ${context.cell.source}` 
-     })
-     return { success: true }
-   })
+     await context.result({
+       "text/plain": `Echo: ${context.cell.source}`,
+     });
+     return { success: true };
+   });
    ```
 
 ### Priority 2: Node Package Implementation
@@ -225,66 +235,68 @@ rm lib.test.ts                      # Will create node-specific tests
    ```typescript
    export async function createNodeRuntimeAgent(
      args: string[],
-     capabilities: RuntimeCapabilities
-   ): Promise<{ agent: RuntimeAgent, store: Store }> {
-     const config = parseRuntimeArgs(args) // CLI parsing
-     
+     capabilities: RuntimeCapabilities,
+   ): Promise<{ agent: RuntimeAgent; store: Store }> {
+     const config = parseRuntimeArgs(args); // CLI parsing
+
      const adapter = makeAdapter({
-       storage: { type: 'fs' },
+       storage: { type: "fs" },
        sync: { backend: makeCfSync({ url: config.syncUrl }) },
        clientId: config.clientId, // REQUIRED from CLI
-     })
-     
+     });
+
      const store = await createStorePromise({
-       adapter, schema,
+       adapter,
+       schema,
        storeId: config.notebookId,
-       syncPayload: { authToken: config.authToken }
-     })
-     
+       syncPayload: { authToken: config.authToken },
+     });
+
      const agent = new RuntimeAgent(store, capabilities, {
        runtimeId: config.runtimeId,
        runtimeType: config.runtimeType,
        clientId: config.clientId,
-     })
-     
-     setupNodeLifecycle(agent, store)
-     return { agent, store }
+     });
+
+     setupNodeLifecycle(agent, store);
+     return { agent, store };
    }
    ```
 
 ### Priority 3: React Integration Example
 
 **Browser integration in anode React app:**
+
 ```typescript
 const useBrowserRuntime = () => {
-  const { store } = useStore() // Existing LiveStore
-  const { user } = useAuthenticatedUser()
-  
+  const { store } = useStore(); // Existing LiveStore
+  const { user } = useAuthenticatedUser();
+
   const startBrowserRuntime = async () => {
-    const { createBrowserRuntimeAgent } = await import('@runt/runtime-browser')
-    
+    const { createBrowserRuntimeAgent } = await import("@runt/runtime-browser");
+
     const agent = createBrowserRuntimeAgent(store, {
       canExecuteCode: true,
       canExecuteSql: false,
       canExecuteAi: false,
     }, {
-      runtimeId: 'browser-echo',
-      runtimeType: 'echo',
+      runtimeId: "browser-echo",
+      runtimeType: "echo",
       clientId: user.sub, // Critical: use authenticated user ID
-    })
-    
+    });
+
     // Echo handler for testing
     agent.onExecution(async (context) => {
-      await context.result({ 'text/plain': `Echo: ${context.cell.source}` })
-      return { success: true }
-    })
-    
-    await agent.start()
-    return agent
-  }
-  
-  return { startBrowserRuntime }
-}
+      await context.result({ "text/plain": `Echo: ${context.cell.source}` });
+      return { success: true };
+    });
+
+    await agent.start();
+    return agent;
+  };
+
+  return { startBrowserRuntime };
+};
 ```
 
 ## 🔍 Testing Strategy
@@ -301,7 +313,7 @@ const useBrowserRuntime = () => {
    - [ ] Browser lifecycle management
    - [ ] Store sharing with React app
 
-3. **Node Package Tests**  
+3. **Node Package Tests**
    - [ ] CLI argument parsing
    - [ ] Signal handlers
    - [ ] Original functionality preserved
@@ -314,16 +326,19 @@ const useBrowserRuntime = () => {
 ## ⚠️ Critical Requirements
 
 ### Client ID Consistency
+
 - **MUST** use authenticated user ID as `clientId`
 - **DO NOT** use random generation or host inheritance
 - This ensures audit trails and permission consistency
 
 ### Single Runtime Constraint
+
 - Existing schema enforces one active runtime per notebook
 - New architecture maintains this constraint
 - Runtime displacement logic preserved
 
 ### Store Lifecycle
+
 - RuntimeAgent **does not** own the Store
 - Platform adapters handle Store creation/lifecycle
 - Browser: Store created by React app
@@ -336,7 +351,8 @@ const useBrowserRuntime = () => {
    - Only keep platform-specific files in each package
    - Use `@runt/runtime-core` for shared functionality
 
-2. **Test Files Removed**: Platform-specific tests were removed from core package
+2. **Test Files Removed**: Platform-specific tests were removed from core
+   package
    - Need to recreate relevant tests in platform packages
    - Original tests can be found in git history
 
@@ -360,6 +376,7 @@ const useBrowserRuntime = () => {
 ### Essential Documentation for New Agents
 
 **External Documentation:**
+
 - **LiveStore Full Documentation**: https://docs.livestore.dev/llms-full.txt
   - Complete LiveStore architecture and patterns
   - Web adapter usage (critical for browser implementation)
@@ -367,25 +384,30 @@ const useBrowserRuntime = () => {
   - Event sourcing patterns
 
 **Project Documentation:**
+
 - **`PLAN.md`**: Complete architecture requirements and decisions
 - **`runt/packages/schema/mod.ts`**: Runtime session events and materializers
 - **`runt/packages/schema/types.ts`**: Core type definitions and MIME types
-- **`runt/packages/schema/tables.ts`**: Database schema including runtime sessions
+- **`runt/packages/schema/tables.ts`**: Database schema including runtime
+  sessions
 
 ### Key Files to Understand
 
 **Core Implementation (✅ Complete):**
+
 - `packages/runtime-core/src/runtime-agent.ts` - New store-first RuntimeAgent
 - `packages/runtime-core/src/types.ts` - Simplified interfaces
 - `packages/runtime-core/mod.ts` - Clean exports
 
 **Original Implementation (Reference):**
+
 - `packages/lib/src/runtime-agent.ts` - Original platform-coupled implementation
 - `packages/lib/src/config.ts` - CLI parsing and environment handling
 - `packages/lib/src/types.ts` - Full original interfaces
 - `packages/lib/examples/echo-agent.ts` - Working echo agent example
 
 **Schema Integration:**
+
 - `packages/schema/mod.ts` - Lines 51-482: Core events
 - `packages/schema/mod.ts` - Lines 579-1215: Materializers
 - `packages/schema/tables.ts` - Lines 90-110: Runtime sessions table
@@ -394,6 +416,7 @@ const useBrowserRuntime = () => {
 ### React Integration Context
 
 **anode LiveStore Setup (from user context):**
+
 ```typescript
 // This is how the React app creates the LiveStore instance
 const adapter = makePersistedAdapter({
@@ -417,34 +440,41 @@ const syncPayload = useRef({
 ### LiveStore Patterns to Follow
 
 **Web Adapter Usage:**
+
 - Study `@livestore/adapter-web` documentation
 - `makePersistedAdapter` with OPFS storage
 - Shared worker for cross-tab communication
 - `clientId` consistency critical for user identity
 
 **Store Creation Pattern:**
+
 ```typescript
 const store = await createStorePromise({
   adapter,
   schema,
   storeId: notebookId,
-  syncPayload: { authToken, clientId }
-})
+  syncPayload: { authToken, clientId },
+});
 ```
 
 **Event Sourcing:**
-- Runtime session lifecycle: `runtimeSessionStarted` → `runtimeSessionStatusChanged` → `runtimeSessionTerminated`
-- Execution queue: `executionRequested` → `executionAssigned` → `executionStarted` → `executionCompleted`
+
+- Runtime session lifecycle: `runtimeSessionStarted` →
+  `runtimeSessionStatusChanged` → `runtimeSessionTerminated`
+- Execution queue: `executionRequested` → `executionAssigned` →
+  `executionStarted` → `executionCompleted`
 - Output events: `terminalOutputAdded`, `multimediaDisplayOutputAdded`, etc.
 
 ### Examples and Tests
 
 **Working Examples (Reference Only):**
+
 - `packages/lib/examples/echo-agent.ts` - Complete working echo agent
 - `packages/lib/examples/enhanced-output-example.ts` - Rich output handling
 - `packages/lib/examples/streaming-demo.ts` - Streaming output patterns
 
 **Test Patterns:**
+
 - `packages/lib/src/runtime-agent.test.ts` - RuntimeAgent constructor tests
 - `packages/lib/test/integration.test.ts` - LiveStore integration patterns
 - Look at git history for removed test files that might provide insights
@@ -452,12 +482,14 @@ const store = await createStorePromise({
 ### Browser-Specific Resources
 
 **Web APIs to Use:**
+
 - `crypto.randomUUID()` for session IDs
 - `window.addEventListener('beforeunload')` for cleanup
 - `localStorage` for configuration
 - `URL` constructor for parsing config from search params
 
 **Avoid These Deno APIs:**
+
 - `Deno.addSignalListener` → Use `window.addEventListener`
 - `Deno.env.get()` → Use `localStorage` or URL params
 - `Deno.pid` → Use `crypto.randomUUID()`
@@ -468,10 +500,14 @@ const store = await createStorePromise({
 When implementing, you may need to research:
 
 1. **How does `makePersistedAdapter` work?** → Check LiveStore web adapter docs
-2. **What's the exact schema for runtime events?** → See `packages/schema/mod.ts`  
-3. **How do multiple runtimes get displaced?** → Look at existing `runtimeSessionTerminated` logic
-4. **What's the authentication flow?** → The user's React app handles this, runtime just uses `clientId`
-5. **How do execution contexts work?** → Study `ExecutionContext` interface and existing output methods
+2. **What's the exact schema for runtime events?** → See
+   `packages/schema/mod.ts`
+3. **How do multiple runtimes get displaced?** → Look at existing
+   `runtimeSessionTerminated` logic
+4. **What's the authentication flow?** → The user's React app handles this,
+   runtime just uses `clientId`
+5. **How do execution contexts work?** → Study `ExecutionContext` interface and
+   existing output methods
 
 ## 🚀 Future Phases (Post Phase 2)
 
@@ -488,8 +524,9 @@ When implementing, you may need to research:
 ## 💡 Success Criteria
 
 **Phase 2 Complete When:**
+
 - [ ] Browser package compiles and works with React app
-- [ ] Node package preserves all existing CLI functionality  
+- [ ] Node package preserves all existing CLI functionality
 - [ ] Echo agent successfully executes in browser
 - [ ] Store sharing works between React UI and browser runtime
 - [ ] All tests passing
@@ -497,12 +534,17 @@ When implementing, you may need to research:
 
 ## 🤝 Handoff Notes
 
-This refactoring preserves all existing functionality while enabling browser usage through clean separation of concerns. The store-first architecture is the key insight that makes this work.
+This refactoring preserves all existing functionality while enabling browser
+usage through clean separation of concerns. The store-first architecture is the
+key insight that makes this work.
 
-The foundation is solid - core package compiles cleanly and implements the new architecture correctly. The remaining work is primarily plumbing and integration.
+The foundation is solid - core package compiles cleanly and implements the new
+architecture correctly. The remaining work is primarily plumbing and
+integration.
 
 **Key files to focus on next:**
-1. `packages/runtime-browser/src/browser-runtime.ts` 
+
+1. `packages/runtime-browser/src/browser-runtime.ts`
 2. `packages/runtime-node/src/node-runtime.ts`
 3. Integration examples and tests
 
