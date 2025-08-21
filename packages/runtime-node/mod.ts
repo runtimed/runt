@@ -1,27 +1,31 @@
-// @runt/lib - Core library for building Anode runtime agents
+// @runt/runtime-node - Node/Deno platform adapter for runtime agents
 
-export { RuntimeAgent } from "./src/runtime-agent.ts";
+// Re-export core functionality from runtime-core
 export {
-  createRuntimeConfig,
-  DEFAULT_CONFIG,
-  parseRuntimeArgs,
-  RuntimeConfig,
-} from "./src/config.ts";
-export {
+  ArtifactClient,
+  createArtifactClient,
   createLogger,
   Logger,
   logger,
   LogLevel,
+  type MediaBundle,
+  PngProcessor,
+  RuntimeAgent,
+  validateMediaBundle,
   withQuietLogging,
-} from "./src/logging.ts";
+} from "@runt/runtime-core";
+
 export type {
   AiModel,
+  ArtifactSubmissionOptions,
+  ArtifactSubmissionResult,
   CancellationHandler,
   CellData,
   ExecutionContext,
   ExecutionHandler,
   ExecutionQueueData,
   ExecutionResult,
+  LoggerConfig,
   ModelCapability,
   OutputType,
   RawOutputData,
@@ -29,22 +33,18 @@ export type {
   RuntimeAgentOptions,
   RuntimeCapabilities,
   RuntimeSessionData,
-} from "./src/types.ts";
-export type { LoggerConfig } from "./src/logging.ts";
+} from "@runt/runtime-core";
 
-// Media types and utilities for rich content handling (re-exported from runtime-core)
-export { type MediaBundle, validateMediaBundle } from "@runt/runtime-core";
-
-// Artifact service client for submitting artifacts to anode
+// Node-specific functionality (CLI, configuration, etc.)
 export {
-  ArtifactClient,
-  createArtifactClient,
-  PngProcessor,
-} from "./src/artifact-client.ts";
-
-export type {
-  ArtifactSubmissionOptions,
-  ArtifactSubmissionResult,
-} from "./src/types.ts";
+  createRuntimeConfig,
+  DEFAULT_CONFIG,
+  parseRuntimeArgs,
+  type RuntimeConfig,
+} from "./src/config.ts";
 
 export { runner } from "./src/runtime-runner.ts";
+
+// Node-specific functionality
+// TODO: Implement node-specific runtime creation helpers
+// export { createNodeRuntimeAgent } from "./src/node-runtime.ts";
