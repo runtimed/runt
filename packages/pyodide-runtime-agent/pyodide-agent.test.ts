@@ -90,10 +90,22 @@ Deno.test("PyodideRuntimeAgent configuration", async (t) => {
 
     const originalArgs = Deno.args;
     const originalExit = Deno.exit;
+    const originalEnv = {
+      NOTEBOOK_ID: Deno.env.get("NOTEBOOK_ID"),
+      RUNT_API_KEY: Deno.env.get("RUNT_API_KEY"),
+      AUTH_TOKEN: Deno.env.get("AUTH_TOKEN"),
+      RUNTIME_ID: Deno.env.get("RUNTIME_ID"),
+    };
     let exitCalled = false;
     let exitCode = 0;
 
     try {
+      // Clear environment variables to force configuration error
+      Deno.env.delete("NOTEBOOK_ID");
+      Deno.env.delete("RUNT_API_KEY");
+      Deno.env.delete("AUTH_TOKEN");
+      Deno.env.delete("RUNTIME_ID");
+
       // Mock Deno.exit to prevent actual exit
       Deno.exit = (code?: number) => {
         exitCalled = true;
@@ -122,6 +134,12 @@ Deno.test("PyodideRuntimeAgent configuration", async (t) => {
         value: originalArgs,
         writable: true,
       });
+      // Restore environment variables
+      for (const [key, value] of Object.entries(originalEnv)) {
+        if (value !== undefined) {
+          Deno.env.set(key, value);
+        }
+      }
     }
   });
 

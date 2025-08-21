@@ -1,11 +1,29 @@
 import {
   createRuntimeConfig,
+  createStoreFromConfig,
   RuntimeAgent,
   type RuntimeConfig,
+  type RuntimeSchema,
 } from "@runt/lib";
+import type { Store } from "npm:@livestore/livestore";
 
 export class PythonRuntimeAgent extends RuntimeAgent {
-  constructor(args: string[] = Deno.args) {
+  public config: RuntimeConfig;
+
+  private constructor(
+    store: Store<RuntimeSchema>,
+    config: RuntimeConfig,
+  ) {
+    super(store, config.capabilities, {
+      runtimeId: config.runtimeId,
+      runtimeType: config.runtimeType,
+      clientId: config.runtimeId,
+      sessionId: config.sessionId,
+    });
+    this.config = config;
+  }
+
+  static async create(args: string[] = Deno.args): Promise<PythonRuntimeAgent> {
     let config: RuntimeConfig;
     try {
       config = createRuntimeConfig(args, {
@@ -14,11 +32,9 @@ export class PythonRuntimeAgent extends RuntimeAgent {
           canExecuteCode: true,
           canExecuteSql: false,
           canExecuteAi: false,
-          availableAiModels: [],
         },
       });
     } catch (error) {
-      // Configuration errors should still go to console for CLI usability
       console.error("❌ Configuration Error:");
       console.error(error instanceof Error ? error.message : String(error));
       console.error("\nExample usage:");
@@ -36,6 +52,7 @@ export class PythonRuntimeAgent extends RuntimeAgent {
       Deno.exit(1);
     }
 
-    super(config, config.capabilities, {});
+    const store = await createStoreFromConfig(config);
+    return new PythonRuntimeAgent(store, config);
   }
 }

@@ -9,6 +9,7 @@ import {
   assertStringIncludes,
 } from "jsr:@std/assert";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
+import { withQuietConsole } from "../../lib/test/test-config.ts";
 
 Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
   await t.step("creates agent with valid configuration", () => {
@@ -75,22 +76,42 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
 
   await t.step("validates configuration requirements", () => {
     const originalExit = Deno.exit;
+    const originalEnv = {
+      NOTEBOOK_ID: Deno.env.get("NOTEBOOK_ID"),
+      RUNT_API_KEY: Deno.env.get("RUNT_API_KEY"),
+      AUTH_TOKEN: Deno.env.get("AUTH_TOKEN"),
+      RUNTIME_ID: Deno.env.get("RUNTIME_ID"),
+    };
     let exitCalled = false;
 
     try {
+      // Clear environment variables to force configuration error
+      Deno.env.delete("NOTEBOOK_ID");
+      Deno.env.delete("RUNT_API_KEY");
+      Deno.env.delete("AUTH_TOKEN");
+      Deno.env.delete("RUNTIME_ID");
+
       Deno.exit = () => {
         exitCalled = true;
         throw new Error("Exit called");
       };
 
       try {
-        PyodideRuntimeAgent.createForTesting([]);
+        withQuietConsole(() => {
+          PyodideRuntimeAgent.createForTesting([]);
+        });
       } catch (error) {
         assertEquals(exitCalled, true);
         assertEquals(error instanceof Error, true);
       }
     } finally {
       Deno.exit = originalExit;
+      // Restore environment variables
+      for (const [key, value] of Object.entries(originalEnv)) {
+        if (value !== undefined) {
+          Deno.env.set(key, value);
+        }
+      }
     }
   });
 });

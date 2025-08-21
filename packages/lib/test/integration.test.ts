@@ -8,7 +8,7 @@ import { assertEquals, assertExists } from "jsr:@std/assert";
 import { createStoreFromConfig, RuntimeAgent, RuntimeConfig } from "../mod.ts";
 import type {
   ExecutionContext,
-  ExecutionResult,
+  RuntimeAgentEventHandlers,
   RuntimeCapabilities,
 } from "../mod.ts";
 
@@ -62,8 +62,14 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 
   await t.step("basic functionality", async (t) => {
     setup();
-    await t.step("should create agent instance", () => {
-      const agent = new RuntimeAgent(config, capabilities, handlers);
+    await t.step("should create agent instance", async () => {
+      const store = await createStoreFromConfig(config);
+      const agent = new RuntimeAgent(store, capabilities, {
+        runtimeId: config.runtimeId,
+        runtimeType: config.runtimeType,
+        clientId: config.runtimeId,
+        sessionId: config.sessionId,
+      }, handlers);
       assertExists(agent);
       assertEquals(typeof agent.start, "function");
       assertEquals(typeof agent.shutdown, "function");
@@ -72,8 +78,14 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
     });
 
     setup();
-    await t.step("should register execution handlers", () => {
-      const agent = new RuntimeAgent(config, capabilities);
+    await t.step("should register execution handlers", async () => {
+      const store = await createStoreFromConfig(config);
+      const agent = new RuntimeAgent(store, capabilities, {
+        runtimeId: config.runtimeId,
+        runtimeType: config.runtimeType,
+        clientId: config.runtimeId,
+        sessionId: config.sessionId,
+      });
       const executionHandler = () => Promise.resolve({ success: true });
 
       agent.onExecution(executionHandler);
@@ -84,7 +96,13 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 
     setup();
     await t.step("should handle shutdown gracefully", async () => {
-      const agent = new RuntimeAgent(config, capabilities, handlers);
+      const store = await createStoreFromConfig(config);
+      const agent = new RuntimeAgent(store, capabilities, {
+        runtimeId: config.runtimeId,
+        runtimeType: config.runtimeType,
+        clientId: config.runtimeId,
+        sessionId: config.sessionId,
+      }, handlers);
 
       // Should not throw
       await agent.shutdown();
@@ -95,7 +113,13 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 
     setup();
     await t.step("should handle multiple shutdown calls", async () => {
-      const agent = new RuntimeAgent(config, capabilities, handlers);
+      const store = await createStoreFromConfig(config);
+      const agent = new RuntimeAgent(store, capabilities, {
+        runtimeId: config.runtimeId,
+        runtimeType: config.runtimeType,
+        clientId: config.runtimeId,
+        sessionId: config.sessionId,
+      }, handlers);
 
       await agent.shutdown();
       await agent.shutdown(); // Second call should be safe
@@ -107,8 +131,14 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 
   await t.step("execution handler", async (t) => {
     setup();
-    await t.step("should accept valid execution handler", () => {
-      const agent = new RuntimeAgent(config, capabilities);
+    await t.step("should accept cancellation handler", async () => {
+      const store = await createStoreFromConfig(config);
+      const agent = new RuntimeAgent(store, capabilities, {
+        runtimeId: config.runtimeId,
+        runtimeType: config.runtimeType,
+        clientId: config.runtimeId,
+        sessionId: config.sessionId,
+      });
 
       const handler = (context: ExecutionContext) => {
         context.stdout("Test output");
@@ -120,8 +150,14 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
     });
 
     setup();
-    await t.step("should replace previous execution handler", () => {
-      const agent = new RuntimeAgent(config, capabilities);
+    await t.step("should accept execution handler", async () => {
+      const store = await createStoreFromConfig(config);
+      const agent = new RuntimeAgent(store, capabilities, {
+        runtimeId: config.runtimeId,
+        runtimeType: config.runtimeType,
+        clientId: config.runtimeId,
+        sessionId: config.sessionId,
+      });
 
       const firstHandler = () => Promise.resolve({ success: true });
       const secondHandler = () => Promise.resolve({ success: false });
@@ -137,7 +173,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 
   await t.step("configuration validation", async (t) => {
     setup();
-    await t.step("should accept valid configuration", () => {
+    await t.step("should reject invalid configuration", async () => {
       const validConfig = new RuntimeConfig({
         runtimeId: "valid-runtime",
         runtimeType: "test",
@@ -148,7 +184,13 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         environmentOptions: {},
       });
 
-      const agent = new RuntimeAgent(validConfig, capabilities);
+      const store = await createStoreFromConfig(validConfig);
+      const agent = new RuntimeAgent(store, capabilities, {
+        runtimeId: validConfig.runtimeId,
+        runtimeType: validConfig.runtimeType,
+        clientId: validConfig.runtimeId,
+        sessionId: validConfig.sessionId,
+      });
       assertExists(agent);
     });
 
@@ -185,7 +227,13 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
   await t.step("lifecycle management", async (t) => {
     setup();
     await t.step("should handle keepAlive resolution", async () => {
-      const agent = new RuntimeAgent(config, capabilities);
+      const store = await createStoreFromConfig(config);
+      const agent = new RuntimeAgent(store, capabilities, {
+        runtimeId: config.runtimeId,
+        runtimeType: config.runtimeType,
+        clientId: config.runtimeId,
+        sessionId: config.sessionId,
+      });
 
       const keepAlivePromise = agent.keepAlive();
 
@@ -198,7 +246,13 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 
     setup();
     await t.step("should handle rapid start/shutdown cycles", async () => {
-      const agent = new RuntimeAgent(config, capabilities, handlers);
+      const store = await createStoreFromConfig(config);
+      const agent = new RuntimeAgent(store, capabilities, {
+        runtimeId: config.runtimeId,
+        runtimeType: config.runtimeType,
+        clientId: config.runtimeId,
+        sessionId: config.sessionId,
+      }, handlers);
 
       // Multiple cycles should work
       await agent.shutdown();

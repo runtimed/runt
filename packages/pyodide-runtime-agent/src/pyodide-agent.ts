@@ -139,8 +139,22 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         },
       });
     } catch (error) {
-      // Re-throw for tests to handle
-      throw error;
+      // Configuration errors should still go to console for CLI usability
+      console.error("❌ Configuration Error:");
+      console.error(error instanceof Error ? error.message : String(error));
+      console.error("\nExample usage:");
+      console.error(
+        '  deno run --allow-all "jsr:@runt/pyodide-runtime-agent" --notebook my-notebook --auth-token your-runt-api-key',
+      );
+      console.error("\nOr set environment variables in .env:");
+      console.error("  NOTEBOOK_ID=my-notebook");
+      console.error("  RUNT_API_KEY=your-runt-api-key");
+      console.error("\nOr install globally:");
+      console.error(
+        "  deno install -gf --allow-all jsr:@runt/pyodide-runtime-agent",
+      );
+      console.error("  pyorunt --notebook my-notebook --auth-token your-token");
+      Deno.exit(1);
     }
 
     // Create a simple mock store for testing
@@ -150,7 +164,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       commit: () => {},
       subscribe: () => () => {},
       // Add other minimal store methods as needed
-    } as any;
+    } as unknown as Store<RuntimeSchema>;
 
     return new PyodideRuntimeAgent(
       mockStore,
