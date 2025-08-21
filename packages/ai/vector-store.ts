@@ -611,6 +611,7 @@ export class VectorStoreService {
     this.ingestionPromise = null;
     this.indexedFilePaths = [];
     embeddingConfigured = false; // Allow reconfiguration after reset
+    vectorStoreReady = false; // Reset ready flag
     this.logger.info("Vector store reset");
   }
 }
@@ -619,6 +620,8 @@ export class VectorStoreService {
 let vectorStoreInstance: VectorStoreService | null = null;
 // Global flag to track if vector store indexing is enabled
 let vectorStoreIndexingEnabled = false;
+// Global flag to track if vector store is ready for queries
+let vectorStoreReady = false;
 
 /**
  * Enable vector store indexing globally
@@ -628,10 +631,24 @@ export function enableVectorStoreIndexing(): void {
 }
 
 /**
+ * Mark vector store as ready for queries (called after indexing completes)
+ */
+export function markVectorStoreReady(): void {
+  vectorStoreReady = true;
+}
+
+/**
  * Check if vector store indexing is enabled
  */
 export function isVectorStoreIndexingEnabled(): boolean {
   return vectorStoreIndexingEnabled;
+}
+
+/**
+ * Check if vector store is ready for queries (indexing enabled AND indexing completed)
+ */
+export function isVectorStoreReady(): boolean {
+  return vectorStoreIndexingEnabled && vectorStoreReady;
 }
 
 /**

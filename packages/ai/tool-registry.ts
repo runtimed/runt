@@ -44,7 +44,8 @@ const BASIC_NOTEBOOK_TOOLS: NotebookTool[] = [
   {
     name: "create_cell",
     description:
-      "Create a new cell in the notebook after a specific cell. The AI knows its own cell ID and can reference any previously created cell IDs.",
+      "Create a new cell in the notebook after a specific cell. " +
+      "The AI knows its own cell ID and can reference any previously created cell IDs.",
     parameters: {
       type: "object",
       properties: {
@@ -61,7 +62,9 @@ const BASIC_NOTEBOOK_TOOLS: NotebookTool[] = [
         after_id: {
           type: "string",
           description:
-            "The ID of the cell to place this new cell after. Use your own cell ID to place cells below yourself, or use a previously created cell's ID to build sequences.",
+            "The ID of the cell to place this new cell after. " +
+            "Use your own cell ID to place cells below yourself, " +
+            "or use a previously created cell's ID to build sequences.",
         },
       },
       required: ["source", "after_id"],
@@ -70,14 +73,17 @@ const BASIC_NOTEBOOK_TOOLS: NotebookTool[] = [
   {
     name: "modify_cell",
     description:
-      "Modify the content of an existing cell in the notebook. Use this to fix bugs, improve code, or update content based on user feedback. Use the actual cell ID from the context (shown as 'ID: cell-xxx'), not position numbers.",
+      "Modify the content of an existing cell in the notebook. " +
+      "Use this to fix bugs, improve code, or update content based on user feedback. " +
+      "Use the actual cell ID from the context (shown as 'ID: cell-xxx'), not position numbers.",
     parameters: {
       type: "object",
       properties: {
         cellId: {
           type: "string",
           description:
-            "The actual cell ID from the context (e.g., 'cell-1234567890-abc'), not a position number",
+            "The actual cell ID from the context " +
+            "(e.g., 'cell-1234567890-abc'), not a position number",
         },
         source: {
           type: "string",
@@ -90,14 +96,17 @@ const BASIC_NOTEBOOK_TOOLS: NotebookTool[] = [
   {
     name: "execute_cell",
     description:
-      "Execute a specific cell in the notebook. Use this to run code after creating or modifying it, or to re-run existing cells. Use the actual cell ID from the context (shown as 'ID: cell-xxx'), not position numbers.",
+      "Execute a specific cell in the notebook. " +
+      "Use this to run code after creating or modifying it, or to re-run existing cells. " +
+      "Use the actual cell ID from the context (shown as 'ID: cell-xxx'), not position numbers.",
     parameters: {
       type: "object",
       properties: {
         cellId: {
           type: "string",
           description:
-            "The actual cell ID from the context (e.g., 'cell-1234567890-abc'), not a position number",
+            "The actual cell ID from the context " +
+            "(e.g., 'cell-1234567890-abc'), not a position number",
         },
       },
       required: ["cellId"],
@@ -110,13 +119,19 @@ const VECTOR_STORE_TOOLS: NotebookTool[] = [
   {
     name: "query_documents",
     description:
-      "Useful for answering natural language questions about the files that have been mounted to the runtime using the --mount flag.",
+      "Search and retrieve relevant content from mounted files based on natural language queries. " +
+      "Use this tool when the user asks questions about file contents, " +
+      "seeks specific information within files, or needs to understand what's in the mounted data. " +
+      "This tool searches through the actual file contents and returns relevant excerpts. " +
+      "IMPORTANT: Always try this tool first when the user asks about data, files, or analysis - " +
+      "don't ask the user to provide files manually when this tool is available.",
     parameters: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "The search query to find relevant documents or content",
+          description: "Natural language search query to find relevant content within files " +
+            "(e.g., 'functions that handle authentication', 'sales data for Q3', 'error handling code')",
         },
       },
       required: ["query"],
@@ -125,13 +140,19 @@ const VECTOR_STORE_TOOLS: NotebookTool[] = [
   {
     name: "find_mounted_file",
     description:
-      "Find the full file path to mounted data files based on a query. Use this tool whenever you need to write code cells that require loading data files. This tool returns file paths that can be used in data loading functions like pd.read_csv(), np.loadtxt(), or open(). Always call this tool before writing code that loads data to ensure you have the correct file paths.",
+      "Find the full file path to mounted data files based on a search query. " +
+      "Use this tool when you need to write code that loads specific files, " +
+      "or when you need to know the exact file paths for data analysis. " +
+      "This tool returns file paths that can be used in data loading functions " +
+      "like pd.read_csv(), np.loadtxt(), json.load(), or open(). " +
+      "ALWAYS call this tool before writing code that loads data files to ensure you have the correct file paths.",
     parameters: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "Search query to find data files (e.g., 'CSV files', 'customer data', 'sales report', etc.)",
+          description: "Search query to find data files by name, type, or content " +
+            "(e.g., 'CSV files', 'customer data', 'sales report', 'JSON config files', 'Python scripts')",
         },
       },
       required: ["query"],
@@ -140,7 +161,9 @@ const VECTOR_STORE_TOOLS: NotebookTool[] = [
   {
     name: "list_indexed_files",
     description:
-      "List all file paths that have been indexed from mounted directories. This tool returns the full paths of all files that were successfully mounted and indexed for AI search. Use this tool when you need to see all available files in the mounted directories.",
+      "Lists all file paths that have been successfully indexed from mounted directories. " +
+      "Use this tool to see what files are available for analysis when you need an overview of the mounted data. " +
+      "This is helpful for understanding the scope of available data before diving into specific queries.",
     parameters: {
       type: "object",
       properties: {},
@@ -194,10 +217,10 @@ function convertMcpParameterToToolParameter(
 export async function getAllTools(): Promise<NotebookTool[]> {
   try {
     // Import vector store checking function to avoid circular dependencies
-    const { isVectorStoreIndexingEnabled } = await import("./vector-store.ts");
+    const { isVectorStoreReady } = await import("./vector-store.ts");
     
-    // Determine which notebook tools to include based on vector store indexing status
-    const notebookTools = isVectorStoreIndexingEnabled() 
+    // Determine which notebook tools to include based on vector store readiness
+    const notebookTools = isVectorStoreReady() 
       ? [...BASIC_NOTEBOOK_TOOLS, ...VECTOR_STORE_TOOLS]
       : BASIC_NOTEBOOK_TOOLS;
 
@@ -232,8 +255,8 @@ export async function getAllTools(): Promise<NotebookTool[]> {
     
     // Import vector store checking function to avoid circular dependencies
     try {
-      const { isVectorStoreIndexingEnabled } = await import("./vector-store.ts");
-      const notebookTools = isVectorStoreIndexingEnabled() 
+      const { isVectorStoreReady } = await import("./vector-store.ts");
+      const notebookTools = isVectorStoreReady() 
         ? [...BASIC_NOTEBOOK_TOOLS, ...VECTOR_STORE_TOOLS]
         : BASIC_NOTEBOOK_TOOLS;
       return [...notebookTools];
