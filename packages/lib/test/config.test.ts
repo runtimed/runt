@@ -5,7 +5,7 @@ import {
   DEFAULT_CONFIG,
   parseRuntimeArgs,
   RuntimeConfig,
-} from "../src/config.ts";
+} from "../mod.ts";
 
 const REQUIRED_PARAMS = ["--notebook", "nb", "--auth-token", "tok"];
 function addRequiredParams(args: string[]): string[] {

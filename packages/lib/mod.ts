@@ -48,8 +48,10 @@ export type {
 // Deno-specific functionality (from @runt/runtime-deno)
 export {
   createRuntimeConfig,
+  createStoreFromConfig,
   DEFAULT_CONFIG,
   parseRuntimeArgs,
   runner,
-  type RuntimeConfig,
+  RuntimeConfig,
+  type RuntimeSchema,
 } from "@runt/runtime-deno";

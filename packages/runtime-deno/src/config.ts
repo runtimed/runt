@@ -64,7 +64,7 @@ export class RuntimeConfig {
     this.authToken = options.authToken;
     this.notebookId = options.notebookId;
     this.capabilities = options.capabilities;
-    this.environmentOptions = options.environmentOptions;
+    this.environmentOptions = options.environmentOptions || {};
     this.imageArtifactThresholdBytes = options.imageArtifactThresholdBytes ??
       DEFAULT_CONFIG.imageArtifactThresholdBytes;
 
@@ -363,6 +363,9 @@ export function createRuntimeConfig(
       ...mergedDefaults.environmentOptions,
       ...(cleanCliConfig.environmentOptions ?? {}),
     },
+    imageArtifactThresholdBytes: cleanCliConfig.imageArtifactThresholdBytes ??
+      mergedDefaults.imageArtifactThresholdBytes ??
+      DEFAULT_CONFIG.imageArtifactThresholdBytes,
   };
 
   if (!finalConfig.authToken) {
@@ -390,7 +393,8 @@ export function createRuntimeConfig(
     capabilities: finalConfig.capabilities,
     environmentOptions: finalConfig.environmentOptions,
     imageArtifactThresholdBytes: finalConfig.imageArtifactThresholdBytes,
-    artifactClient: finalConfig.artifactClient,
+    ...(finalConfig.artifactClient &&
+      { artifactClient: finalConfig.artifactClient }),
   };
 
   const runtimeConfig = new RuntimeConfig(result);

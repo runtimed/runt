@@ -1,13 +1,24 @@
 // Enhanced Output Example
 
-import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
+import {
+  createRuntimeConfig,
+  createStoreFromConfig,
+  runner,
+  RuntimeAgent,
+} from "@runt/lib";
 import type { ExecutionContext } from "@runt/lib";
 
 // Python-like runtime with streaming output support
 class ExamplePythonRuntime {
-  private agent: RuntimeAgent;
+  public readonly agent: RuntimeAgent;
 
-  constructor() {
+  private constructor(agent: RuntimeAgent) {
+    this.agent = agent;
+    // Register execution handler with enhanced output support
+    this.agent.onExecution(this.executeCode.bind(this));
+  }
+
+  static async create() {
     // Create config from CLI args and environment variables
     let config;
     try {
@@ -32,22 +43,25 @@ class ExamplePythonRuntime {
       Deno.exit(1);
     }
 
-    this.agent = new RuntimeAgent(config, config.capabilities);
+    // Create store from config - this will throw if it fails
+    const store = await createStoreFromConfig(config);
 
-    // Register execution handler with enhanced output support
-    this.agent.onExecution(this.executeCode.bind(this));
+    const agent = new RuntimeAgent(
+      store,
+      config.capabilities,
+      {
+        runtimeId: config.runtimeId,
+        runtimeType: config.runtimeType,
+        clientId: config.runtimeId, // Use runtimeId as clientId for now
+        sessionId: config.sessionId,
+      },
+    );
+
+    return new ExamplePythonRuntime(agent);
   }
 
   async start() {
     await this.agent.start();
-  }
-
-  async shutdown() {
-    return await this.agent.shutdown();
-  }
-
-  async keepAlive() {
-    return await this.agent.keepAlive();
   }
 
   // Enhanced execution handler demonstrating streaming outputs
@@ -272,13 +286,11 @@ class ExamplePythonRuntime {
 
 // Usage example
 async function runExample() {
-  const runtime = new ExamplePythonRuntime();
-
   try {
-    console.log("🚀 Starting enhanced output example runtime...");
-    await runtime.start();
+    console.log("🚀 Creating enhanced output example runtime...");
+    const runtime = await ExamplePythonRuntime.create();
 
-    console.log("✅ Runtime started successfully!");
+    console.log("✅ Runtime created successfully!");
     console.log("📝 Try executing cells with these code examples:");
     console.log("   - print('Hello, World!')");
     console.log("   - plt.plot([1, 2, 3], [1, 4, 9])");
@@ -287,12 +299,11 @@ async function runExample() {
     console.log("   - raise ValueError('Test error')");
     console.log("   - mixed_output()");
 
-    // Keep running until shutdown
-    await runtime.keepAlive();
+    // Use runner helper to start and manage lifecycle
+    await runner(runtime.agent, "enhanced-output-example");
   } catch (error) {
     console.error("❌ Failed to start runtime:", error);
-  } finally {
-    await runtime.shutdown();
+    Deno.exit(1);
   }
 }
 

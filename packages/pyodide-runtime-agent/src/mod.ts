@@ -13,6 +13,6 @@ export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 
 // Run the agent if this file is executed directly
 if (import.meta.main) {
-  const agent = new PyodideRuntimeAgent();
+  const agent = await PyodideRuntimeAgent.create();
   await runner(agent, "PyoRunt");
 }

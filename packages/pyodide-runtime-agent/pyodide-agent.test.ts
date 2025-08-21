@@ -107,7 +107,7 @@ Deno.test("PyodideRuntimeAgent configuration", async (t) => {
       try {
         // Wrap configuration error in quiet console to suppress verbose output
         withQuietConsole(() => {
-          new PyodideRuntimeAgent([]);
+          PyodideRuntimeAgent.createForTesting([]);
         });
       } catch (error) {
         // Should throw due to our mocked exit
@@ -133,11 +133,9 @@ Deno.test("PyodideRuntimeAgent configuration", async (t) => {
       "test-notebook",
       "--auth-token",
       "test-token",
-      "--sync-url",
-      "ws://localhost:8787",
     ];
 
-    const agent = new PyodideRuntimeAgent(validArgs);
+    const agent = PyodideRuntimeAgent.createForTesting(validArgs);
     assertExists(agent);
     assertEquals(typeof agent.start, "function");
     assertEquals(typeof agent.shutdown, "function");
@@ -158,7 +156,7 @@ Deno.test("PyodideRuntimeAgent configuration", async (t) => {
       "test-token",
     ];
 
-    const agent = new PyodideRuntimeAgent(validArgs);
+    const agent = PyodideRuntimeAgent.createForTesting(validArgs);
     assertEquals(agent.config.runtimeType, "python3-pyodide");
     assertEquals(agent.config.capabilities.canExecuteCode, true);
     assertEquals(agent.config.capabilities.canExecuteSql, false);
@@ -181,7 +179,7 @@ Deno.test("PyodideRuntimeAgent lifecycle", async (t) => {
   ];
 
   await t.step("should create agent", () => {
-    agent = new PyodideRuntimeAgent(validArgs);
+    agent = PyodideRuntimeAgent.createForTesting(validArgs);
     assertExists(agent);
   });
 

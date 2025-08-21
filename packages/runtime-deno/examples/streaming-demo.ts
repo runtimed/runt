@@ -4,8 +4,13 @@
 // real-world streaming scenarios using ExecutionContext methods. Watch how outputs
 // are grouped and appended in real-time.
 
-import { createRuntimeConfig, RuntimeAgent } from "@runt/lib";
-import type { ExecutionContext } from "@runt/lib";
+import {
+  createRuntimeConfig,
+  createStoreFromConfig,
+  runner,
+  RuntimeAgent,
+} from "@runt/runtime-deno";
+import type { ExecutionContext } from "@runt/runtime-deno";
 import {
   cellReferences$,
   createCellBetween,
@@ -14,9 +19,14 @@ import {
 } from "@runt/schema";
 
 class StreamingDemoAgent {
-  private agent: RuntimeAgent;
+  public readonly agent: RuntimeAgent;
 
-  constructor() {
+  private constructor(agent: RuntimeAgent) {
+    this.agent = agent;
+    this.agent.onExecution(this.executeCode.bind(this));
+  }
+
+  static async create() {
     let config;
     try {
       config = createRuntimeConfig(Deno.args, {
@@ -37,23 +47,27 @@ class StreamingDemoAgent {
       Deno.exit(1);
     }
 
-    this.agent = new RuntimeAgent(config, config.capabilities);
-    this.agent.onExecution(this.executeCode.bind(this));
+    // Create store from config
+    const store = await createStoreFromConfig(config);
+
+    const agent = new RuntimeAgent(
+      store,
+      config.capabilities,
+      {
+        runtimeId: config.runtimeId,
+        runtimeType: config.runtimeType,
+        clientId: config.runtimeId, // Use runtimeId as clientId for now
+        sessionId: config.sessionId,
+      },
+    );
+
+    return new StreamingDemoAgent(agent);
   }
 
   async start() {
     await this.agent.start();
-
     // Auto-create help cell if notebook is empty
     this.createHelpCellIfEmpty();
-  }
-
-  async shutdown() {
-    return await this.agent.shutdown();
-  }
-
-  async keepAlive() {
-    return await this.agent.keepAlive();
   }
 
   private createHelpCellIfEmpty() {
@@ -476,13 +490,11 @@ Each demo shows different aspects of how the new granular events work!`);
 }
 
 async function runStreamingDemo() {
-  const demo = new StreamingDemoAgent();
-
   try {
-    console.log("🌊 Starting Streaming Demo Agent...");
-    await demo.start();
+    console.log("🌊 Creating Streaming Demo Agent...");
+    const demo = await StreamingDemoAgent.create();
 
-    console.log("✅ Demo agent ready!");
+    console.log("✅ Demo agent created successfully!");
     console.log("");
     console.log("📋 Available streaming demos:");
     console.log("   demo_stdout_stream   - Basic stdout grouping");
@@ -496,11 +508,12 @@ async function runStreamingDemo() {
     console.log("");
     console.log("🎯 Each demo shows different unified output system features");
 
-    await demo.keepAlive();
+    // Initialize and use runner helper
+    await demo.start();
+    await runner(demo.agent, "streaming-demo");
   } catch (error) {
     console.error("❌ Demo failed:", error);
-  } finally {
-    await demo.shutdown();
+    Deno.exit(1);
   }
 }
 

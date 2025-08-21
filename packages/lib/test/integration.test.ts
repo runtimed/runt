@@ -5,13 +5,12 @@
 
 import { assertEquals, assertExists } from "jsr:@std/assert";
 
-import { RuntimeAgent } from "../src/runtime-agent.ts";
-import { RuntimeConfig } from "../src/config.ts";
+import { createStoreFromConfig, RuntimeAgent, RuntimeConfig } from "../mod.ts";
 import type {
   ExecutionContext,
-  RuntimeAgentEventHandlers,
+  ExecutionResult,
   RuntimeCapabilities,
-} from "../src/types.ts";
+} from "../mod.ts";
 
 // Simple mock function creator
 interface MockFunction {
@@ -211,20 +210,23 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 
   await t.step("output context methods", async (t) => {
     setup();
-    await t.step("should provide context with output methods", () => {
-      const agent = new RuntimeAgent(config, capabilities);
+    await t.step("should provide context with output methods", async () => {
+      const store = await createStoreFromConfig(config);
+      const agent = new RuntimeAgent(store, capabilities, {
+        runtimeId: config.runtimeId,
+        runtimeType: config.runtimeType,
+        clientId: config.runtimeId,
+        sessionId: config.sessionId,
+      });
 
       // Register a handler that captures the context
-      agent.onExecution((_context) => {
+      agent.onExecution((_context: ExecutionContext) => {
         return Promise.resolve({ success: true });
       });
 
       // For now, we can't easily test the full execution flow without
       // mocking LiveStore heavily, but we can verify the agent structure
       assertEquals(typeof agent.onExecution, "function");
-
-      // The context will be provided when actual execution happens
-      // This test verifies the agent accepts the handler correctly
     });
   });
 });

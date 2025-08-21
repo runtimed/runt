@@ -40,10 +40,16 @@ export {
   createRuntimeConfig,
   DEFAULT_CONFIG,
   parseRuntimeArgs,
-  type RuntimeConfig,
+  RuntimeConfig,
 } from "./src/config.ts";
 
 export { runner } from "./src/runtime-runner.ts";
+
+// Store creation helpers
+export {
+  createStoreFromConfig,
+  type RuntimeSchema,
+} from "./src/store-helpers.ts";
 
 // Node-specific functionality
 // TODO: Implement node-specific runtime creation helpers

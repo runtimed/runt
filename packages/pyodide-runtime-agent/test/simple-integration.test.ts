@@ -21,7 +21,7 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
       "test-token",
     ];
 
-    const agent = new PyodideRuntimeAgent(agentArgs);
+    const agent = PyodideRuntimeAgent.createForTesting(agentArgs);
 
     assertExists(agent);
     assertEquals(agent.config.runtimeType, "python3-pyodide");
@@ -43,8 +43,8 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
       "test-token",
     ];
 
-    const agent1 = new PyodideRuntimeAgent(agentArgs);
-    const agent2 = new PyodideRuntimeAgent(agentArgs);
+    const agent1 = PyodideRuntimeAgent.createForTesting(agentArgs);
+    const agent2 = PyodideRuntimeAgent.createForTesting(agentArgs);
 
     assertExists(agent1.config.sessionId);
     assertExists(agent2.config.sessionId);
@@ -63,7 +63,7 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
       "test-token",
     ];
 
-    const agent = new PyodideRuntimeAgent(agentArgs);
+    const agent = PyodideRuntimeAgent.createForTesting(agentArgs);
 
     // Should shutdown without starting
     await agent.shutdown();
@@ -84,7 +84,7 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
       };
 
       try {
-        new PyodideRuntimeAgent([]);
+        PyodideRuntimeAgent.createForTesting([]);
       } catch (error) {
         assertEquals(exitCalled, true);
         assertEquals(error instanceof Error, true);
@@ -108,7 +108,7 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
       "5000",
     ];
 
-    const _agent = new PyodideRuntimeAgent(agentArgs);
+    const _agent = PyodideRuntimeAgent.createForTesting(agentArgs);
   });
 
   await t.step("uses default values", () => {
@@ -121,7 +121,7 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
       "default-test-token",
     ];
 
-    const agent = new PyodideRuntimeAgent(agentArgs);
+    const agent = PyodideRuntimeAgent.createForTesting(agentArgs);
 
     assertStringIncludes(agent.config.syncUrl, "anode-docworker");
   });
@@ -132,7 +132,7 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
     Deno.env.set("AUTH_TOKEN", "env-token");
 
     try {
-      const agent = new PyodideRuntimeAgent([]);
+      const agent = PyodideRuntimeAgent.createForTesting([]);
 
       assertEquals(agent.config.runtimeId, "env-runtime");
       assertEquals(agent.config.notebookId, "env-notebook");
@@ -151,7 +151,7 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
     Deno.env.set("RUNT_API_KEY", "api-key-token");
 
     try {
-      const agent = new PyodideRuntimeAgent([]);
+      const agent = PyodideRuntimeAgent.createForTesting([]);
 
       assertEquals(agent.config.runtimeId, "env-runtime");
       assertEquals(agent.config.notebookId, "env-notebook");
@@ -177,7 +177,7 @@ Deno.test("PyodideRuntimeAgent - Methods", async (t) => {
       "--auth-token",
       "method-test-token",
     ];
-    agent = new PyodideRuntimeAgent(agentArgs);
+    agent = PyodideRuntimeAgent.createForTesting(agentArgs);
   });
 
   await t.step("has required methods", () => {

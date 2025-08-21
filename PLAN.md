@@ -14,7 +14,7 @@ cannot be used in browsers. This prevents creating browser-based runtime agents
 - `@livestore/adapter-node` dependency
 - Process-based lifecycle management
 
-## Goal
+## Goal ✅ PHASE 1 COMPLETE
 
 Create a browser-compatible runtime agent system that:
 
@@ -29,7 +29,7 @@ Create a browser-compatible runtime agent system that:
 
 ## Architecture Changes
 
-### Key Insight: Store-First Design
+### Key Insight: Store-First Design ✅ IMPLEMENTED
 
 Instead of RuntimeAgent creating its own LiveStore instance:
 
@@ -38,8 +38,8 @@ Instead of RuntimeAgent creating its own LiveStore instance:
 const config = createRuntimeConfig(args);
 const agent = new RuntimeAgent(config, capabilities);
 
-// NEW: Runtime agent plugs into existing store
-const store = await createStorePromise({ adapter, schema }); // from React app
+// NEW: Runtime agent plugs into existing store ✅ DONE
+const store = await createStoreFromConfig(config); // or from React app
 const agent = new RuntimeAgent(store, capabilities, options);
 ```
 
@@ -153,15 +153,17 @@ const agent = await createNodeRuntimeAgent(args, capabilities);
 
 ## Implementation Phases
 
-### Phase 1: Package Refactoring ✅ CURRENT FOCUS
+### Phase 1: Package Refactoring ✅ COMPLETE
 
-1. **Extract Core**: Move platform-agnostic code to `@runt/runtime-core`
-2. **Create Node Package**: Move Deno/server code to `@runt/runtime-node`
-3. **Create Browser Package**: Basic browser adapter with echo agent
-4. **Update Dependencies**: Existing packages use new structure
-5. **Test Migration**: Ensure current functionality preserved
+1. **Extract Core**: ✅ Moved platform-agnostic code to `@runt/runtime-core`
+2. **Create Node Package**: ✅ Moved Deno/server code to `@runt/runtime-deno`
+3. **Create Browser Package**: ✅ Created basic browser adapter with echo agent
+4. **Update Dependencies**: ✅ Migrated existing packages to new structure
+5. **Test Migration**: ✅ All functionality preserved and tests passing
+6. **API Migration**: ✅ Updated RuntimeAgent to store-first design
+7. **Backward Compatibility**: ✅ Created bridge functions for smooth migration
 
-### Phase 2: Browser Integration
+### Phase 2: Browser Integration ⏭️ NEXT FOCUS
 
 1. **React Integration**: Hook to start/stop browser runtime from UI
 2. **Store Sharing**: Ensure browser runtime uses same LiveStore as React
@@ -253,12 +255,14 @@ const useBrowserRuntime = () => {
 
 ### Phase 1 Complete When:
 
-- [ ] `@runt/runtime-core` package created and published
-- [ ] `@runt/runtime-node` package works with existing CLI tools
-- [ ] `@runt/runtime-browser` package works with echo agent
-- [ ] Current pyodide runtime migrated to new structure
-- [ ] All tests passing
-- [ ] Documentation updated
+- [x] `@runt/runtime-core` package created and published
+- [x] `@runt/runtime-deno` package works with existing CLI tools
+- [x] `@runt/runtime-browser` package works with echo agent
+- [x] Current pyodide runtime migrated to new structure
+- [x] All tests passing
+- [x] RuntimeAgent API migrated to store-first design
+- [x] Backward compatibility bridge functions created
+- [ ] Documentation updated (in progress)
 
 ### Long-term Success:
 

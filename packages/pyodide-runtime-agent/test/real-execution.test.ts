@@ -10,7 +10,7 @@ import type {
   ExecutionContext,
   ExecutionResult,
   RawOutputData,
-} from "@runt/lib/types";
+} from "@runt/lib";
 
 // Create test agent with minimal packages for speed
 function createTestAgent(packages?: string[]): PyodideRuntimeAgent {
@@ -25,7 +25,10 @@ function createTestAgent(packages?: string[]): PyodideRuntimeAgent {
     "ws://localhost:8787",
   ];
 
-  return new PyodideRuntimeAgent(validArgs, packages ? { packages } : {});
+  return PyodideRuntimeAgent.createForTesting(
+    validArgs,
+    packages ? { packages } : {},
+  );
 }
 
 // Simple output capture for testing

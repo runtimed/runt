@@ -2,7 +2,13 @@
 
 // Echo Agent - Basic runtime agent example
 
-import { createLogger, createRuntimeConfig, RuntimeAgent } from "@runt/lib";
+import {
+  createLogger,
+  createRuntimeConfig,
+  createStoreFromConfig,
+  runner,
+  RuntimeAgent,
+} from "@runt/lib";
 
 const logger = createLogger("echo-agent");
 
@@ -30,15 +36,35 @@ try {
   Deno.exit(1);
 }
 
+// Create LiveStore from configuration
+let store;
+try {
+  store = await createStoreFromConfig(config);
+} catch (error) {
+  console.error("❌ Store Creation Error:");
+  console.error(error instanceof Error ? error.message : String(error));
+  Deno.exit(1);
+}
+
 // Create the runtime agent
-const agent = new RuntimeAgent(config, config.capabilities, {
-  onStartup: () => logger.info("Echo agent starting"),
-  onConnected: () => logger.info("Connected to LiveStore"),
-  onShutdown: () => logger.info("Echo agent shutting down"),
-  onExecutionError: (error, context) => {
-    logger.error("Execution error", error, { cellId: context.cell.id });
+const agent = new RuntimeAgent(
+  store,
+  config.capabilities,
+  {
+    runtimeId: config.runtimeId,
+    runtimeType: config.runtimeType,
+    clientId: config.runtimeId, // Use runtimeId as clientId for now
+    sessionId: config.sessionId,
   },
-});
+  {
+    onStartup: () => logger.info("Echo agent starting"),
+    onConnected: () => logger.info("Connected to LiveStore"),
+    onShutdown: () => logger.info("Echo agent shutting down"),
+    onExecutionError: (error, context) => {
+      logger.error("Execution error", error, { cellId: context.cell.id });
+    },
+  },
+);
 
 // Register the execution handler
 agent.onExecution(async (context) => {
@@ -66,18 +92,5 @@ agent.onExecution(async (context) => {
   }
 });
 
-// Start the agent
-try {
-  await agent.start();
-  logger.info("Echo agent started", {
-    runtimeId: agent.config.runtimeId,
-    runtimeType: agent.config.runtimeType,
-    notebookId: agent.config.notebookId,
-    sessionId: agent.config.sessionId,
-  });
-
-  await agent.keepAlive();
-} catch (error) {
-  logger.error("Failed to start echo agent", error);
-  Deno.exit(1);
-}
+// Start the agent using the runner helper
+await runner(agent, "echo-agent");
