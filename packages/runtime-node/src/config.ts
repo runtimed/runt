@@ -6,11 +6,31 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { createLogger } from "@runt/runtime-core";
 import type {
-  IArtifactClient,
   RuntimeAgentOptions,
   RuntimeCapabilities,
 } from "@runt/runtime-core";
 import { ArtifactClient } from "@runt/runtime-core";
+
+/**
+ * Node/CLI specific configuration interface
+ * This includes fields needed for CLI parsing and server setup
+ */
+interface NodeRuntimeOptions {
+  readonly runtimeId: string;
+  readonly runtimeType: string;
+  readonly syncUrl: string;
+  readonly authToken: string;
+  readonly notebookId: string;
+  readonly capabilities: RuntimeCapabilities;
+  readonly environmentOptions?: {
+    readonly runtimePythonPath?: string;
+    readonly runtimeEnvPath?: string;
+    readonly runtimePackageManager?: string;
+    readonly runtimeEnvExternallyManaged?: boolean;
+  };
+  readonly imageArtifactThresholdBytes?: number;
+  readonly artifactClient?: ArtifactClient;
+}
 
 /**
  * Default configuration values
@@ -31,11 +51,16 @@ export class RuntimeConfig {
   public readonly notebookId: string;
   public readonly capabilities: RuntimeCapabilities;
   public readonly sessionId: string;
-  public readonly environmentOptions: RuntimeAgentOptions["environmentOptions"];
+  public readonly environmentOptions?: {
+    readonly runtimePythonPath?: string;
+    readonly runtimeEnvPath?: string;
+    readonly runtimePackageManager?: string;
+    readonly runtimeEnvExternallyManaged?: boolean;
+  };
   public readonly imageArtifactThresholdBytes: number;
-  public readonly artifactClient: IArtifactClient;
+  public readonly artifactClient: ArtifactClient;
 
-  constructor(options: RuntimeAgentOptions) {
+  constructor(options: NodeRuntimeOptions) {
     this.runtimeId = options.runtimeId;
     this.runtimeType = options.runtimeType;
     this.syncUrl = options.syncUrl;
@@ -48,7 +73,7 @@ export class RuntimeConfig {
 
     // Use injected artifact client or create default one
     this.artifactClient = options.artifactClient ??
-      new ArtifactClient(this.getArtifactServiceUrl(options.syncUrl));
+      new ArtifactClient(this.getArtifactServiceUrl(this.syncUrl));
 
     // Generate unique session ID
     this.sessionId = `${this.runtimeType}-${this.runtimeId}-${Date.now()}-${
@@ -299,8 +324,20 @@ Logging Configuration:
  */
 export function createRuntimeConfig(
   args: string[],
-  defaults: Partial<RuntimeAgentOptions> = {},
+  defaults?: Partial<NodeRuntimeOptions>,
 ): RuntimeConfig {
+  /**
+   * Convert NodeRuntimeOptions to RuntimeAgentOptions for runtime-core
+   */
+  function toRuntimeAgentOptions(
+    nodeConfig: NodeRuntimeOptions,
+  ): RuntimeAgentOptions {
+    return {
+      runtimeId: nodeConfig.runtimeId,
+      runtimeType: nodeConfig.runtimeType,
+      clientId: nodeConfig.authToken, // TODO: Should be actual user ID
+    };
+  }
   const cliConfig = parseRuntimeArgs(args);
 
   // Merge CLI config with defaults - CLI args override defaults
