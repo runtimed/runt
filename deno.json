@@ -3,6 +3,9 @@
     "./packages/ai",
     "./packages/schema",
     "./packages/lib",
+    "./packages/runtime-core",
+    "./packages/runtime-node",
+    "./packages/runtime-browser",
     "./packages/pyodide-runtime-agent",
     "./packages/python-runtime-agent",
     "./packages/tui"
@@ -11,6 +14,9 @@
     "@runt/ai": "./packages/ai/mod.ts",
     "@runt/schema": "./packages/schema/mod.ts",
     "@runt/lib": "./packages/lib/mod.ts",
+    "@runt/runtime-core": "./packages/runtime-core/mod.ts",
+    "@runt/runtime-node": "./packages/runtime-node/mod.ts",
+    "@runt/runtime-browser": "./packages/runtime-browser/mod.ts",
     "@runt/pyodide-runtime-agent": "./packages/pyodide-runtime-agent/src/mod.ts",
     "@runt/python-runtime-agent": "./packages/python-runtime-agent/mod.ts",
     "@runt/tui": "./packages/tui/src/cli.tsx"
