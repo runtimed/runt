@@ -11,11 +11,9 @@ export async function runner(agent: RuntimeAgent, name: string) {
   try {
     await agent.start();
     logger.info(`${name} started`, {
-      runtimeId: agent.config.runtimeId,
-      runtimeType: agent.config.runtimeType,
-      notebookId: agent.config.notebookId,
-      sessionId: agent.config.sessionId,
-      syncUrl: agent.config.syncUrl,
+      runtimeId: agent.options.runtimeId,
+      runtimeType: agent.options.runtimeType,
+      sessionId: agent.sessionId,
     });
 
     await agent.keepAlive();

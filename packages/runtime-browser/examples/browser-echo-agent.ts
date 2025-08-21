@@ -11,11 +11,11 @@
  * 3. Existing notebook UI components
  */
 
-import {
-  type BrowserRuntimeAgentOptions,
-  createBrowserRuntimeAgent,
+import type {
+  BrowserRuntimeAgentOptions as _BrowserRuntimeAgentOptions,
+  createBrowserRuntimeAgent as _createBrowserRuntimeAgent,
 } from "../mod.ts";
-import type { RuntimeCapabilities } from "@runt/runtime-core";
+import type { RuntimeCapabilities as _RuntimeCapabilities } from "@runt/runtime-core";
 
 /**
  * React Hook Example: Browser Echo Runtime Agent

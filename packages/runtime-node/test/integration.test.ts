@@ -5,11 +5,20 @@
 
 import { assertEquals, assertExists } from "jsr:@std/assert";
 
-import type { RuntimeAgent } from "@runt/runtime-core";
+import {
+  createStorePromise,
+  makeSchema,
+  State,
+} from "npm:@livestore/livestore";
+import { makeAdapter } from "npm:@livestore/adapter-node";
+import { events, materializers, tables } from "@runt/schema";
+
+import { RuntimeAgent } from "@runt/runtime-core";
 import { RuntimeConfig } from "../src/config.ts";
 import type {
   ExecutionContext,
   RuntimeAgentEventHandlers,
+  RuntimeAgentOptions,
   RuntimeCapabilities,
 } from "@runt/runtime-core";
 
@@ -30,16 +39,42 @@ const createMockFunction = (): MockFunction => {
 };
 
 Deno.test("RuntimeAgent Integration Tests", async (t) => {
-  let config: RuntimeConfig;
+  // Create schema for proper typing
+  const schema = makeSchema({
+    events,
+    state: State.SQLite.makeState({ tables, materializers }),
+  });
+
+  let store: Awaited<ReturnType<typeof createStorePromise<typeof schema>>>;
   let capabilities: RuntimeCapabilities;
+  let options: RuntimeAgentOptions;
   let handlers: RuntimeAgentEventHandlers;
 
-  // Setup for each step
-  const setup = () => {
+  // Setup for each test
+  const setup = async () => {
+    store = await createStorePromise({
+      adapter: makeAdapter({
+        storage: { type: "in-memory" },
+      }),
+      schema,
+      storeId: "test-store",
+      syncPayload: {
+        authToken: "test-token",
+        clientId: "test-user",
+      },
+    });
+
     capabilities = {
       canExecuteCode: true,
       canExecuteSql: false,
       canExecuteAi: true,
+    };
+
+    options = {
+      runtimeId: "integration-test-runtime",
+      runtimeType: "test",
+      clientId: "test-user",
+      sessionId: "test-session",
     };
 
     handlers = {
@@ -49,22 +84,12 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       onDisconnected: createMockFunction(),
       onExecutionError: createMockFunction(),
     };
-
-    config = new RuntimeConfig({
-      runtimeId: "integration-test-runtime",
-      runtimeType: "test",
-      notebookId: "test-notebook-integration",
-      syncUrl: "ws://localhost:8787",
-      authToken: "test-integration-token",
-      environmentOptions: {},
-      capabilities,
-    });
   };
 
   await t.step("basic functionality", async (t) => {
-    setup();
-    await t.step("should create agent instance", () => {
-      const agent = new RuntimeAgent(config, capabilities, handlers);
+    await t.step("should create agent instance", async () => {
+      await setup();
+      const agent = new RuntimeAgent(store, capabilities, options, handlers);
       assertExists(agent);
       assertEquals(typeof agent.start, "function");
       assertEquals(typeof agent.shutdown, "function");
@@ -72,9 +97,9 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       assertEquals(typeof agent.keepAlive, "function");
     });
 
-    setup();
-    await t.step("should register execution handlers", () => {
-      const agent = new RuntimeAgent(config, capabilities);
+    await t.step("should register execution handlers", async () => {
+      await setup();
+      const agent = new RuntimeAgent(store, capabilities, options);
       const executionHandler = () => Promise.resolve({ success: true });
 
       agent.onExecution(executionHandler);
@@ -83,9 +108,9 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       assertEquals(typeof executionHandler, "function");
     });
 
-    setup();
     await t.step("should handle shutdown gracefully", async () => {
-      const agent = new RuntimeAgent(config, capabilities, handlers);
+      await setup();
+      const agent = new RuntimeAgent(store, capabilities, options, handlers);
 
       // Should not throw
       await agent.shutdown();
@@ -94,22 +119,22 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       assertEquals((handlers.onShutdown as MockFunction).calls.length, 1);
     });
 
-    setup();
     await t.step("should handle multiple shutdown calls", async () => {
-      const agent = new RuntimeAgent(config, capabilities, handlers);
+      await setup();
+      const agent = new RuntimeAgent(store, capabilities, options, handlers);
 
       await agent.shutdown();
       await agent.shutdown(); // Second call should be safe
 
-      // Should only call handler once
+      // Should only call handler once due to isShuttingDown guard
       assertEquals((handlers.onShutdown as MockFunction).calls.length, 1);
     });
   });
 
   await t.step("execution handler", async (t) => {
-    setup();
-    await t.step("should accept valid execution handler", () => {
-      const agent = new RuntimeAgent(config, capabilities);
+    await t.step("should accept valid execution handler", async () => {
+      await setup();
+      const agent = new RuntimeAgent(store, capabilities, options);
 
       const handler = (context: ExecutionContext) => {
         context.stdout("Test output");
@@ -120,9 +145,9 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       assertEquals(typeof handler, "function");
     });
 
-    setup();
-    await t.step("should replace previous execution handler", () => {
-      const agent = new RuntimeAgent(config, capabilities);
+    await t.step("should replace previous execution handler", async () => {
+      await setup();
+      const agent = new RuntimeAgent(store, capabilities, options);
 
       const firstHandler = () => Promise.resolve({ success: true });
       const secondHandler = () => Promise.resolve({ success: false });
@@ -137,9 +162,9 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
   });
 
   await t.step("configuration validation", async (t) => {
-    setup();
-    await t.step("should accept valid configuration", () => {
-      const validConfig = new RuntimeConfig({
+    await t.step("should accept valid configuration", async () => {
+      await setup();
+      const _validConfig = new RuntimeConfig({
         runtimeId: "valid-runtime",
         runtimeType: "test",
         notebookId: "test-notebook",
@@ -149,12 +174,12 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         environmentOptions: {},
       });
 
-      const agent = new RuntimeAgent(validConfig, capabilities);
+      const agent = new RuntimeAgent(store, capabilities, options);
       assertExists(agent);
     });
 
-    setup();
-    await t.step("should validate configuration on creation", () => {
+    await t.step("should validate configuration on creation", async () => {
+      await setup();
       // This tests that RuntimeConfig validation works
       let error: Error | null = null;
 
@@ -184,9 +209,9 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
   });
 
   await t.step("lifecycle management", async (t) => {
-    setup();
-    await t.step("should handle keepAlive resolution", async () => {
-      const agent = new RuntimeAgent(config, capabilities);
+    await t.step("should handle keepAlive correctly", async () => {
+      await setup();
+      const agent = new RuntimeAgent(store, capabilities, options);
 
       const keepAlivePromise = agent.keepAlive();
 
@@ -197,9 +222,9 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       await keepAlivePromise;
     });
 
-    setup();
     await t.step("should handle rapid start/shutdown cycles", async () => {
-      const agent = new RuntimeAgent(config, capabilities, handlers);
+      await setup();
+      const agent = new RuntimeAgent(store, capabilities, options, handlers);
 
       // Multiple cycles should work
       await agent.shutdown();
@@ -210,9 +235,9 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
   });
 
   await t.step("output context methods", async (t) => {
-    setup();
-    await t.step("should provide context with output methods", () => {
-      const agent = new RuntimeAgent(config, capabilities);
+    await t.step("should provide context with output methods", async () => {
+      await setup();
+      const agent = new RuntimeAgent(store, capabilities, options);
 
       // Register a handler that captures the context
       agent.onExecution((_context) => {

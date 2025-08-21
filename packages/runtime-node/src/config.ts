@@ -5,17 +5,14 @@
 
 import { parseArgs } from "@std/cli/parse-args";
 import { createLogger } from "@runt/runtime-core";
-import type {
-  RuntimeAgentOptions,
-  RuntimeCapabilities,
-} from "@runt/runtime-core";
+import type { RuntimeCapabilities } from "@runt/runtime-core";
 import { ArtifactClient } from "@runt/runtime-core";
 
 /**
- * Node/CLI specific configuration interface
- * This includes fields needed for CLI parsing and server setup
+ * Full runtime configuration interface for CLI/Node usage
+ * This preserves the existing RuntimeConfig behavior
  */
-interface NodeRuntimeOptions {
+interface FullRuntimeOptions {
   readonly runtimeId: string;
   readonly runtimeType: string;
   readonly syncUrl: string;
@@ -60,7 +57,7 @@ export class RuntimeConfig {
   public readonly imageArtifactThresholdBytes: number;
   public readonly artifactClient: ArtifactClient;
 
-  constructor(options: NodeRuntimeOptions) {
+  constructor(options: FullRuntimeOptions) {
     this.runtimeId = options.runtimeId;
     this.runtimeType = options.runtimeType;
     this.syncUrl = options.syncUrl;
@@ -177,7 +174,7 @@ export class RuntimeConfig {
 /**
  * Parse command-line arguments for runtime agent configuration
  */
-export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
+export function parseRuntimeArgs(args: string[]): Partial<FullRuntimeOptions> {
   const parsed = parseArgs(args, {
     string: [
       "notebook",
@@ -239,7 +236,7 @@ Logging Configuration:
     Deno.exit(0);
   }
 
-  let result: Partial<RuntimeAgentOptions> = {
+  let result: Partial<FullRuntimeOptions> = {
     syncUrl: parsed["sync-url"] || Deno.env.get("LIVESTORE_SYNC_URL") ||
       DEFAULT_CONFIG.syncUrl,
   };
@@ -324,20 +321,8 @@ Logging Configuration:
  */
 export function createRuntimeConfig(
   args: string[],
-  defaults?: Partial<NodeRuntimeOptions>,
+  defaults?: Partial<FullRuntimeOptions>,
 ): RuntimeConfig {
-  /**
-   * Convert NodeRuntimeOptions to RuntimeAgentOptions for runtime-core
-   */
-  function toRuntimeAgentOptions(
-    nodeConfig: NodeRuntimeOptions,
-  ): RuntimeAgentOptions {
-    return {
-      runtimeId: nodeConfig.runtimeId,
-      runtimeType: nodeConfig.runtimeType,
-      clientId: nodeConfig.authToken, // TODO: Should be actual user ID
-    };
-  }
   const cliConfig = parseRuntimeArgs(args);
 
   // Merge CLI config with defaults - CLI args override defaults
@@ -353,24 +338,24 @@ export function createRuntimeConfig(
       runtimePythonPath: "python3",
       runtimePackageManager: "pip",
       runtimeEnvExternallyManaged: false,
-      ...(defaults.environmentOptions ?? {}),
+      ...(defaults?.environmentOptions ?? {}),
     },
     ...defaults,
   };
 
   // Only include non-undefined values from CLI config
-  const cleanCliConfig: Partial<RuntimeAgentOptions> = Object.fromEntries(
+  const cleanCliConfig: Partial<FullRuntimeOptions> = Object.fromEntries(
     Object.entries(cliConfig).filter(([_, value]) => value !== undefined),
   );
 
   // Compose the config object without mutating any readonly property
   const runtimeId = cleanCliConfig.runtimeId ||
-    Deno.env.get("RUNTIME_ID") ||
     `${
       cleanCliConfig.runtimeType || mergedDefaults.runtimeType
     }-runtime-${Deno.pid}`;
 
-  const config: RuntimeAgentOptions = {
+  // Validate required fields are present
+  const finalConfig = {
     ...mergedDefaults,
     ...cleanCliConfig,
     runtimeId,
@@ -378,9 +363,37 @@ export function createRuntimeConfig(
       ...mergedDefaults.environmentOptions,
       ...(cleanCliConfig.environmentOptions ?? {}),
     },
-  } as RuntimeAgentOptions;
+  };
 
-  const runtimeConfig = new RuntimeConfig(config);
+  if (!finalConfig.authToken) {
+    throw new Error(
+      "Auth token is required. Set RUNT_API_KEY or AUTH_TOKEN environment variable or use --auth-token flag.",
+    );
+  }
+  if (!finalConfig.notebookId) {
+    throw new Error(
+      "Notebook ID is required. Set NOTEBOOK_ID environment variable or use --notebook flag.",
+    );
+  }
+  if (!finalConfig.syncUrl) {
+    throw new Error(
+      "Sync URL is required. Set LIVESTORE_SYNC_URL environment variable or use --sync-url flag.",
+    );
+  }
+
+  const result: FullRuntimeOptions = {
+    runtimeId: finalConfig.runtimeId,
+    runtimeType: finalConfig.runtimeType,
+    syncUrl: finalConfig.syncUrl,
+    authToken: finalConfig.authToken,
+    notebookId: finalConfig.notebookId,
+    capabilities: finalConfig.capabilities,
+    environmentOptions: finalConfig.environmentOptions,
+    imageArtifactThresholdBytes: finalConfig.imageArtifactThresholdBytes,
+    artifactClient: finalConfig.artifactClient,
+  };
+
+  const runtimeConfig = new RuntimeConfig(result);
   runtimeConfig.validate();
 
   const logger = createLogger("config");
@@ -390,7 +403,7 @@ export function createRuntimeConfig(
     syncUrl: runtimeConfig.syncUrl,
     notebookId: runtimeConfig.notebookId,
     sessionId: runtimeConfig.sessionId,
-    environmentOptions: config.environmentOptions,
+    environmentOptions: result.environmentOptions,
   });
 
   return runtimeConfig;
