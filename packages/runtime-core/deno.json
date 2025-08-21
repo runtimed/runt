@@ -10,7 +10,6 @@
   "exports": {
     ".": "./mod.ts",
     "./agent": "./src/runtime-agent.ts",
-    "./config": "./src/config.ts",
     "./types": "./src/types.ts"
   },
   "imports": {
