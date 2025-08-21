@@ -1,6 +1,6 @@
 {
   "name": "@runt/runtime-browser",
-  "version": "0.7.0",
+  "version": "0.12.0",
   "description": "Runtime agent library for building Anode runtime agents",
   "license": "BSD-3-Clause",
   "repository": {
@@ -14,7 +14,8 @@
     "./types": "./src/types.ts"
   },
   "imports": {
-    "@runt/schema": "jsr:@runt/schema@^0.11.1",
+    "@runt/schema": "jsr:@runt/schema@^0.12.0",
+    "@runt/runtime-core": "jsr:@runt/runtime-core@^0.12.0",
     "@std/cli": "jsr:@std/cli@^1.0.0",
     "@std/assert": "jsr:@std/assert@^1.0.0",
     "@std/crypto": "jsr:@std/crypto@^1.0.0",

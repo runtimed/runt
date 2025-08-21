@@ -1,4 +1,4 @@
-// @runt/runtime-node - Node/Deno platform adapter for runtime agents
+// @runt/runtime-deno - Deno platform adapter for runtime agents
 
 // Re-export core functionality from runtime-core
 export {
