@@ -3,6 +3,23 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import { PythonRuntimeAgent } from "../src/python-runtime-agent.ts";
 
+// Helper function to cleanup store connections and prevent interval leaks
+async function cleanupStore(agent: PythonRuntimeAgent): Promise<void> {
+  // Access the store and shut it down
+  const store = agent.store;
+  if (
+    store &&
+    typeof store.shutdown === "function"
+  ) {
+    try {
+      await store.shutdown();
+    } catch (error) {
+      // Ignore cleanup errors
+      console.warn("Store cleanup warning:", error);
+    }
+  }
+}
+
 Deno.test("PythonRuntimeAgent - Basic Functionality (Stub)", async (t) => {
   const env = {
     RUNTIME_ID: "test-runtime",
@@ -19,6 +36,7 @@ Deno.test("PythonRuntimeAgent - Basic Functionality (Stub)", async (t) => {
         assertExists(agent);
       } finally {
         await agent.shutdown();
+        await cleanupStore(agent);
       }
     });
 
@@ -30,6 +48,7 @@ Deno.test("PythonRuntimeAgent - Basic Functionality (Stub)", async (t) => {
         assertEquals(typeof agent.keepAlive, "function");
       } finally {
         await agent.shutdown();
+        await cleanupStore(agent);
       }
     });
 
@@ -44,6 +63,7 @@ Deno.test("PythonRuntimeAgent - Basic Functionality (Stub)", async (t) => {
         assertExists(agent.config);
       } finally {
         await agent.shutdown();
+        await cleanupStore(agent);
       }
     });
   } finally {

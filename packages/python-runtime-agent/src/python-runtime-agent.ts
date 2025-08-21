@@ -9,6 +9,7 @@ import type { Store } from "npm:@livestore/livestore";
 
 export class PythonRuntimeAgent extends RuntimeAgent {
   public config: RuntimeConfig;
+  public override store: Store<RuntimeSchema>;
 
   private constructor(
     store: Store<RuntimeSchema>,
@@ -21,6 +22,7 @@ export class PythonRuntimeAgent extends RuntimeAgent {
       sessionId: config.sessionId,
     });
     this.config = config;
+    this.store = store;
   }
 
   static async create(args: string[] = Deno.args): Promise<PythonRuntimeAgent> {

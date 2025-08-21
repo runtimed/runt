@@ -39,7 +39,7 @@ const createMockFunction = (): MockFunction => {
   const fn = (...args: unknown[]) => {
     calls.push(args);
   };
-  (fn as any).calls = calls;
+  (fn as unknown as MockFunction).calls = calls;
   return fn as unknown as MockFunction;
 };
 
