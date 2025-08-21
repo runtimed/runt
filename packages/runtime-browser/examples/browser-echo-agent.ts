@@ -13,7 +13,7 @@
 
 import { createStorePromise } from "npm:@livestore/livestore";
 import { createWebAdapter } from "npm:@livestore/adapter-web";
-import { events, materializers, tables } from "@runt/schema";
+import { events, materializers } from "@runt/schema";
 import {
   type BrowserRuntimeAgentOptions,
   createBrowserRuntimeAgent,
@@ -204,7 +204,8 @@ Agent details:
 
 // Auto-run demo if this file is loaded directly in browser
 if (
-  typeof window !== "undefined" && !window.location.search.includes("no-auto")
+  typeof globalThis !== "undefined" && globalThis.location &&
+  !globalThis.location.search.includes("no-auto")
 ) {
   runBrowserEchoDemo().catch(console.error);
 }

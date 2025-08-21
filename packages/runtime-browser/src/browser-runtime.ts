@@ -50,6 +50,7 @@ export interface BrowserRuntimeAgentOptions
  * ```
  */
 export function createBrowserRuntimeAgent(
+  // deno-lint-ignore no-explicit-any
   store: Store<any>,
   capabilities: RuntimeCapabilities,
   options?: BrowserRuntimeAgentOptions,
@@ -105,7 +106,7 @@ function setupBrowserLifecycle(
   };
 
   // Clean up on page unload
-  window.addEventListener("beforeunload", cleanup);
+  globalThis.addEventListener("beforeunload", cleanup);
 
   // Also clean up on visibility change (when tab becomes hidden)
   // This helps with mobile browsers that may not fire beforeunload
@@ -118,7 +119,8 @@ function setupBrowserLifecycle(
   }
 
   // Store cleanup function on the agent for manual cleanup if needed
-  (agent as any)._browserCleanup = cleanup;
+  (agent as unknown as { _browserCleanup: () => void })._browserCleanup =
+    cleanup;
 }
 
 /**
@@ -128,7 +130,8 @@ function setupBrowserLifecycle(
  * or if you're managing the lifecycle manually.
  */
 export function cleanupBrowserRuntimeAgent(agent: RuntimeAgent) {
-  const cleanup = (agent as any)._browserCleanup;
+  const cleanup =
+    (agent as unknown as { _browserCleanup?: () => void })._browserCleanup;
   if (cleanup && typeof cleanup === "function") {
     cleanup();
   }

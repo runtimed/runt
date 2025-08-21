@@ -10,11 +10,11 @@ import { createBrowserRuntimeAgent } from "../mod.ts";
 import type { RuntimeCapabilities } from "@runt/runtime-core";
 
 // Simple mock for browser environment
-(globalThis as any).window = {
+(globalThis as { window?: unknown }).window = {
   addEventListener: () => {},
   crypto: globalThis.crypto,
 };
-(globalThis as any).document = {
+(globalThis as { document?: unknown }).document = {
   addEventListener: () => {},
   visibilityState: "visible",
 };
@@ -131,11 +131,11 @@ Deno.test("Browser Runtime Agent - Core Functionality", async (t) => {
       clientId: "test-user",
     });
 
-    let handlerCalled = false;
+    let _handlerCalled = false;
 
     // Should be able to set execution handler
     agent.onExecution(async (context) => {
-      handlerCalled = true;
+      _handlerCalled = true;
       await context.result({
         "text/plain": `Echo: ${context.cell.source}`,
       });

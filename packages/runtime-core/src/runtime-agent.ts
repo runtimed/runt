@@ -14,7 +14,7 @@ import {
 import { createLogger } from "./logging.ts";
 import { ArtifactClient } from "./artifact-client.ts";
 import type {
-  ArtifactSubmissionOptions,
+  ArtifactSubmissionOptions as _ArtifactSubmissionOptions,
   CancellationHandler,
   CellData,
   ExecutionContext,
@@ -46,6 +46,7 @@ export class RuntimeAgent {
   private artifactClient: IArtifactClient;
 
   constructor(
+    // deno-lint-ignore no-explicit-any
     public readonly store: Store<any>, // TODO: proper schema typing
     private capabilities: RuntimeCapabilities,
     public readonly options: RuntimeAgentOptions,
@@ -181,14 +182,14 @@ export class RuntimeAgent {
     this.cancellationHandlers.push(handler);
   }
 
-  private executionHandler: ExecutionHandler = async (context) => {
+  private executionHandler: ExecutionHandler = (context) => {
     // Default handler - just echo the input
-    return {
+    return Promise.resolve({
       success: true,
       data: {
-        "text/plain": context.cell.source || "",
+        "text/plain": `Echo: ${context.cell.source}`,
       },
-    };
+    });
   };
 
   /**
@@ -720,18 +721,18 @@ export class RuntimeAgent {
   /**
    * Process image content - simplified for core (no size-based artifacting)
    */
-  private async processImageContent(
-    mimeType: ImageMimeType,
+  private processImageContent(
+    _mimeType: ImageMimeType,
     content: unknown,
     metadata?: Record<string, unknown>,
   ): Promise<MediaContainer> {
     // For core package, just return inline content
     // Platform-specific packages can override this with artifact upload logic
-    return {
+    return Promise.resolve({
       type: "inline",
       data: content,
       metadata,
-    };
+    });
   }
 
   /**
