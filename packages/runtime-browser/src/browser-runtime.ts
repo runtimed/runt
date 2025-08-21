@@ -23,38 +23,50 @@ export interface BrowserRuntimeAgentOptions
 }
 
 /**
- * Create a browser-compatible runtime agent that integrates with an existing LiveStore.
+ * Create a browser-compatible runtime agent that uses an existing LiveStore instance.
  *
- * Unlike server-side runtime agents, this doesn't create its own store but uses
- * the one provided by the React application for seamless integration.
+ * **CRITICAL**: This function expects a LiveStore instance that's already configured
+ * by your React application (via LiveStoreProvider). Do NOT create a new store -
+ * use the existing one to ensure proper state synchronization between the runtime
+ * agent and your React UI components.
  *
- * @param store - LiveStore instance from React app
+ * @param store - Existing LiveStore instance from React context (via useStore())
  * @param capabilities - What the runtime can execute
  * @param options - Browser-specific configuration options
- * @returns Configured RuntimeAgent ready for browser use
+ * @returns Configured RuntimeAgent that shares state with React UI
  *
- * @example
+ * @example React Integration
  * ```typescript
- * const { store } = useStore(); // From React app
- * const { user } = useAuthenticatedUser();
+ * // In your React component or custom hook:
+ * import { useStore } from '@livestore/react';
+ * import { useAuthenticatedUser } from '../auth/AuthContext';
  *
- * const agent = createBrowserRuntimeAgent(store, {
- *   canExecuteCode: true,
- *   canExecuteSql: false,
- *   canExecuteAi: false,
- * }, {
- *   runtimeId: 'browser-echo',
- *   runtimeType: 'echo',
- *   clientId: user.sub, // CRITICAL: use authenticated user ID
- * });
+ * function useBrowserRuntime() {
+ *   const { store } = useStore(); // Get existing store - DON'T create new one!
+ *   const { user } = useAuthenticatedUser();
  *
- * // Set up echo handler
- * agent.onExecution(async (context) => {
- *   await context.result({ 'text/plain': `Echo: ${context.cell.source}` });
- *   return { success: true };
- * });
+ *   const startRuntime = useCallback(async () => {
+ *     const agent = createBrowserRuntimeAgent(store, {
+ *       canExecuteCode: true,
+ *       canExecuteSql: false,
+ *       canExecuteAi: false,
+ *     }, {
+ *       runtimeId: 'browser-runtime',
+ *       runtimeType: 'echo', // or 'python' for Pyodide
+ *       clientId: user.sub, // MUST match LiveStore adapter clientId
+ *     });
  *
- * await agent.start();
+ *     agent.onExecution(async (context) => {
+ *       await context.result({ 'text/plain': `Echo: ${context.cell.source}` });
+ *       return { success: true };
+ *     });
+ *
+ *     await agent.start();
+ *     return agent;
+ *   }, [store, user]);
+ *
+ *   return { startRuntime };
+ * }
  * ```
  */
 export function createBrowserRuntimeAgent(

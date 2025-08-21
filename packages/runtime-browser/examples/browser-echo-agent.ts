@@ -1,23 +1,16 @@
 /**
  * Browser Echo Agent Example
  *
- * This demonstrates how to create a browser-based runtime agent that can
- * share a LiveStore instance with a React application. The agent will
- * echo back any code that gets executed.
+ * This demonstrates how to create a browser-based runtime agent that uses
+ * an existing LiveStore instance from a React application. This is the
+ * intended usage pattern - the agent shares the store with the React UI.
  *
- * This is intended to run in a browser environment where:
- * 1. A LiveStore instance already exists (from React app)
- * 2. User authentication is handled by the React app
- * 3. The agent integrates seamlessly with existing notebook UI
+ * This example shows integration patterns for React apps that already have:
+ * 1. LiveStore set up with LiveStoreProvider
+ * 2. User authentication context
+ * 3. Existing notebook UI components
  */
 
-import {
-  createStorePromise,
-  makeSchema,
-  State,
-} from "npm:@livestore/livestore";
-import { makeAdapter } from "npm:@livestore/adapter-web";
-import { events, materializers, tables } from "@runt/schema";
 import {
   type BrowserRuntimeAgentOptions,
   createBrowserRuntimeAgent,
@@ -25,133 +18,90 @@ import {
 import type { RuntimeCapabilities } from "@runt/runtime-core";
 
 /**
- * Example: Create and start a browser echo agent
+ * React Hook Example: Browser Echo Runtime Agent
  *
- * In a real React app, this would typically be called from a custom hook
- * or component that has access to the existing store and user context.
- */
-async function createEchoAgent() {
-  // In a real React app, you'd get this from useStore() hook
-  // const { store } = useStore();
-  // For this example, we'll create a store (but normally you'd reuse existing one)
-  const schema = makeSchema({
-    events,
-    state: State.SQLite.makeState({ tables, materializers }),
-  });
-
-  const store = await createStorePromise({
-    adapter: makeAdapter({
-      storage: { type: "memory" }, // Browser-friendly storage
-    }),
-    schema,
-    storeId: "browser-echo-example",
-    syncPayload: {
-      // In real app, get from authenticated user context
-      authToken: "example-token",
-      clientId: "example-user-id",
-    },
-  });
-
-  const capabilities: RuntimeCapabilities = {
-    canExecuteCode: true,
-    canExecuteSql: false,
-    canExecuteAi: false,
-  };
-
-  const options: BrowserRuntimeAgentOptions = {
-    runtimeId: "browser-echo-example",
-    runtimeType: "echo",
-    clientId: "example-user-id", // CRITICAL: This must match the authenticated user
-    onCleanup: [
-      () => console.log("🧹 Custom cleanup: Saving state before shutdown"),
-    ],
-  };
-
-  // Create the browser runtime agent
-  const agent = createBrowserRuntimeAgent(store, capabilities, options);
-
-  // Set up echo execution handler
-  agent.onExecution(async (context) => {
-    console.log(`📝 Executing code: ${context.cell.source}`);
-
-    // Echo the input back with some formatting
-    await context.result({
-      "text/plain": `Echo: ${context.cell.source}`,
-      "text/markdown":
-        `**Echo Output:**\n\n\`\`\`\n${context.cell.source}\n\`\`\``,
-      "application/json": {
-        echo: context.cell.source,
-        timestamp: new Date().toISOString(),
-        cellId: context.cell.id,
-      },
-    });
-
-    console.log(`✅ Echo completed for cell ${context.cell.id}`);
-    return { success: true };
-  });
-
-  // Start the agent
-  await agent.start();
-
-  console.log(`
-🚀 Browser Echo Agent Started!
-   Runtime ID: ${options.runtimeId}
-   Runtime Type: ${options.runtimeType}
-   Client ID: ${options.clientId}
-
-💡 The agent is now listening for execution requests from the notebook UI.
-🔄 Any code executed in notebook cells will be echoed back.
-🧹 Agent will cleanup automatically on page unload.
-  `);
-
-  return agent;
-}
-
-/**
- * Example: React Hook Integration
- *
- * This shows how you might integrate the browser runtime agent
- * into a React application with proper hooks and context.
+ * This shows how to integrate the browser runtime agent into a React app
+ * that already has LiveStore and authentication set up.
  */
 export function useBrowserEchoAgent() {
   // This would be the pattern in a real React app:
-
   /*
-  const { store } = useStore(); // Get existing LiveStore
+  import { useStore } from '@livestore/react';
+  import { useAuthenticatedUser } from '../auth/AuthContext';
+  import { useState, useCallback, useEffect } from 'react';
+
+  const { store } = useStore(); // Get existing LiveStore instance
   const { user } = useAuthenticatedUser(); // Get authenticated user
   const [agent, setAgent] = useState<RuntimeAgent | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
 
   const startEchoAgent = useCallback(async () => {
-    if (agent) return agent; // Already started
+    if (agent || !store || !user) return;
 
-    const newAgent = createBrowserRuntimeAgent(store, {
-      canExecuteCode: true,
-      canExecuteSql: false,
-      canExecuteAi: false,
-    }, {
-      runtimeId: 'browser-echo',
-      runtimeType: 'echo',
-      clientId: user.sub, // Use authenticated user ID
-    });
-
-    // Set up echo handler
-    newAgent.onExecution(async (context) => {
-      await context.result({
-        'text/plain': `Echo: ${context.cell.source}`
+    try {
+      // Create browser runtime agent using existing store
+      const newAgent = createBrowserRuntimeAgent(store, {
+        canExecuteCode: true,
+        canExecuteSql: false,
+        canExecuteAi: false,
+      }, {
+        runtimeId: 'browser-echo',
+        runtimeType: 'echo',
+        clientId: user.sub, // CRITICAL: Use authenticated user ID
+        onCleanup: [
+          () => console.log('🧹 Echo agent cleaning up...'),
+        ],
       });
-      return { success: true };
-    });
 
-    await newAgent.start();
-    setAgent(newAgent);
+      // Set up echo execution handler
+      newAgent.onExecution(async (context) => {
+        console.log(`📝 Echo: ${context.cell.source}`);
 
-    return newAgent;
+        // Echo with rich output formats
+        await context.result({
+          'text/plain': `Echo: ${context.cell.source}`,
+          'text/markdown': `**Echo Output:**\n\n\`\`\`\n${context.cell.source}\n\`\`\``,
+          'application/json': {
+            echo: context.cell.source,
+            timestamp: new Date().toISOString(),
+            cellId: context.cell.id,
+            runtimeType: 'browser-echo',
+          },
+        });
+
+        return { success: true };
+      });
+
+      // Start the agent
+      await newAgent.start();
+      setAgent(newAgent);
+      setIsRunning(true);
+
+      console.log(`
+🚀 Browser Echo Agent Started!
+   Runtime ID: browser-echo
+   Runtime Type: echo
+   Client ID: ${user.sub}
+
+💡 Ready to echo code execution requests from notebook cells!
+      `);
+
+    } catch (error) {
+      console.error('❌ Failed to start browser echo agent:', error);
+      throw error;
+    }
   }, [store, user, agent]);
 
-  const stopEchoAgent = useCallback(() => {
-    if (agent) {
-      cleanupBrowserRuntimeAgent(agent);
+  const stopEchoAgent = useCallback(async () => {
+    if (!agent) return;
+
+    try {
+      await agent.shutdown();
       setAgent(null);
+      setIsRunning(false);
+      console.log('🛑 Browser echo agent stopped');
+    } catch (error) {
+      console.error('❌ Failed to stop browser echo agent:', error);
     }
   }, [agent]);
 
@@ -159,61 +109,169 @@ export function useBrowserEchoAgent() {
   useEffect(() => {
     return () => {
       if (agent) {
-        cleanupBrowserRuntimeAgent(agent);
+        agent.shutdown().catch(console.error);
       }
     };
   }, [agent]);
 
   return {
     agent,
+    isRunning,
     startEchoAgent,
     stopEchoAgent,
-    isRunning: !!agent
   };
   */
 
+  // For demo purposes, return a mock implementation
   return {
     message:
-      "This is a conceptual example - see comments for React integration",
+      "This example shows React integration patterns for browser runtime agents",
+    startEchoAgent: () =>
+      Promise.resolve(console.log("Demo: Would start echo agent")),
+    stopEchoAgent: () =>
+      Promise.resolve(console.log("Demo: Would stop echo agent")),
+    isRunning: false,
   };
 }
 
 /**
- * Demo function for testing in browser console
+ * Example React Component: Runtime Control Panel
+ *
+ * Shows how you might add runtime controls to your notebook UI
  */
-export async function runBrowserEchoDemo() {
-  console.log("🎯 Starting Browser Echo Agent Demo...");
+export function RuntimeControlPanel() {
+  /*
+  const { isRunning, startEchoAgent, stopEchoAgent } = useBrowserEchoAgent();
 
-  try {
-    const agent = await createEchoAgent();
+  return (
+    <div className="runtime-control-panel">
+      <h3>Runtime Agent</h3>
 
-    // The agent is now running and will handle execution requests
-    // In a real app, these would come from the notebook UI
-    console.log(`
-✨ Demo Complete!
+      {!isRunning ? (
+        <button
+          onClick={startEchoAgent}
+          className="btn btn-primary"
+        >
+          🚀 Start Echo Runtime
+        </button>
+      ) : (
+        <button
+          onClick={stopEchoAgent}
+          className="btn btn-secondary"
+        >
+          🛑 Stop Echo Runtime
+        </button>
+      )}
 
-To test the agent:
-1. The agent is now listening for execution requests
-2. In a real app, executing code in notebook cells would trigger the echo
-3. The agent will automatically cleanup when you close/navigate away from this page
+      <div className="runtime-status">
+        Status: {isRunning ? '✅ Running' : '⏸️ Stopped'}
+      </div>
+    </div>
+  );
+  */
 
-Agent details:
-- Runtime ID: ${agent.options.runtimeId}
-- Runtime Type: ${agent.options.runtimeType}
-- Session ID: ${agent.options.sessionId}
-    `);
+  return {
+    message:
+      "This would be a React component for controlling the runtime agent",
+  };
+}
 
-    return agent;
-  } catch (error) {
-    console.error("❌ Demo failed:", error);
-    throw error;
+/**
+ * Integration Notes for React Apps:
+ *
+ * 1. **Prerequisites**: Your React app should already have:
+ *    - LiveStoreProvider set up with schema, adapter, storeId
+ *    - User authentication context providing user.sub
+ *    - Notebook UI components for displaying execution results
+ *
+ * 2. **Store Sharing**: The runtime agent uses the same store as your React UI,
+ *    ensuring all notebook state is synchronized between the agent and UI.
+ *
+ * 3. **User Identity**: The clientId MUST match the authenticated user ID
+ *    that was used when setting up the LiveStore adapter.
+ *
+ * 4. **Lifecycle Management**: The agent automatically cleans up on page
+ *    navigation, but you can also manually control it with start/stop.
+ *
+ * 5. **Error Handling**: Always wrap agent operations in try/catch and
+ *    provide user feedback for failures.
+ */
+
+/**
+ * Example: Integrating into existing NotebookApp component
+ */
+export function integrateWithNotebookApp() {
+  /*
+  // In your existing NotebookApp.tsx:
+
+  import { useBrowserEchoAgent } from './runtime/browser-echo-agent';
+
+  export function NotebookApp() {
+    const { startEchoAgent, stopEchoAgent, isRunning } = useBrowserEchoAgent();
+
+    // Auto-start the runtime when the notebook loads
+    useEffect(() => {
+      startEchoAgent().catch(console.error);
+    }, [startEchoAgent]);
+
+    return (
+      <div className="notebook-app">
+        <NotebookHeader>
+          <RuntimeStatus isRunning={isRunning} />
+          <RuntimeControls
+            onStart={startEchoAgent}
+            onStop={stopEchoAgent}
+            isRunning={isRunning}
+          />
+        </NotebookHeader>
+
+        <NotebookCells />
+
+        <NotebookFooter />
+      </div>
+    );
   }
+  */
+
+  return {
+    message:
+      "This shows how to integrate the runtime agent into your existing notebook UI",
+  };
 }
 
-// Auto-run demo if this file is loaded directly in browser
-if (
-  typeof globalThis !== "undefined" && globalThis.location &&
-  !globalThis.location.search.includes("no-auto")
-) {
-  runBrowserEchoDemo().catch(console.error);
+/**
+ * Demo function for documentation purposes
+ * (Not meant to be called in actual React apps)
+ */
+export function documentationDemo() {
+  console.log(`
+📚 Browser Echo Agent - React Integration Example
+
+This file demonstrates how to use the browser runtime agent in a React app
+that already has LiveStore and authentication set up.
+
+Key Integration Points:
+✅ Use existing store from useStore() hook
+✅ Get user ID from authentication context
+✅ Create agent with shared store (no new store creation)
+✅ Handle lifecycle in React component effects
+✅ Provide UI controls for starting/stopping
+
+For Production Use:
+1. Copy the patterns shown in useBrowserEchoAgent()
+2. Adapt to your existing auth and store setup
+3. Add error handling and user feedback
+4. Integrate into your notebook UI components
+
+This example replaces the need for Pyodide initially - you can test
+the browser runtime architecture with simple echo functionality first.
+  `);
+
+  return {
+    success: true,
+    message: "Browser echo agent integration example ready for React apps",
+  };
 }
+
+// Export the demo for testing
+export default documentationDemo;
