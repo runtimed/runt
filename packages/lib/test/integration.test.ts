@@ -14,18 +14,33 @@ import type {
 
 // Simple mock function creator
 interface MockFunction {
-  (...args: unknown[]): Promise<void>;
   calls: unknown[][];
+  (...args: unknown[]): void;
+}
+
+// Helper function to cleanup store connections and prevent interval leaks
+async function cleanupStore(store: unknown): Promise<void> {
+  if (
+    store &&
+    typeof (store as unknown as { shutdown?: () => void }).shutdown ===
+      "function"
+  ) {
+    try {
+      await (store as unknown as { shutdown: () => Promise<void> }).shutdown();
+    } catch (error) {
+      // Ignore cleanup errors
+      console.warn("Store cleanup warning:", error);
+    }
+  }
 }
 
 const createMockFunction = (): MockFunction => {
   const calls: unknown[][] = [];
   const fn = (...args: unknown[]) => {
     calls.push(args);
-    return Promise.resolve();
   };
-  (fn as MockFunction).calls = calls;
-  return fn as MockFunction;
+  (fn as any).calls = calls;
+  return fn as unknown as MockFunction;
 };
 
 Deno.test("RuntimeAgent Integration Tests", async (t) => {
@@ -79,6 +94,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         assertEquals(typeof agent.keepAlive, "function");
       } finally {
         await agent.shutdown();
+        await cleanupStore(store);
       }
     });
 
@@ -98,6 +114,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         assertEquals(typeof agent.onExecution, "function");
       } finally {
         await agent.shutdown();
+        await cleanupStore(store);
       }
     });
 
@@ -111,8 +128,12 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         sessionId: config.sessionId,
       }, handlers);
 
-      // Should not throw
-      await agent.shutdown();
+      try {
+        // Should not throw
+        await agent.shutdown();
+      } finally {
+        await cleanupStore(store);
+      }
     });
 
     setup();
@@ -125,8 +146,12 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         sessionId: config.sessionId,
       }, handlers);
 
-      await agent.shutdown();
-      await agent.shutdown(); // Second call should be safe
+      try {
+        await agent.shutdown();
+        await agent.shutdown(); // Second call should be safe
+      } finally {
+        await cleanupStore(store);
+      }
     });
   });
 
@@ -150,6 +175,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         agent.onExecution(handler);
       } finally {
         await agent.shutdown();
+        await cleanupStore(store);
       }
     });
 
@@ -175,6 +201,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         assertEquals(typeof agent.onExecution, "function");
       } finally {
         await agent.shutdown();
+        await cleanupStore(store);
       }
     });
   });
@@ -204,6 +231,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         assertExists(agent);
       } finally {
         await agent.shutdown();
+        await cleanupStore(store);
       }
     });
 
@@ -248,13 +276,17 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         sessionId: config.sessionId,
       });
 
-      const keepAlivePromise = agent.keepAlive();
+      try {
+        const keepAlivePromise = agent.keepAlive();
 
-      // Shutdown after a brief delay
-      setTimeout(() => agent.shutdown(), 10);
+        // Shutdown after a brief delay
+        setTimeout(() => agent.shutdown(), 10);
 
-      // Should resolve without throwing
-      await keepAlivePromise;
+        // Should resolve without throwing
+        await keepAlivePromise;
+      } finally {
+        await cleanupStore(store);
+      }
     });
 
     setup();
@@ -267,8 +299,12 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         sessionId: config.sessionId,
       }, handlers);
 
-      // Multiple cycles should work
-      await agent.shutdown();
+      try {
+        // Multiple cycles should work
+        await agent.shutdown();
+      } finally {
+        await cleanupStore(store);
+      }
     });
   });
 
@@ -294,6 +330,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         assertEquals(typeof agent.onExecution, "function");
       } finally {
         await agent.shutdown();
+        await cleanupStore(store);
       }
     });
   });
