@@ -8,10 +8,7 @@
     "url": "https://github.com/runtimed/anode.git"
   },
   "exports": {
-    ".": "./mod.ts",
-    "./agent": "./src/runtime-agent.ts",
-    "./config": "./src/config.ts",
-    "./types": "./src/types.ts"
+    ".": "./mod.ts"
   },
   "imports": {
     "@runt/schema": "jsr:@runt/schema@^0.12.0",
