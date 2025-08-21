@@ -1,9 +1,17 @@
 import type { Store } from "npm:@livestore/livestore";
+import { makeSchema, State } from "npm:@livestore/livestore";
+import { events, materializers, tables } from "@runt/schema";
 import { RuntimeAgent } from "@runt/runtime-core";
 import type {
   RuntimeAgentOptions,
   RuntimeCapabilities,
 } from "@runt/runtime-core";
+
+// Create schema for proper typing
+const schema = makeSchema({
+  events,
+  state: State.SQLite.makeState({ tables, materializers }),
+});
 
 /**
  * Browser-specific runtime agent options
@@ -50,8 +58,7 @@ export interface BrowserRuntimeAgentOptions
  * ```
  */
 export function createBrowserRuntimeAgent(
-  // deno-lint-ignore no-explicit-any
-  store: Store<any>,
+  store: Store<typeof schema>,
   capabilities: RuntimeCapabilities,
   options?: BrowserRuntimeAgentOptions,
 ): RuntimeAgent {
@@ -110,9 +117,16 @@ function setupBrowserLifecycle(
 
   // Also clean up on visibility change (when tab becomes hidden)
   // This helps with mobile browsers that may not fire beforeunload
-  if (typeof document !== "undefined") {
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") {
+  if (typeof globalThis !== "undefined" && "document" in globalThis) {
+    interface BrowserDocument {
+      addEventListener: (event: string, callback: () => void) => void;
+      visibilityState: string;
+    }
+    const doc =
+      (globalThis as typeof globalThis & { document: BrowserDocument })
+        .document;
+    doc.addEventListener("visibilitychange", () => {
+      if (doc.visibilityState === "hidden") {
         cleanup();
       }
     });

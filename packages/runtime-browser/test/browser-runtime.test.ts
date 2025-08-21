@@ -10,26 +10,33 @@ import { createBrowserRuntimeAgent } from "../mod.ts";
 import type { RuntimeCapabilities } from "@runt/runtime-core";
 
 // Simple mock for browser environment
-(globalThis as { window?: unknown }).window = {
-  addEventListener: () => {},
-  crypto: globalThis.crypto,
-};
-(globalThis as { document?: unknown }).document = {
-  addEventListener: () => {},
-  visibilityState: "visible",
-};
+Object.defineProperty(globalThis, "window", {
+  value: {
+    addEventListener: () => {},
+    crypto: globalThis.crypto,
+  },
+  configurable: true,
+});
+
+Object.defineProperty(globalThis, "document", {
+  value: {
+    addEventListener: () => {},
+    visibilityState: "visible",
+  },
+  configurable: true,
+});
 
 Deno.test("Browser Runtime Agent - Core Functionality", async (t) => {
-  let store: Awaited<ReturnType<typeof createStorePromise>>;
+  const schema = makeSchema({
+    events,
+    state: State.SQLite.makeState({ tables, materializers }),
+  });
+
+  let store: Awaited<ReturnType<typeof createStorePromise<typeof schema>>>;
   let capabilities: RuntimeCapabilities;
 
   // Setup for each test
   const setup = async () => {
-    const schema = makeSchema({
-      events,
-      state: State.SQLite.makeState({ tables, materializers }),
-    });
-
     store = await createStorePromise({
       adapter: makeAdapter({
         storage: { type: "in-memory" },

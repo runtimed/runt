@@ -11,9 +11,13 @@
  * 3. The agent integrates seamlessly with existing notebook UI
  */
 
-import { createStorePromise } from "npm:@livestore/livestore";
-import { createWebAdapter } from "npm:@livestore/adapter-web";
-import { events, materializers } from "@runt/schema";
+import {
+  createStorePromise,
+  makeSchema,
+  State,
+} from "npm:@livestore/livestore";
+import { makeAdapter } from "npm:@livestore/adapter-web";
+import { events, materializers, tables } from "@runt/schema";
 import {
   type BrowserRuntimeAgentOptions,
   createBrowserRuntimeAgent,
@@ -30,13 +34,17 @@ async function createEchoAgent() {
   // In a real React app, you'd get this from useStore() hook
   // const { store } = useStore();
   // For this example, we'll create a store (but normally you'd reuse existing one)
+  const schema = makeSchema({
+    events,
+    state: State.SQLite.makeState({ tables, materializers }),
+  });
+
   const store = await createStorePromise({
-    adapter: createWebAdapter({
+    adapter: makeAdapter({
       storage: { type: "memory" }, // Browser-friendly storage
     }),
+    schema,
     storeId: "browser-echo-example",
-    events,
-    materializers,
     syncPayload: {
       // In real app, get from authenticated user context
       authToken: "example-token",

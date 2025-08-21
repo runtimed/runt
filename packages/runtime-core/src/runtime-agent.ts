@@ -3,16 +3,28 @@
 // This class plugs into an existing LiveStore instance rather than creating its own,
 // enabling browser usage where the store is shared with a React UI.
 
-import { queryDb, type Store } from "npm:@livestore/livestore";
+import {
+  makeSchema,
+  queryDb,
+  State,
+  type Store,
+} from "npm:@livestore/livestore";
 import {
   events,
   type ImageMimeType,
   isImageMimeType,
+  materializers,
   type MediaContainer,
   tables,
 } from "@runt/schema";
 import { createLogger } from "./logging.ts";
 import { ArtifactClient } from "./artifact-client.ts";
+
+// Create schema for proper typing
+const schema = makeSchema({
+  events,
+  state: State.SQLite.makeState({ tables, materializers }),
+});
 import type {
   ArtifactSubmissionOptions as _ArtifactSubmissionOptions,
   CancellationHandler,
@@ -46,8 +58,7 @@ export class RuntimeAgent {
   private artifactClient: IArtifactClient;
 
   constructor(
-    // deno-lint-ignore no-explicit-any
-    public readonly store: Store<any>, // TODO: proper schema typing
+    public readonly store: Store<typeof schema>,
     private capabilities: RuntimeCapabilities,
     public readonly options: RuntimeAgentOptions,
     private handlers: RuntimeAgentEventHandlers = {},
