@@ -305,10 +305,121 @@ const useBrowserRuntime = () => {
 
 ## 📚 Reference Materials
 
-- **Architecture decisions**: See `PLAN.md`
-- **Original implementation**: `packages/lib/` (unchanged)
-- **Schema integration**: Runtime session events in `@runt/schema`
-- **LiveStore patterns**: Follow web adapter approach from documentation
+### Essential Documentation for New Agents
+
+**External Documentation:**
+- **LiveStore Full Documentation**: https://docs.livestore.dev/llms-full.txt
+  - Complete LiveStore architecture and patterns
+  - Web adapter usage (critical for browser implementation)
+  - Store creation and lifecycle management
+  - Event sourcing patterns
+
+**Project Documentation:**
+- **`PLAN.md`**: Complete architecture requirements and decisions
+- **`runt/packages/schema/mod.ts`**: Runtime session events and materializers
+- **`runt/packages/schema/types.ts`**: Core type definitions and MIME types
+- **`runt/packages/schema/tables.ts`**: Database schema including runtime sessions
+
+### Key Files to Understand
+
+**Core Implementation (✅ Complete):**
+- `packages/runtime-core/src/runtime-agent.ts` - New store-first RuntimeAgent
+- `packages/runtime-core/src/types.ts` - Simplified interfaces
+- `packages/runtime-core/mod.ts` - Clean exports
+
+**Original Implementation (Reference):**
+- `packages/lib/src/runtime-agent.ts` - Original platform-coupled implementation
+- `packages/lib/src/config.ts` - CLI parsing and environment handling
+- `packages/lib/src/types.ts` - Full original interfaces
+- `packages/lib/examples/echo-agent.ts` - Working echo agent example
+
+**Schema Integration:**
+- `packages/schema/mod.ts` - Lines 51-482: Core events
+- `packages/schema/mod.ts` - Lines 579-1215: Materializers
+- `packages/schema/tables.ts` - Lines 90-110: Runtime sessions table
+- `packages/schema/queries/index.ts` - Runtime session queries
+
+### React Integration Context
+
+**anode LiveStore Setup (from user context):**
+```typescript
+// This is how the React app creates the LiveStore instance
+const adapter = makePersistedAdapter({
+  storage: { type: "opfs" },
+  worker: LiveStoreWorker,
+  sharedWorker: LiveStoreSharedWorker,
+  resetPersistence,
+  clientId, // This ties to authenticated user
+});
+
+const syncPayload = useRef({
+  get authToken() {
+    const tokenString = localStorage.getItem("openid_tokens");
+    const tokens = tokenString ? JSON.parse(tokenString) : null;
+    return tokens?.accessToken || "";
+  },
+  clientId, // Same user ID that runtime agent must use
+});
+```
+
+### LiveStore Patterns to Follow
+
+**Web Adapter Usage:**
+- Study `@livestore/adapter-web` documentation
+- `makePersistedAdapter` with OPFS storage
+- Shared worker for cross-tab communication
+- `clientId` consistency critical for user identity
+
+**Store Creation Pattern:**
+```typescript
+const store = await createStorePromise({
+  adapter,
+  schema,
+  storeId: notebookId,
+  syncPayload: { authToken, clientId }
+})
+```
+
+**Event Sourcing:**
+- Runtime session lifecycle: `runtimeSessionStarted` → `runtimeSessionStatusChanged` → `runtimeSessionTerminated`
+- Execution queue: `executionRequested` → `executionAssigned` → `executionStarted` → `executionCompleted`
+- Output events: `terminalOutputAdded`, `multimediaDisplayOutputAdded`, etc.
+
+### Examples and Tests
+
+**Working Examples (Reference Only):**
+- `packages/lib/examples/echo-agent.ts` - Complete working echo agent
+- `packages/lib/examples/enhanced-output-example.ts` - Rich output handling
+- `packages/lib/examples/streaming-demo.ts` - Streaming output patterns
+
+**Test Patterns:**
+- `packages/lib/src/runtime-agent.test.ts` - RuntimeAgent constructor tests
+- `packages/lib/test/integration.test.ts` - LiveStore integration patterns
+- Look at git history for removed test files that might provide insights
+
+### Browser-Specific Resources
+
+**Web APIs to Use:**
+- `crypto.randomUUID()` for session IDs
+- `window.addEventListener('beforeunload')` for cleanup
+- `localStorage` for configuration
+- `URL` constructor for parsing config from search params
+
+**Avoid These Deno APIs:**
+- `Deno.addSignalListener` → Use `window.addEventListener`
+- `Deno.env.get()` → Use `localStorage` or URL params
+- `Deno.pid` → Use `crypto.randomUUID()`
+- `@std/cli/parse-args` → Browser doesn't need CLI parsing
+
+### Questions to Research
+
+When implementing, you may need to research:
+
+1. **How does `makePersistedAdapter` work?** → Check LiveStore web adapter docs
+2. **What's the exact schema for runtime events?** → See `packages/schema/mod.ts`  
+3. **How do multiple runtimes get displaced?** → Look at existing `runtimeSessionTerminated` logic
+4. **What's the authentication flow?** → The user's React app handles this, runtime just uses `clientId`
+5. **How do execution contexts work?** → Study `ExecutionContext` interface and existing output methods
 
 ## 🚀 Future Phases (Post Phase 2)
 
