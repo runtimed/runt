@@ -36,5 +36,8 @@ export type {
 } from "@runt/runtime-core";
 
 // Browser-specific functionality
-// TODO: Implement browser-specific runtime creation and lifecycle management
-// export { createBrowserRuntimeAgent } from "./src/browser-runtime.ts";
+export {
+  cleanupBrowserRuntimeAgent,
+  createBrowserRuntimeAgent,
+} from "./src/browser-runtime.ts";
+export type { BrowserRuntimeAgentOptions } from "./src/browser-runtime.ts";
