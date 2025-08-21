@@ -4,13 +4,13 @@
 // environment variables to configure runtime agents with sensible defaults.
 
 import { parseArgs } from "@std/cli/parse-args";
-import { createLogger } from "./logging.ts";
+import { createLogger } from "@runt/runtime-core";
 import type {
   IArtifactClient,
   RuntimeAgentOptions,
   RuntimeCapabilities,
-} from "./types.ts";
-import { ArtifactClient } from "./artifact-client.ts";
+} from "@runt/runtime-core";
+import { ArtifactClient } from "@runt/runtime-core";
 
 /**
  * Default configuration values

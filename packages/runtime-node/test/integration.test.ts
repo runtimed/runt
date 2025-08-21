@@ -5,13 +5,13 @@
 
 import { assertEquals, assertExists } from "jsr:@std/assert";
 
-import { RuntimeAgent } from "../src/runtime-agent.ts";
+import type { RuntimeAgent } from "@runt/runtime-core";
 import { RuntimeConfig } from "../src/config.ts";
 import type {
   ExecutionContext,
   RuntimeAgentEventHandlers,
   RuntimeCapabilities,
-} from "../src/types.ts";
+} from "@runt/runtime-core";
 
 // Simple mock function creator
 interface MockFunction {
