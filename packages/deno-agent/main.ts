@@ -1,8 +1,23 @@
-export function add(a: number, b: number): number {
-  return a + b;
-}
+// %%
+import { Sandbox } from "@deno/sandbox";
+import "@std/dotenv/load";
 
-// Learn more at https://docs.deno.com/runtime/manual/examples/module_metadata#concepts
-if (import.meta.main) {
-  console.log("Add 2 + 3 =", add(2, 3));
-}
+// %%
+await using sandbox = await Sandbox.create();
+
+// %%
+const result = await sandbox.eval(`1 + 2`);
+console.log("result:", result);
+
+// %%
+let repl = await sandbox.repl();
+
+// %%
+await repl.eval(`5`);
+
+// %%
+const result2 = await sandbox.eval(`5`);
+console.log("result:", result2);
+
+// %%
+await sandbox.close();
