@@ -1,10 +1,13 @@
 # @runt/runtime-deno
 
-Deno platform adapter for building runtime agents that connect to Anode notebooks. This package provides Deno-specific utilities for CLI configuration, lifecycle management, and LiveStore integration.
+Deno platform adapter for building runtime agents that connect to Anode
+notebooks. This package provides Deno-specific utilities for CLI configuration,
+lifecycle management, and LiveStore integration.
 
 ## Features
 
-- **Store-First Architecture**: Integrates with LiveStore for real-time collaboration
+- **Store-First Architecture**: Integrates with LiveStore for real-time
+  collaboration
 - **CLI Configuration**: Parse command-line arguments and environment variables
 - **Lifecycle Management**: Handle startup, shutdown, and signal handling
 - **Type-Safe**: Full TypeScript support with proper typing
@@ -12,9 +15,12 @@ Deno platform adapter for building runtime agents that connect to Anode notebook
 
 ## Migration from @runt/runtime-node
 
-> **Note**: This package was renamed from `@runt/runtime-node` to `@runt/runtime-deno` in version 0.12.0 to better reflect its purpose as a Deno-specific runtime adapter.
+> **Note**: This package was renamed from `@runt/runtime-node` to
+> `@runt/runtime-deno` in version 0.12.0 to better reflect its purpose as a
+> Deno-specific runtime adapter.
 >
-> **Migration**: Simply update your imports from `@runt/runtime-node` to `@runt/runtime-deno`. All APIs remain the same.
+> **Migration**: Simply update your imports from `@runt/runtime-node` to
+> `@runt/runtime-deno`. All APIs remain the same.
 
 ## Installation
 
@@ -78,19 +84,19 @@ const agent = new RuntimeAgent(
     runtimeId: config.runtimeId,
     runtimeType: config.runtimeType,
     clientId: "my-client",
-  }
+  },
 );
 
 // Register execution handler
 agent.onExecution(async (context) => {
   const { cell } = context;
-  
+
   // Your execution logic here
   context.stdout("Processing...\n");
-  
+
   context.result({
     "text/plain": `Executed: ${cell.source}`,
-    "application/json": { success: true }
+    "application/json": { success: true },
   });
 
   return { success: true };
@@ -158,13 +164,14 @@ const config = createRuntimeConfig(Deno.args, {
   environmentOptions: {
     runtimePythonPath: "python3",
     runtimePackageManager: "pip",
-  }
+  },
 });
 ```
 
 ## Execution Context
 
-The execution context provides methods for outputting different types of content:
+The execution context provides methods for outputting different types of
+content:
 
 ```typescript
 agent.onExecution(async (context) => {
@@ -178,13 +185,13 @@ agent.onExecution(async (context) => {
   context.display({
     "text/html": "<h1>Results</h1><p>Data processed successfully</p>",
     "text/plain": "Results: Data processed successfully",
-    "application/json": { status: "complete", rows: 42 }
+    "application/json": { status: "complete", rows: 42 },
   });
 
   // Set final cell result
   context.result({
     "text/plain": "Execution complete",
-    "application/json": { success: true, timestamp: Date.now() }
+    "application/json": { success: true, timestamp: Date.now() },
   });
 
   // Handle errors
@@ -211,9 +218,9 @@ const config = createRuntimeConfig(Deno.args, {
   runtimeType: "advanced-runtime",
   capabilities: {
     canExecuteCode: true,
-    canExecuteSql: true,     // Enable SQL execution
-    canExecuteAi: true,      // Enable AI integration
-  }
+    canExecuteSql: true, // Enable SQL execution
+    canExecuteAi: true, // Enable AI integration
+  },
 });
 ```
 
@@ -225,7 +232,7 @@ const config = createRuntimeConfig(Deno.args, {
     runtimePythonPath: "/usr/bin/python3.11",
     runtimePackageManager: "uv",
     runtimeEnvExternallyManaged: true,
-  }
+  },
 });
 ```
 
@@ -254,8 +261,8 @@ import { createLogger } from "@runt/runtime-core";
 const logger = createLogger("my-deno-runtime", {
   context: {
     runtimeId: "my-runtime-123",
-    sessionId: "session-456"
-  }
+    sessionId: "session-456",
+  },
 });
 
 logger.info("Runtime started");
@@ -265,6 +272,7 @@ logger.error("Execution failed", { cellId: "cell-123" });
 ### Log Levels
 
 Set via environment variables:
+
 - `RUNT_LOG_LEVEL=DEBUG` - Detailed debugging information
 - `RUNT_LOG_LEVEL=INFO` - General information (default)
 - `RUNT_LOG_LEVEL=WARN` - Warning messages only
@@ -281,6 +289,7 @@ This package is part of the Runt runtime agent ecosystem:
 - **@runt/runtime-browser** - Browser-specific platform adapter
 
 The store-first architecture ensures that:
+
 - LiveStore handles state management and real-time sync
 - Runtime agents focus on execution logic
 - Multiple clients can collaborate in real-time
