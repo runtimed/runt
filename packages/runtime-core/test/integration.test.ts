@@ -67,9 +67,12 @@ Deno.test({
     activeAgents = [];
 
     // Clean up store resources if available
-    if (store && typeof (store as any).close === "function") {
+    if (
+      store &&
+      typeof (store as unknown as { close?: () => void }).close === "function"
+    ) {
       try {
-        await (store as any).close();
+        await (store as unknown as { close: () => Promise<void> }).close();
       } catch (error) {
         // Ignore cleanup errors
         console.warn("Store cleanup warning:", error);

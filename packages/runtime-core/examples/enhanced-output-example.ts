@@ -75,10 +75,10 @@ export class ExamplePythonRuntime {
 
     // Define event handlers
     const handlers: RuntimeAgentEventHandlers = {
-      onStartup: async () => {
+      onStartup: () => {
         console.log(`🚀 ${this.options.runtimeType} runtime started`);
       },
-      onShutdown: async () => {
+      onShutdown: () => {
         console.log(`🛑 ${this.options.runtimeType} runtime stopped`);
       },
     };
