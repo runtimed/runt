@@ -32,8 +32,8 @@ export type {
 } from "./src/types.ts";
 export type { LoggerConfig } from "./src/logging.ts";
 
-// Media types and utilities for rich content handling
-export * from "./src/media/mod.ts";
+// Media types and utilities for rich content handling (re-exported from runtime-core)
+export { type MediaBundle, validateMediaBundle } from "@runt/runtime-core";
 
 // Artifact service client for submitting artifacts to anode
 export {

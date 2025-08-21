@@ -10,7 +10,7 @@
  * ## Quick Start
  *
  * ```typescript
- * import { validateMediaBundle } from "@runt/lib/media";
+ * import { validateMediaBundle } from "@runt/runtime-core";
  *
  * // Raw output from Python execution
  * const rawOutput = {
