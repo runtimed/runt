@@ -36,7 +36,6 @@ import {
   type NotebookTool,
 } from "@runt/ai";
 
-
 /**
  * Configuration options for PyodideRuntimeAgent
  */
@@ -122,7 +121,8 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       mountPaths: options.mountPaths || config.mountPaths || [],
       mountMappings: options.mountMappings || config.mountMappings || [],
       outputDir: options.outputDir || config.outputDir,
-      indexMountedFiles: options.indexMountedFiles ?? config.indexMountedFiles ?? false,
+      indexMountedFiles: options.indexMountedFiles ??
+        config.indexMountedFiles ?? false,
       mountReadonly: options.mountReadonly ?? config.mountReadonly ?? false,
     };
     this.onExecution(this.executeCell.bind(this));
@@ -213,32 +213,55 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       });
 
       // Read mount directories if provided
-      let mountData: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }>; readonly?: boolean }> = [];
+      let mountData: Array<
+        {
+          hostPath: string;
+          targetPath?: string;
+          files: Array<{ path: string; content: Uint8Array }>;
+          readonly?: boolean;
+        }
+      > = [];
       if (this.options.mountPaths && this.options.mountPaths.length > 0) {
-        mountData = await this.readMountDirectories(this.options.mountPaths, this.options.mountMappings);
-        
+        mountData = await this.readMountDirectories(
+          this.options.mountPaths,
+          this.options.mountMappings,
+        );
+
         // Add readonly flag to all mount entries if mountReadonly is enabled
         if (this.options.mountReadonly) {
-          mountData = mountData.map(entry => ({ ...entry, readonly: true }));
+          mountData = mountData.map((entry) => ({ ...entry, readonly: true }));
         }
-        
+
         // Start vector store ingestion asynchronously only if indexing is enabled
         if (this.options.indexMountedFiles) {
           // Initialize vector store in background to avoid blocking pyodide startup
-          Promise.resolve().then(async () => {
+          // Use setTimeout to ensure this runs after Pyodide initialization completes
+          setTimeout(async () => {
             try {
-              const { getVectorStore, enableVectorStoreIndexing } = await import("@runt/ai");
+              this.logger.info(
+                "Starting vector store import and initialization...",
+              );
+              const { getVectorStore, enableVectorStoreIndexing } =
+                await import("@runt/ai");
               enableVectorStoreIndexing();
               const vectorStore = getVectorStore();
               vectorStore.startIngestion(mountData);
-              this.logger.info("Vector store indexing started for mounted files");
+              this.logger.info(
+                "Vector store indexing started for mounted files",
+              );
             } catch (error) {
-              this.logger.error("Vector store ingestion failed", { error: String(error) });
+              this.logger.error("Vector store ingestion failed", {
+                error: String(error),
+              });
             }
-          });
-          this.logger.info("Vector store indexing enabled - initialization started in background");
+          }, 50); // Small delay to ensure Pyodide worker message completes first
+          this.logger.info(
+            "Vector store indexing enabled - will start after Pyodide initialization",
+          );
         } else {
-          this.logger.info("Vector store indexing disabled - mounted files will not be indexed for AI search");
+          this.logger.info(
+            "Vector store indexing disabled - mounted files will not be indexed for AI search",
+          );
         }
       }
 
@@ -784,30 +807,51 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
    * Read directory contents recursively for mounting
    */
   private async readMountDirectories(
-    mountPaths: string[], 
-    mountMappings?: Array<{ hostPath: string; targetPath: string }>
-  ): Promise<Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }> }>> {
-    const mountData: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }> }> = [];
+    mountPaths: string[],
+    mountMappings?: Array<{ hostPath: string; targetPath: string }>,
+  ): Promise<
+    Array<
+      {
+        hostPath: string;
+        targetPath?: string;
+        files: Array<{ path: string; content: Uint8Array }>;
+      }
+    >
+  > {
+    const mountData: Array<
+      {
+        hostPath: string;
+        targetPath?: string;
+        files: Array<{ path: string; content: Uint8Array }>;
+      }
+    > = [];
 
     for (const hostPath of mountPaths) {
       try {
         const files: Array<{ path: string; content: Uint8Array }> = [];
-        
+
         // Recursively read all files in the directory
         await this.readDirectoryRecursive(hostPath, hostPath, files);
-        
+
         // Find the target path from mount mappings
-        const targetPath = mountMappings?.find(m => m.hostPath === hostPath)?.targetPath;
-        
+        const targetPath = mountMappings?.find((m) => m.hostPath === hostPath)
+          ?.targetPath;
+
         // Only include targetPath if it's defined
-        const mountEntry = targetPath 
+        const mountEntry = targetPath
           ? { hostPath, targetPath, files }
           : { hostPath, files };
         mountData.push(mountEntry);
-        
-        this.logger.info(`Read ${files.length} files from mount path: ${hostPath}${targetPath ? ` -> ${targetPath}` : ''}`);
+
+        this.logger.info(
+          `Read ${files.length} files from mount path: ${hostPath}${
+            targetPath ? ` -> ${targetPath}` : ""
+          }`,
+        );
       } catch (error) {
-        this.logger.warn(`Failed to read mount directory: ${hostPath}`, { error });
+        this.logger.warn(`Failed to read mount directory: ${hostPath}`, {
+          error,
+        });
       }
     }
 
@@ -820,12 +864,12 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
   private async readDirectoryRecursive(
     basePath: string,
     currentPath: string,
-    files: Array<{ path: string; content: Uint8Array }>
+    files: Array<{ path: string; content: Uint8Array }>,
   ): Promise<void> {
     try {
       for await (const entry of Deno.readDir(currentPath)) {
         const fullPath = `${currentPath}/${entry.name}`;
-        const relativePath = fullPath.replace(`${basePath}/`, '');
+        const relativePath = fullPath.replace(`${basePath}/`, "");
 
         if (entry.isFile) {
           try {
@@ -875,9 +919,9 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       for (const { path, content } of result.files) {
         try {
           const hostPath = `${this.options.outputDir}/${path}`;
-          
+
           // Create parent directories if needed
-          const parentDir = hostPath.substring(0, hostPath.lastIndexOf('/'));
+          const parentDir = hostPath.substring(0, hostPath.lastIndexOf("/"));
           if (parentDir !== this.options.outputDir) {
             try {
               await Deno.mkdir(parentDir, { recursive: true });
@@ -885,7 +929,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
               // Directory might already exist, ignore
             }
           }
-          
+
           // Write file to host
           await Deno.writeFile(hostPath, content);
           syncedCount++;
@@ -895,7 +939,9 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       }
 
       if (syncedCount > 0) {
-        this.logger.info(`Synced ${syncedCount} files from /outputs to ${this.options.outputDir}`);
+        this.logger.info(
+          `Synced ${syncedCount} files from /outputs to ${this.options.outputDir}`,
+        );
       }
     } catch (error) {
       this.logger.warn(`Failed to sync outputs to host: ${error}`);

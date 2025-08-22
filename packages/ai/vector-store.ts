@@ -1,4 +1,4 @@
-import { Document, Settings, VectorStoreIndex } from "llamaindex";
+import { type Document, Settings, VectorStoreIndex } from "llamaindex";
 import { OpenAI, OpenAIEmbedding } from "@llamaindex/openai";
 import { SimpleDirectoryReader } from "@llamaindex/readers/directory";
 import { TextFileReader } from "@llamaindex/readers/text";
@@ -20,10 +20,13 @@ export class VectorStoreService {
   private queryEngine: any | null = null;
   private index: VectorStoreIndex | null = null;
   private isIngesting = false;
-  private ingestionComplete = false;
   private ingestionPromise: Promise<void> | null = null;
+  private isCreatingIndex = false;
+  private indexCreationComplete = false;
+  private indexCreationPromise: Promise<void> | null = null;
   private logger: Logger;
   private indexedFilePaths: string[] = [];
+  private documentsForIndexing: any[] = [];
 
   constructor() {
     this.logger = vectorLogger;
@@ -31,7 +34,7 @@ export class VectorStoreService {
   }
 
   /**
-   * Configure the embedding model based on available API keys and environment
+   * Configure the embedding model based on available API keys and environment (non-blocking)
    */
   private configureModel(): void {
     // Only configure embeddings once globally to prevent "already imported" issues
@@ -52,15 +55,28 @@ export class VectorStoreService {
         );
 
         try {
-          Settings.embedModel = new OpenAIEmbedding({
-            model: "text-embedding-3-large", // Faster and cheaper than text-embedding-3-large
-            apiKey: openaiApiKey,
-          });
-          Settings.llm = new OpenAI({
-            model: "gpt-4o",
-            apiKey: openaiApiKey,
-          });
-          this.logger.info("OpenAI embeddings configured successfully");
+          // Defer actual OpenAI initialization to avoid any blocking during startup
+          setTimeout(() => {
+            try {
+              Settings.embedModel = new OpenAIEmbedding({
+                model: "text-embedding-3-small", // Faster and cheaper than text-embedding-3-large
+                apiKey: openaiApiKey,
+              });
+              Settings.llm = new OpenAI({
+                model: "gpt-4o",
+                apiKey: openaiApiKey,
+              });
+              this.logger.info("OpenAI embeddings configured successfully");
+            } catch (delayedOpenaiError) {
+              this.logger.error(
+                "Failed to configure OpenAI embeddings in background",
+                {
+                  error: String(delayedOpenaiError),
+                },
+              );
+            }
+          }, 100); // Small delay to ensure startup completes first
+
           embeddingConfigured = true;
           return;
         } catch (openaiError) {
@@ -90,9 +106,9 @@ export class VectorStoreService {
   }
 
   /**
-   * Start asynchronous ingestion of files from mount data
+   * Start asynchronous ingestion of files from mount data (completely non-blocking)
    */
-  async startIngestion(
+  startIngestion(
     mountData: Array<
       {
         hostPath: string;
@@ -100,45 +116,41 @@ export class VectorStoreService {
         files: Array<{ path: string; content: Uint8Array }>;
       }
     >,
-  ): Promise<void> {
-    if (this.isIngesting || this.ingestionComplete) {
-      this.logger.warn("Ingestion already started or completed");
+  ): void {
+    if (this.isIngesting) {
+      this.logger.warn("Ingestion already in progress");
       return;
     }
 
+    // Set flag immediately and return - all work happens in background
     this.isIngesting = true;
     this.logger.info(
-      `Starting vector store ingestion with ${mountData.length} mount paths...`,
+      "Vector store ingestion requested - starting in background...",
     );
 
-    // Configure model before starting ingestion
-    this.logger.debug("Step 1: Configuring embedding model...");
-    try {
-      this.configureModel();
-      this.logger.debug("Step 1: Embedding model configured successfully");
-    } catch (error) {
-      this.logger.error("Failed to configure vector store model", {
-        error: String(error),
-      });
-      this.isIngesting = false;
-      return;
-    }
+    // Start ingestion completely asynchronously using setTimeout to avoid any blocking
+    setTimeout(() => {
+      this.performFullIngestionInBackground(mountData);
+    }, 0);
+  }
 
-    // Log mount data details (reduced logging)
-    const totalFiles = mountData.reduce(
-      (sum, mount) => sum + mount.files.length,
-      0,
-    );
-    this.logger.info(
-      `Vector store ingestion starting: ${mountData.length} mount paths, ${totalFiles} total files`,
-    );
+  /**
+   * Perform complete ingestion pipeline in background (non-blocking)
+   */
+  private performFullIngestionInBackground(
+    mountData: Array<
+      {
+        hostPath: string;
+        targetPath?: string;
+        files: Array<{ path: string; content: Uint8Array }>;
+      }
+    >,
+  ): void {
+    this.ingestionPromise = this.performCompleteIngestionPipeline(mountData);
 
-    this.ingestionPromise = this.performIngestion(mountData);
-
-    // Start ingestion asynchronously - don't await here to avoid blocking startup
+    // Handle completion asynchronously
     this.ingestionPromise
       .then(() => {
-        this.ingestionComplete = true;
         this.isIngesting = false;
         this.logger.info("Vector store ingestion completed successfully");
       })
@@ -154,6 +166,43 @@ export class VectorStoreService {
           ),
         });
       });
+  }
+
+  /**
+   * Complete ingestion pipeline including model configuration
+   */
+  private async performCompleteIngestionPipeline(
+    mountData: Array<
+      {
+        hostPath: string;
+        targetPath?: string;
+        files: Array<{ path: string; content: Uint8Array }>;
+      }
+    >,
+  ): Promise<void> {
+    // Log mount data details
+    const totalFiles = mountData.reduce(
+      (sum, mount) => sum + mount.files.length,
+      0,
+    );
+    this.logger.info(
+      `Vector store ingestion starting: ${mountData.length} mount paths, ${totalFiles} total files`,
+    );
+
+    // Configure model in background
+    this.logger.debug("Step 1: Configuring embedding model...");
+    try {
+      this.configureModel();
+      this.logger.debug("Step 1: Embedding model configured successfully");
+    } catch (error) {
+      this.logger.error("Failed to configure vector store model", {
+        error: String(error),
+      });
+      throw error;
+    }
+
+    // Perform the actual ingestion
+    await this.performIngestion(mountData);
   }
 
   /**
@@ -272,7 +321,6 @@ export class VectorStoreService {
             numWorkers: 4, // Use 4 concurrent workers for better performance
           });
 
-
           // Fix document metadata to use final pyodide mount paths instead of temp paths
           if (documents.length > 0 && tempDir) {
             this.logger.debug(
@@ -286,24 +334,13 @@ export class VectorStoreService {
             this.logger.info(
               `Prepared ${documents.length} documents for embedding`,
             );
-            // Create the vector index from documents
-            this.logger.debug("Creating VectorStoreIndex from documents...");
-            this.index = await VectorStoreIndex.fromDocuments(documents);
-            this.logger.debug("VectorStoreIndex created successfully");
 
-            // Create retriever
-            this.logger.debug("Creating retriever...");
-            this.retriever = this.index.asRetriever();
-            this.logger.debug("Retriever created successfully");
-
-            // Create query engine
-            this.logger.debug("Creating query engine...");
-            this.queryEngine = this.index.asQueryEngine();
-            this.logger.debug("Query engine created successfully");
-
+            // Store documents for index creation and start background indexing
+            this.documentsForIndexing = documents;
             this.logger.info(
-              `Vector index created successfully with ${documents.length} documents`,
+              "Documents prepared, starting background vector index creation...",
             );
+            this.startBackgroundIndexCreation();
           } else {
             this.logger.warn("No documents loaded by SimpleDirectoryReader");
           }
@@ -425,6 +462,79 @@ export class VectorStoreService {
   }
 
   /**
+   * Start background vector index creation from prepared documents
+   */
+  private startBackgroundIndexCreation(): void {
+    if (this.isCreatingIndex || this.indexCreationComplete) {
+      this.logger.warn("Vector index creation already started or completed");
+      return;
+    }
+
+    if (this.documentsForIndexing.length === 0) {
+      this.logger.warn("No documents available for index creation");
+      return;
+    }
+
+    this.isCreatingIndex = true;
+    this.logger.info(
+      `Starting background vector index creation for ${this.documentsForIndexing.length} documents...`,
+    );
+
+    this.indexCreationPromise = this.createVectorIndexFromDocuments()
+      .then(() => {
+        this.indexCreationComplete = true;
+        this.isCreatingIndex = false;
+        this.logger.info(
+          "Background vector index creation completed successfully",
+        );
+      })
+      .catch((error) => {
+        this.isCreatingIndex = false;
+        this.logger.error("Background vector index creation failed", {
+          error: String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          documentCount: this.documentsForIndexing.length,
+        });
+      });
+  }
+
+  /**
+   * Create vector index from documents (runs in background)
+   */
+  private async createVectorIndexFromDocuments(): Promise<void> {
+    try {
+      this.logger.debug("Creating VectorStoreIndex from documents...");
+      this.index = await VectorStoreIndex.fromDocuments(
+        this.documentsForIndexing,
+      );
+      this.logger.debug("VectorStoreIndex created successfully");
+
+      // Create retriever
+      this.logger.debug("Creating retriever...");
+      this.retriever = this.index.asRetriever();
+      this.logger.debug("Retriever created successfully");
+
+      // Create query engine
+      this.logger.debug("Creating query engine...");
+      this.queryEngine = this.index.asQueryEngine();
+      this.logger.debug("Query engine created successfully");
+
+      this.logger.info(
+        `Vector index created successfully with ${this.documentsForIndexing.length} documents`,
+      );
+    } catch (error) {
+      this.logger.error("Failed to create vector index in background", {
+        error: String(error),
+      });
+      throw new Error(
+        `Vector index creation failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  /**
    * Check if a file should be skipped based on its path
    */
   private shouldSkipFile(path: string): boolean {
@@ -453,7 +563,7 @@ export class VectorStoreService {
    */
   async query(queryText: string): Promise<string> {
     // Check if ingestion is still in progress
-    if (this.isIngesting && !this.ingestionComplete) {
+    if (this.isIngesting) {
       this.logger.info(
         "Query requested while ingestion in progress, waiting for completion...",
       );
@@ -487,7 +597,7 @@ export class VectorStoreService {
    */
   async retrieveFilePaths(queryText: string): Promise<string> {
     // Check if ingestion is still in progress
-    if (this.isIngesting && !this.ingestionComplete) {
+    if (this.isIngesting) {
       this.logger.info(
         "File path retrieval requested while ingestion in progress.",
       );
@@ -563,14 +673,15 @@ export class VectorStoreService {
    */
   getAllIndexedFilePaths(): string {
     // Check if ingestion is still in progress
-    if (this.isIngesting && !this.ingestionComplete) {
+    if (this.isIngesting) {
       this.logger.info(
         "File path listing requested while ingestion in progress, waiting for completion...",
       );
       return "Vector store ingestion in progress. Please retry this tool call.";
     }
 
-    if (!this.ingestionComplete) {
+    // Note: File paths are available after ingestion completes (when !isIngesting), even if index creation is still in progress
+    if (this.indexedFilePaths.length === 0) {
       throw new Error("Vector store not initialized or no documents ingested");
     }
 
@@ -596,19 +707,17 @@ export class VectorStoreService {
   }
 
   /**
-   * Get the current status of the vector store
+   * Get the current status of the vector store (simplified)
    */
   getStatus(): {
     isIngesting: boolean;
-    ingestionComplete: boolean;
     isReady: boolean;
     embeddingModel?: string;
   } {
     const embeddingModel = this.getEmbeddingModelInfo();
     return {
       isIngesting: this.isIngesting,
-      ingestionComplete: this.ingestionComplete,
-      isReady: this.ingestionComplete && this.queryEngine !== null,
+      isReady: !this.isIngesting && this.queryEngine !== null,
       embeddingModel,
     };
   }
@@ -640,9 +749,12 @@ export class VectorStoreService {
     this.retriever = null;
     this.index = null;
     this.isIngesting = false;
-    this.ingestionComplete = false;
     this.ingestionPromise = null;
+    this.isCreatingIndex = false;
+    this.indexCreationComplete = false;
+    this.indexCreationPromise = null;
     this.indexedFilePaths = [];
+    this.documentsForIndexing = [];
     embeddingConfigured = false; // Allow reconfiguration after reset
     this.logger.info("Vector store reset");
   }
@@ -668,13 +780,13 @@ export function isVectorStoreIndexingEnabled(): boolean {
 }
 
 /**
- * Get the singleton vector store instance
+ * Get the singleton vector store instance (fast, non-blocking)
  */
 export function getVectorStore(): VectorStoreService {
   if (!vectorStoreInstance) {
     try {
       vectorStoreInstance = new VectorStoreService();
-      vectorLogger.debug("VectorStoreService singleton created");
+      vectorLogger.debug("VectorStoreService singleton created instantly");
     } catch (error) {
       vectorLogger.error("Failed to create VectorStoreService singleton", {
         error: String(error),
