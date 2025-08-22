@@ -90,10 +90,9 @@ Example: Returns all mounted file paths like:
 These tools are automatically available when:
 
 1. You start the runtime with `--mount /path/to/directory --index-mounted-files`
-2. Files are successfully indexed into the vector store
-3. The indexing process has completed
+2. The vector store indexing is enabled
 
-**Important**: The tools only become available after indexing completes. This prevents issues where the AI agent tries to search files that haven't been indexed yet. You'll see a log message "Vector store indexing completed for mounted files - tools now available" when the tools are ready.
+**Important**: The tools become available immediately when indexing starts, but will automatically wait for indexing to complete when actually called by the AI. This provides the best user experience - no blocking during startup, and the AI can use other tools while indexing happens in the background. You'll see a log message "Vector store indexing completed for mounted files" when indexing finishes.
 
 ## MCP integration
 

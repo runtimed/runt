@@ -51,7 +51,7 @@ export class VectorStoreService {
       const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
       
       if (openaiApiKey) {
-        this.logger.info("Configuring OpenAI embeddings for vector store");
+        this.logger.debug("OpenAI API key found - configuring OpenAI embeddings for vector store");
         
         try {
           Settings.embedModel = new OpenAIEmbedding({
@@ -99,8 +99,10 @@ export class VectorStoreService {
     this.logger.info(`Starting vector store ingestion with ${mountData.length} mount paths...`);
     
     // Configure model before starting ingestion
+    this.logger.debug("Step 1: Configuring embedding model...");
     try {
       this.configureModel();
+      this.logger.debug("Step 1: Embedding model configured successfully");
     } catch (error) {
       this.logger.error("Failed to configure vector store model", { error: String(error) });
       this.isIngesting = false;
@@ -369,7 +371,6 @@ export class VectorStoreService {
   }
 
 
-
   /**
    * Query the vector store
    */
@@ -611,7 +612,6 @@ export class VectorStoreService {
     this.ingestionPromise = null;
     this.indexedFilePaths = [];
     embeddingConfigured = false; // Allow reconfiguration after reset
-    vectorStoreReady = false; // Reset ready flag
     this.logger.info("Vector store reset");
   }
 }
@@ -620,8 +620,6 @@ export class VectorStoreService {
 let vectorStoreInstance: VectorStoreService | null = null;
 // Global flag to track if vector store indexing is enabled
 let vectorStoreIndexingEnabled = false;
-// Global flag to track if vector store is ready for queries
-let vectorStoreReady = false;
 
 /**
  * Enable vector store indexing globally
@@ -631,24 +629,10 @@ export function enableVectorStoreIndexing(): void {
 }
 
 /**
- * Mark vector store as ready for queries (called after indexing completes)
- */
-export function markVectorStoreReady(): void {
-  vectorStoreReady = true;
-}
-
-/**
  * Check if vector store indexing is enabled
  */
 export function isVectorStoreIndexingEnabled(): boolean {
   return vectorStoreIndexingEnabled;
-}
-
-/**
- * Check if vector store is ready for queries (indexing enabled AND indexing completed)
- */
-export function isVectorStoreReady(): boolean {
-  return vectorStoreIndexingEnabled && vectorStoreReady;
 }
 
 /**

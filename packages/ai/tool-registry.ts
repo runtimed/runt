@@ -217,10 +217,10 @@ function convertMcpParameterToToolParameter(
 export async function getAllTools(): Promise<NotebookTool[]> {
   try {
     // Import vector store checking function to avoid circular dependencies
-    const { isVectorStoreReady } = await import("./vector-store.ts");
+    const { isVectorStoreIndexingEnabled } = await import("./vector-store.ts");
     
-    // Determine which notebook tools to include based on vector store readiness
-    const notebookTools = isVectorStoreReady() 
+    // Determine which notebook tools to include based on vector store indexing status
+    const notebookTools = isVectorStoreIndexingEnabled() 
       ? [...BASIC_NOTEBOOK_TOOLS, ...VECTOR_STORE_TOOLS]
       : BASIC_NOTEBOOK_TOOLS;
 
@@ -255,8 +255,8 @@ export async function getAllTools(): Promise<NotebookTool[]> {
     
     // Import vector store checking function to avoid circular dependencies
     try {
-      const { isVectorStoreReady } = await import("./vector-store.ts");
-      const notebookTools = isVectorStoreReady() 
+      const { isVectorStoreIndexingEnabled } = await import("./vector-store.ts");
+      const notebookTools = isVectorStoreIndexingEnabled() 
         ? [...BASIC_NOTEBOOK_TOOLS, ...VECTOR_STORE_TOOLS]
         : BASIC_NOTEBOOK_TOOLS;
       return [...notebookTools];

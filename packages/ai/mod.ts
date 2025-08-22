@@ -146,10 +146,14 @@ function createSystemPrompt(currentCellId?: string, filepaths?: string[]): strin
 
 IMPORTANT: If you have access to vector store tools (query_documents, find_mounted_file, list_indexed_files), use them to search and access mounted files rather than asking the user to provide files manually. These tools can search file contents and find file paths from mounted directories.
 
+You have the full context of all cells (code, ai, and markdown) above your current cell.
 You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. 
 You can also execute code yourself using tool calls. 
-When you write code use caution not to double encode new lines. 
-Use the visible outputs and your execution capabilities to help analyze data and answer questions. 
+When you write code use caution not to double encode new lines.
+Use the visible outputs and your execution capabilities to help analyze data and answer questions.
+You should carefully review the code you've written and the output it produces.
+Devise metrics by which you can evaluate the quality of your code and the results it produces.
+After executing code cells you should review the code and make changes to improve the result.
 
 When working with data files:
 1. Use find_mounted_file to locate data files by name or type
@@ -157,6 +161,7 @@ When working with data files:
 3. Use list_indexed_files to see what files are available
 
 Should you need to write data for any reason you will only be able to write to the /outputs directory.`;
+
 
   if (currentCellId) {
     prompt +=
@@ -448,7 +453,7 @@ const getDefaultModel = (provider: string): string => {
 export { OpenAIClient, RuntOllamaClient };
 export { closeMCPClient, getMCPClient, MCPClient } from "./mcp-client.ts";
 export { getAllTools } from "./tool-registry.ts";
-export { getVectorStore, VectorStoreService, enableVectorStoreIndexing, isVectorStoreIndexingEnabled, markVectorStoreReady, isVectorStoreReady } from "./vector-store.ts";
+export { getVectorStore, VectorStoreService, enableVectorStoreIndexing, isVectorStoreIndexingEnabled } from "./vector-store.ts";
 
 /**
  * Discover available AI models from all configured providers
