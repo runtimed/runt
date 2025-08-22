@@ -1,4 +1,4 @@
-import { Document, Settings, VectorStoreIndex } from "llamaindex";
+import { type Document, Settings, VectorStoreIndex } from "llamaindex";
 import { OpenAI, OpenAIEmbedding } from "@llamaindex/openai";
 import { SimpleDirectoryReader } from "@llamaindex/readers/directory";
 import { TextFileReader } from "@llamaindex/readers/text";
