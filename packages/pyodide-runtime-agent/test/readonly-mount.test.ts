@@ -70,7 +70,7 @@ Deno.test("PyodideRuntimeAgent read-only mounting functionality", async () => {
         assignedRuntimeSession: null,
         startedAt: null,
         completedAt: null,
-        executionDurationMs: null
+        executionDurationMs: null,
       },
       store: agent.store,
       sessionId: agent.config.sessionId,
@@ -86,7 +86,7 @@ Deno.test("PyodideRuntimeAgent read-only mounting functionality", async () => {
       markdown: () => "",
       appendMarkdown: () => {},
       abortSignal: new AbortController().signal,
-      checkCancellation: () => {}
+      checkCancellation: () => {},
     });
 
     // Test 1: Reading files should work
@@ -238,7 +238,7 @@ Deno.test("PyodideRuntimeAgent normal (writable) mounting still works", async ()
         assignedRuntimeSession: null,
         startedAt: null,
         completedAt: null,
-        executionDurationMs: null
+        executionDurationMs: null,
       },
       store: agent.store,
       sessionId: agent.config.sessionId,
@@ -254,7 +254,7 @@ Deno.test("PyodideRuntimeAgent normal (writable) mounting still works", async ()
       markdown: () => "",
       appendMarkdown: () => {},
       abortSignal: new AbortController().signal,
-      checkCancellation: () => {}
+      checkCancellation: () => {},
     });
 
     // Test that writing to normally mounted files works

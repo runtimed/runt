@@ -59,7 +59,7 @@ print(f"Created files in /outputs")
         sourceVisible: true,
         outputVisible: true,
         aiContextVisible: true,
-        createdBy: "test"
+        createdBy: "test",
       },
       queueEntry: {
         id: "queue-entry-1",
@@ -70,7 +70,7 @@ print(f"Created files in /outputs")
         assignedRuntimeSession: null,
         startedAt: null,
         completedAt: null,
-        executionDurationMs: null
+        executionDurationMs: null,
       },
       store: agent.store,
       sessionId: agent.config.sessionId,
@@ -86,7 +86,7 @@ print(f"Created files in /outputs")
       markdown: () => "",
       appendMarkdown: () => {},
       abortSignal: new AbortController().signal,
-      checkCancellation: () => {}
+      checkCancellation: () => {},
     };
 
     await agent.executeCell(mockContext);
@@ -156,7 +156,7 @@ print("Created file that should not sync")
       sourceVisible: true,
       outputVisible: true,
       aiContextVisible: true,
-      createdBy: "test"
+      createdBy: "test",
     },
     queueEntry: {
       id: "queue-entry-2",
@@ -167,7 +167,7 @@ print("Created file that should not sync")
       assignedRuntimeSession: null,
       startedAt: null,
       completedAt: null,
-      executionDurationMs: null
+      executionDurationMs: null,
     },
     store: agent.store,
     sessionId: agent.config.sessionId,
@@ -183,7 +183,7 @@ print("Created file that should not sync")
     markdown: () => "",
     appendMarkdown: () => {},
     abortSignal: new AbortController().signal,
-    checkCancellation: () => {}
+    checkCancellation: () => {},
   };
 
   // This should not throw an error even without outputDir configured
@@ -230,7 +230,7 @@ print("No files created in /outputs")
         sourceVisible: true,
         outputVisible: true,
         aiContextVisible: true,
-        createdBy: "test"
+        createdBy: "test",
       },
       queueEntry: {
         id: "queue-entry-3",
@@ -241,7 +241,7 @@ print("No files created in /outputs")
         assignedRuntimeSession: null,
         startedAt: null,
         completedAt: null,
-        executionDurationMs: null
+        executionDurationMs: null,
       },
       store: agent.store,
       sessionId: agent.config.sessionId,
@@ -257,7 +257,7 @@ print("No files created in /outputs")
       markdown: () => "",
       appendMarkdown: () => {},
       abortSignal: new AbortController().signal,
-      checkCancellation: () => {}
+      checkCancellation: () => {},
     };
 
     // This should complete without error

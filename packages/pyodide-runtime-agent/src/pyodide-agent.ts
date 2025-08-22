@@ -124,13 +124,13 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         config.indexMountedFiles ?? false,
       mountReadonly: options.mountReadonly ?? config.mountReadonly ?? false,
     };
-    
+
     // Only include outputDir if it has a value
     const finalOutputDir = options.outputDir ?? config.outputDir;
     if (finalOutputDir) {
       mergedOptions.outputDir = finalOutputDir;
     }
-    
+
     this.options = mergedOptions;
     this.onExecution(this.executeCell.bind(this));
     this.onCancellation(this.handlePyodideCancellation.bind(this));
@@ -924,7 +924,10 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           const hostPath: string = `${this.options.outputDir}/${path}`;
 
           // Create parent directories if needed
-          const parentDir: string = hostPath.substring(0, hostPath.lastIndexOf("/"));
+          const parentDir: string = hostPath.substring(
+            0,
+            hostPath.lastIndexOf("/"),
+          );
           if (parentDir !== this.options.outputDir) {
             try {
               await Deno.mkdir(parentDir, { recursive: true });
