@@ -141,10 +141,19 @@ export interface CellContextData {
 /**
  * Create system prompt with optional current cell ID context for tool usage
  */
-function createSystemPrompt(currentCellId?: string, filepaths?: string[]): string {
-  let prompt = `You are an AI assistant in a collaborative notebook environment. 
+function createSystemPrompt(
+  currentCellId?: string,
+  filepaths?: string[],
+): string {
+  let prompt =
+    `You are an AI assistant in a collaborative notebook environment. 
 
 IMPORTANT: If you have access to vector store tools (query_documents, find_mounted_file, list_indexed_files), use them to search and access mounted files rather than asking the user to provide files manually. These tools can search file contents and find file paths from mounted directories.
+
+VECTOR STORE RETRY BEHAVIOR: If any vector store tool (query_documents, find_mounted_file, list_indexed_files) returns
+a response containing "ingestion in progress", you must continue retrying the same tool call with the same parameters
+until it returns actual results. Do not give up or ask the user to wait - the ingestion will complete automatically
+and the tool will return proper results on subsequent attempts. Keep retrying until you get meaningful content.
 
 You have the full context of all cells (code, ai, and markdown) above your current cell.
 You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. 
@@ -162,7 +171,6 @@ When working with data files:
 
 Should you need to write data for any reason you will only be able to write to the /outputs directory.`;
 
-
   if (currentCellId) {
     prompt +=
       ` Your current cell ID is: ${currentCellId}. When using the create_cell tool, use this ID as the after_id parameter to place new cells below yourself.`;
@@ -170,7 +178,11 @@ Should you need to write data for any reason you will only be able to write to t
 
   // Add file path context if provided
   if (filepaths && filepaths.length > 0) {
-    prompt += `\n\n${filepaths.map(path => `The following question directly pertains to ${path} which you can query using the query tool.`).join('\n')}`;
+    prompt += `\n\n${
+      filepaths.map((path) =>
+        `The following question directly pertains to ${path} which you can query using the query tool.`
+      ).join("\n")
+    }`;
   }
 
   return prompt;
@@ -453,7 +465,12 @@ const getDefaultModel = (provider: string): string => {
 export { OpenAIClient, RuntOllamaClient };
 export { closeMCPClient, getMCPClient, MCPClient } from "./mcp-client.ts";
 export { getAllTools } from "./tool-registry.ts";
-export { getVectorStore, VectorStoreService, enableVectorStoreIndexing, isVectorStoreIndexingEnabled } from "./vector-store.ts";
+export {
+  enableVectorStoreIndexing,
+  getVectorStore,
+  isVectorStoreIndexingEnabled,
+  VectorStoreService,
+} from "./vector-store.ts";
 
 /**
  * Discover available AI models from all configured providers
@@ -581,8 +598,8 @@ export async function executeAI(
     // Extract file path references from the prompt (pattern: @/path/to/file)
     const filePathPattern = /@([^\s]+)/g;
     const filePathMatches = prompt.match(filePathPattern);
-    const extractedFilePaths = filePathMatches 
-      ? filePathMatches.map(match => match.substring(1)) // Remove the @ symbol
+    const extractedFilePaths = filePathMatches
+      ? filePathMatches.map((match) => match.substring(1)) // Remove the @ symbol
       : [];
 
     const provider = cell.aiProvider || "openai";

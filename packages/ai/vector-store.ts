@@ -272,7 +272,9 @@ export class VectorStoreService {
             numWorkers: 4, // Use 4 concurrent workers for better performance
           });
 
-          this.logger.info(`Loaded ${documents.length} documents successfully`);
+          this.logger.info(
+            `Prepared ${documents.length} documents for embedding`,
+          );
 
           // Fix document metadata to use final pyodide mount paths instead of temp paths
           if (documents.length > 0 && tempDir) {
@@ -455,7 +457,7 @@ export class VectorStoreService {
       this.logger.info(
         "Query requested while ingestion in progress, waiting for completion...",
       );
-      return "Query requested while ingestion in progress, waiting for completion...";
+      return "Vector store ingestion in progress. Please retry this tool call.";
     }
 
     if (!this.queryEngine) {
@@ -487,9 +489,9 @@ export class VectorStoreService {
     // Check if ingestion is still in progress
     if (this.isIngesting && !this.ingestionComplete) {
       this.logger.info(
-        "File path retrieval requested while ingestion in progress, waiting for completion...",
+        "File path retrieval requested while ingestion in progress.",
       );
-      return "File path retrieval requested while ingestion in progress, waiting for completion...";
+      return "Vector store ingestion in progress. Please retry this tool call.";
     }
 
     if (!this.retriever) {
@@ -565,7 +567,7 @@ export class VectorStoreService {
       this.logger.info(
         "File path listing requested while ingestion in progress, waiting for completion...",
       );
-      return "File path retrieval requested while ingestion in progress, waiting for completion...";
+      return "Vector store ingestion in progress. Please retry this tool call.";
     }
 
     if (!this.ingestionComplete) {
@@ -591,86 +593,6 @@ export class VectorStoreService {
         sortedPaths.map((path) => `• ${path}`).join("\n")
       }`;
     return response;
-  }
-
-  /**
-   * Get all nodes corresponding to a specific file path from the index docstore
-   */
-  async getNodesByFilePath(filePath: string): Promise<any[]> {
-    // Check if ingestion is still in progress
-    if (this.isIngesting && !this.ingestionComplete) {
-      this.logger.info(
-        "Node retrieval requested while ingestion in progress, waiting for completion...",
-      );
-
-      if (this.ingestionPromise) {
-        await this.ingestionPromise;
-      }
-    }
-
-    if (!this.index) {
-      throw new Error("Vector store not initialized or no documents ingested");
-    }
-
-    this.logger.info(`Retrieving nodes for file path: "${filePath}"`);
-
-    try {
-      // Access the docstore from the index
-      const docstore = this.index.docStore;
-
-      if (!docstore) {
-        throw new Error("Docstore not available from index");
-      }
-
-      // Get all nodes from the docstore
-      const allNodes: any[] = [];
-
-      // The docstore should have a method to get all nodes
-      // LlamaIndex typically exposes nodes through various methods
-      if (typeof docstore.getNodes === "function") {
-        const nodes = await docstore.getNodes();
-        allNodes.push(...Object.values(nodes));
-      } else if (typeof docstore.getAllNodes === "function") {
-        const nodes = await docstore.getAllNodes();
-        allNodes.push(...nodes);
-      } else if (docstore.docs && typeof docstore.docs === "object") {
-        // Fallback: if docstore has a docs property
-        allNodes.push(...Object.values(docstore.docs));
-      } else {
-        this.logger.warn(
-          "Unable to access nodes from docstore - unknown docstore structure",
-        );
-        return [];
-      }
-
-      // Filter nodes by the specified file path
-      const matchingNodes = allNodes.filter((node) => {
-        if (!node || !node.metadata) {
-          return false;
-        }
-
-        const metadata = node.metadata;
-        const nodePath = metadata.file_path || metadata.path;
-
-        return nodePath === filePath;
-      });
-
-      this.logger.info(
-        `Found ${matchingNodes.length} nodes for file path: "${filePath}"`,
-      );
-
-      return matchingNodes;
-    } catch (error) {
-      this.logger.error("Failed to retrieve nodes by file path", {
-        error: String(error),
-        filePath,
-      });
-      throw new Error(
-        `Node retrieval failed: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
   }
 
   /**
