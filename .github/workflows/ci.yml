@@ -193,7 +193,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest] # TODO: Bring back windows-latest. Currently running into an effect platform issue
+        os: [
+          ubuntu-latest,
+          macos-latest,
+        ] # TODO: Bring back windows-latest. Currently running into an effect platform issue
     steps:
       - name: Configure git (Windows fix)
         if: matrix.os == 'windows-latest'
