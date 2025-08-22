@@ -261,7 +261,7 @@ export async function getAllTools(): Promise<NotebookTool[]> {
         ? [...BASIC_NOTEBOOK_TOOLS, ...VECTOR_STORE_TOOLS]
         : BASIC_NOTEBOOK_TOOLS;
       return [...notebookTools];
-    } catch (_vectorStoreError) {
+    } catch (vectorStoreError) {
       // If we can't check vector store status, default to basic tools only
       return [...BASIC_NOTEBOOK_TOOLS];
     }
@@ -781,14 +781,6 @@ export async function handleToolCallWithResult(
         throw new Error("query_documents: query is required");
       }
 
-      // Check if vector store indexing is enabled first
-      const { isVectorStoreIndexingEnabled } = await import(
-        "./vector-store.ts"
-      );
-      if (!isVectorStoreIndexingEnabled()) {
-        return "Vector store indexing is disabled. To search mounted files, restart the runtime with the --index-mounted-files flag.";
-      }
-
       logger.info("Querying vector store", {
         query,
         queryLength: query.length,
@@ -799,7 +791,16 @@ export async function handleToolCallWithResult(
         const { getVectorStore } = await import("./vector-store.ts");
         const vectorStore = getVectorStore();
 
-        // Query the vector store (simplified - internal method handles ingestion state)
+        // Check vector store status
+        const status = vectorStore.getStatus();
+
+        if (status.isIngesting && !status.ingestionComplete) {
+          logger.info(
+            "Vector store ingestion in progress, waiting for completion",
+          );
+        }
+
+        // Query the vector store (will wait for ingestion if needed)
         const result = await vectorStore.query(query);
 
         logger.info("Vector store query completed successfully", {
@@ -835,14 +836,6 @@ export async function handleToolCallWithResult(
         throw new Error("find_mounted_file: query is required");
       }
 
-      // Check if vector store indexing is enabled first
-      const { isVectorStoreIndexingEnabled } = await import(
-        "./vector-store.ts"
-      );
-      if (!isVectorStoreIndexingEnabled()) {
-        return "Vector store indexing is disabled. To search mounted files, restart the runtime with the --index-mounted-files flag.";
-      }
-
       logger.info("Finding mounted file paths", {
         query,
         queryLength: query.length,
@@ -853,7 +846,16 @@ export async function handleToolCallWithResult(
         const { getVectorStore } = await import("./vector-store.ts");
         const vectorStore = getVectorStore();
 
-        // Retrieve file paths using the vector store (simplified - internal method handles ingestion state)
+        // Check vector store status
+        const status = vectorStore.getStatus();
+
+        if (status.isIngesting && !status.ingestionComplete) {
+          logger.info(
+            "Vector store ingestion in progress, waiting for completion",
+          );
+        }
+
+        // Retrieve file paths using the vector store (will wait for ingestion if needed)
         const response = await vectorStore.retrieveFilePaths(query);
 
         logger.info("File path retrieval completed successfully");
@@ -880,14 +882,6 @@ export async function handleToolCallWithResult(
     }
 
     case "list_indexed_files": {
-      // Check if vector store indexing is enabled first
-      const { isVectorStoreIndexingEnabled } = await import(
-        "./vector-store.ts"
-      );
-      if (!isVectorStoreIndexingEnabled()) {
-        return "Vector store indexing is disabled. To search mounted files, restart the runtime with the --index-mounted-files flag.";
-      }
-
       logger.info("Listing all indexed file paths");
 
       try {
@@ -895,7 +889,16 @@ export async function handleToolCallWithResult(
         const { getVectorStore } = await import("./vector-store.ts");
         const vectorStore = getVectorStore();
 
-        // Get all indexed file paths (simplified - internal method handles ingestion state)
+        // Check vector store status
+        const status = vectorStore.getStatus();
+
+        if (status.isIngesting && !status.ingestionComplete) {
+          logger.info(
+            "Vector store ingestion in progress, waiting for completion",
+          );
+        }
+
+        // Get all indexed file paths
         const response = vectorStore.getAllIndexedFilePaths();
 
         logger.info("Retrieved all indexed file paths successfully");
