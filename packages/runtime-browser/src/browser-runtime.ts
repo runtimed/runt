@@ -1,3 +1,9 @@
+// Browser-compatible runtime agent implementation
+//
+// This module is designed to work in browser environments and should not
+// use Deno-specific or Node.js-specific APIs. The underlying runtime-core
+// package has been made cross-platform to support browser usage.
+
 import type { Store } from "npm:@livestore/livestore";
 import { makeSchema, State } from "npm:@livestore/livestore";
 import { events, materializers, tables } from "@runt/schema";

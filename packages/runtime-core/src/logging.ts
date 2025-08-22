@@ -256,7 +256,7 @@ export function createLogger(
   options: Partial<LoggerConfig> = {},
 ): Logger {
   const level = getLogLevelFromEnv();
-  const console = !Deno.env.get("RUNT_DISABLE_CONSOLE_LOGS");
+  const console = !getEnvVar("RUNT_DISABLE_CONSOLE_LOGS");
 
   return new Logger({
     service,
@@ -269,8 +269,35 @@ export function createLogger(
 /**
  * Get log level from environment variables
  */
+/**
+ * Cross-platform environment variable accessor
+ */
+function getEnvVar(name: string): string | undefined {
+  // Try Deno first (if available)
+  if (typeof globalThis !== "undefined" && "Deno" in globalThis) {
+    const globalWithDeno = globalThis as typeof globalThis & {
+      Deno: { env: { get(name: string): string | undefined } };
+    };
+    return globalWithDeno.Deno.env.get(name);
+  }
+
+  // Try Node.js process.env (if available)
+  if (typeof globalThis !== "undefined" && "process" in globalThis) {
+    const globalWithProcess = globalThis as typeof globalThis & {
+      process: { env: Record<string, string | undefined> };
+    };
+    return globalWithProcess.process.env[name];
+  }
+
+  // Browser fallback - return undefined (use defaults)
+  return undefined;
+}
+
+/**
+ * Get log level from environment variables
+ */
 function getLogLevelFromEnv(): LogLevel {
-  const envLevel = Deno.env.get("RUNT_LOG_LEVEL")?.toUpperCase();
+  const envLevel = getEnvVar("RUNT_LOG_LEVEL")?.toUpperCase();
   switch (envLevel) {
     case "DEBUG":
       return LogLevel.DEBUG;
