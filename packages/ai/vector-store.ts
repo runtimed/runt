@@ -284,7 +284,7 @@ export class VectorStoreService {
 
           if (documents.length > 0) {
             this.logger.info(
-              `Prepared ${documents.length} documents for embedding`,
+              `Prepared documents for embedding`,
             );
             // Create the vector index from documents
             this.logger.debug("Creating VectorStoreIndex from documents...");
@@ -302,7 +302,7 @@ export class VectorStoreService {
             this.logger.debug("Query engine created successfully");
 
             this.logger.info(
-              `Vector index created successfully with ${documents.length} documents`,
+              `Vector index created successfully`,
             );
           } else {
             this.logger.warn("No documents loaded by SimpleDirectoryReader");
