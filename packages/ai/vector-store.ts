@@ -93,7 +93,7 @@ export class VectorStoreService {
   /**
    * Start asynchronous ingestion of files from mount data
    */
-  async startIngestion(
+  startIngestion(
     mountData: Array<
       {
         hostPath: string;
@@ -101,7 +101,7 @@ export class VectorStoreService {
         files: Array<{ path: string; content: Uint8Array }>;
       }
     >,
-  ): Promise<void> {
+  ): void {
     if (this.isIngesting || this.ingestionComplete) {
       this.logger.warn("Ingestion already started or completed");
       return;
@@ -265,7 +265,9 @@ export class VectorStoreService {
         try {
           // Create SimpleDirectoryReader with TextFileReader as default
           const reader = new SimpleDirectoryReader();
-          this.logger.debug("Loading documents with SimpleDirectoryReader...");
+          this.logger.debug(
+            "Loading documents with SimpleDirectoryReader...",
+          );
 
           const documents = await reader.loadData({
             directoryPath: tempDir,
