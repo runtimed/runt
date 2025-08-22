@@ -93,7 +93,7 @@ export class VectorStoreService {
   /**
    * Start asynchronous ingestion of files from mount data
    */
-  startIngestion(
+  async startIngestion(
     mountData: Array<
       {
         hostPath: string;
@@ -101,7 +101,7 @@ export class VectorStoreService {
         files: Array<{ path: string; content: Uint8Array }>;
       }
     >,
-  ): void {
+  ): Promise<void> {
     if (this.isIngesting || this.ingestionComplete) {
       this.logger.warn("Ingestion already started or completed");
       return;
@@ -209,7 +209,7 @@ export class VectorStoreService {
           }
 
           // Skip large files (> 50MB)
-          if (content.length > 50 * 1024 * 1024) {
+          if (content.length > 50 * 1024 * 1024 && !path.endsWith(".csv")) {
             skippedFiles++;
             this.logger.debug(
               `Skipping file: ${path} (size: ${content.length} bytes > 50MB)`,
@@ -225,8 +225,38 @@ export class VectorStoreService {
             // Ensure directory exists
             await Deno.mkdir(tempFileDir, { recursive: true });
 
-            // Write file content
-            await Deno.writeFile(tempFilePath, content);
+            // Check if this is a CSV file and only copy first 5 lines
+            let contentToWrite = content;
+            if (path.toLowerCase().endsWith(".csv")) {
+              try {
+                // Decode the content to text
+                const textContent = new TextDecoder().decode(content);
+                const lines = textContent.split("\n");
+
+                // Take only first 5 lines (or all lines if less than 5)
+                const limitedLines = lines.slice(0, 5);
+                const limitedContent = limitedLines.join("\n");
+
+                // Re-encode to Uint8Array
+                contentToWrite = new TextEncoder().encode(limitedContent);
+
+                this.logger.debug(
+                  `CSV file ${path}: limited to ${limitedLines.length} lines (from ${lines.length} total)`,
+                );
+              } catch (csvError) {
+                this.logger.warn(
+                  `Failed to limit CSV file lines for ${path}, using full content`,
+                  {
+                    error: String(csvError),
+                  },
+                );
+                // Fall back to original content if processing fails
+                contentToWrite = content;
+              }
+            }
+
+            // Write file content (either limited CSV or original content)
+            await Deno.writeFile(tempFilePath, contentToWrite);
             ingestedFiles++;
 
             // Track the final mounted path for this successfully processed file
@@ -265,9 +295,7 @@ export class VectorStoreService {
         try {
           // Create SimpleDirectoryReader with TextFileReader as default
           const reader = new SimpleDirectoryReader();
-          this.logger.debug(
-            "Loading documents with SimpleDirectoryReader...",
-          );
+          this.logger.debug("Loading documents with SimpleDirectoryReader...");
 
           const documents = await reader.loadData({
             directoryPath: tempDir,
