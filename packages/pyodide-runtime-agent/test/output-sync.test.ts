@@ -18,13 +18,6 @@ Deno.test("PyodideRuntimeAgent output directory sync", async () => {
     // Initialize the agent
     await agent.start();
 
-    // Create a mock execution context
-    const mockContext: ExecutionContext = {
-      result: () => {},
-      stderr: () => {},
-      abortSignal: new AbortController().signal,
-    };
-
     // Execute Python code that creates files in /outputs
     const pythonCode = `
 import os
@@ -47,7 +40,56 @@ with open('/outputs/subdir/nested.txt', 'w') as f:
 print(f"Created files in /outputs")
 `;
 
-    await agent.executeCell(mockContext, pythonCode);
+    // Create a mock execution context
+    const mockContext: ExecutionContext = {
+      cell: {
+        id: "test-cell",
+        cellType: "code",
+        source: pythonCode,
+        fractionalIndex: "a0",
+        executionCount: null,
+        executionState: "queued",
+        assignedRuntimeSession: null,
+        lastExecutionDurationMs: null,
+        sqlConnectionId: null,
+        sqlResultVariable: null,
+        aiProvider: null,
+        aiModel: null,
+        aiSettings: null,
+        sourceVisible: true,
+        outputVisible: true,
+        aiContextVisible: true,
+        createdBy: "test"
+      },
+      queueEntry: {
+        id: "queue-entry-1",
+        cellId: "test-cell",
+        executionCount: 1,
+        requestedBy: "test-runtime",
+        status: "pending",
+        assignedRuntimeSession: null,
+        startedAt: null,
+        completedAt: null,
+        executionDurationMs: null
+      },
+      store: agent.store,
+      sessionId: agent.config.sessionId,
+      runtimeId: agent.config.runtimeId,
+      result: async () => {},
+      stderr: () => {},
+      stdout: () => {},
+      display: async () => {},
+      updateDisplay: async () => {},
+      error: () => {},
+      clear: () => {},
+      appendTerminal: () => {},
+      markdown: () => "",
+      appendMarkdown: () => {},
+      abortSignal: new AbortController().signal,
+      checkCancellation: () => {}
+    };
+
+    await agent.executeCell(mockContext);
 
     // Wait a bit for sync to complete
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -71,7 +113,7 @@ print(f"Created files in /outputs")
     assertExists(subdirStat);
     assertEquals(subdirStat.isDirectory, true);
 
-    await agent.stop();
+    // Note: PyodideRuntimeAgent doesn't have a stop() method, cleanup happens automatically
   } finally {
     // Clean up temp directory
     try {
@@ -90,23 +132,64 @@ Deno.test("PyodideRuntimeAgent no output sync when outputDir not configured", as
 
   await agent.start();
 
-  const mockContext: ExecutionContext = {
-    result: () => {},
-    stderr: () => {},
-    abortSignal: new AbortController().signal,
-  };
-
-  // Execute code that would create output files
   const pythonCode = `
 with open('/outputs/should_not_sync.txt', 'w') as f:
     f.write('This should not be synced')
 print("Created file that should not sync")
 `;
 
-  // This should not throw an error even without outputDir configured
-  await agent.executeCell(mockContext, pythonCode);
+  const mockContext: ExecutionContext = {
+    cell: {
+      id: "test-cell-2",
+      cellType: "code",
+      source: pythonCode,
+      fractionalIndex: "a0",
+      executionCount: null,
+      executionState: "queued",
+      assignedRuntimeSession: null,
+      lastExecutionDurationMs: null,
+      sqlConnectionId: null,
+      sqlResultVariable: null,
+      aiProvider: null,
+      aiModel: null,
+      aiSettings: null,
+      sourceVisible: true,
+      outputVisible: true,
+      aiContextVisible: true,
+      createdBy: "test"
+    },
+    queueEntry: {
+      id: "queue-entry-2",
+      cellId: "test-cell-2",
+      executionCount: 1,
+      requestedBy: "test-runtime",
+      status: "pending",
+      assignedRuntimeSession: null,
+      startedAt: null,
+      completedAt: null,
+      executionDurationMs: null
+    },
+    store: agent.store,
+    sessionId: agent.config.sessionId,
+    runtimeId: agent.config.runtimeId,
+    result: async () => {},
+    stderr: () => {},
+    stdout: () => {},
+    display: async () => {},
+    updateDisplay: async () => {},
+    error: () => {},
+    clear: () => {},
+    appendTerminal: () => {},
+    markdown: () => "",
+    appendMarkdown: () => {},
+    abortSignal: new AbortController().signal,
+    checkCancellation: () => {}
+  };
 
-  await agent.stop();
+  // This should not throw an error even without outputDir configured
+  await agent.executeCell(mockContext);
+
+  // Note: PyodideRuntimeAgent doesn't have a stop() method, cleanup happens automatically
 });
 
 Deno.test("PyodideRuntimeAgent handles empty /outputs directory gracefully", async () => {
@@ -125,21 +208,62 @@ Deno.test("PyodideRuntimeAgent handles empty /outputs directory gracefully", asy
 
     await agent.start();
 
-    const mockContext: ExecutionContext = {
-      result: () => {},
-      stderr: () => {},
-      abortSignal: new AbortController().signal,
-    };
-
-    // Execute code that doesn't create any output files
     const pythonCode = `
 print("No files created in /outputs")
 `;
 
-    // This should complete without error
-    await agent.executeCell(mockContext, pythonCode);
+    const mockContext: ExecutionContext = {
+      cell: {
+        id: "test-cell-3",
+        cellType: "code",
+        source: pythonCode,
+        fractionalIndex: "a0",
+        executionCount: null,
+        executionState: "queued",
+        assignedRuntimeSession: null,
+        lastExecutionDurationMs: null,
+        sqlConnectionId: null,
+        sqlResultVariable: null,
+        aiProvider: null,
+        aiModel: null,
+        aiSettings: null,
+        sourceVisible: true,
+        outputVisible: true,
+        aiContextVisible: true,
+        createdBy: "test"
+      },
+      queueEntry: {
+        id: "queue-entry-3",
+        cellId: "test-cell-3",
+        executionCount: 1,
+        requestedBy: "test-runtime",
+        status: "pending",
+        assignedRuntimeSession: null,
+        startedAt: null,
+        completedAt: null,
+        executionDurationMs: null
+      },
+      store: agent.store,
+      sessionId: agent.config.sessionId,
+      runtimeId: agent.config.runtimeId,
+      result: async () => {},
+      stderr: () => {},
+      stdout: () => {},
+      display: async () => {},
+      updateDisplay: async () => {},
+      error: () => {},
+      clear: () => {},
+      appendTerminal: () => {},
+      markdown: () => "",
+      appendMarkdown: () => {},
+      abortSignal: new AbortController().signal,
+      checkCancellation: () => {}
+    };
 
-    await agent.stop();
+    // This should complete without error
+    await agent.executeCell(mockContext);
+
+    // Note: PyodideRuntimeAgent doesn't have a stop() method, cleanup happens automatically
   } finally {
     try {
       await Deno.remove(tempOutputDir, { recursive: true });

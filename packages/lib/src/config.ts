@@ -40,7 +40,7 @@ export class RuntimeConfig {
   >;
   public readonly indexMountedFiles: boolean;
   public readonly mountReadonly: boolean;
-  public readonly outputDir?: string;
+  public readonly outputDir: string | undefined;
   public readonly aiMaxIterations: number;
 
   constructor(options: RuntimeAgentOptions) {

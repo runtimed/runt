@@ -16,9 +16,10 @@ Deno.test("Read-only mount configuration", () => {
     readonly: true,
   }));
 
-  assertEquals(readonlyMountData[0].readonly, true);
-  assertEquals(readonlyMountData[0].hostPath, "/test/path");
-  assertEquals(readonlyMountData[0].files.length, 1);
+  assertEquals(readonlyMountData.length, 1);
+  assertEquals(readonlyMountData[0]?.readonly, true);
+  assertEquals(readonlyMountData[0]?.hostPath, "/test/path");
+  assertEquals(readonlyMountData[0]?.files.length, 1);
 });
 
 Deno.test("CLI flag parsing includes mount-readonly", async () => {
