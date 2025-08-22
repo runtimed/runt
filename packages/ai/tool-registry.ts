@@ -43,8 +43,7 @@ interface ToolParameter {
 const BASIC_NOTEBOOK_TOOLS: NotebookTool[] = [
   {
     name: "create_cell",
-    description:
-      "Create a new cell in the notebook after a specific cell. " +
+    description: "Create a new cell in the notebook after a specific cell. " +
       "The AI knows its own cell ID and can reference any previously created cell IDs.",
     parameters: {
       type: "object",
@@ -61,8 +60,7 @@ const BASIC_NOTEBOOK_TOOLS: NotebookTool[] = [
         },
         after_id: {
           type: "string",
-          description:
-            "The ID of the cell to place this new cell after. " +
+          description: "The ID of the cell to place this new cell after. " +
             "Use your own cell ID to place cells below yourself, " +
             "or use a previously created cell's ID to build sequences.",
         },
@@ -72,8 +70,7 @@ const BASIC_NOTEBOOK_TOOLS: NotebookTool[] = [
   },
   {
     name: "modify_cell",
-    description:
-      "Modify the content of an existing cell in the notebook. " +
+    description: "Modify the content of an existing cell in the notebook. " +
       "Use this to fix bugs, improve code, or update content based on user feedback. " +
       "Use the actual cell ID from the context (shown as 'ID: cell-xxx'), not position numbers.",
     parameters: {
@@ -81,8 +78,7 @@ const BASIC_NOTEBOOK_TOOLS: NotebookTool[] = [
       properties: {
         cellId: {
           type: "string",
-          description:
-            "The actual cell ID from the context " +
+          description: "The actual cell ID from the context " +
             "(e.g., 'cell-1234567890-abc'), not a position number",
         },
         source: {
@@ -95,8 +91,7 @@ const BASIC_NOTEBOOK_TOOLS: NotebookTool[] = [
   },
   {
     name: "execute_cell",
-    description:
-      "Execute a specific cell in the notebook. " +
+    description: "Execute a specific cell in the notebook. " +
       "Use this to run code after creating or modifying it, or to re-run existing cells. " +
       "Use the actual cell ID from the context (shown as 'ID: cell-xxx'), not position numbers.",
     parameters: {
@@ -104,8 +99,7 @@ const BASIC_NOTEBOOK_TOOLS: NotebookTool[] = [
       properties: {
         cellId: {
           type: "string",
-          description:
-            "The actual cell ID from the context " +
+          description: "The actual cell ID from the context " +
             "(e.g., 'cell-1234567890-abc'), not a position number",
         },
       },
@@ -130,7 +124,8 @@ const VECTOR_STORE_TOOLS: NotebookTool[] = [
       properties: {
         query: {
           type: "string",
-          description: "Natural language search query to find relevant content within files " +
+          description:
+            "Natural language search query to find relevant content within files " +
             "(e.g., 'functions that handle authentication', 'sales data for Q3', 'error handling code')",
         },
       },
@@ -151,7 +146,8 @@ const VECTOR_STORE_TOOLS: NotebookTool[] = [
       properties: {
         query: {
           type: "string",
-          description: "Search query to find data files by name, type, or content " +
+          description:
+            "Search query to find data files by name, type, or content " +
             "(e.g., 'CSV files', 'customer data', 'sales report', 'JSON config files', 'Python scripts')",
         },
       },
@@ -173,7 +169,7 @@ const VECTOR_STORE_TOOLS: NotebookTool[] = [
 ];
 
 // Combined notebook tools
-const NOTEBOOK_TOOLS = [ ...VECTOR_STORE_TOOLS, ...BASIC_NOTEBOOK_TOOLS];
+const NOTEBOOK_TOOLS = [...VECTOR_STORE_TOOLS, ...BASIC_NOTEBOOK_TOOLS];
 
 /**
  * Convert MCP parameter schema to ToolParameter format
@@ -218,9 +214,9 @@ export async function getAllTools(): Promise<NotebookTool[]> {
   try {
     // Import vector store checking function to avoid circular dependencies
     const { isVectorStoreIndexingEnabled } = await import("./vector-store.ts");
-    
+
     // Determine which notebook tools to include based on vector store indexing status
-    const notebookTools = isVectorStoreIndexingEnabled() 
+    const notebookTools = isVectorStoreIndexingEnabled()
       ? [...BASIC_NOTEBOOK_TOOLS, ...VECTOR_STORE_TOOLS]
       : BASIC_NOTEBOOK_TOOLS;
 
@@ -252,11 +248,13 @@ export async function getAllTools(): Promise<NotebookTool[]> {
     toolLogger.warn("Failed to get MCP tools, using only notebook tools", {
       error: String(error),
     });
-    
+
     // Import vector store checking function to avoid circular dependencies
     try {
-      const { isVectorStoreIndexingEnabled } = await import("./vector-store.ts");
-      const notebookTools = isVectorStoreIndexingEnabled() 
+      const { isVectorStoreIndexingEnabled } = await import(
+        "./vector-store.ts"
+      );
+      const notebookTools = isVectorStoreIndexingEnabled()
         ? [...BASIC_NOTEBOOK_TOOLS, ...VECTOR_STORE_TOOLS]
         : BASIC_NOTEBOOK_TOOLS;
       return [...notebookTools];
@@ -277,10 +275,10 @@ export const NOTEBOOK_TOOLS_EXPORT = NOTEBOOK_TOOLS;
  */
 function unescapeContent(content: string): string {
   return content
-    .replace(/\\n/g, '\n')  // Convert \n to actual newlines
-    .replace(/\\t/g, '\t')  // Convert \t to actual tabs
-    .replace(/\\r/g, '\r')  // Convert \r to actual carriage returns
-    .replace(/\\\\/g, '\\'); // Convert \\ to single backslash
+    .replace(/\\n/g, "\n") // Convert \n to actual newlines
+    .replace(/\\t/g, "\t") // Convert \t to actual tabs
+    .replace(/\\r/g, "\r") // Convert \r to actual carriage returns
+    .replace(/\\\\/g, "\\"); // Convert \\ to single backslash
 }
 
 export function createCell(
@@ -789,14 +787,16 @@ export async function handleToolCallWithResult(
         // Import vector store here to avoid circular dependencies
         const { getVectorStore } = await import("./vector-store.ts");
         const vectorStore = getVectorStore();
-        
+
         // Check vector store status
         const status = vectorStore.getStatus();
-        
+
         if (status.isIngesting && !status.ingestionComplete) {
-          logger.info("Vector store ingestion in progress, waiting for completion");
+          logger.info(
+            "Vector store ingestion in progress, waiting for completion",
+          );
         }
-        
+
         // Query the vector store (will wait for ingestion if needed)
         const result = await vectorStore.query(query);
 
@@ -810,11 +810,13 @@ export async function handleToolCallWithResult(
           query,
           error: String(error),
         });
-        
-        if (error instanceof Error && error.message.includes("not initialized")) {
+
+        if (
+          error instanceof Error && error.message.includes("not initialized")
+        ) {
           return "No documents have been mounted to search. Use the --mount flag when starting the runtime to add documents to the vector store.";
         }
-        
+
         throw new Error(
           `Document search failed: ${
             error instanceof Error ? error.message : String(error)
@@ -840,38 +842,34 @@ export async function handleToolCallWithResult(
         // Import vector store here to avoid circular dependencies
         const { getVectorStore } = await import("./vector-store.ts");
         const vectorStore = getVectorStore();
-        
+
         // Check vector store status
         const status = vectorStore.getStatus();
-        
+
         if (status.isIngesting && !status.ingestionComplete) {
-          logger.info("Vector store ingestion in progress, waiting for completion");
+          logger.info(
+            "Vector store ingestion in progress, waiting for completion",
+          );
         }
-        
+
         // Retrieve file paths using the vector store (will wait for ingestion if needed)
-        const filePaths = await vectorStore.retrieveFilePaths(query);
+        const response = await vectorStore.retrieveFilePaths(query);
 
-        logger.info("File path retrieval completed successfully", {
-          pathCount: filePaths.length,
-        });
+        logger.info("File path retrieval completed successfully");
 
-        if (filePaths.length === 0) {
-          return "No matching files found for the query. Please refine your search or check if files have been mounted using the --mount flag.";
-        }
-
-        // Format the response with file paths
-        const response = `Found ${filePaths.length} matching file(s):\n\n${filePaths.map(path => `• ${path}`).join('\n')}`;
         return response;
       } catch (error) {
         logger.error("File path retrieval failed", {
           query,
           error: String(error),
         });
-        
-        if (error instanceof Error && error.message.includes("not initialized")) {
+
+        if (
+          error instanceof Error && error.message.includes("not initialized")
+        ) {
           return "No files have been mounted to search. Use the --mount flag when starting the runtime to add files to the vector store.";
         }
-        
+
         throw new Error(
           `File path search failed: ${
             error instanceof Error ? error.message : String(error)
@@ -887,37 +885,33 @@ export async function handleToolCallWithResult(
         // Import vector store here to avoid circular dependencies
         const { getVectorStore } = await import("./vector-store.ts");
         const vectorStore = getVectorStore();
-        
+
         // Check vector store status
         const status = vectorStore.getStatus();
-        
+
         if (status.isIngesting && !status.ingestionComplete) {
-          logger.info("Vector store ingestion in progress, waiting for completion");
+          logger.info(
+            "Vector store ingestion in progress, waiting for completion",
+          );
         }
-        
+
         // Get all indexed file paths
-        const filePaths = await vectorStore.getAllIndexedFilePaths();
+        const response = vectorStore.getAllIndexedFilePaths();
 
-        logger.info("Retrieved all indexed file paths successfully", {
-          pathCount: filePaths.length,
-        });
+        logger.info("Retrieved all indexed file paths successfully");
 
-        if (filePaths.length === 0) {
-          return "No indexed files found. Please ensure files have been mounted using the --mount flag and indexing is enabled.";
-        }
-
-        // Format the response with all file paths
-        const response = `Found ${filePaths.length} indexed file(s) in mounted directories:\n\n${filePaths.map(path => `• ${path}`).join('\n')}`;
         return response;
       } catch (error) {
         logger.error("Failed to list indexed files", {
           error: String(error),
         });
-        
-        if (error instanceof Error && error.message.includes("not initialized")) {
+
+        if (
+          error instanceof Error && error.message.includes("not initialized")
+        ) {
           return "No files have been mounted and indexed. Use the --mount flag when starting the runtime to add files to the vector store.";
         }
-        
+
         throw new Error(
           `Failed to list indexed files: ${
             error instanceof Error ? error.message : String(error)

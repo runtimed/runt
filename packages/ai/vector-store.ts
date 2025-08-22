@@ -1,14 +1,10 @@
-import {
-  Settings,
-  VectorStoreIndex,
-  Document,
-} from "llamaindex";
-import { OpenAIEmbedding, OpenAI } from "@llamaindex/openai";
+import { Document, Settings, VectorStoreIndex } from "llamaindex";
+import { OpenAI, OpenAIEmbedding } from "@llamaindex/openai";
 import { SimpleDirectoryReader } from "@llamaindex/readers/directory";
 import { TextFileReader } from "@llamaindex/readers/text";
 import { createLogger } from "@runt/lib";
 import type { Logger } from "@runt/lib";
-import { join, dirname } from "@std/path";
+import { dirname, join } from "@std/path";
 
 // Initialize logger for vector store operations
 const vectorLogger = createLogger("vector-store");
@@ -49,15 +45,17 @@ export class VectorStoreService {
     try {
       // Use OpenAI embeddings if API key is available
       const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
-      
+
       if (openaiApiKey) {
-        this.logger.debug("OpenAI API key found - configuring OpenAI embeddings for vector store");
-        
+        this.logger.debug(
+          "OpenAI API key found - configuring OpenAI embeddings for vector store",
+        );
+
         try {
           Settings.embedModel = new OpenAIEmbedding({
             model: "text-embedding-3-large", // Faster and cheaper than text-embedding-3-large
             apiKey: openaiApiKey,
-          })
+          });
           Settings.llm = new OpenAI({
             model: "gpt-4o",
             apiKey: openaiApiKey,
@@ -66,18 +64,25 @@ export class VectorStoreService {
           embeddingConfigured = true;
           return;
         } catch (openaiError) {
-          this.logger.error("Failed to configure OpenAI embeddings", { error: String(openaiError) });
+          this.logger.error("Failed to configure OpenAI embeddings", {
+            error: String(openaiError),
+          });
           throw openaiError;
         }
       }
 
       // No OpenAI API key available
-      this.logger.warn("No OpenAI API key found. Vector store will use default embeddings, but performance may be limited.");
-      this.logger.info("To use optimal embeddings, set OPENAI_API_KEY environment variable");
+      this.logger.warn(
+        "No OpenAI API key found. Vector store will use default embeddings, but performance may be limited.",
+      );
+      this.logger.info(
+        "To use optimal embeddings, set OPENAI_API_KEY environment variable",
+      );
       embeddingConfigured = true;
-      
     } catch (error) {
-      this.logger.error("Failed to configure embedding model", { error: String(error) });
+      this.logger.error("Failed to configure embedding model", {
+        error: String(error),
+      });
       this.logger.warn("Using default embedding model as fallback");
       embeddingConfigured = true;
       throw error; // Re-throw to surface the actual error
@@ -88,7 +93,13 @@ export class VectorStoreService {
    * Start asynchronous ingestion of files from mount data
    */
   async startIngestion(
-    mountData: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }> }>,
+    mountData: Array<
+      {
+        hostPath: string;
+        targetPath?: string;
+        files: Array<{ path: string; content: Uint8Array }>;
+      }
+    >,
   ): Promise<void> {
     if (this.isIngesting || this.ingestionComplete) {
       this.logger.warn("Ingestion already started or completed");
@@ -96,25 +107,34 @@ export class VectorStoreService {
     }
 
     this.isIngesting = true;
-    this.logger.info(`Starting vector store ingestion with ${mountData.length} mount paths...`);
-    
+    this.logger.info(
+      `Starting vector store ingestion with ${mountData.length} mount paths...`,
+    );
+
     // Configure model before starting ingestion
     this.logger.debug("Step 1: Configuring embedding model...");
     try {
       this.configureModel();
       this.logger.debug("Step 1: Embedding model configured successfully");
     } catch (error) {
-      this.logger.error("Failed to configure vector store model", { error: String(error) });
+      this.logger.error("Failed to configure vector store model", {
+        error: String(error),
+      });
       this.isIngesting = false;
       return;
     }
-    
+
     // Log mount data details (reduced logging)
-    const totalFiles = mountData.reduce((sum, mount) => sum + mount.files.length, 0);
-    this.logger.info(`Vector store ingestion starting: ${mountData.length} mount paths, ${totalFiles} total files`);
+    const totalFiles = mountData.reduce(
+      (sum, mount) => sum + mount.files.length,
+      0,
+    );
+    this.logger.info(
+      `Vector store ingestion starting: ${mountData.length} mount paths, ${totalFiles} total files`,
+    );
 
     this.ingestionPromise = this.performIngestion(mountData);
-    
+
     // Start ingestion asynchronously - don't await here to avoid blocking startup
     this.ingestionPromise
       .then(() => {
@@ -124,11 +144,14 @@ export class VectorStoreService {
       })
       .catch((error) => {
         this.isIngesting = false;
-        this.logger.error("Vector store ingestion failed", { 
+        this.logger.error("Vector store ingestion failed", {
           error: String(error),
           stack: error instanceof Error ? error.stack : undefined,
           mountDataLength: mountData.length,
-          totalFiles: mountData.reduce((sum, mount) => sum + mount.files.length, 0)
+          totalFiles: mountData.reduce(
+            (sum, mount) => sum + mount.files.length,
+            0,
+          ),
         });
       });
   }
@@ -137,35 +160,46 @@ export class VectorStoreService {
    * Perform the actual file ingestion using SimpleDirectoryReader
    */
   private async performIngestion(
-    mountData: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }> }>,
+    mountData: Array<
+      {
+        hostPath: string;
+        targetPath?: string;
+        files: Array<{ path: string; content: Uint8Array }>;
+      }
+    >,
   ): Promise<void> {
-    this.logger.info("Starting vector store ingestion with SimpleDirectoryReader");
-    
+    this.logger.info(
+      "Starting vector store ingestion with SimpleDirectoryReader",
+    );
+
     let totalFiles = 0;
     let ingestedFiles = 0;
     let skippedFiles = 0;
     let tempDir: string | null = null;
-    
+
     // Clear previous indexed files list
     this.indexedFilePaths = [];
 
     try {
       this.logger.debug(`Processing ${mountData.length} mount paths...`);
-      
+
       // Create temporary directory for file processing
       tempDir = await Deno.makeTempDir({ prefix: "runt_vector_ingestion_" });
       this.logger.debug(`Created temporary directory: ${tempDir}`);
-      
+
       // Write all files to temporary directory maintaining structure
       for (const { hostPath, targetPath, files } of mountData) {
-        this.logger.debug(`Processing mount path: ${hostPath} with ${files.length} files`);
-        
+        this.logger.debug(
+          `Processing mount path: ${hostPath} with ${files.length} files`,
+        );
+
         // Calculate the final mount point for this hostPath
-        const mountPoint = targetPath || `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-        
+        const mountPoint = targetPath ||
+          `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+
         for (const { path, content } of files) {
           totalFiles++;
-          
+
           // Skip .git directories and hidden files
           if (this.shouldSkipFile(path)) {
             skippedFiles++;
@@ -176,7 +210,9 @@ export class VectorStoreService {
           // Skip large files (> 50MB)
           if (content.length > 50 * 1024 * 1024) {
             skippedFiles++;
-            this.logger.debug(`Skipping file: ${path} (size: ${content.length} bytes > 50MB)`);
+            this.logger.debug(
+              `Skipping file: ${path} (size: ${content.length} bytes > 50MB)`,
+            );
             continue;
           }
 
@@ -184,27 +220,33 @@ export class VectorStoreService {
             // Create the full file path in temp directory
             const tempFilePath = join(tempDir, path);
             const tempFileDir = dirname(tempFilePath);
-            
+
             // Ensure directory exists
             await Deno.mkdir(tempFileDir, { recursive: true });
-            
+
             // Write file content
             await Deno.writeFile(tempFilePath, content);
             ingestedFiles++;
-            
+
             // Track the final mounted path for this successfully processed file
             const finalMountPath = `${mountPoint}/${path}`;
             this.indexedFilePaths.push(finalMountPath);
-            
-            this.logger.debug(`Written to temp: ${tempFilePath} -> final path: ${finalMountPath}`);
-            
+
+            this.logger.debug(
+              `Written to temp: ${tempFilePath} -> final path: ${finalMountPath}`,
+            );
+
             // Log every 100th file for progress tracking (reduced frequency)
             if (ingestedFiles % 100 === 0) {
-              this.logger.info(`Vector store ingestion progress: ${ingestedFiles} files processed`);
+              this.logger.info(
+                `Vector store ingestion progress: ${ingestedFiles} files processed`,
+              );
             }
           } catch (error) {
             skippedFiles++;
-            this.logger.warn(`Failed to write file: ${path}`, { error: String(error) });
+            this.logger.warn(`Failed to write file: ${path}`, {
+              error: String(error),
+            });
           }
         }
       }
@@ -215,61 +257,77 @@ export class VectorStoreService {
 
       if (ingestedFiles > 0) {
         const embeddingModel = this.getEmbeddingModelInfo();
-        this.logger.info(`Loading documents from temp directory using SimpleDirectoryReader with ${embeddingModel} embeddings`);
-        
+        this.logger.info(
+          `Loading documents from temp directory using SimpleDirectoryReader with ${embeddingModel} embeddings`,
+        );
+
         try {
           // Create SimpleDirectoryReader with TextFileReader as default
           const reader = new SimpleDirectoryReader();
           this.logger.debug("Loading documents with SimpleDirectoryReader...");
-          
+
           const documents = await reader.loadData({
             directoryPath: tempDir,
             defaultReader: new TextFileReader(),
             numWorkers: 4, // Use 4 concurrent workers for better performance
           });
-          
+
           this.logger.info(`Loaded ${documents.length} documents successfully`);
-          
+
           // Fix document metadata to use final pyodide mount paths instead of temp paths
           if (documents.length > 0 && tempDir) {
-            this.logger.debug("Fixing document metadata to use final mount paths...");
+            this.logger.debug(
+              "Fixing document metadata to use final mount paths...",
+            );
             this.fixDocumentMetadataPaths(documents, tempDir, mountData);
             this.logger.debug("Document metadata paths fixed");
           }
-          
+
           if (documents.length > 0) {
             // Create the vector index from documents
             this.logger.debug("Creating VectorStoreIndex from documents...");
             this.index = await VectorStoreIndex.fromDocuments(documents);
             this.logger.debug("VectorStoreIndex created successfully");
-            
+
             // Create retriever
             this.logger.debug("Creating retriever...");
             this.retriever = this.index.asRetriever();
             this.logger.debug("Retriever created successfully");
-            
+
             // Create query engine
             this.logger.debug("Creating query engine...");
             this.queryEngine = this.index.asQueryEngine();
             this.logger.debug("Query engine created successfully");
-            
-            this.logger.info(`Vector index created successfully with ${documents.length} documents`);
+
+            this.logger.info(
+              `Vector index created successfully with ${documents.length} documents`,
+            );
           } else {
             this.logger.warn("No documents loaded by SimpleDirectoryReader");
           }
         } catch (indexError) {
-          this.logger.error("Failed to create vector index", { error: String(indexError) });
-          throw new Error(`Vector index creation failed: ${indexError instanceof Error ? indexError.message : String(indexError)}`);
+          this.logger.error("Failed to create vector index", {
+            error: String(indexError),
+          });
+          throw new Error(
+            `Vector index creation failed: ${
+              indexError instanceof Error
+                ? indexError.message
+                : String(indexError)
+            }`,
+          );
         }
       } else {
         this.logger.warn("No files to ingest");
       }
-      
-      this.logger.info(`Vector store ingestion completed successfully. Tracked ${this.indexedFilePaths.length} indexed file paths.`);
+
+      this.logger.info(
+        `Vector store ingestion completed successfully. Tracked ${this.indexedFilePaths.length} indexed file paths.`,
+      );
     } catch (error) {
-      this.logger.error("Error in performIngestion", { 
+      this.logger.error("Error in performIngestion", {
         error: String(error),
-        stack: error instanceof Error ? error.stack : undefined
+        stack: error instanceof Error ? error.stack : undefined,
       });
       throw error;
     } finally {
@@ -280,9 +338,12 @@ export class VectorStoreService {
           await Deno.remove(tempDir, { recursive: true });
           this.logger.debug("Temporary directory cleaned up");
         } catch (cleanupError) {
-          this.logger.warn(`Failed to clean up temporary directory: ${tempDir}`, { 
-            error: String(cleanupError) 
-          });
+          this.logger.warn(
+            `Failed to clean up temporary directory: ${tempDir}`,
+            {
+              error: String(cleanupError),
+            },
+          );
         }
       }
     }
@@ -294,47 +355,62 @@ export class VectorStoreService {
   private fixDocumentMetadataPaths(
     documents: Document[],
     tempDir: string,
-    mountData: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }> }>,
+    mountData: Array<
+      {
+        hostPath: string;
+        targetPath?: string;
+        files: Array<{ path: string; content: Uint8Array }>;
+      }
+    >,
   ): void {
     // Create a mapping from temp paths to final mount paths
     const pathMapping = new Map<string, string>();
-    
+
     for (const { hostPath, targetPath, files } of mountData) {
       // Use specified target path or create sanitized mount point (same logic as pyodide-worker.ts)
-      const mountPoint = targetPath || `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-      
+      const mountPoint = targetPath ||
+        `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+
       for (const { path } of files) {
         const tempFilePath = join(tempDir, path);
         const finalMountPath = `${mountPoint}/${path}`;
         pathMapping.set(tempFilePath, finalMountPath);
       }
     }
-    
+
     // Update document metadata
     for (const document of documents) {
-      if (document.metadata && typeof document.metadata === 'object') {
+      if (document.metadata && typeof document.metadata === "object") {
         // Handle both 'path' and 'file_path' properties that might exist in metadata
-        if ('path' in document.metadata && typeof document.metadata.path === 'string') {
+        if (
+          "path" in document.metadata &&
+          typeof document.metadata.path === "string"
+        ) {
           const finalPath = pathMapping.get(document.metadata.path);
           if (finalPath) {
             document.metadata.path = finalPath;
             document.metadata.file_path = finalPath; // Also set file_path for consistency
           }
         }
-        
-        if ('file_path' in document.metadata && typeof document.metadata.file_path === 'string') {
+
+        if (
+          "file_path" in document.metadata &&
+          typeof document.metadata.file_path === "string"
+        ) {
           const finalPath = pathMapping.get(document.metadata.file_path);
           if (finalPath) {
             document.metadata.file_path = finalPath;
             document.metadata.path = finalPath; // Also set path for consistency
           }
         }
-        
+
         // Add the original hostPath information for potential future use
         const tempPath = document.metadata.path || document.metadata.file_path;
-        if (typeof tempPath === 'string') {
+        if (typeof tempPath === "string") {
           for (const { hostPath } of mountData) {
-            const mountPoint = `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+            const mountPoint = `/mnt/${
+              hostPath.replace(/[^a-zA-Z0-9_-]/g, "_")
+            }`;
             if (tempPath.startsWith(mountPoint)) {
               document.metadata.hostPath = hostPath;
               document.metadata.mountPoint = mountPoint;
@@ -367,9 +443,8 @@ export class VectorStoreService {
       /\/target\//,
     ];
 
-    return skipPatterns.some(pattern => pattern.test(path));
+    return skipPatterns.some((pattern) => pattern.test(path));
   }
-
 
   /**
    * Query the vector store
@@ -377,11 +452,10 @@ export class VectorStoreService {
   async query(queryText: string): Promise<string> {
     // Check if ingestion is still in progress
     if (this.isIngesting && !this.ingestionComplete) {
-      this.logger.info("Query requested while ingestion in progress, waiting for completion...");
-      
-      if (this.ingestionPromise) {
-        await this.ingestionPromise;
-      }
+      this.logger.info(
+        "Query requested while ingestion in progress, waiting for completion...",
+      );
+      return "Query requested while ingestion in progress, waiting for completion...";
     }
 
     if (!this.queryEngine) {
@@ -389,30 +463,33 @@ export class VectorStoreService {
     }
 
     this.logger.info(`Executing query: "${queryText}"`);
-    
+
     try {
       const response = await this.queryEngine.query({ query: queryText });
       const result = response.toString();
-      
+
       this.logger.info(`Query completed successfully`);
       return result;
     } catch (error) {
       this.logger.error("Query execution failed", { error: String(error) });
-      throw new Error(`Query failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Query failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 
   /**
    * Retrieve file paths that match a query
    */
-  async retrieveFilePaths(queryText: string): Promise<string[]> {
+  async retrieveFilePaths(queryText: string): Promise<string> {
     // Check if ingestion is still in progress
     if (this.isIngesting && !this.ingestionComplete) {
-      this.logger.info("File path retrieval requested while ingestion in progress, waiting for completion...");
-      
-      if (this.ingestionPromise) {
-        await this.ingestionPromise;
-      }
+      this.logger.info(
+        "File path retrieval requested while ingestion in progress, waiting for completion...",
+      );
+      return "File path retrieval requested while ingestion in progress, waiting for completion...";
     }
 
     if (!this.retriever) {
@@ -423,27 +500,27 @@ export class VectorStoreService {
 
     try {
       const response = await this.retriever.retrieve({ query: queryText });
-      
+
       // Extract file paths from the retrieval results
       const filePaths: string[] = [];
-      
+
       if (Array.isArray(response)) {
         for (const item of response) {
           if (item && item.node && item.node.metadata) {
             const metadata = item.node.metadata;
             // Use file_path or path - these now contain the final mount paths
             const filePath = metadata.file_path || metadata.path;
-            if (filePath && typeof filePath === 'string') {
+            if (filePath && typeof filePath === "string") {
               filePaths.push(filePath);
             }
           }
         }
-      } else if (response && typeof response === 'object') {
+      } else if (response && typeof response === "object") {
         // Handle single response object
         if (response.node && response.node.metadata) {
           const metadata = response.node.metadata;
           const filePath = metadata.file_path || metadata.path;
-          if (filePath && typeof filePath === 'string') {
+          if (filePath && typeof filePath === "string") {
             filePaths.push(filePath);
           }
         }
@@ -457,24 +534,38 @@ export class VectorStoreService {
         totalItems: Array.isArray(response) ? response.length : 1,
       });
 
-      return uniqueFilePaths;
+      if (uniqueFilePaths.length === 0) {
+        return "No matching files found for the query. Please refine your search or check if files have been mounted using the --mount flag.";
+      }
+
+      // Format the response with file paths (using formatting from tool-registry)
+      const response_formatted =
+        `Found ${uniqueFilePaths.length} matching file(s):\n\n${
+          uniqueFilePaths.map((path) => `• ${path}`).join("\n")
+        }`;
+      return response_formatted;
     } catch (error) {
-      this.logger.error("File path retrieval execution failed", { error: String(error) });
-      throw new Error(`File path retrieval failed: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error("File path retrieval execution failed", {
+        error: String(error),
+      });
+      throw new Error(
+        `File path retrieval failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 
   /**
    * Get all indexed file paths without requiring a query
    */
-  async getAllIndexedFilePaths(): Promise<string[]> {
+  getAllIndexedFilePaths(): string {
     // Check if ingestion is still in progress
     if (this.isIngesting && !this.ingestionComplete) {
-      this.logger.info("File path listing requested while ingestion in progress, waiting for completion...");
-      
-      if (this.ingestionPromise) {
-        await this.ingestionPromise;
-      }
+      this.logger.info(
+        "File path listing requested while ingestion in progress, waiting for completion...",
+      );
+      return "File path retrieval requested while ingestion in progress, waiting for completion...";
     }
 
     if (!this.ingestionComplete) {
@@ -490,7 +581,16 @@ export class VectorStoreService {
       totalFiles: sortedPaths.length,
     });
 
-    return sortedPaths;
+    if (sortedPaths.length === 0) {
+      return "No indexed files found. Please ensure files have been mounted using the --mount flag and indexing is enabled.";
+    }
+
+    // Format the response with all file paths (using formatting from tool-registry)
+    const response =
+      `Found ${sortedPaths.length} indexed file(s) in mounted directories:\n\n${
+        sortedPaths.map((path) => `• ${path}`).join("\n")
+      }`;
+    return response;
   }
 
   /**
@@ -499,8 +599,10 @@ export class VectorStoreService {
   async getNodesByFilePath(filePath: string): Promise<any[]> {
     // Check if ingestion is still in progress
     if (this.isIngesting && !this.ingestionComplete) {
-      this.logger.info("Node retrieval requested while ingestion in progress, waiting for completion...");
-      
+      this.logger.info(
+        "Node retrieval requested while ingestion in progress, waiting for completion...",
+      );
+
       if (this.ingestionPromise) {
         await this.ingestionPromise;
       }
@@ -515,51 +617,59 @@ export class VectorStoreService {
     try {
       // Access the docstore from the index
       const docstore = this.index.docStore;
-      
+
       if (!docstore) {
         throw new Error("Docstore not available from index");
       }
 
       // Get all nodes from the docstore
       const allNodes: any[] = [];
-      
+
       // The docstore should have a method to get all nodes
       // LlamaIndex typically exposes nodes through various methods
-      if (typeof docstore.getNodes === 'function') {
+      if (typeof docstore.getNodes === "function") {
         const nodes = await docstore.getNodes();
         allNodes.push(...Object.values(nodes));
-      } else if (typeof docstore.getAllNodes === 'function') {
+      } else if (typeof docstore.getAllNodes === "function") {
         const nodes = await docstore.getAllNodes();
         allNodes.push(...nodes);
-      } else if (docstore.docs && typeof docstore.docs === 'object') {
+      } else if (docstore.docs && typeof docstore.docs === "object") {
         // Fallback: if docstore has a docs property
         allNodes.push(...Object.values(docstore.docs));
       } else {
-        this.logger.warn("Unable to access nodes from docstore - unknown docstore structure");
+        this.logger.warn(
+          "Unable to access nodes from docstore - unknown docstore structure",
+        );
         return [];
       }
 
       // Filter nodes by the specified file path
-      const matchingNodes = allNodes.filter(node => {
+      const matchingNodes = allNodes.filter((node) => {
         if (!node || !node.metadata) {
           return false;
         }
-        
+
         const metadata = node.metadata;
         const nodePath = metadata.file_path || metadata.path;
-        
+
         return nodePath === filePath;
       });
 
-      this.logger.info(`Found ${matchingNodes.length} nodes for file path: "${filePath}"`);
-      
+      this.logger.info(
+        `Found ${matchingNodes.length} nodes for file path: "${filePath}"`,
+      );
+
       return matchingNodes;
     } catch (error) {
-      this.logger.error("Failed to retrieve nodes by file path", { 
+      this.logger.error("Failed to retrieve nodes by file path", {
         error: String(error),
-        filePath 
+        filePath,
       });
-      throw new Error(`Node retrieval failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Node retrieval failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 
@@ -644,10 +754,12 @@ export function getVectorStore(): VectorStoreService {
       vectorStoreInstance = new VectorStoreService();
       vectorLogger.debug("VectorStoreService singleton created");
     } catch (error) {
-      vectorLogger.error("Failed to create VectorStoreService singleton", { error: String(error) });
+      vectorLogger.error("Failed to create VectorStoreService singleton", {
+        error: String(error),
+      });
       throw error;
     }
   }
-  
+
   return vectorStoreInstance;
 }
