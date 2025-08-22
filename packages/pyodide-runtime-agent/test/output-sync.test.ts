@@ -5,7 +5,7 @@ import { type ExecutionContext } from "../../lib/src/types.ts";
 Deno.test("PyodideRuntimeAgent output directory sync", async () => {
   // Create a temporary output directory
   const tempOutputDir = await Deno.makeTempDir({ prefix: "runt-output-test-" });
-  
+
   try {
     const agent = new PyodideRuntimeAgent([
       "--notebook=test-notebook",
@@ -50,7 +50,7 @@ print(f"Created files in /outputs")
     await agent.executeCell(mockContext, pythonCode);
 
     // Wait a bit for sync to complete
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Check that files were synced to the host output directory
     const testFile = await Deno.readTextFile(`${tempOutputDir}/test.txt`);
@@ -61,7 +61,9 @@ print(f"Created files in /outputs")
     assertEquals(data.message, "Output sync test");
     assertEquals(data.files_created, 2);
 
-    const nestedFile = await Deno.readTextFile(`${tempOutputDir}/subdir/nested.txt`);
+    const nestedFile = await Deno.readTextFile(
+      `${tempOutputDir}/subdir/nested.txt`,
+    );
     assertEquals(nestedFile, "Nested file content");
 
     // Test that subdirectory was created
@@ -82,7 +84,7 @@ print(f"Created files in /outputs")
 
 Deno.test("PyodideRuntimeAgent no output sync when outputDir not configured", async () => {
   const agent = new PyodideRuntimeAgent([
-    "--notebook=test-notebook", 
+    "--notebook=test-notebook",
     "--auth-token=test-token",
   ]);
 
@@ -108,12 +110,14 @@ print("Created file that should not sync")
 });
 
 Deno.test("PyodideRuntimeAgent handles empty /outputs directory gracefully", async () => {
-  const tempOutputDir = await Deno.makeTempDir({ prefix: "runt-empty-output-test-" });
-  
+  const tempOutputDir = await Deno.makeTempDir({
+    prefix: "runt-empty-output-test-",
+  });
+
   try {
     const agent = new PyodideRuntimeAgent([
       "--notebook=test-notebook",
-      "--auth-token=test-token", 
+      "--auth-token=test-token",
       `--output-dir=${tempOutputDir}`,
     ], {
       outputDir: tempOutputDir,

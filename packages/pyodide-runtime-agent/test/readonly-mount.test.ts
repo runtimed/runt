@@ -4,16 +4,27 @@ import { type ExecutionContext } from "../../lib/src/types.ts";
 
 Deno.test("PyodideRuntimeAgent read-only mounting functionality", async () => {
   // Create a temporary directory with test files
-  const tempMountDir = await Deno.makeTempDir({ prefix: "runt-readonly-test-" });
-  
+  const tempMountDir = await Deno.makeTempDir({
+    prefix: "runt-readonly-test-",
+  });
+
   try {
     // Create test files in the mount directory
-    await Deno.writeTextFile(`${tempMountDir}/readonly.txt`, "This file should be read-only");
-    await Deno.writeTextFile(`${tempMountDir}/data.csv`, "name,value\ntest,123");
-    
+    await Deno.writeTextFile(
+      `${tempMountDir}/readonly.txt`,
+      "This file should be read-only",
+    );
+    await Deno.writeTextFile(
+      `${tempMountDir}/data.csv`,
+      "name,value\ntest,123",
+    );
+
     // Create a subdirectory with a file
     await Deno.mkdir(`${tempMountDir}/subdir`);
-    await Deno.writeTextFile(`${tempMountDir}/subdir/nested.txt`, "Nested read-only file");
+    await Deno.writeTextFile(
+      `${tempMountDir}/subdir/nested.txt`,
+      "Nested read-only file",
+    );
 
     const agent = new PyodideRuntimeAgent([
       "--notebook=test-notebook",
@@ -63,7 +74,7 @@ Deno.test("PyodideRuntimeAgent read-only mounting functionality", async () => {
 import os
 
 # List files in mounted directory
-mount_dir = "/mnt/_${tempMountDir.replace(/[^a-zA-Z0-9_-]/g, '_')}"
+mount_dir = "/mnt/_${tempMountDir.replace(/[^a-zA-Z0-9_-]/g, "_")}"
 print(f"Mount directory: {mount_dir}")
 print("Files found:")
 for item in os.listdir(mount_dir):
@@ -88,7 +99,7 @@ print("Reading files successful")
     const writeTestCode = `
 import os
 
-mount_dir = "/mnt/_${tempMountDir.replace(/[^a-zA-Z0-9_-]/g, '_')}"
+mount_dir = "/mnt/_${tempMountDir.replace(/[^a-zA-Z0-9_-]/g, "_")}"
 
 try:
     # Attempt to modify the read-only file
@@ -141,7 +152,7 @@ print("Read-only protection is working correctly")
     await agent.executeCell(createMockContext(writeTestCode));
 
     // Wait a bit for execution to complete
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   } finally {
     // Clean up temp directory
     try {
@@ -154,11 +165,16 @@ print("Read-only protection is working correctly")
 
 Deno.test("PyodideRuntimeAgent normal (writable) mounting still works", async () => {
   // Create a temporary directory with test files
-  const tempMountDir = await Deno.makeTempDir({ prefix: "runt-writable-test-" });
-  
+  const tempMountDir = await Deno.makeTempDir({
+    prefix: "runt-writable-test-",
+  });
+
   try {
     // Create test file
-    await Deno.writeTextFile(`${tempMountDir}/writable.txt`, "This file should be writable");
+    await Deno.writeTextFile(
+      `${tempMountDir}/writable.txt`,
+      "This file should be writable",
+    );
 
     const agent = new PyodideRuntimeAgent([
       "--notebook=test-notebook",
@@ -205,7 +221,7 @@ Deno.test("PyodideRuntimeAgent normal (writable) mounting still works", async ()
     const writeTestCode = `
 import os
 
-mount_dir = "/mnt/_${tempMountDir.replace(/[^a-zA-Z0-9_-]/g, '_')}"
+mount_dir = "/mnt/_${tempMountDir.replace(/[^a-zA-Z0-9_-]/g, "_")}"
 
 try:
     # Modify the file (should succeed)
@@ -234,7 +250,7 @@ print("Normal mounting (writable) is working correctly")
 
     await agent.executeCell(createMockContext(writeTestCode));
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   } finally {
     try {
       await Deno.remove(tempMountDir, { recursive: true });

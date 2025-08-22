@@ -23,7 +23,7 @@
     "@openai/openai": "jsr:@openai/openai@^4.98.0",
     "npm:ollama": "npm:ollama@^0.5.16",
     "strip-ansi": "npm:strip-ansi@^7.1.0",
-    "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk@^1.0.5",
+    "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk@^1.0.5"
   },
   "tasks": {
     "check": "deno check mod.ts src/*.ts examples/*.ts",

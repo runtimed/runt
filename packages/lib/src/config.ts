@@ -35,7 +35,9 @@ export class RuntimeConfig {
   public readonly imageArtifactThresholdBytes: number;
   public readonly artifactClient: IArtifactClient;
   public readonly mountPaths: string[];
-  public readonly mountMappings: Array<{ hostPath: string; targetPath: string }>;
+  public readonly mountMappings: Array<
+    { hostPath: string; targetPath: string }
+  >;
   public readonly indexMountedFiles: boolean;
   public readonly mountReadonly: boolean;
   public readonly outputDir?: string;
@@ -181,7 +183,12 @@ export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
       "output-dir",
       "ai-max-iterations",
     ],
-    boolean: ["help", "runtime-env-externally-managed", "index-mounted-files", "mount-readonly"],
+    boolean: [
+      "help",
+      "runtime-env-externally-managed",
+      "index-mounted-files",
+      "mount-readonly",
+    ],
     alias: {
       n: "notebook",
       t: "auth-token",
@@ -286,27 +293,31 @@ Logging Configuration:
 
   // Handle mount paths - support both simple paths and Docker-style local:target format
   if (parsed.mount && parsed.mount.length > 0) {
-    const mountArgs = Array.isArray(parsed.mount) ? parsed.mount : [parsed.mount];
+    const mountArgs = Array.isArray(parsed.mount)
+      ? parsed.mount
+      : [parsed.mount];
     const mountPaths: string[] = [];
     const mountMappings: Array<{ hostPath: string; targetPath: string }> = [];
-    
+
     for (const mountArg of mountArgs) {
-      if (mountArg.includes(':')) {
+      if (mountArg.includes(":")) {
         // Docker-style mount: local-path:target-path
-        const [hostPath, targetPath] = mountArg.split(':', 2);
+        const [hostPath, targetPath] = mountArg.split(":", 2);
         if (hostPath && targetPath) {
           mountMappings.push({ hostPath, targetPath });
           // Also add to mountPaths for backward compatibility
           mountPaths.push(hostPath);
         } else {
-          throw new Error(`Invalid mount format: ${mountArg}. Expected format: <local-path>:<target-path>`);
+          throw new Error(
+            `Invalid mount format: ${mountArg}. Expected format: <local-path>:<target-path>`,
+          );
         }
       } else {
         // Simple path format (legacy)
         mountPaths.push(mountArg);
       }
     }
-    
+
     result = {
       ...result,
       mountPaths,

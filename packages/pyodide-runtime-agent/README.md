@@ -34,6 +34,7 @@ deno run --allow-all "jsr:@runt/pyodide-runtime-agent" \
 ```
 
 Host directories are mounted under `/mnt/` with sanitized names. For example:
+
 - `/home/user/data` becomes `/mnt/_home_user_data`
 - `/Users/john/projects` becomes `/mnt/_Users_john_projects`
 
@@ -50,8 +51,9 @@ deno run --allow-all "jsr:@runt/pyodide-runtime-agent" \
 ```
 
 When `--mount-readonly` is specified, all mounted files and directories will be set with read-only permissions. This prevents:
+
 - Modifying existing files
-- Deleting existing files  
+- Deleting existing files
 - Creating new files
 - Creating new directories
 - Deleting directories
@@ -140,7 +142,7 @@ with open('/outputs/analysis/summary.txt', 'w') as f:
 You can also use environment variables instead of command line arguments:
 
 - `NOTEBOOK_ID`: Notebook ID
-- `AUTH_TOKEN`: Authentication token  
+- `AUTH_TOKEN`: Authentication token
 - `LIVESTORE_SYNC_URL`: Sync URL
 - `RUNTIME_ID`: Runtime identifier
 

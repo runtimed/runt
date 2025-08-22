@@ -272,7 +272,6 @@ export class VectorStoreService {
             numWorkers: 4, // Use 4 concurrent workers for better performance
           });
 
-
           // Fix document metadata to use final pyodide mount paths instead of temp paths
           if (documents.length > 0 && tempDir) {
             this.logger.debug(
@@ -288,7 +287,9 @@ export class VectorStoreService {
             );
             // Create the vector index from documents
             this.logger.debug("Creating VectorStoreIndex from documents...");
-            this.index = await VectorStoreIndex.fromDocuments(documents, { logProgress: true });
+            this.index = await VectorStoreIndex.fromDocuments(documents, {
+              logProgress: true,
+            });
             this.logger.debug("VectorStoreIndex created successfully");
 
             // Create retriever

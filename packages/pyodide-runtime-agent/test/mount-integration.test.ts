@@ -6,53 +6,61 @@ import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 
 Deno.test("Mount integration", async (t) => {
-  await t.step("PyodideRuntimeAgent handles mount paths correctly", async () => {
-    // Test CLI arguments with mount paths
-    const args = [
-      "--notebook=test-notebook",
-      "--auth-token=test-token",
-      "--mount=/tmp/test-data",
-      "--mount=/tmp/test-scripts",
-    ];
+  await t.step(
+    "PyodideRuntimeAgent handles mount paths correctly",
+    async () => {
+      // Test CLI arguments with mount paths
+      const args = [
+        "--notebook=test-notebook",
+        "--auth-token=test-token",
+        "--mount=/tmp/test-data",
+        "--mount=/tmp/test-scripts",
+      ];
 
-    // Create a spy to capture worker messages
-    const workerMessages: any[] = [];
-    const originalWorker = globalThis.Worker;
+      // Create a spy to capture worker messages
+      const workerMessages: any[] = [];
+      const originalWorker = globalThis.Worker;
 
-    // Mock Worker to capture initialization messages
-    globalThis.Worker = class MockWorker extends EventTarget {
-      constructor(url: string | URL, options?: WorkerOptions) {
-        super();
-        // Simulate worker that captures init message
-        setTimeout(() => {
-          this.dispatchEvent(new MessageEvent("message", {
-            data: { id: 1, type: "response", data: { success: true } },
-          }));
-        }, 10);
+      // Mock Worker to capture initialization messages
+      globalThis.Worker = class MockWorker extends EventTarget {
+        constructor(url: string | URL, options?: WorkerOptions) {
+          super();
+          // Simulate worker that captures init message
+          setTimeout(() => {
+            this.dispatchEvent(
+              new MessageEvent("message", {
+                data: { id: 1, type: "response", data: { success: true } },
+              }),
+            );
+          }, 10);
+        }
+
+        postMessage(data: any) {
+          workerMessages.push(data);
+        }
+
+        terminate() {
+          // No-op for test
+        }
+      } as any;
+
+      try {
+        const agent = new PyodideRuntimeAgent(args);
+
+        // Don't actually start the agent (since we're mocking the worker)
+        // Just verify that the mount paths are properly configured
+        assertEquals(agent["options"].mountPaths, [
+          "/tmp/test-data",
+          "/tmp/test-scripts",
+        ]);
+
+        console.log("✅ Mount paths correctly parsed and configured");
+      } finally {
+        // Restore original Worker
+        globalThis.Worker = originalWorker;
       }
-
-      postMessage(data: any) {
-        workerMessages.push(data);
-      }
-
-      terminate() {
-        // No-op for test
-      }
-    } as any;
-
-    try {
-      const agent = new PyodideRuntimeAgent(args);
-
-      // Don't actually start the agent (since we're mocking the worker)
-      // Just verify that the mount paths are properly configured
-      assertEquals(agent["options"].mountPaths, ["/tmp/test-data", "/tmp/test-scripts"]);
-
-      console.log("✅ Mount paths correctly parsed and configured");
-    } finally {
-      // Restore original Worker
-      globalThis.Worker = originalWorker;
-    }
-  });
+    },
+  );
 
   await t.step("Mount path sanitization works correctly", () => {
     // Test the sanitization logic that would happen in the worker
@@ -62,11 +70,14 @@ Deno.test("Mount integration", async (t) => {
       { input: "/path/with-dashes", expected: "_path_with-dashes" },
       { input: "/path/with_underscores", expected: "_path_with_underscores" },
       { input: "/path/with spaces", expected: "_path_with_spaces" },
-      { input: "/path/with@special$chars", expected: "_path_with_special_chars" },
+      {
+        input: "/path/with@special$chars",
+        expected: "_path_with_special_chars",
+      },
     ];
 
     for (const testCase of testCases) {
-      const sanitized = testCase.input.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const sanitized = testCase.input.replace(/[^a-zA-Z0-9_-]/g, "_");
       assertEquals(sanitized, testCase.expected);
     }
 
@@ -86,7 +97,7 @@ Deno.test("Mount integration", async (t) => {
 
       // Test that our readDirectoryRecursive logic would work
       const files: Array<{ path: string; content: Uint8Array }> = [];
-      
+
       // Simulate reading the directory (simplified version of what the agent does)
       try {
         for await (const entry of Deno.readDir(testDir)) {
@@ -105,16 +116,23 @@ Deno.test("Mount integration", async (t) => {
         const firstFile = files[0];
         if (firstFile) {
           assertEquals(firstFile.path, "test.txt");
-          assertEquals(new TextDecoder().decode(firstFile.content), testContent);
+          assertEquals(
+            new TextDecoder().decode(firstFile.content),
+            testContent,
+          );
           console.log("✅ File system operations work correctly");
         }
       } else {
         console.log("⚠️ Could not test file operations (permission issue)");
       }
-
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.log("⚠️ Could not create test files (permission issue):", errorMessage);
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
+      console.log(
+        "⚠️ Could not create test files (permission issue):",
+        errorMessage,
+      );
     } finally {
       // Cleanup
       try {
@@ -129,7 +147,7 @@ Deno.test("Mount integration", async (t) => {
 Deno.test("Configuration validation", async (t) => {
   await t.step("should validate mount paths are strings", () => {
     const args = [
-      "--notebook=test-notebook", 
+      "--notebook=test-notebook",
       "--auth-token=test-token",
       "--mount=/valid/path",
     ];
@@ -154,4 +172,4 @@ Deno.test("Configuration validation", async (t) => {
 
     console.log("✅ Empty mount paths handled correctly");
   });
-}); 
+});

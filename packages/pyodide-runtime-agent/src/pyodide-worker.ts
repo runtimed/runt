@@ -128,7 +128,14 @@ await run_registered_tool("${data.toolName}", kwargs_string)
 async function initializePyodide(
   buffer: SharedArrayBuffer,
   packagesToLoad?: string[],
-  mountData?: Array<{ hostPath: string; targetPath?: string; files: Array<{ path: string; content: Uint8Array }>; readonly?: boolean }>,
+  mountData?: Array<
+    {
+      hostPath: string;
+      targetPath?: string;
+      files: Array<{ path: string; content: Uint8Array }>;
+      readonly?: boolean;
+    }
+  >,
 ): Promise<void> {
   self.postMessage({
     type: "log",
@@ -260,31 +267,36 @@ async function initializePyodide(
     for (const { hostPath, targetPath, files, readonly } of mountData) {
       try {
         // Use specified target path or create a mount point with sanitized name
-        const mountPoint = targetPath || `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-        
+        const mountPoint = targetPath ||
+          `/mnt/${hostPath.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+
         // Create the mount directory and any parent directories
         pyodide.FS.mkdirTree(mountPoint);
-        
+
         // Copy all files to the virtual filesystem first
         let fileCount = 0;
         const allDirectories = new Set<string>();
-        
+
         // Always track the main mount point
         allDirectories.add(mountPoint);
-        
+
         for (const { path, content } of files) {
           const virtualPath = `${mountPoint}/${path}`;
-          
+
           // Create parent directories if needed
-          const parentDir = virtualPath.substring(0, virtualPath.lastIndexOf('/'));
+          const parentDir = virtualPath.substring(
+            0,
+            virtualPath.lastIndexOf("/"),
+          );
           if (parentDir !== mountPoint) {
             try {
               pyodide.FS.mkdirTree(parentDir);
-              
+
               // Track all directory components for later read-only setting
               let currentPath = mountPoint;
-              const pathParts = parentDir.substring(mountPoint.length + 1).split('/');
-              
+              const pathParts = parentDir.substring(mountPoint.length + 1)
+                .split("/");
+
               for (const part of pathParts) {
                 currentPath = `${currentPath}/${part}`;
                 allDirectories.add(currentPath);
@@ -293,10 +305,10 @@ async function initializePyodide(
               // Directory might already exist, ignore
             }
           }
-          
+
           // Write the file content
           pyodide.FS.writeFile(virtualPath, content);
-          
+
           // Set file as read-only if requested (files can be set read-only immediately)
           if (readonly) {
             try {
@@ -306,16 +318,17 @@ async function initializePyodide(
               // chmod might not be supported, log warning
               self.postMessage({
                 type: "log",
-                data: `Warning: Failed to set read-only permissions for file ${virtualPath}: ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
+                data:
+                  `Warning: Failed to set read-only permissions for file ${virtualPath}: ${
+                    error instanceof Error ? error.message : String(error)
+                  }`,
               });
             }
           }
-          
+
           fileCount++;
         }
-        
+
         // NOW set all directories as read-only after all files have been copied
         // IMPORTANT: This must happen AFTER all files are written, otherwise we won't be able
         // to create new files in directories that are already set to read-only
@@ -328,17 +341,21 @@ async function initializePyodide(
               // chmod might not be supported, log warning
               self.postMessage({
                 type: "log",
-                data: `Warning: Failed to set read-only permissions for directory ${dirPath}: ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
+                data:
+                  `Warning: Failed to set read-only permissions for directory ${dirPath}: ${
+                    error instanceof Error ? error.message : String(error)
+                  }`,
               });
             }
           }
         }
-        
+
         self.postMessage({
           type: "log",
-          data: `Successfully mounted '${hostPath}' at '${mountPoint}' with ${fileCount} files${readonly ? ' (read-only)' : ''}`,
+          data:
+            `Successfully mounted '${hostPath}' at '${mountPoint}' with ${fileCount} files${
+              readonly ? " (read-only)" : ""
+            }`,
         });
       } catch (error) {
         self.postMessage({
@@ -951,7 +968,7 @@ async function syncOutputsToHost(): Promise<{
   try {
     // Recursively read all files from /outputs directory
     await readOutputDirectoryRecursive("/outputs", "", files);
-    
+
     self.postMessage({
       type: "log",
       data: `Extracted ${files.length} files from /outputs directory`,
@@ -974,7 +991,7 @@ async function syncOutputsToHost(): Promise<{
 async function readOutputDirectoryRecursive(
   fullPath: string,
   relativePath: string,
-  files: Array<{ path: string; content: Uint8Array }>
+  files: Array<{ path: string; content: Uint8Array }>,
 ): Promise<void> {
   if (!pyodide) {
     return;
@@ -987,9 +1004,9 @@ async function readOutputDirectoryRecursive(
       // It's a file, read it
       try {
         const content = pyodide.FS.readFile(fullPath);
-        files.push({ 
-          path: relativePath || fullPath.replace("/outputs/", ""), 
-          content: new Uint8Array(content) 
+        files.push({
+          path: relativePath || fullPath.replace("/outputs/", ""),
+          content: new Uint8Array(content),
         });
       } catch (error) {
         self.postMessage({
@@ -1004,16 +1021,20 @@ async function readOutputDirectoryRecursive(
 
     // It's a directory, read its contents
     const entries = pyodide.FS.readdir(fullPath);
-    
+
     for (const entry of entries) {
       // Skip . and .. entries
       if (entry === "." || entry === "..") {
         continue;
       }
-      
-      const entryPath = fullPath === "/outputs" ? `/outputs/${entry}` : `${fullPath}/${entry}`;
-      const entryRelativePath = relativePath ? `${relativePath}/${entry}` : entry;
-      
+
+      const entryPath = fullPath === "/outputs"
+        ? `/outputs/${entry}`
+        : `${fullPath}/${entry}`;
+      const entryRelativePath = relativePath
+        ? `${relativePath}/${entry}`
+        : entry;
+
       await readOutputDirectoryRecursive(entryPath, entryRelativePath, files);
     }
   } catch (error) {

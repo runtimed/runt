@@ -215,8 +215,10 @@ Deno.test("parseRuntimeArgs: uses short alias for mount", () => {
   const args = [
     "--notebook=test-nb",
     "--auth-token=test-token",
-    "-m", "/home/user/data",
-    "-m", "/home/user/scripts",
+    "-m",
+    "/home/user/data",
+    "-m",
+    "/home/user/scripts",
   ];
 
   const result = parseRuntimeArgs(args);
