@@ -44,7 +44,8 @@ export class VectorStoreService {
 
     try {
       // Use OpenAI embeddings if API key is available
-      const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
+      const openaiApiKey = Deno.env.get("OPENAI_EMBEDDING_API_KEY");
+      const openaiEmbeddingModel = Deno.env.get("OPENAI_EMBEDDING_MODEL");
 
       if (openaiApiKey) {
         this.logger.debug(
@@ -53,7 +54,7 @@ export class VectorStoreService {
 
         try {
           Settings.embedModel = new OpenAIEmbedding({
-            model: "text-embedding-3-large", // Faster and cheaper than text-embedding-3-large
+            model: openaiEmbeddingModel || "text-embedding-3-large",
             apiKey: openaiApiKey,
           });
           Settings.llm = new OpenAI({

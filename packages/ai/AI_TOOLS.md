@@ -98,6 +98,19 @@ These tools are automatically available when:
 1. You start the runtime with `--mount /path/to/directory --index-mounted-files`
 2. The vector store indexing is enabled
 
+### Configuration for Optimal Performance
+
+For best search results, set the OpenAI embedding configuration:
+
+```bash
+export OPENAI_EMBEDDING_API_KEY="your-openai-api-key"
+export OPENAI_EMBEDDING_MODEL="text-embedding-3-large"  # Optional, defaults to text-embedding-3-large
+```
+
+If `OPENAI_EMBEDDING_API_KEY` is not set, the system will fall back to default
+embeddings with limited performance. The OpenAI embeddings provide significantly
+better semantic search capabilities for the vector store tools.
+
 **Important**: The tools become available immediately when indexing starts, but
 will automatically wait for indexing to complete when actually called by the AI.
 This provides the best user experience - no blocking during startup, and the AI

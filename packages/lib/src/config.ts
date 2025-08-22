@@ -245,6 +245,10 @@ Environment Variables (fallback):
   IMAGE_ARTIFACT_THRESHOLD_BYTES
   AUTH_TOKEN (legacy fallback for service-level authentication)
 
+OpenAI Embedding Configuration (for --index-mounted-files):
+  OPENAI_EMBEDDING_API_KEY       OpenAI API key for optimal vector store embeddings
+  OPENAI_EMBEDDING_MODEL         OpenAI embedding model (default: text-embedding-3-large)
+
 Logging Configuration:
   RUNT_LOG_LEVEL             Set to DEBUG, INFO, WARN, or ERROR (default: INFO)
   RUNT_DISABLE_CONSOLE_LOGS  Set to disable console output
