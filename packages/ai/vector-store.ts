@@ -288,7 +288,7 @@ export class VectorStoreService {
             );
             // Create the vector index from documents
             this.logger.debug("Creating VectorStoreIndex from documents...");
-            this.index = await VectorStoreIndex.fromDocuments(documents);
+            this.index = await VectorStoreIndex.fromDocuments(documents, { logProgress: true });
             this.logger.debug("VectorStoreIndex created successfully");
 
             // Create retriever
