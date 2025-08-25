@@ -1,0 +1,25 @@
+{
+  "name": "@runt/runtime-deno",
+  "version": "0.0.1",
+  "description": "Deno runtime and CLI for runt agents",
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/runtimed/runt.git"
+  },
+  "exports": {
+    ".": "./mod.ts"
+  },
+  "publish": {
+    "include": ["mod.ts", "README.md"]
+  },
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["ESNext", "DOM"]
+  },
+  "lint": {
+    "rules": {
+      "exclude": ["no-slow-types"]
+    }
+  }
+}
