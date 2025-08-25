@@ -195,7 +195,11 @@ This script will:
     console.log(`  2. Commit your changes`);
     console.log(`  3. Run 'deno task publish:dry-run' to test publishing`);
   } catch (error) {
-    console.error(`❌ Error updating versions: ${error.message}`);
+    console.error(
+      `❌ Error updating versions: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
     Deno.exit(1);
   }
 }
