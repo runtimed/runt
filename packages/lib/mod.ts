@@ -46,5 +46,3 @@ export type {
   ArtifactSubmissionOptions,
   ArtifactSubmissionResult,
 } from "./src/types.ts";
-
-export { runner } from "./src/runtime-runner.ts";

@@ -1,0 +1,25 @@
+{
+  "name": "@runt/runtime-core",
+  "version": "0.0.1",
+  "description": "Shared runtime core for runt agents",
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/runtimed/runt.git"
+  },
+  "exports": {
+    ".": "./mod.ts"
+  },
+  "publish": {
+    "include": ["mod.ts", "README.md"]
+  },
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["ESNext", "DOM"]
+  },
+  "lint": {
+    "rules": {
+      "exclude": ["no-slow-types"]
+    }
+  }
+}

@@ -14,20 +14,11 @@
     "./queries": "./queries/index.ts"
   },
   "publish": {
-    "include": [
-      "mod.ts",
-      "types.ts",
-      "tables.ts",
-      "queries/",
-      "README.md"
-    ]
+    "include": ["mod.ts", "types.ts", "tables.ts", "queries/", "README.md"]
   },
   "compilerOptions": {
     "strict": true,
-    "lib": [
-      "ESNext",
-      "DOM"
-    ]
+    "lib": ["ESNext", "DOM"]
   },
   "imports": {
     "@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
@@ -35,9 +26,7 @@
   },
   "lint": {
     "rules": {
-      "exclude": [
-        "no-slow-types"
-      ]
+      "exclude": ["no-slow-types"]
     }
   }
 }
