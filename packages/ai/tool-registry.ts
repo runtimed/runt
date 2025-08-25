@@ -261,7 +261,7 @@ export async function getAllTools(): Promise<NotebookTool[]> {
         ? [...BASIC_NOTEBOOK_TOOLS, ...VECTOR_STORE_TOOLS]
         : BASIC_NOTEBOOK_TOOLS;
       return [...notebookTools];
-    } catch (vectorStoreError) {
+    } catch (_vectorStoreError) {
       // If we can't check vector store status, default to basic tools only
       return [...BASIC_NOTEBOOK_TOOLS];
     }

@@ -913,7 +913,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       // Ensure output directory exists on host
       try {
         await Deno.mkdir(this.options.outputDir, { recursive: true });
-      } catch (error) {
+      } catch (_error) {
         // Directory might already exist, ignore error
       }
 
@@ -931,7 +931,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           if (parentDir !== this.options.outputDir) {
             try {
               await Deno.mkdir(parentDir, { recursive: true });
-            } catch (error) {
+            } catch (_error) {
               // Directory might already exist, ignore
             }
           }

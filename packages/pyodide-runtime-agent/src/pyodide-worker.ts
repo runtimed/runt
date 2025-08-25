@@ -261,7 +261,7 @@ async function initializePyodide(
     // Ensure /mnt directory exists
     try {
       pyodide.FS.mkdir("/mnt");
-    } catch (error) {
+    } catch (_error) {
       // /mnt might already exist, ignore error
     }
     for (const { hostPath, targetPath, files, readonly } of mountData) {
@@ -301,7 +301,7 @@ async function initializePyodide(
                 currentPath = `${currentPath}/${part}`;
                 allDirectories.add(currentPath);
               }
-            } catch (error) {
+            } catch (_error) {
               // Directory might already exist, ignore
             }
           }
@@ -375,7 +375,7 @@ async function initializePyodide(
       type: "log",
       data: "Created /outputs directory for host syncing",
     });
-  } catch (error) {
+  } catch (_error) {
     // /outputs might already exist, ignore error
   }
 
@@ -1037,7 +1037,7 @@ async function readOutputDirectoryRecursive(
 
       await readOutputDirectoryRecursive(entryPath, entryRelativePath, files);
     }
-  } catch (error) {
+  } catch (_error) {
     // Directory might not exist or be empty, which is fine
     if (relativePath === "") {
       // Only log for the root /outputs directory
