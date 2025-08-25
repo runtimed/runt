@@ -118,8 +118,7 @@ const VECTOR_STORE_TOOLS: NotebookTool[] = [
       "seeks specific information within files, or needs to understand what's in the mounted data. " +
       "This tool searches through the actual file contents and returns relevant excerpts. " +
       "IMPORTANT: Always try this tool first when the user asks about data, files, or analysis - " +
-      "don't ask the user to provide files manually when this tool is available. " +
-      "NOTE: If this tool returns 'ingestion in progress', continue retrying the same call until actual results are returned.",
+      "don't ask the user to provide files manually when this tool is available. ",
     parameters: {
       type: "object",
       properties: {
@@ -133,36 +132,33 @@ const VECTOR_STORE_TOOLS: NotebookTool[] = [
       required: ["query"],
     },
   },
-  {
-    name: "find_mounted_file",
-    description:
-      "Find the full file path to mounted data files based on a search query. " +
-      "Use this tool when you need to write code that loads specific files, " +
-      "or when you need to know the exact file paths for data analysis. " +
-      "This tool returns file paths that can be used in data loading functions " +
-      "like pd.read_csv(), np.loadtxt(), json.load(), or open(). " +
-      "ALWAYS call this tool before writing code that loads data files to ensure you have the correct file paths. " +
-      "NOTE: If this tool returns 'ingestion in progress', continue retrying the same call until actual results are returned.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description:
-            "Search query to find data files by name, type, or content " +
-            "(e.g., 'CSV files', 'customer data', 'sales report', 'JSON config files', 'Python scripts')",
-        },
-      },
-      required: ["query"],
-    },
-  },
+  // {
+  //   name: "find_mounted_file",
+  //   description:
+  //     "Find the full file path to mounted data files based on a search query. " +
+  //     "Use this tool when you need to write code that loads specific files, " +
+  //     "or when you need to know the exact file paths for data analysis. " +
+  //     "This tool returns file paths that can be used in data loading functions " +
+  //     "like pd.read_csv(), np.loadtxt(), json.load(), or open(). ",
+  //   parameters: {
+  //     type: "object",
+  //     properties: {
+  //       query: {
+  //         type: "string",
+  //         description:
+  //           "Search query to find data files by name, type, or content " +
+  //           "(e.g., 'CSV files', 'customer data', 'sales report', 'JSON config files', 'Python scripts')",
+  //       },
+  //     },
+  //     required: ["query"],
+  //   },
+  // },
   {
     name: "list_indexed_files",
     description:
       "Lists all file paths that have been successfully indexed from mounted directories. " +
       "Use this tool to see what files are available for analysis when you need an overview of the mounted data. " +
-      "This is helpful for understanding the scope of available data before diving into specific queries. " +
-      "NOTE: If this tool returns 'ingestion in progress', continue retrying the same call until actual results are returned.",
+      "This is helpful for understanding the scope of available data before diving into specific queries. ",
     parameters: {
       type: "object",
       properties: {},
