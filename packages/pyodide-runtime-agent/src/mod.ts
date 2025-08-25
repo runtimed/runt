@@ -7,12 +7,38 @@
  */
 
 import { PyodideRuntimeAgent } from "./pyodide-agent.ts";
-import { runner } from "@runt/lib";
-
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
+import { createLogger } from "@runt/lib";
 
 // Run the agent if this file is executed directly
 if (import.meta.main) {
+  const name = "PyoRunt";
+  const logger = createLogger(name);
+
   const agent = new PyodideRuntimeAgent();
-  await runner(agent, "PyoRunt");
+
+  logger.info("Starting Agent");
+
+  try {
+    await agent.start();
+
+    logger.info(`${name} started`, {
+      runtimeId: agent.config.runtimeId,
+      runtimeType: agent.config.runtimeType,
+      notebookId: agent.config.notebookId,
+      sessionId: agent.config.sessionId,
+      syncUrl: agent.config.syncUrl,
+    });
+
+    await agent.keepAlive();
+  } catch (error) {
+    logger.error(`${name} failed to start`, error);
+    Deno.exit(1);
+  }
+
+  agent.shutdown().catch((error) => {
+    logger.error(`${name} failed to shutdown`, error);
+    Deno.exit(1);
+  });
+  Deno.exit(0);
 }
