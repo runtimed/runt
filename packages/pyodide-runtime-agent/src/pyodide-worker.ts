@@ -19,6 +19,8 @@ declare const self: DedicatedWorkerGlobalScope;
 
 let pyodide: PyodideInterface | null = null;
 let interruptBuffer: SharedArrayBuffer | null = null;
+let isShuttingDown = false;
+const backgroundOperations: Array<() => void> = [];
 
 // Global error handler for uncaught worker errors
 self.addEventListener("error", (event) => {
@@ -107,6 +109,12 @@ await run_registered_tool("${data.toolName}", kwargs_string)
           // Also log to console for debugging
           console.error(`Tool execution failed for ${data.toolName}:`, error);
         }
+        break;
+      }
+
+      case "shutdown": {
+        await shutdownWorker();
+        self.postMessage({ id, type: "response", data: { success: true } });
         break;
       }
 
@@ -400,24 +408,31 @@ async function initializePyodide(
     });
 
     // Use setTimeout to avoid blocking IPython setup
-    setTimeout(async () => {
+    const packageLoadTimeout = setTimeout(async () => {
+      if (isShuttingDown) return;
       try {
         await pyodide!.loadPackage(remainingPackages);
-        self.postMessage({
-          type: "log",
-          data: `Additional packages loaded successfully: ${
-            remainingPackages.join(", ")
-          }`,
-        });
+        if (!isShuttingDown) {
+          self.postMessage({
+            type: "log",
+            data: `Additional packages loaded successfully: ${
+              remainingPackages.join(", ")
+            }`,
+          });
+        }
       } catch (error) {
-        self.postMessage({
-          type: "log",
-          data: `Warning: Failed to load some additional packages: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        });
+        if (!isShuttingDown) {
+          self.postMessage({
+            type: "log",
+            data: `Warning: Failed to load some additional packages: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          });
+        }
       }
     }, 100);
+
+    backgroundOperations.push(() => clearTimeout(packageLoadTimeout));
   }
 
   // Switch to raw write handler for stdout to capture all bytes
@@ -502,23 +517,30 @@ globals()['js_clear_callback'] = runt_runtime.js_clear_callback
 
   if (!isTest) {
     // Use setTimeout to isolate from execution pipeline
-    setTimeout(() => {
+    const micropipTimeout = setTimeout(() => {
+      if (isShuttingDown) return;
       pyodide!.runPythonAsync(
         `await runt_runtime.bootstrap_micropip_packages()`,
       ).then(
         () => {
-          self.postMessage({
-            type: "log",
-            data: "Micropip packages installed successfully",
-          });
+          if (!isShuttingDown) {
+            self.postMessage({
+              type: "log",
+              data: "Micropip packages installed successfully",
+            });
+          }
         },
       ).catch((error) => {
-        self.postMessage({
-          type: "log",
-          data: `Warning: Micropip package installation failed: ${error}`,
-        });
+        if (!isShuttingDown) {
+          self.postMessage({
+            type: "log",
+            data: `Warning: Micropip package installation failed: ${error}`,
+          });
+        }
       });
     }, 100);
+
+    backgroundOperations.push(() => clearTimeout(micropipTimeout));
   } else {
     self.postMessage({
       type: "log",
@@ -1047,6 +1069,37 @@ async function readOutputDirectoryRecursive(
       });
     }
   }
+}
+
+/**
+ * Shutdown worker cleanly by cancelling background operations
+ */
+async function shutdownWorker(): Promise<void> {
+  self.postMessage({
+    type: "log",
+    data: "Shutting down Pyodide worker...",
+  });
+
+  // Set shutdown flag to prevent new operations
+  isShuttingDown = true;
+
+  // Cancel all background operations
+  for (const cancelOp of backgroundOperations) {
+    try {
+      cancelOp();
+    } catch (_error) {
+      // Ignore errors during cleanup
+    }
+  }
+  backgroundOperations.length = 0;
+
+  // Give a moment for any in-flight operations to check the shutdown flag
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  self.postMessage({
+    type: "log",
+    data: "Pyodide worker shutdown complete",
+  });
 }
 
 // Log that worker is ready

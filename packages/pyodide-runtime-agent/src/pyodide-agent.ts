@@ -110,8 +110,8 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     }
 
     super(config, config.capabilities, {
-      onShutdown: () => {
-        this.cleanupWorker();
+      onShutdown: async () => {
+        await this.cleanupWorker();
       },
     });
 
@@ -790,15 +790,35 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     this.isInitialized = false;
     this.currentExecutionContext = null;
 
-    // Clean up worker
-    this.cleanupWorker();
+    // Clean up worker (async but don't wait for it in crash handler)
+    this.cleanupWorker().catch((error) => {
+      this.logger.debug("Error during worker cleanup after crash", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   /**
    * Cleanup worker resources
    */
-  private cleanupWorker(): void {
+  private async cleanupWorker(): Promise<void> {
     if (this.worker) {
+      try {
+        // Send shutdown signal to worker before terminating
+        await this.sendWorkerMessage("shutdown", {});
+
+        // Give the worker a moment to clean up
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } catch (error) {
+        // Ignore errors during shutdown - worker might already be terminated
+        this.logger.debug(
+          "Worker shutdown message failed (expected during cleanup)",
+          {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+
       this.worker.terminate();
       this.worker = null;
     }
