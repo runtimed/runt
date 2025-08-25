@@ -234,27 +234,29 @@ export class VectorStoreService {
             // Ensure directory exists
             await Deno.mkdir(tempFileDir, { recursive: true });
 
-            // Check if this is a CSV file and only copy first 5 lines
+            // Check if this is a CSV file and only copy first 5 rows
             let contentToWrite = content;
             if (path.toLowerCase().endsWith(".csv")) {
               try {
                 // Decode the content to text
                 const textContent = new TextDecoder().decode(content);
-                const lines = textContent.split("\n");
 
-                // Take only first 5 lines (or all lines if less than 5)
-                const limitedLines = lines.slice(0, 5);
-                const limitedContent = limitedLines.join("\n");
+                // Parse CSV properly to get exactly 5 rows, handling embedded newlines
+                const limitedContent = this.extractCsvRows(textContent, 5);
 
                 // Re-encode to Uint8Array
                 contentToWrite = new TextEncoder().encode(limitedContent);
 
+                // Count actual rows for logging
+                const totalRows = this.countCsvRows(textContent);
+                const limitedRows = this.countCsvRows(limitedContent);
+
                 this.logger.debug(
-                  `CSV file ${path}: limited to ${limitedLines.length} lines (from ${lines.length} total)`,
+                  `CSV file ${path}: limited to ${limitedRows} rows (from ${totalRows} total)`,
                 );
               } catch (csvError) {
                 this.logger.warn(
-                  `Failed to limit CSV file lines for ${path}, using full content`,
+                  `Failed to limit CSV file rows for ${path}, using full content`,
                   {
                     error: String(csvError),
                   },
@@ -367,8 +369,12 @@ export class VectorStoreService {
       this.logger.info(
         `Vector store ingestion completed successfully. Tracked ${this.indexedFilePaths.length} indexed file paths.`,
       );
-      console.log("\n️📂 \x1b[32m✅ Vector store ingestion completed successfully\x1b[0m");
-      console.log(`   \x1b[36mFiles indexed:\x1b[0m ${this.indexedFilePaths.length}`);
+      console.log(
+        "\n️📂 \x1b[32m✅ Vector store ingestion completed successfully\x1b[0m",
+      );
+      console.log(
+        `   \x1b[36mFiles indexed:\x1b[0m ${this.indexedFilePaths.length}`,
+      );
     } catch (error) {
       this.logger.error("Error in performIngestion", {
         error: String(error),
@@ -688,6 +694,96 @@ export class VectorStoreService {
     this.indexedFilePaths = [];
     embeddingConfigured = false; // Allow reconfiguration after reset
     this.logger.info("Vector store reset");
+  }
+
+  /**
+   * Extract a specific number of CSV rows, properly handling quoted fields with embedded newlines
+   */
+  private extractCsvRows(csvContent: string, maxRows: number): string {
+    if (maxRows <= 0 || !csvContent.trim()) {
+      return "";
+    }
+
+    const rows: string[] = [];
+    let currentRow = "";
+    let inQuotes = false;
+    const quoteChar = '"';
+    let i = 0;
+
+    while (i < csvContent.length && rows.length < maxRows) {
+      const char = csvContent[i];
+      const nextChar = csvContent[i + 1];
+
+      currentRow += char;
+
+      if (char === quoteChar) {
+        if (!inQuotes) {
+          // Starting a quoted field
+          inQuotes = true;
+        } else if (nextChar === quoteChar) {
+          // Escaped quote (double quote)
+          currentRow += nextChar;
+          i++; // Skip the next quote
+        } else {
+          // Ending a quoted field
+          inQuotes = false;
+        }
+      } else if (char === "\n" && !inQuotes) {
+        // End of row (only when not inside quotes)
+        rows.push(currentRow);
+        currentRow = "";
+      }
+
+      i++;
+    }
+
+    // Add the last row if it doesn't end with a newline
+    if (currentRow.trim() && rows.length < maxRows) {
+      rows.push(currentRow);
+    }
+
+    return rows.join("");
+  }
+
+  /**
+   * Count the total number of CSV rows in the content
+   */
+  private countCsvRows(csvContent: string): number {
+    if (!csvContent.trim()) {
+      return 0;
+    }
+
+    let rowCount = 0;
+    let inQuotes = false;
+    const quoteChar = '"';
+    let i = 0;
+
+    while (i < csvContent.length) {
+      const char = csvContent[i];
+      const nextChar = csvContent[i + 1];
+
+      if (char === quoteChar) {
+        if (!inQuotes) {
+          inQuotes = true;
+        } else if (nextChar === quoteChar) {
+          // Escaped quote (double quote)
+          i++; // Skip the next quote
+        } else {
+          inQuotes = false;
+        }
+      } else if (char === "\n" && !inQuotes) {
+        rowCount++;
+      }
+
+      i++;
+    }
+
+    // Count the last row if it doesn't end with a newline
+    if (csvContent.trim() && !csvContent.endsWith("\n")) {
+      rowCount++;
+    }
+
+    return rowCount;
   }
 }
 
