@@ -113,7 +113,7 @@ print(f"Created files in /outputs")
     assertExists(subdirStat);
     assertEquals(subdirStat.isDirectory, true);
 
-    // Note: PyodideRuntimeAgent doesn't have a stop() method, cleanup happens automatically
+    await agent.shutdown();
   } finally {
     // Clean up temp directory
     try {
@@ -189,7 +189,7 @@ print("Created file that should not sync")
   // This should not throw an error even without outputDir configured
   await agent.executeCell(mockContext);
 
-  // Note: PyodideRuntimeAgent doesn't have a stop() method, cleanup happens automatically
+  await agent.shutdown();
 });
 
 Deno.test("PyodideRuntimeAgent handles empty /outputs directory gracefully", async () => {
@@ -263,7 +263,7 @@ print("No files created in /outputs")
     // This should complete without error
     await agent.executeCell(mockContext);
 
-    // Note: PyodideRuntimeAgent doesn't have a stop() method, cleanup happens automatically
+    await agent.shutdown();
   } finally {
     try {
       await Deno.remove(tempOutputDir, { recursive: true });

@@ -173,6 +173,8 @@ print("Read-only protection is working correctly")
 
     // Wait a bit for execution to complete
     await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    await agent.shutdown();
   } finally {
     // Clean up temp directory
     try {
@@ -291,6 +293,8 @@ print("Normal mounting (writable) is working correctly")
     await agent.executeCell(createMockContext(writeTestCode));
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    await agent.shutdown();
   } finally {
     try {
       await Deno.remove(tempMountDir, { recursive: true });
