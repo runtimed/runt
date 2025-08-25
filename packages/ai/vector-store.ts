@@ -2,9 +2,18 @@ import { type Document, Settings, VectorStoreIndex } from "llamaindex";
 import { OpenAI, OpenAIEmbedding } from "@llamaindex/openai";
 import { SimpleDirectoryReader } from "@llamaindex/readers/directory";
 import { TextFileReader } from "@llamaindex/readers/text";
-import { createLogger } from "@runt/lib";
+import { createLogger, LogLevel } from "@runt/lib";
 import type { Logger } from "@runt/lib";
 import { dirname, join } from "@std/path";
+
+// Type definitions for llamaindex objects
+interface VectorRetriever {
+  retrieve(params: { query: string }): Promise<unknown>;
+}
+
+interface VectorQueryEngine {
+  query(params: { query: string }): Promise<{ toString(): string }>;
+}
 
 // Initialize logger for vector store operations
 const vectorLogger = createLogger("vector-store");
@@ -16,8 +25,8 @@ let embeddingConfigured = false;
  * Vector store service for managing document ingestion and querying
  */
 export class VectorStoreService {
-  private retriever: any | null = null;
-  private queryEngine: any | null = null;
+  private retriever: VectorRetriever | null = null;
+  private queryEngine: VectorQueryEngine | null = null;
   private index: VectorStoreIndex | null = null;
   private isIngesting = false;
   private ingestionComplete = false;
@@ -93,7 +102,7 @@ export class VectorStoreService {
   /**
    * Start asynchronous ingestion of files from mount data
    */
-  async startIngestion(
+  startIngestion(
     mountData: Array<
       {
         hostPath: string;
@@ -101,7 +110,7 @@ export class VectorStoreService {
         files: Array<{ path: string; content: Uint8Array }>;
       }
     >,
-  ): Promise<void> {
+  ): void {
     if (this.isIngesting || this.ingestionComplete) {
       this.logger.warn("Ingestion already started or completed");
       return;
@@ -319,7 +328,7 @@ export class VectorStoreService {
             // Create the vector index from documents
             this.logger.debug("Creating VectorStoreIndex from documents...");
             this.index = await VectorStoreIndex.fromDocuments(documents, {
-              logProgress: true,
+              logProgress: this.logger.getLevel() === LogLevel.DEBUG,
             });
             this.logger.debug("VectorStoreIndex created successfully");
 
@@ -358,6 +367,8 @@ export class VectorStoreService {
       this.logger.info(
         `Vector store ingestion completed successfully. Tracked ${this.indexedFilePaths.length} indexed file paths.`,
       );
+      console.log("\n️📂 \x1b[32m✅ Vector store ingestion completed successfully\x1b[0m");
+      console.log(`   \x1b[36mFiles indexed:\x1b[0m ${this.indexedFilePaths.length}`);
     } catch (error) {
       this.logger.error("Error in performIngestion", {
         error: String(error),

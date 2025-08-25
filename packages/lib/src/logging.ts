@@ -66,6 +66,13 @@ export class Logger {
   }
 
   /**
+   * Get the current log level
+   */
+  getLevel(): LogLevel {
+    return this.config.level;
+  }
+
+  /**
    * Log a debug message
    */
   debug(message: string, data?: Record<string, unknown>): void {
