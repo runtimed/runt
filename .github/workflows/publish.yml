@@ -20,7 +20,7 @@ on:
 
 env:
   DENO_VERSION: v2.x
-  BUILD_ORDER: '["schema","lib", "ai", "pyodide-runtime-agent", "python-runtime-agent", "tui"]'
+  BUILD_ORDER: '["schema", "runtime-core", "lib", "runtime-browser", "runtime-deno", "ai", "python-runtime-agent", "pyodide-runtime-agent", "tui"]'
 
 jobs:
   generate-build-order:
@@ -39,14 +39,20 @@ jobs:
           filters: |
             schema:
               - 'packages/schema/**'
+            runtime-core:
+              - 'packages/runtime-core/**'
             lib:
               - 'packages/lib/**'
+            runtime-browser:
+              - 'packages/runtime-browser/**'
+            runtime-deno:
+              - 'packages/runtime-deno/**'
             ai:
               - 'packages/ai/**'
-            pyodide-runtime-agent:
-              - 'packages/pyodide-runtime-agent/**'
             python-runtime-agent:
               - 'packages/python-runtime-agent/**'
+            pyodide-runtime-agent:
+              - 'packages/pyodide-runtime-agent/**'
             tui:
               - 'packages/tui/**'
             publish:
