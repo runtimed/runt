@@ -260,7 +260,7 @@ async function initializePyodide(
 
     // Ensure /mnt directory exists
     try {
-      pyodide.FS.mkdir("/mnt");
+      pyodide.FS.mkdirTree("/mnt");
     } catch (_error) {
       // /mnt might already exist, ignore error
     }
@@ -370,7 +370,7 @@ async function initializePyodide(
 
   // Always create /outputs directory for syncing back to host
   try {
-    pyodide.FS.mkdir("/outputs");
+    pyodide.FS.mkdirTree("/outputs");
     self.postMessage({
       type: "log",
       data: "Created /outputs directory for host syncing",
