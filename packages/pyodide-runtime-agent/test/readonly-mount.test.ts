@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "jsr:@std/assert";
+// Import removed - no assertions needed for this test
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 import { type ExecutionContext } from "../../lib/src/types.ts";
 

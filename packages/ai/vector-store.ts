@@ -7,8 +7,20 @@ import type { Logger } from "@runt/lib";
 import { dirname, join } from "@std/path";
 
 // Type definitions for llamaindex objects
+interface RetrievalNode {
+  node: {
+    metadata: {
+      file_path?: string;
+      path?: string;
+      [key: string]: unknown;
+    };
+  };
+}
+
+type RetrievalResponse = RetrievalNode[] | RetrievalNode;
+
 interface VectorRetriever {
-  retrieve(params: { query: string }): Promise<unknown>;
+  retrieve(params: { query: string }): Promise<RetrievalResponse>;
 }
 
 interface VectorQueryEngine {

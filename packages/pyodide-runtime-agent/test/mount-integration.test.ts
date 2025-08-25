@@ -2,13 +2,13 @@
  * Integration test for host directory mounting functionality
  */
 
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
+import { assertEquals } from "jsr:@std/assert";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 
 Deno.test("Mount integration", async (t) => {
   await t.step(
     "PyodideRuntimeAgent handles mount paths correctly",
-    async () => {
+    () => {
       // Test CLI arguments with mount paths
       const args = [
         "--notebook=test-notebook",
@@ -18,12 +18,12 @@ Deno.test("Mount integration", async (t) => {
       ];
 
       // Create a spy to capture worker messages
-      const workerMessages: any[] = [];
+      const workerMessages: unknown[] = [];
       const originalWorker = globalThis.Worker;
 
       // Mock Worker to capture initialization messages
       globalThis.Worker = class MockWorker extends EventTarget {
-        constructor(url: string | URL, options?: WorkerOptions) {
+        constructor(_url: string | URL, _options?: WorkerOptions) {
           super();
           // Simulate worker that captures init message
           setTimeout(() => {
@@ -35,14 +35,14 @@ Deno.test("Mount integration", async (t) => {
           }, 10);
         }
 
-        postMessage(data: any) {
+        postMessage(data: unknown) {
           workerMessages.push(data);
         }
 
         terminate() {
           // No-op for test
         }
-      } as any;
+      } as typeof Worker;
 
       try {
         const agent = new PyodideRuntimeAgent(args);
