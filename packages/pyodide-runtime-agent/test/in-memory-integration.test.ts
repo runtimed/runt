@@ -115,15 +115,26 @@ Deno.test({
         requestedBy: "test-user",
       }));
 
-      // Waiting for agent to process execution
-
-      // Wait for execution to complete
-      await delay(3000);
-
-      // Check results
-      const queueEntries = agent.store.query(
+      // Wait for execution to complete with polling
+      let queueEntries = agent.store.query(
         tables.executionQueue.select().where({ cellId }),
       );
+
+      // Wait up to 10 seconds for execution to complete
+      const maxWaitTime = 10000; // 10 seconds
+      const startTime = Date.now();
+
+      while (
+        queueEntries.length === 0 || queueEntries[0]?.status !== "completed"
+      ) {
+        if (Date.now() - startTime > maxWaitTime) {
+          break;
+        }
+        await delay(500); // Check every 500ms
+        queueEntries = agent.store.query(
+          tables.executionQueue.select().where({ cellId }),
+        );
+      }
 
       const outputs = agent.store.query(
         tables.outputs.select().where({ cellId }),

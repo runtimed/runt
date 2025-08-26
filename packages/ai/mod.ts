@@ -141,13 +141,43 @@ export interface CellContextData {
 /**
  * Create system prompt with optional current cell ID context for tool usage
  */
-function createSystemPrompt(currentCellId?: string): string {
+function createSystemPrompt(
+  currentCellId?: string,
+  filepaths?: string[],
+): string {
   let prompt =
-    "You are an AI assistant in a collaborative notebook environment. You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. You can also execute code yourself using tool calls. Use the visible outputs and your execution capabilities to help analyze data and answer questions.";
+    `You are an AI assistant in a collaborative notebook environment. 
+
+IMPORTANT: If you have access to vector store tools (query_documents, find_mounted_file, list_indexed_files), use them to search and access mounted files rather than asking the user to provide files manually. These tools can search file contents and find file paths from mounted directories.
+
+You have the full context of all cells (code, ai, and markdown) above your current cell.
+You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. 
+You can also execute code yourself using tool calls. 
+When you write code use caution not to double encode new lines.
+Use the visible outputs and your execution capabilities to help analyze data and answer questions.
+You should carefully review the code you've written and the output it produces.
+Devise metrics by which you can evaluate the quality of your code and the results it produces.
+After executing code cells you should review the code and make changes to improve the result.
+
+When working with data files:
+1. Use find_mounted_file to locate data files by name or type
+2. Use query_documents to search file contents for specific information
+3. Use list_indexed_files to see what files are available
+
+Should you need to write data for any reason you will only be able to write to the /outputs directory.`;
 
   if (currentCellId) {
     prompt +=
       ` Your current cell ID is: ${currentCellId}. When using the create_cell tool, use this ID as the after_id parameter to place new cells below yourself.`;
+  }
+
+  // Add file path context if provided
+  if (filepaths && filepaths.length > 0) {
+    prompt += `\n\n${
+      filepaths.map((path) =>
+        `The following question directly pertains to ${path} which you can query using the query tool.`
+      ).join("\n")
+    }`;
   }
 
   return prompt;
@@ -430,6 +460,12 @@ const getDefaultModel = (provider: string): string => {
 export { OpenAIClient, RuntOllamaClient };
 export { closeMCPClient, getMCPClient, MCPClient } from "./mcp-client.ts";
 export { getAllTools } from "./tool-registry.ts";
+export {
+  enableVectorStoreIndexing,
+  getVectorStore,
+  isVectorStoreIndexingEnabled,
+  VectorStoreService,
+} from "./vector-store.ts";
 
 /**
  * Discover available AI models from all configured providers
@@ -533,6 +569,7 @@ export async function executeAI(
   store: Store<typeof schema>,
   sessionId: string,
   notebookTools: NotebookTool[] = [],
+  maxIterations: number = 10,
 ): Promise<{ success: boolean; error?: string }> {
   const {
     cell,
@@ -552,6 +589,13 @@ export async function executeAI(
       stderr("🛑 AI execution was already cancelled\n");
       return { success: false, error: "Execution cancelled" };
     }
+
+    // Extract file path references from the prompt (pattern: @/path/to/file)
+    const filePathPattern = /@([^\s]+)/g;
+    const filePathMatches = prompt.match(filePathPattern);
+    const extractedFilePaths = filePathMatches
+      ? filePathMatches.map((match) => match.substring(1)) // Remove the @ symbol
+      : [];
 
     const provider = cell.aiProvider || "openai";
     const model = cell.aiModel || getDefaultModel(provider);
@@ -579,7 +623,7 @@ export async function executeAI(
       if (isOllamaReady) {
         const openaiMessages = buildConversationMessages(
           notebookContext,
-          createSystemPrompt(cell.id),
+          createSystemPrompt(cell.id, extractedFilePaths),
           prompt,
         );
 
@@ -607,7 +651,7 @@ export async function executeAI(
             model,
             provider: "ollama",
             enableTools: true,
-            maxIterations: 10,
+            maxIterations,
             interruptSignal: abortSignal,
             onToolCall: async (toolCall) => {
               logger.info("AI requested tool call", {
@@ -712,7 +756,7 @@ The system will automatically pull models if they're not available locally.`;
 
       const conversationMessages = buildConversationMessages(
         notebookContext,
-        createSystemPrompt(cell.id),
+        createSystemPrompt(cell.id, extractedFilePaths),
         prompt,
       );
 
@@ -730,7 +774,7 @@ The system will automatically pull models if they're not available locally.`;
           model,
           provider: "groq",
           enableTools: true,
-          maxIterations: 10,
+          maxIterations,
           interruptSignal: abortSignal,
           onToolCall: async (toolCall) => {
             logger.info("AI requested tool call", {
@@ -775,7 +819,7 @@ The system will automatically pull models if they're not available locally.`;
       // Use conversation-based approach for better AI interaction
       const conversationMessages = buildConversationMessages(
         notebookContext,
-        createSystemPrompt(cell.id),
+        createSystemPrompt(cell.id, extractedFilePaths),
         prompt,
       );
 
@@ -800,7 +844,7 @@ The system will automatically pull models if they're not available locally.`;
         {
           model,
           enableTools: true,
-          maxIterations: 10,
+          maxIterations,
           interruptSignal: abortSignal,
           onToolCall: async (toolCall) => {
             logger.info("AI requested tool call", {

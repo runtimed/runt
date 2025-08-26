@@ -11,6 +11,9 @@
     ".": "./mod.ts"
   },
   "imports": {
+    "@llamaindex/openai": "npm:@llamaindex/openai@^0.4.16",
+    "@llamaindex/readers": "npm:@llamaindex/readers@^3.1.18",
+    "llamaindex": "npm:llamaindex@^0.11.26",
     "@runt/lib": "jsr:@runt/lib@^0.11.1",
     "@runt/schema": "jsr:@runt/schema@^0.11.1",
     "npm:pyodide": "npm:pyodide@^0.27.7",
@@ -39,6 +42,7 @@
       "tool-registry.ts",
       "media-utils.ts",
       "notebook-context.ts",
+      "vector-store.ts",
       "README.md"
     ],
     "exclude": [

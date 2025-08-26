@@ -34,6 +34,14 @@ export class RuntimeConfig {
   public readonly environmentOptions: RuntimeAgentOptions["environmentOptions"];
   public readonly imageArtifactThresholdBytes: number;
   public readonly artifactClient: IArtifactClient;
+  public readonly mountPaths: string[];
+  public readonly mountMappings: Array<
+    { hostPath: string; targetPath: string }
+  >;
+  public readonly indexMountedFiles: boolean;
+  public readonly mountReadonly: boolean;
+  public readonly outputDir: string | undefined;
+  public readonly aiMaxIterations: number;
 
   constructor(options: RuntimeAgentOptions) {
     this.runtimeId = options.runtimeId;
@@ -45,6 +53,12 @@ export class RuntimeConfig {
     this.environmentOptions = options.environmentOptions;
     this.imageArtifactThresholdBytes = options.imageArtifactThresholdBytes ??
       DEFAULT_CONFIG.imageArtifactThresholdBytes;
+    this.mountPaths = options.mountPaths ?? [];
+    this.mountMappings = options.mountMappings ?? [];
+    this.indexMountedFiles = options.indexMountedFiles ?? false;
+    this.mountReadonly = options.mountReadonly ?? false;
+    this.outputDir = options.outputDir;
+    this.aiMaxIterations = options.aiMaxIterations ?? 10;
 
     // Use injected artifact client or create default one
     this.artifactClient = options.artifactClient ??
@@ -165,8 +179,16 @@ export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
       "runtime-env-path",
       "runtime-package-manager",
       "image-artifact-threshold",
+      "mount",
+      "output-dir",
+      "ai-max-iterations",
     ],
-    boolean: ["help", "runtime-env-externally-managed"],
+    boolean: [
+      "help",
+      "runtime-env-externally-managed",
+      "index-mounted-files",
+      "mount-readonly",
+    ],
     alias: {
       n: "notebook",
       t: "auth-token",
@@ -174,7 +196,9 @@ export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
       r: "runtime-id",
       T: "runtime-type",
       h: "help",
+      m: "mount",
     },
+    collect: ["mount"], // Allow multiple --mount arguments
   });
 
   if (parsed.help) {
@@ -196,16 +220,34 @@ Optional Options:
                              (default: <runtime-type>-runtime-{pid})
   --runtime-type, -T <type>  Runtime type identifier
                              (default: "runtime")
+  --mount, -m <path>         Host directory to mount. Supports two formats:
+                             1. Simple: /path/to/local (mounts to auto-generated /mnt/ path)
+                             2. Docker-style: /path/to/local:/target/path
+                             Examples: --mount /data or --mount /data:/dataset
+                             (can be specified multiple times)
+  --output-dir <path>        Host directory to sync /outputs to after each cell execution
+  --mount-readonly           Mount directories as read-only (prevents modification)
+                             (only applies when --mount is also used)
+  --index-mounted-files      Enable vector store indexing of mounted files for AI search
+                             (only applies when --mount is also used)
+  --ai-max-iterations <num>  Maximum iterations for AI agent tool calling loops
+                             (default: 10)
   --help, -h                 Show this help message
 
 Examples:
   deno run --allow-net --allow-env main.ts -n my-notebook -t your-token
   deno run --allow-net --allow-env main.ts --notebook=test --auth-token=abc123
+  deno run --allow-net --allow-env main.ts -n my-notebook -t token --mount /path/to/data
+  deno run --allow-net --allow-env main.ts -n my-notebook -t token --mount /host/data:/data/dataset --index-mounted-files
 
 Environment Variables (fallback):
   NOTEBOOK_ID, RUNT_API_KEY, LIVESTORE_SYNC_URL, RUNTIME_ID, RUNTIME_TYPE
   IMAGE_ARTIFACT_THRESHOLD_BYTES
   AUTH_TOKEN (legacy fallback for service-level authentication)
+
+OpenAI Embedding Configuration (for --index-mounted-files):
+  OPENAI_EMBEDDING_API_KEY       OpenAI API key for optimal vector store embeddings
+  OPENAI_EMBEDDING_MODEL         OpenAI embedding model (default: text-embedding-3-large)
 
 Logging Configuration:
   RUNT_LOG_LEVEL             Set to DEBUG, INFO, WARN, or ERROR (default: INFO)
@@ -253,6 +295,65 @@ Logging Configuration:
     };
   }
 
+  // Handle mount paths - support both simple paths and Docker-style local:target format
+  if (parsed.mount && parsed.mount.length > 0) {
+    const mountArgs = Array.isArray(parsed.mount)
+      ? parsed.mount
+      : [parsed.mount];
+    const mountPaths: string[] = [];
+    const mountMappings: Array<{ hostPath: string; targetPath: string }> = [];
+
+    for (const mountArg of mountArgs) {
+      if (mountArg.includes(":")) {
+        // Docker-style mount: local-path:target-path
+        const [hostPath, targetPath] = mountArg.split(":", 2);
+        if (hostPath && targetPath) {
+          mountMappings.push({ hostPath, targetPath });
+          // Also add to mountPaths for backward compatibility
+          mountPaths.push(hostPath);
+        } else {
+          throw new Error(
+            `Invalid mount format: ${mountArg}. Expected format: <local-path>:<target-path>`,
+          );
+        }
+      } else {
+        // Simple path format (legacy)
+        mountPaths.push(mountArg);
+      }
+    }
+
+    result = {
+      ...result,
+      mountPaths,
+      mountMappings,
+    };
+  }
+
+  // Handle index-mounted-files flag
+  if (parsed["index-mounted-files"]) {
+    result = {
+      ...result,
+      indexMountedFiles: true,
+    };
+  }
+
+  // Handle mount-readonly flag
+  if (parsed["mount-readonly"]) {
+    result = {
+      ...result,
+      mountReadonly: true,
+    };
+  }
+
+  // Handle output-dir option
+  const outputDir = parsed["output-dir"] || Deno.env.get("OUTPUT_DIR");
+  if (outputDir && typeof outputDir === "string") {
+    result = {
+      ...result,
+      outputDir,
+    };
+  }
+
   const environmentOptions: Record<string, unknown> = {};
   environmentOptions.runtimePythonPath = parsed["runtime-python-path"] ||
     Deno.env.get("RUNTIME_PYTHON_PATH") ||
@@ -283,10 +384,23 @@ Logging Configuration:
     Deno.env.get("IMAGE_ARTIFACT_THRESHOLD_BYTES");
   if (thresholdArg) {
     const threshold = parseInt(thresholdArg, 10);
-    if (!isNaN(threshold) && threshold >= 0) {
+    if (!isNaN(threshold) && threshold > 0) {
       result = {
         ...result,
         imageArtifactThresholdBytes: threshold,
+      };
+    }
+  }
+
+  // Parse AI max iterations
+  const aiMaxIterationsArg = parsed["ai-max-iterations"] ||
+    Deno.env.get("AI_MAX_ITERATIONS");
+  if (aiMaxIterationsArg) {
+    const aiMaxIterations = parseInt(aiMaxIterationsArg, 10);
+    if (!isNaN(aiMaxIterations) && aiMaxIterations > 0) {
+      result = {
+        ...result,
+        aiMaxIterations,
       };
     }
   }

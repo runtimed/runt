@@ -42,6 +42,11 @@ import {
 interface PyodideAgentOptions {
   packages?: string[];
   discoverAiModels?: boolean;
+  mountPaths?: string[];
+  mountMappings?: Array<{ hostPath: string; targetPath: string }>;
+  outputDir?: string;
+  indexMountedFiles?: boolean;
+  mountReadonly?: boolean;
 }
 
 /**
@@ -105,12 +110,28 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     }
 
     super(config, config.capabilities, {
-      onShutdown: () => {
-        this.cleanupWorker();
+      onShutdown: async () => {
+        await this.cleanupWorker();
       },
     });
 
-    this.options = options;
+    // Merge config mount paths with options mount paths
+    const mergedOptions: PyodideAgentOptions = {
+      ...options,
+      mountPaths: options.mountPaths || config.mountPaths || [],
+      mountMappings: options.mountMappings || config.mountMappings || [],
+      indexMountedFiles: options.indexMountedFiles ??
+        config.indexMountedFiles ?? false,
+      mountReadonly: options.mountReadonly ?? config.mountReadonly ?? false,
+    };
+
+    // Only include outputDir if it has a value
+    const finalOutputDir = options.outputDir ?? config.outputDir;
+    if (finalOutputDir) {
+      mergedOptions.outputDir = finalOutputDir;
+    }
+
+    this.options = mergedOptions;
     this.onExecution(this.executeCell.bind(this));
     this.onCancellation(this.handlePyodideCancellation.bind(this));
   }
@@ -198,10 +219,60 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         this.handleWorkerCrash("Worker message error");
       });
 
+      // Read mount directories if provided
+      let mountData: Array<
+        {
+          hostPath: string;
+          targetPath?: string;
+          files: Array<{ path: string; content: Uint8Array }>;
+          readonly?: boolean;
+        }
+      > = [];
+      if (this.options.mountPaths && this.options.mountPaths.length > 0) {
+        mountData = await this.readMountDirectories(
+          this.options.mountPaths,
+          this.options.mountMappings,
+        );
+
+        // Add readonly flag to all mount entries if mountReadonly is enabled
+        if (this.options.mountReadonly) {
+          mountData = mountData.map((entry) => ({ ...entry, readonly: true }));
+        }
+
+        // Start vector store ingestion asynchronously only if indexing is enabled
+        if (this.options.indexMountedFiles) {
+          // Initialize vector store in background to avoid blocking pyodide startup
+          Promise.resolve().then(async () => {
+            try {
+              const { getVectorStore, enableVectorStoreIndexing } =
+                await import("@runt/ai");
+              enableVectorStoreIndexing();
+              const vectorStore = getVectorStore();
+              vectorStore.startIngestion(mountData);
+              this.logger.info(
+                "Vector store indexing started for mounted files",
+              );
+            } catch (error) {
+              this.logger.error("Vector store ingestion failed", {
+                error: String(error),
+              });
+            }
+          });
+          this.logger.info(
+            "Vector store indexing enabled - initialization started in background",
+          );
+        } else {
+          this.logger.info(
+            "Vector store indexing disabled - mounted files will not be indexed for AI search",
+          );
+        }
+      }
+
       // Initialize Pyodide in worker
       await this.sendWorkerMessage("init", {
         interruptBuffer: this.interruptBuffer,
         packages: packagesToLoad,
+        mountData,
       });
 
       this.isInitialized = true;
@@ -381,6 +452,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       ) as NotebookTool[];
 
       try {
+        const maxIterations = this.config.aiMaxIterations || 10;
         return await executeAI(
           aiContext,
           notebookContext,
@@ -388,6 +460,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           this.store,
           this.config.sessionId,
           notebookTools,
+          maxIterations,
         );
       } finally {
         this.currentAIExecution = null;
@@ -497,6 +570,11 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           executionResult.result !== undefined
         ) {
           result(this.formatRichOutput(executionResult.result));
+        }
+
+        // Sync /outputs directory back to host if outputDir is configured
+        if (this.options.outputDir) {
+          await this.syncOutputsToHost();
         }
 
         return { success: true };
@@ -712,19 +790,187 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     this.isInitialized = false;
     this.currentExecutionContext = null;
 
-    // Clean up worker
-    this.cleanupWorker();
+    // Clean up worker (async but don't wait for it in crash handler)
+    this.cleanupWorker().catch((error) => {
+      this.logger.debug("Error during worker cleanup after crash", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   /**
    * Cleanup worker resources
    */
-  private cleanupWorker(): void {
+  private async cleanupWorker(): Promise<void> {
     if (this.worker) {
+      try {
+        // Send shutdown signal to worker before terminating
+        await this.sendWorkerMessage("shutdown", {});
+
+        // Give the worker a moment to clean up
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } catch (error) {
+        // Ignore errors during shutdown - worker might already be terminated
+        this.logger.debug(
+          "Worker shutdown message failed (expected during cleanup)",
+          {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+
       this.worker.terminate();
       this.worker = null;
     }
 
     this.logger.info("Pyodide worker cleanup completed");
+  }
+
+  /**
+   * Read directory contents recursively for mounting
+   */
+  private async readMountDirectories(
+    mountPaths: string[],
+    mountMappings?: Array<{ hostPath: string; targetPath: string }>,
+  ): Promise<
+    Array<
+      {
+        hostPath: string;
+        targetPath?: string;
+        files: Array<{ path: string; content: Uint8Array }>;
+      }
+    >
+  > {
+    const mountData: Array<
+      {
+        hostPath: string;
+        targetPath?: string;
+        files: Array<{ path: string; content: Uint8Array }>;
+      }
+    > = [];
+
+    for (const hostPath of mountPaths) {
+      try {
+        const files: Array<{ path: string; content: Uint8Array }> = [];
+
+        // Recursively read all files in the directory
+        await this.readDirectoryRecursive(hostPath, hostPath, files);
+
+        // Find the target path from mount mappings
+        const targetPath = mountMappings?.find((m) => m.hostPath === hostPath)
+          ?.targetPath;
+
+        // Only include targetPath if it's defined
+        const mountEntry = targetPath
+          ? { hostPath, targetPath, files }
+          : { hostPath, files };
+        mountData.push(mountEntry);
+
+        this.logger.info(
+          `Read ${files.length} files from mount path: ${hostPath}${
+            targetPath ? ` -> ${targetPath}` : ""
+          }`,
+        );
+      } catch (error) {
+        this.logger.warn(`Failed to read mount directory: ${hostPath}`, {
+          error,
+        });
+      }
+    }
+
+    return mountData;
+  }
+
+  /**
+   * Recursively read directory contents
+   */
+  private async readDirectoryRecursive(
+    basePath: string,
+    currentPath: string,
+    files: Array<{ path: string; content: Uint8Array }>,
+  ): Promise<void> {
+    try {
+      for await (const entry of Deno.readDir(currentPath)) {
+        const fullPath = `${currentPath}/${entry.name}`;
+        const relativePath = fullPath.replace(`${basePath}/`, "");
+
+        if (entry.isFile) {
+          try {
+            const content = await Deno.readFile(fullPath);
+            files.push({ path: relativePath, content });
+          } catch (error) {
+            this.logger.warn(`Failed to read file: ${fullPath}`, { error });
+          }
+        } else if (entry.isDirectory) {
+          // Recursively read subdirectory
+          await this.readDirectoryRecursive(basePath, fullPath, files);
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to read directory: ${currentPath}`, { error });
+    }
+  }
+
+  /**
+   * Sync files from /outputs directory back to host filesystem
+   */
+  private async syncOutputsToHost(): Promise<void> {
+    if (!this.options.outputDir) {
+      return;
+    }
+
+    try {
+      // Get files from /outputs directory via worker
+      const result = await this.sendWorkerMessage("sync_outputs", {}) as {
+        files: Array<{ path: string; content: Uint8Array }>;
+      };
+
+      if (!result.files || result.files.length === 0) {
+        this.logger.debug("No files found in /outputs directory to sync");
+        return;
+      }
+
+      // Ensure output directory exists on host
+      try {
+        await Deno.mkdir(this.options.outputDir, { recursive: true });
+      } catch (_error) {
+        // Directory might already exist, ignore error
+      }
+
+      // Write each file to the host filesystem
+      let syncedCount = 0;
+      for (const { path, content } of result.files) {
+        try {
+          const hostPath: string = `${this.options.outputDir}/${path}`;
+
+          // Create parent directories if needed
+          const parentDir: string = hostPath.substring(
+            0,
+            hostPath.lastIndexOf("/"),
+          );
+          if (parentDir !== this.options.outputDir) {
+            try {
+              await Deno.mkdir(parentDir, { recursive: true });
+            } catch (_error) {
+              // Directory might already exist, ignore
+            }
+          }
+
+          // Write file to host
+          await Deno.writeFile(hostPath, content);
+          syncedCount++;
+        } catch (error) {
+          this.logger.warn(`Failed to sync file ${path} to host: ${error}`);
+        }
+      }
+
+      if (syncedCount > 0) {
+        this.logger.info(
+          `Synced ${syncedCount} files from /outputs to ${this.options.outputDir}`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to sync outputs to host: ${error}`);
+    }
   }
 }
