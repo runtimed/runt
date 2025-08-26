@@ -15,7 +15,7 @@ import {
   type MediaContainer,
   tables,
 } from "@runt/schema";
-import { createLogger } from "./logging.ts";
+import { Logger } from "./logging.ts";
 import { makeSchema, State } from "npm:@livestore/livestore";
 
 // Create schema locally
@@ -44,7 +44,7 @@ import { decodeBase64 } from "@std/encoding/base64";
  */
 export class RuntimeAgent {
   #store!: Store<typeof schema>;
-  protected logger!: ReturnType<typeof createLogger>;
+  logger!: Logger;
   private isShuttingDown = false;
   private processedExecutions = new Set<string>();
 
@@ -65,17 +65,12 @@ export class RuntimeAgent {
   /**
    * Start the runtime agent - connects to LiveStore and begins processing
    */
-  async start(): Promise<void> {
+  async start(logger: Logger, store: Store<typeof schema>): Promise<void> {
     try {
       await this.handlers.onStartup?.(this.config.environmentOptions);
 
-      this.logger = createLogger(`${this.config.runtimeType}-agent`, {
-        context: {
-          notebookId: this.config.notebookId,
-          runtimeId: this.config.runtimeId,
-          sessionId: this.config.sessionId,
-        },
-      });
+      this.logger = logger;
+      this.#store = store;
 
       this.logger.info("Starting runtime agent", {
         runtimeId: this.config.runtimeId,
@@ -95,28 +90,6 @@ export class RuntimeAgent {
       console.log(`\n🔐 \x1b[32m✅ Successfully authenticated\x1b[0m`);
       console.log(`   \x1b[36mEndpoint:\x1b[0m ${apiHost}`);
       console.log(`   \x1b[36mUser ID:\x1b[0m  ${userId}`);
-
-      // Create LiveStore adapter for real-time collaboration
-      const adapter = makeAdapter({
-        storage: { type: "in-memory" },
-        sync: {
-          backend: makeCfSync({ url: this.config.syncUrl }),
-          onSyncError: "ignore",
-        },
-      });
-
-      this.#store = await createStorePromise({
-        adapter,
-        schema,
-        storeId: this.config.notebookId,
-        syncPayload: {
-          authToken: this.config.authToken,
-          runtime: true,
-          runtimeId: this.config.runtimeId,
-          sessionId: this.config.sessionId,
-          clientId: userId,
-        },
-      });
 
       // Register runtime session
       // Displace any existing active sessions for this notebook
@@ -169,8 +142,11 @@ export class RuntimeAgent {
 
       // No return value
     } catch (error) {
-      const logger = createLogger(`${this.config.runtimeType}-agent`);
-      logger.error("Failed to start runtime agent", error);
+      if (this.logger) {
+        this.logger.error("Failed to start runtime agent", error);
+      } else {
+        console.error(error);
+      }
       await this.handlers.onDisconnected?.(error as Error);
       throw error;
     }
@@ -180,24 +156,6 @@ export class RuntimeAgent {
    * Discover authenticated user identity via /api/me endpoint
    */
   private async discoverUserIdentity(): Promise<string> {
-    const logger = createLogger(`${this.config.runtimeType}-agent`);
-
-    // Skip authentication in test environments
-    const isTestEnvironment = Deno.env.get("DENO_TESTING") === "true" ||
-      Deno.args.some((arg) => arg.includes("test")) ||
-      // Detect when running via deno test command
-      Deno.args.some((arg) => arg.endsWith(".test.ts")) ||
-      // Detect test files by checking if they end with .test.ts
-      (typeof Deno !== "undefined" && Deno.mainModule &&
-        Deno.mainModule.includes(".test.ts")) ||
-      // Check if auth token looks like a test token
-      this.config.authToken === "test-token";
-
-    if (isTestEnvironment) {
-      logger.debug("Skipping authentication in test environment");
-      return "test-user-id";
-    }
-
     // Convert sync URL to API base URL
     const syncUrl = new URL(this.config.syncUrl);
     // Convert WebSocket URLs to HTTP URLs
@@ -221,7 +179,7 @@ export class RuntimeAgent {
           errorBody = "Unable to read response body";
         }
 
-        logger.error("Authentication request failed", {
+        this.logger.error("Authentication request failed", {
           endpoint: meEndpoint,
           status: response.status,
           statusText: response.statusText,
@@ -240,14 +198,14 @@ export class RuntimeAgent {
       };
 
       if (!userInfo.id) {
-        logger.error("Invalid user info response", {
+        this.logger.error("Invalid user info response", {
           endpoint: meEndpoint,
           responseBody: JSON.stringify(userInfo),
         });
         throw new Error("User ID not found in response");
       }
 
-      logger.debug("User identity discovered", {
+      this.logger.debug("User identity discovered", {
         userId: userInfo.id,
         email: userInfo.email,
         name: userInfo.name,
@@ -257,13 +215,18 @@ export class RuntimeAgent {
     } catch (error) {
       // If we haven't already logged the error above, log it here
       if (!(error instanceof Error && error.message.startsWith("HTTP "))) {
-        logger.error("Network or parsing error during identity discovery", {
-          endpoint: meEndpoint,
-          errorMessage: error instanceof Error ? error.message : String(error),
-          errorType: error instanceof Error
-            ? error.constructor.name
-            : typeof error,
-        });
+        this.logger.error(
+          "Network or parsing error during identity discovery",
+          {
+            endpoint: meEndpoint,
+            errorMessage: error instanceof Error
+              ? error.message
+              : String(error),
+            errorType: error instanceof Error
+              ? error.constructor.name
+              : typeof error,
+          },
+        );
       }
 
       // Pretty console output for authentication failure
@@ -296,8 +259,7 @@ export class RuntimeAgent {
     if (this.isShuttingDown) return;
     this.isShuttingDown = true;
 
-    const shutdownLogger = createLogger(`${this.config.runtimeType}-agent`);
-    shutdownLogger.info("Runtime agent shutting down", {
+    this.logger.info("Runtime agent shutting down", {
       runtimeId: this.config.runtimeId,
       sessionId: this.config.sessionId,
     });
@@ -319,11 +281,10 @@ export class RuntimeAgent {
           }));
         }
       } catch (error) {
-        const termLogger = createLogger(`${this.config.runtimeType}-agent`);
         if (error instanceof Error) {
-          termLogger.error("Failed to mark session as terminated", error);
+          this.logger.error("Failed to mark session as terminated", error);
         } else {
-          termLogger.warn("Failed to mark session as terminated", {
+          this.logger.warn("Failed to mark session as terminated", {
             error: String(error),
           });
         }
@@ -337,14 +298,13 @@ export class RuntimeAgent {
         await this.store.shutdown?.();
       }
     } catch (error) {
-      const logger = createLogger(`${this.config.runtimeType}-agent`);
-      logger.error("Error during shutdown", error, {
+      this.logger.error("Error during shutdown", error, {
         runtimeId: this.config.runtimeId,
         sessionId: this.config.sessionId,
       });
     }
 
-    shutdownLogger.info("Runtime agent shutdown complete", {
+    this.logger.info("Runtime agent shutdown complete", {
       runtimeId: this.config.runtimeId,
       sessionId: this.config.sessionId,
     });
@@ -462,8 +422,7 @@ export class RuntimeAgent {
               try {
                 await this.processExecution(queueEntry);
               } catch (error) {
-                const logger = createLogger(`${this.config.runtimeType}-agent`);
-                logger.error("Error processing execution", error, {
+                this.logger.error("Error processing execution", error, {
                   executionId: queueEntry.id,
                   cellId: queueEntry.cellId,
                 });
@@ -485,25 +444,23 @@ export class RuntimeAgent {
           if (this.isShuttingDown) return;
 
           if (entries.length > 0) {
-            const logger = createLogger(`${this.config.runtimeType}-agent`);
-
             // Log cell count for sync debugging
             try {
               const allCells = this.store.query(tables.cells.select());
-              logger.info("Runtime sync status", {
+              this.logger.info("Runtime sync status", {
                 pendingExecutions: entries.length,
                 totalCells: allCells.length,
                 cellIds: allCells.map((c) => c.id),
               });
             } catch (error) {
               // Mask LiveStore errors to prevent interference with runtime execution
-              logger.debug("LiveStore query failed for sync status", {
+              this.logger.debug("LiveStore query failed for sync status", {
                 error: error instanceof Error ? error.message : String(error),
                 pendingExecutions: entries.length,
               });
             }
 
-            logger.debug("Pending executions", {
+            this.logger.debug("Pending executions", {
               count: entries.length,
               executions: entries.map((e) => ({ id: e.id, cellId: e.cellId })),
             });
@@ -520,8 +477,7 @@ export class RuntimeAgent {
               );
             } catch (error) {
               // Mask LiveStore errors to prevent interference with runtime execution
-              const logger = createLogger(`${this.config.runtimeType}-agent`);
-              logger.debug("LiveStore query failed for active runtimes", {
+              this.logger.debug("LiveStore query failed for active runtimes", {
                 error: error instanceof Error ? error.message : String(error),
                 sessionId: this.config.sessionId,
               });
@@ -607,8 +563,7 @@ export class RuntimeAgent {
   ): void {
     const controller = this.activeExecutions.get(queueId);
     if (controller) {
-      const logger = createLogger(`${this.config.runtimeType}-agent`);
-      logger.debug("Cancelling execution", {
+      this.logger.debug("Cancelling execution", {
         queueId,
         cellId,
         reason,
@@ -621,11 +576,10 @@ export class RuntimeAgent {
         try {
           handler(queueId, cellId, reason);
         } catch (error) {
-          const cancelLogger = createLogger(`${this.config.runtimeType}-agent`);
           if (error instanceof Error) {
-            cancelLogger.error("Cancellation handler error", error);
+            this.logger.error("Cancellation handler error", error);
           } else {
-            cancelLogger.warn("Cancellation handler error", {
+            this.logger.warn("Cancellation handler error", {
               error: String(error),
             });
           }
@@ -640,8 +594,7 @@ export class RuntimeAgent {
   private async processExecution(
     queueEntry: ExecutionQueueData,
   ): Promise<void> {
-    const logger = createLogger(`${this.config.runtimeType}-agent`);
-    logger.debug("Processing execution", {
+    this.logger.debug("Processing execution", {
       executionId: queueEntry.id,
       cellId: queueEntry.cellId,
     });
@@ -661,8 +614,7 @@ export class RuntimeAgent {
       cell = cells[0] as CellData;
     } catch (error) {
       // Mask LiveStore errors but still need to handle missing cell
-      const logger = createLogger(`${this.config.runtimeType}-agent`);
-      logger.debug("LiveStore query failed for cell data", {
+      this.logger.debug("LiveStore query failed for cell data", {
         error: error instanceof Error ? error.message : String(error),
         cellId: queueEntry.cellId,
       });
@@ -916,8 +868,7 @@ export class RuntimeAgent {
           }));
         } catch (error) {
           // Mask LiveStore errors to prevent interference with runtime execution
-          const logger = createLogger(`${this.config.runtimeType}-agent`);
-          logger.debug("LiveStore commit failed for clear output", {
+          this.logger.debug("LiveStore commit failed for clear output", {
             error: error instanceof Error ? error.message : String(error),
             cellId: cell.id,
           });
@@ -940,8 +891,7 @@ export class RuntimeAgent {
         }));
       } catch (error) {
         // Mask LiveStore errors to prevent interference with runtime execution
-        const logger = createLogger(`${this.config.runtimeType}-agent`);
-        logger.debug("LiveStore commit failed for executionStarted", {
+        this.logger.debug("LiveStore commit failed for executionStarted", {
           error: error instanceof Error ? error.message : String(error),
           queueId: queueEntry.id,
           cellId: queueEntry.cellId,
@@ -974,15 +924,14 @@ export class RuntimeAgent {
         }));
       } catch (error) {
         // Mask LiveStore errors to prevent interference with runtime execution
-        const logger = createLogger(`${this.config.runtimeType}-agent`);
-        logger.debug("LiveStore commit failed for executionCompleted", {
+        this.logger.debug("LiveStore commit failed for executionCompleted", {
           error: error instanceof Error ? error.message : String(error),
           queueId: queueEntry.id,
           cellId: queueEntry.cellId,
         });
       }
 
-      logger.debug("Execution completed", {
+      this.logger.debug("Execution completed", {
         executionId: queueEntry.id,
         cellId: queueEntry.cellId,
         duration_ms: executionDurationMs,
@@ -991,7 +940,7 @@ export class RuntimeAgent {
     } catch (error) {
       // Check if execution was cancelled
       if (controller.signal.aborted) {
-        logger.debug("Execution was cancelled", {
+        this.logger.debug("Execution was cancelled", {
           executionId: queueEntry.id,
           cellId: queueEntry.cellId,
         });
@@ -999,7 +948,7 @@ export class RuntimeAgent {
         return;
       }
 
-      logger.error("Error in execution", error, {
+      this.logger.error("Error in execution", error, {
         executionId: queueEntry.id,
         cellId: queueEntry.cellId,
       });
@@ -1046,8 +995,7 @@ export class RuntimeAgent {
     Deno.addSignalListener("SIGTERM" as Deno.Signal, shutdown);
 
     globalThis.addEventListener("unhandledrejection", (event) => {
-      const errorLogger = createLogger(`${this.config.runtimeType}-agent`);
-      errorLogger.error(
+      this.logger.error(
         "Unhandled rejection",
         event.reason instanceof Error ? event.reason : undefined,
         {
@@ -1060,8 +1008,7 @@ export class RuntimeAgent {
     });
 
     globalThis.addEventListener("error", (event) => {
-      const errorLogger = createLogger(`${this.config.runtimeType}-agent`);
-      errorLogger.error(
+      this.logger.error(
         "Uncaught error",
         event.error instanceof Error ? event.error : undefined,
         {
@@ -1081,8 +1028,7 @@ export class RuntimeAgent {
         Deno.removeSignalListener(signal as Deno.Signal, handler);
       } catch (error) {
         // Ignore errors during cleanup
-        const cleanupLogger = createLogger(`${this.config.runtimeType}-agent`);
-        cleanupLogger.debug("Error removing signal listener", {
+        this.logger.debug("Error removing signal listener", {
           signal,
           error: error instanceof Error ? error.message : String(error),
         });
@@ -1113,8 +1059,7 @@ export class RuntimeAgent {
       const imageData = decodeBase64(content);
       const imageSizeBytes = imageData.length;
 
-      const logger = createLogger("runtime-agent");
-      logger.debug("Processing image content for artifact upload", {
+      this.logger.debug("Processing image content for artifact upload", {
         mimeType,
         imageSizeBytes,
         thresholdBytes: this.config.imageArtifactThresholdBytes,
@@ -1124,7 +1069,7 @@ export class RuntimeAgent {
 
       // If image is below threshold, keep inline
       if (imageSizeBytes <= this.config.imageArtifactThresholdBytes) {
-        logger.debug("Image below threshold, keeping inline", {
+        this.logger.debug("Image below threshold, keeping inline", {
           mimeType,
           imageSizeBytes,
           thresholdBytes: this.config.imageArtifactThresholdBytes,
@@ -1136,7 +1081,7 @@ export class RuntimeAgent {
         };
       }
 
-      logger.debug("Image above threshold, uploading as artifact", {
+      this.logger.debug("Image above threshold, uploading as artifact", {
         mimeType,
         imageSizeBytes,
         thresholdBytes: this.config.imageArtifactThresholdBytes,
@@ -1156,7 +1101,7 @@ export class RuntimeAgent {
         submissionOptions,
       );
 
-      logger.debug("Image successfully uploaded as artifact", {
+      this.logger.debug("Image successfully uploaded as artifact", {
         mimeType,
         artifactId: result.artifactId,
         imageSizeBytes,
@@ -1173,8 +1118,7 @@ export class RuntimeAgent {
       };
     } catch (error) {
       // If artifact upload fails, fall back to inline
-      const logger = createLogger("runtime-agent");
-      logger.warn(
+      this.logger.warn(
         "Failed to upload image as artifact, falling back to inline",
         {
           error: error instanceof Error ? error.message : String(error),

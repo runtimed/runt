@@ -258,40 +258,40 @@ export const logger = new Logger();
 /**
  * Create a logger with environment-based configuration
  */
-export function createLogger(
-  service: string,
-  options: Partial<LoggerConfig> = {},
-): Logger {
-  const level = getLogLevelFromEnv();
-  const console = !Deno.env.get("RUNT_DISABLE_CONSOLE_LOGS");
+// export function createLogger(
+//   service: string,
+//   options: Partial<LoggerConfig> = {},
+// ): Logger {
+//   const level = getLogLevelFromEnv();
+//   const console = !Deno.env.get("RUNT_DISABLE_CONSOLE_LOGS");
 
-  return new Logger({
-    service,
-    level,
-    console,
-    ...options,
-  });
-}
+//   return new Logger({
+//     service,
+//     level,
+//     console,
+//     ...options,
+//   });
+// }
 
 /**
  * Get log level from environment variables
  */
-function getLogLevelFromEnv(): LogLevel {
-  const envLevel = Deno.env.get("RUNT_LOG_LEVEL")?.toUpperCase();
-  switch (envLevel) {
-    case "DEBUG":
-      return LogLevel.DEBUG;
-    case "INFO":
-      return LogLevel.INFO;
-    case "WARN":
-    case "WARNING":
-      return LogLevel.WARN;
-    case "ERROR":
-      return LogLevel.ERROR;
-    default:
-      return LogLevel.ERROR;
-  }
-}
+// function getLogLevelFromEnv(): LogLevel {
+//   const envLevel = Deno.env.get("RUNT_LOG_LEVEL")?.toUpperCase();
+//   switch (envLevel) {
+//     case "DEBUG":
+//       return LogLevel.DEBUG;
+//     case "INFO":
+//       return LogLevel.INFO;
+//     case "WARN":
+//     case "WARNING":
+//       return LogLevel.WARN;
+//     case "ERROR":
+//       return LogLevel.ERROR;
+//     default:
+//       return LogLevel.ERROR;
+//   }
+// }
 
 /**
  * Utility to suppress console output for libraries that should be quiet

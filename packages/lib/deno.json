@@ -3,6 +3,10 @@
   "version": "0.11.1",
   "description": "Runtime agent library for building Anode runtime agents",
   "license": "BSD-3-Clause",
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["ESNext", "DOM"]
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/runtimed/anode.git"
@@ -38,15 +42,7 @@
     "lint": "deno lint"
   },
   "publish": {
-    "include": [
-      "mod.ts",
-      "src/",
-      "README.md"
-    ],
-    "exclude": [
-      "**/*.test.ts",
-      "**/test_*.ts",
-      "examples/"
-    ]
+    "include": ["mod.ts", "src/", "README.md"],
+    "exclude": ["**/*.test.ts", "**/test_*.ts", "examples/"]
   }
 }
