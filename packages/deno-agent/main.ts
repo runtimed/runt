@@ -4,7 +4,7 @@ import "@std/dotenv/load";
 await using sandbox = await Sandbox.create();
 
 // %%
-let repl = await sandbox.repl();
+const repl = await sandbox.repl();
 
 // %%
 await repl.eval(`var x = 2`);
