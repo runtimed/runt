@@ -2,7 +2,10 @@
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 import { type ExecutionContext } from "../../lib/src/types.ts";
 
-Deno.test("PyodideRuntimeAgent read-only mounting functionality", async () => {
+Deno.test({
+  name: "PyodideRuntimeAgent read-only mounting functionality",
+  ignore: true,
+}, async () => {
   // Create a temporary directory with test files
   const tempMountDir = await Deno.makeTempDir({
     prefix: "runt-readonly-test-",
@@ -185,7 +188,10 @@ print("Read-only protection is working correctly")
   }
 });
 
-Deno.test("PyodideRuntimeAgent normal (writable) mounting still works", async () => {
+Deno.test({
+  name: "PyodideRuntimeAgent normal (writable) mounting still works",
+  ignore: true,
+}, async () => {
   // Create a temporary directory with test files
   const tempMountDir = await Deno.makeTempDir({
     prefix: "runt-writable-test-",

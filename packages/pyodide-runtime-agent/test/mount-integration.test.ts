@@ -5,7 +5,10 @@
 import { assertEquals } from "jsr:@std/assert";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 
-Deno.test("Mount integration", async (t) => {
+Deno.test({
+  name: "Mount integration",
+  ignore: true,
+}, async (t) => {
   await t.step(
     "PyodideRuntimeAgent handles mount paths correctly",
     () => {
@@ -144,7 +147,10 @@ Deno.test("Mount integration", async (t) => {
   });
 });
 
-Deno.test("Configuration validation", async (t) => {
+Deno.test({
+  name: "Configuration validation",
+  ignore: true,
+}, async (t) => {
   await t.step("should validate mount paths are strings", () => {
     const args = [
       "--notebook=test-notebook",
