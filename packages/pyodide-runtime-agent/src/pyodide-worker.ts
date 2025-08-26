@@ -1093,8 +1093,8 @@ async function shutdownWorker(): Promise<void> {
   }
   backgroundOperations.length = 0;
 
-  // Give a moment for any in-flight operations to check the shutdown flag
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  // Give more time for any in-flight operations to complete and clean up
+  await new Promise((resolve) => setTimeout(resolve, 500));
 
   self.postMessage({
     type: "log",
