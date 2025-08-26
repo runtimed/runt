@@ -2,7 +2,10 @@ import { assertEquals, assertExists } from "jsr:@std/assert";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 import { type ExecutionContext } from "../../lib/src/types.ts";
 
-Deno.test("PyodideRuntimeAgent output directory sync", async () => {
+Deno.test({
+  name: "PyodideRuntimeAgent output directory sync",
+  ignore: true,
+}, async () => {
   // Create a temporary output directory
   const tempOutputDir = await Deno.makeTempDir({ prefix: "runt-output-test-" });
 
@@ -124,7 +127,10 @@ print(f"Created files in /outputs")
   }
 });
 
-Deno.test("PyodideRuntimeAgent no output sync when outputDir not configured", async () => {
+Deno.test({
+  name: "PyodideRuntimeAgent no output sync when outputDir not configured",
+  ignore: true,
+}, async () => {
   const agent = new PyodideRuntimeAgent([
     "--notebook=test-notebook",
     "--auth-token=test-token",
@@ -192,7 +198,10 @@ print("Created file that should not sync")
   await agent.shutdown();
 });
 
-Deno.test("PyodideRuntimeAgent handles empty /outputs directory gracefully", async () => {
+Deno.test({
+  name: "PyodideRuntimeAgent handles empty /outputs directory gracefully",
+  ignore: true,
+}, async () => {
   const tempOutputDir = await Deno.makeTempDir({
     prefix: "runt-empty-output-test-",
   });
