@@ -146,6 +146,8 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         });
       }
     }
+    // Call parent start first to initialize logger and LiveStore
+    await super.start();
 
     // Initialize Pyodide worker after logger is available
     await this.initializePyodideWorker();
