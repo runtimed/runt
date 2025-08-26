@@ -709,6 +709,25 @@ export class VectorStoreService {
   }
 
   /**
+   * Clean up background ingestion processes
+   */
+  async cleanup(): Promise<void> {
+    if (this.ingestionPromise && this.isIngesting) {
+      try {
+        this.logger.info(
+          "Waiting for vector store ingestion to complete during cleanup",
+        );
+        await this.ingestionPromise;
+        this.logger.info("Vector store ingestion completed during cleanup");
+      } catch (error) {
+        this.logger.warn("Vector store ingestion failed during cleanup", {
+          error: String(error),
+        });
+      }
+    }
+  }
+
+  /**
    * Extract a specific number of CSV rows, properly handling quoted fields with embedded newlines
    */
   private extractCsvRows(csvContent: string, maxRows: number): string {
