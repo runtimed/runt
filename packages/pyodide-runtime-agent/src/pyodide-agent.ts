@@ -111,15 +111,6 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
 
     super(config, config.capabilities, {
       onShutdown: async () => {
-        // Clean up vector store background processes first
-        try {
-          const { getVectorStore } = await import("@runt/ai");
-          const vectorStore = getVectorStore();
-          await vectorStore.cleanup();
-        } catch (_error) {
-          // Ignore vector store cleanup errors - it may not be initialized
-        }
-
         await this.cleanupWorker();
       },
     });
