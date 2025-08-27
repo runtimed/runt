@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 // Test configuration for suppressing verbose logging
 //
 // This module provides utilities to configure logging and environment

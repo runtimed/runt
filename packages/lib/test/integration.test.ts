@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 // Integration tests using Deno's testing framework
 //
 // These tests verify the RuntimeAgent works correctly with minimal
@@ -5,8 +6,7 @@
 
 import { assertEquals, assertExists } from "jsr:@std/assert";
 
-import { RuntimeAgent } from "../src/runtime-agent.ts";
-import { RuntimeConfig } from "../src/config.ts";
+import { RuntimeAgent } from "../runtime-agent.ts";
 import type {
   ExecutionContext,
   RuntimeAgentEventHandlers,
@@ -30,7 +30,6 @@ const createMockFunction = (): MockFunction => {
 };
 
 Deno.test("RuntimeAgent Integration Tests", async (t) => {
-  let config: RuntimeConfig;
   let capabilities: RuntimeCapabilities;
   let handlers: RuntimeAgentEventHandlers;
 
