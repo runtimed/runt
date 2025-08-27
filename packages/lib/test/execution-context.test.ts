@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 // deno-lint-ignore-file no-explicit-any
 // ExecutionContext output methods tests
 

@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 /**
  * Tests for size-based artifact upload functionality in RuntimeAgent
  */

@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 // Dynamic example tests
 //
 // This test automatically discovers and validates all TypeScript examples

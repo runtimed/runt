@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 import { assertEquals } from "jsr:@std/assert";
 import {
   createRuntimeConfig,

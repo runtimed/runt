@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 /**
  * Tests for the Artifact Client
  */

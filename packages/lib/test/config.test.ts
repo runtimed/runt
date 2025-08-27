@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 import { assert, assertEquals, assertThrows } from "jsr:@std/assert";
 import { stub } from "jsr:@std/testing/mock";
 import {

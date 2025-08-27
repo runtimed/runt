@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 import { assert, assertEquals } from "jsr:@std/assert";
 import {
   APPLICATION_MIME_TYPES,

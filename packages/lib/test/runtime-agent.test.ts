@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 // RuntimeAgent unit tests using Deno's testing framework
 //
 // These tests verify the core RuntimeAgent functionality using simple
