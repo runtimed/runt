@@ -5,21 +5,12 @@
 // that allows passing custom LiveStore adapters and stores to PyodideRuntimeAgent.
 
 import { assertEquals, assertExists } from "jsr:@std/assert";
-import { delay } from "jsr:@std/async/delay";
+
 import { crypto } from "jsr:@std/crypto";
 
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
-import {
-  createStorePromise,
-  makeSchema,
-  State,
-} from "npm:@livestore/livestore";
-import { makeAdapter } from "npm:@livestore/adapter-node";
-import { events, materializers, tables } from "@runt/schema";
 
-// Create schema locally (same as runtime-agent.ts)
-const state = State.SQLite.makeState({ tables, materializers });
-const schema = makeSchema({ events, state });
+import { makeAdapter } from "npm:@livestore/adapter-node";
 
 // Configure test environment for quiet logging
 Deno.env.set("RUNT_LOG_LEVEL", "ERROR");

@@ -10,17 +10,7 @@ import { crypto } from "jsr:@std/crypto";
 
 import { RuntimeAgent, type RuntimeCapabilities } from "@runt/lib";
 import { createRuntimeConfig } from "../src/config.ts";
-import {
-  createStorePromise,
-  makeSchema,
-  State,
-} from "npm:@livestore/livestore";
 import { makeAdapter } from "npm:@livestore/adapter-node";
-import { events, materializers, tables } from "@runt/schema";
-
-// Create schema locally (same as runtime-agent.ts)
-const state = State.SQLite.makeState({ tables, materializers });
-const schema = makeSchema({ events, state });
 
 Deno.test("RuntimeAgent adapter injection", async (t) => {
   await t.step(

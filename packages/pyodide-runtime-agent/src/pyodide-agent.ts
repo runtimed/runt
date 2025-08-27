@@ -9,6 +9,7 @@ import {
   RuntimeAgent,
   type RuntimeConfig,
 } from "@runt/lib";
+import type { Adapter } from "npm:@livestore/livestore";
 import type { ExecutionContext } from "@runt/lib";
 
 import { type MediaBundle, validateMediaBundle } from "@runt/lib";
@@ -53,7 +54,7 @@ interface PyodideAgentOptions {
  * Runtime configuration options for PyodideRuntimeAgent
  */
 interface PyodideRuntimeOptions {
-  adapter?: unknown; // LiveStore Adapter
+  adapter?: Adapter;
   clientId?: string;
 }
 
@@ -101,8 +102,8 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           canExecuteAi: true,
           availableAiModels: [], // Will be populated during startup
         },
-        adapter: runtimeOptions.adapter,
-        clientId: runtimeOptions.clientId,
+        ...(runtimeOptions.adapter && { adapter: runtimeOptions.adapter }),
+        ...(runtimeOptions.clientId && { clientId: runtimeOptions.clientId }),
       });
     } catch (error) {
       // Configuration errors should still go to console for CLI usability
