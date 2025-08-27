@@ -1,7 +1,7 @@
 /// <reference lib="deno.ns" />
 import { assertEquals } from "@std/assert";
-import { RuntimeAgent } from "./runtime-agent.ts";
-import { RuntimeConfig } from "./config.ts";
+import { RuntimeAgent } from "../src/runtime-agent.ts";
+import { RuntimeConfig } from "../src/config.ts";
 import {
   cellReferences$,
   createCellBetween,
@@ -12,7 +12,7 @@ import type {
   IArtifactClient,
   RawOutputData,
   RuntimeCapabilities,
-} from "./types.ts";
+} from "../src/types.ts";
 import { queryDb, Schema, sql } from "npm:@livestore/livestore";
 
 function sleep(ms: number): Promise<void> {
