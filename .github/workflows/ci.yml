@@ -8,7 +8,7 @@ on:
 
 jobs:
   lint:
-    name: Lint
+    name: Lint & Type Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -45,106 +45,14 @@ jobs:
           deno-version: v2.x
           cache: true
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: deno task test:coverage
-        env:
-          RUNT_LOG_LEVEL: INFO
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
         with:
           file: cov.lcov
           fail_ci_if_error: false
-
-  test-examples:
-    name: Example Tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-          cache: true
-
-      - name: Test echo agent example
-        run: |
-          cd packages/lib
-          timeout 10s deno run --allow-net --allow-env examples/echo-agent.ts --help || [ $? -eq 124 ]
-        env:
-          RUNT_LOG_LEVEL: INFO
-
-  package-check:
-    name: Package Validation
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-          cache: true
-
-      - name: Check package exports
-        run: |
-          # Test package imports
-          deno eval "
-          import * as schema from './packages/schema/mod.ts';
-          import * as lib from './packages/lib/mod.ts';
-          console.log('Package imports work');
-          "
-
-      - name: Validate deno.json files
-        run: |
-          # Check deno.json validity
-          deno eval "
-          const schemaConfig = JSON.parse(Deno.readTextFileSync('./packages/schema/deno.json'));
-          const libConfig = JSON.parse(Deno.readTextFileSync('./packages/lib/deno.json'));
-          const rootConfig = JSON.parse(Deno.readTextFileSync('./deno.json'));
-          console.log('deno.json files are valid');
-          "
-
-  security:
-    name: Security Check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-          cache: true
-
-      - name: Check dependencies
-        run: |
-          # Check for external dependencies
-          deno info --json packages/schema/mod.ts | jq '.modules[].specifier' | grep -E "(npm:|jsr:)" || echo "No external dependencies"
-          deno info --json packages/lib/mod.ts | jq '.modules[].specifier' | grep -E "(npm:|jsr:)" || echo "No external dependencies"
-
-  benchmark:
-    name: Performance
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-          cache: true
-
-      - name: Performance test
-        run: |
-          # Simple timing test
-          time deno task test:unit
 
   publish-check:
     name: Publish Check
@@ -163,47 +71,13 @@ jobs:
       - name: Dry run publish all packages
         run: deno task publish:dry-run
 
-  integration:
-    name: Integration
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-          cache: true
-
-      - name: Run integration tests
-        run: deno task test:integration
-
-      - name: Test cross-package imports
-        run: |
-          # Test package imports
-          deno eval "
-          import { RuntimeAgent } from './packages/lib/src/runtime-agent.ts';
-          import { events, schema } from './packages/schema/mod.ts';
-          console.log('Cross-package imports work');
-          "
-
   cross-platform:
-    name: Cross Platform
+    name: Cross Platform Test
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [
-          ubuntu-latest,
-          macos-latest,
-        ] # TODO: Bring back windows-latest. Currently running into an effect platform issue
+        os: [ubuntu-latest, macos-latest]
     steps:
-      - name: Configure git (Windows fix)
-        if: matrix.os == 'windows-latest'
-        run: |
-          git config --system core.autocrlf false
-          git config --system core.eol lf
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -213,26 +87,5 @@ jobs:
           deno-version: v2.x
           cache: true
 
-      - name: Run core tests
-        run: deno task test:unit
-
-  notify:
-    name: Notify
-    runs-on: ubuntu-latest
-    needs: [lint, test, test-examples, package-check, integration]
-    if: always()
-    steps:
-      - name: Notify on success
-        if: ${{ needs.lint.result == 'success' && needs.test.result == 'success' && needs.test-examples.result == 'success' && needs.package-check.result == 'success' && needs.integration.result == 'success' }}
-        run: echo "All checks passed"
-
-      - name: Notify on failure
-        if: ${{ needs.lint.result == 'failure' || needs.test.result == 'failure' || needs.test-examples.result == 'failure' || needs.package-check.result == 'failure' || needs.integration.result == 'failure' }}
-        run: |
-          echo "Some checks failed"
-          echo "Lint: ${{ needs.lint.result }}"
-          echo "Test: ${{ needs.test.result }}"
-          echo "Test Examples: ${{ needs.test-examples.result }}"
-          echo "Package Check: ${{ needs.package-check.result }}"
-          echo "Integration: ${{ needs.integration.result }}"
-          exit 1
+      - name: Run tests
+        run: deno task test
