@@ -696,12 +696,17 @@ The system will automatically pull models if they're not available locally.`;
       // Use Groq provider with RuntOpenAIClient configured for Groq
       let groqBaseURL = Deno.env.get("GROQ_BASE_URL");
       let groqApiKey: string | undefined;
+      let defaultHeaders: Record<string, string> = {};
 
       if (!groqBaseURL) {
         groqApiKey = Deno.env.get("GROQ_API_KEY");
         groqBaseURL = "https://api.groq.com/openai/v1";
       } else {
         groqApiKey = Deno.env.get("RUNT_API_KEY");
+        defaultHeaders = {
+          "X-Client-Version": "0.11.1",
+          "X-Client-Source": "anaconda-runt-dev",
+        }
       }
 
       if (!groqApiKey || !groqBaseURL) {
@@ -717,6 +722,7 @@ The system will automatically pull models if they're not available locally.`;
       const groqClient = new OpenAIClient({
         apiKey: groqApiKey,
         baseURL: groqBaseURL,
+        defaultHeaders: defaultHeaders,
       }, notebookTools);
 
       const conversationMessages = buildConversationMessages(

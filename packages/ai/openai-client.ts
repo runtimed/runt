@@ -17,6 +17,7 @@ interface OpenAIConfig {
   apiKey?: string;
   baseURL?: string;
   organization?: string;
+  defaultHeaders?: Record<string, string>;
 }
 
 interface ToolCall {
@@ -90,6 +91,7 @@ export class RuntOpenAIClient {
         apiKey,
         baseURL: baseURL,
         organization: config?.organization,
+        defaultHeaders: config?.defaultHeaders,
       });
       this.isConfigured = true;
       this.logger.info("OpenAI client configured successfully");
