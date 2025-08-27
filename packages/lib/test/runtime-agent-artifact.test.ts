@@ -4,9 +4,9 @@
 
 import { assertEquals } from "@std/assert";
 import { encodeBase64 } from "@std/encoding/base64";
-import { RuntimeAgent } from "./runtime-agent.ts";
-import { RuntimeConfig } from "./config.ts";
-import type { RuntimeAgentOptions } from "./types.ts";
+import { RuntimeAgent } from "../src/runtime-agent.ts";
+import { RuntimeConfig } from "../src/config.ts";
+import type { RuntimeAgentOptions } from "../src/types.ts";
 import type { ImageMimeType, MediaContainer } from "@runt/schema";
 
 // Testing interface to access private methods

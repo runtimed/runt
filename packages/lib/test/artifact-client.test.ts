@@ -4,7 +4,7 @@
 
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { encodeBase64 } from "@std/encoding/base64";
-import { createArtifactClient, PngProcessor } from "./artifact-client.ts";
+import { createArtifactClient, PngProcessor } from "../src/artifact-client.ts";
 
 // Valid PNG signature + minimal IHDR chunk
 const validPngData = new Uint8Array([
