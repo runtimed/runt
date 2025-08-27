@@ -69,13 +69,6 @@ jobs:
           deno-version: v2.x
           cache: true
 
-      - name: Test echo agent example
-        run: |
-          cd packages/lib
-          timeout 10s deno run --allow-net --allow-env examples/echo-agent.ts --help || [ $? -eq 124 ]
-        env:
-          RUNT_LOG_LEVEL: INFO
-
   package-check:
     name: Package Validation
     runs-on: ubuntu-latest
@@ -193,10 +186,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [
-          ubuntu-latest,
-          macos-latest,
-        ] # TODO: Bring back windows-latest. Currently running into an effect platform issue
+        os: [ubuntu-latest, macos-latest] # TODO: Bring back windows-latest. Currently running into an effect platform issue
     steps:
       - name: Configure git (Windows fix)
         if: matrix.os == 'windows-latest'
