@@ -39,9 +39,10 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         runtimeId: "test-runtime",
         runtimeType: "test",
         notebookId: "test-notebook",
-        syncUrl: "ws://localhost:8080",
+        syncUrl: "ws://localhost:8787",
         authToken: "test-token",
-        capabilities,
+        clientId: "test-client",
+        capabilities: capabilities,
         environmentOptions: {},
       });
 
@@ -149,8 +150,9 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         runtimeId: "test-runtime",
         runtimeType: "test",
         notebookId: "test-notebook",
-        syncUrl: "ws://localhost:8080",
+        syncUrl: "ws://localhost:8787",
         authToken: "test-token",
+        clientId: "test-client",
         capabilities,
         environmentOptions: {},
         imageArtifactThresholdBytes: 10, // Very low threshold to trigger artifacting
@@ -260,8 +262,9 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         runtimeId: "test-runtime",
         runtimeType: "test",
         notebookId: "test-notebook",
-        syncUrl: "ws://localhost:8080",
+        syncUrl: "ws://localhost:8787",
         authToken: "test-token",
+        clientId: "test-client",
         capabilities,
         environmentOptions: {},
         imageArtifactThresholdBytes: 10, // Very low threshold to trigger artifacting

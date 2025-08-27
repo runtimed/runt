@@ -23,7 +23,9 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
         "test-token",
         "--sync-url",
         "ws://fake-url:9999", // Will fail but that's expected
-      ]);
+      ], {
+        clientId: "test-client-backward-compat",
+      });
 
       const capabilities: RuntimeCapabilities = {
         canExecuteCode: true,
@@ -91,7 +93,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
         "test-token",
       ], {
         adapter,
-        // No explicit clientId - should generate one
+        clientId: "test-client-generated",
       });
 
       const capabilities: RuntimeCapabilities = {
@@ -126,7 +128,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       "test-token",
     ], {
       adapter,
-      // No explicit clientId - should generate one
+      clientId: `runtime-${runtimeId}`,
     });
 
     const capabilities: RuntimeCapabilities = {

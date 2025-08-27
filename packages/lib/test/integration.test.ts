@@ -57,6 +57,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       notebookId: "test-notebook-integration",
       syncUrl: "ws://localhost:8787",
       authToken: "test-integration-token",
+      clientId: "test-integration-client",
       environmentOptions: {},
       capabilities,
     });
@@ -146,6 +147,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         notebookId: "test-notebook",
         syncUrl: "ws://localhost:8787",
         authToken: "valid-token",
+        clientId: "valid-client",
         capabilities: capabilities,
         environmentOptions: {},
       });
@@ -166,6 +168,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
           notebookId: "test",
           syncUrl: "ws://localhost:8787",
           authToken: "token",
+          clientId: "test-client",
           capabilities: capabilities,
           environmentOptions: {},
         });
@@ -233,21 +236,23 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 Deno.test("RuntimeConfig", async (t) => {
   await t.step("should create valid config with all required fields", () => {
     const config = new RuntimeConfig({
-      runtimeId: "test-runtime",
-      runtimeType: "python",
+      runtimeId: "test-runtime-3",
+      runtimeType: "test",
       notebookId: "test-notebook",
       syncUrl: "ws://localhost:8787",
       authToken: "test-token",
+      clientId: "test-client-3",
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
-        canExecuteAi: true,
+        canExecuteAi: false,
       },
       environmentOptions: {},
     });
 
-    assertEquals(config.runtimeId, "test-runtime");
-    assertEquals(config.runtimeType, "python");
+    // Verify all required fields are set correctly
+    assertEquals(config.runtimeId, "test-runtime-3");
+    assertEquals(config.runtimeType, "test");
     assertEquals(config.notebookId, "test-notebook");
     assertEquals(config.syncUrl, "ws://localhost:8787");
     assertEquals(config.authToken, "test-token");
@@ -261,6 +266,7 @@ Deno.test("RuntimeConfig", async (t) => {
       notebookId: "notebook1",
       syncUrl: "ws://localhost:8787",
       authToken: "token1",
+      clientId: "client1",
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
@@ -275,6 +281,7 @@ Deno.test("RuntimeConfig", async (t) => {
       notebookId: "notebook2",
       syncUrl: "ws://localhost:8787",
       authToken: "token2",
+      clientId: "client2",
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
@@ -289,16 +296,16 @@ Deno.test("RuntimeConfig", async (t) => {
 
   await t.step("should allow custom heartbeat interval", () => {
     const _config = new RuntimeConfig({
-      runtimeId: "test-runtime",
-      runtimeType: "python",
-      notebookId: "test-notebook",
+      runtimeId: "test-ai-runtime",
+      runtimeType: "test-ai",
+      notebookId: "test-ai-notebook",
       syncUrl: "ws://localhost:8787",
-      authToken: "test-token",
-
+      authToken: "test-ai-token",
+      clientId: "test-client-ai",
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
-        canExecuteAi: false,
+        canExecuteAi: true,
       },
       environmentOptions: {},
     });

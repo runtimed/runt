@@ -20,6 +20,7 @@ function makeBaseConfig(overrides: Partial<Record<string, unknown>> = {}) {
     syncUrl: "url",
     authToken: "token",
     notebookId: "nb",
+    clientId: "test-client",
     capabilities: {
       canExecuteCode: true,
       canExecuteSql: false,

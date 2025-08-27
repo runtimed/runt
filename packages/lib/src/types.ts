@@ -93,8 +93,8 @@ export interface RuntimeAgentOptions {
   readonly aiMaxIterations?: number;
   /** Custom LiveStore adapter to use instead of default */
   readonly adapter?: Adapter;
-  /** Override clientId for sync payload (defaults to discovered user ID) */
-  readonly clientId?: string;
+  /** Client ID for sync payload (must be provided) */
+  readonly clientId: string;
 }
 
 /**

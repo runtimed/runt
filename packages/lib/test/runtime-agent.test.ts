@@ -57,6 +57,7 @@ Deno.test("RuntimeAgent", async (t) => {
       notebookId: "test-notebook",
       syncUrl: "ws://localhost:8787",
       authToken: "test-token",
+      clientId: "test-client",
       capabilities,
       environmentOptions: {},
     });
@@ -170,6 +171,7 @@ Deno.test("RuntimeConfig", async (t) => {
       notebookId: "test-notebook",
       syncUrl: "ws://localhost:8787",
       authToken: "test-token",
+      clientId: "test-client",
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
@@ -193,6 +195,7 @@ Deno.test("RuntimeConfig", async (t) => {
       notebookId: "notebook1",
       syncUrl: "ws://localhost:8787",
       authToken: "token1",
+      clientId: "client1",
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
@@ -207,6 +210,7 @@ Deno.test("RuntimeConfig", async (t) => {
       notebookId: "notebook2",
       syncUrl: "ws://localhost:8787",
       authToken: "token2",
+      clientId: "client2",
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
@@ -226,7 +230,7 @@ Deno.test("RuntimeConfig", async (t) => {
       notebookId: "test-notebook",
       syncUrl: "ws://localhost:8787",
       authToken: "test-token",
-
+      clientId: "test-client",
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,

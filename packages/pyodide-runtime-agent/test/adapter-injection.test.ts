@@ -117,7 +117,7 @@ Deno.test({
           "test-token",
         ],
         { discoverAiModels: false },
-        { adapter }, // No explicit clientId - should generate one
+        { adapter, clientId: "test-client-generated" }, // explicit clientId
       );
 
       await agent.start();
@@ -277,35 +277,37 @@ Deno.test({
   );
 
   await t.step(
-    "should maintain backward compatibility for all existing patterns",
+    "should require clientId for programmatic usage (CLI handles auth separately)",
     () => {
-      // Pattern 1: Basic constructor
-      const agent1 = new PyodideRuntimeAgent([
-        "--notebook",
-        "compat-test-1",
-        "--auth-token",
-        "token",
-      ]);
+      // Note: CLI usage (import.meta.main in mod.ts) handles auth first,
+      // but programmatic usage now requires explicit clientId
+
+      // Pattern 1: Constructor with clientId (now required)
+      const agent1 = new PyodideRuntimeAgent(
+        [
+          "--notebook",
+          "programmatic-test-1",
+          "--auth-token",
+          "token",
+        ],
+        {}, // pyodide options
+        { clientId: "programmatic-client-1" }, // now required
+      );
       assertExists(agent1);
 
-      // Pattern 2: Constructor with pyodide options
+      // Pattern 2: Constructor with pyodide options and clientId
       const agent2 = new PyodideRuntimeAgent(
-        ["--notebook", "compat-test-2", "--auth-token", "token"],
-        { packages: ["numpy"] },
+        ["--notebook", "programmatic-test-2", "--auth-token", "token"],
+        { packages: ["numpy"] }, // pyodide options
+        { clientId: "programmatic-client-2" }, // now required
       );
       assertExists(agent2);
 
-      // Pattern 3: Empty options (should use defaults)
-      const agent3 = new PyodideRuntimeAgent(
-        ["--notebook", "compat-test-3", "--auth-token", "token"],
-        {},
-      );
-      assertExists(agent3);
-
-      // All existing patterns should work without changes
-      assertEquals(agent1.config.notebookId, "compat-test-1");
-      assertEquals(agent2.config.notebookId, "compat-test-2");
-      assertEquals(agent3.config.notebookId, "compat-test-3");
+      // Verify configs are set correctly
+      assertEquals(agent1.config.notebookId, "programmatic-test-1");
+      assertEquals(agent1.config.clientId, "programmatic-client-1");
+      assertEquals(agent2.config.notebookId, "programmatic-test-2");
+      assertEquals(agent2.config.clientId, "programmatic-client-2");
     },
   );
 });

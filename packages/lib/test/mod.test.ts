@@ -31,6 +31,7 @@ Deno.test("RuntimeConfig validation works", () => {
       syncUrl: "ws://test",
       authToken: "", // Missing
       notebookId: "", // Missing
+      clientId: "test-client",
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
@@ -52,8 +53,9 @@ Deno.test("RuntimeConfig validation works", () => {
     runtimeId: "test",
     runtimeType: "test",
     syncUrl: "ws://test",
-    authToken: "token",
-    notebookId: "notebook",
+    authToken: "test-token",
+    notebookId: "test-notebook",
+    clientId: "test-client",
     capabilities: {
       canExecuteCode: true,
       canExecuteSql: false,
