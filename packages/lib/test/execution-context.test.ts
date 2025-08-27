@@ -1,8 +1,9 @@
+/// <reference lib="deno.ns" />
 // deno-lint-ignore-file no-explicit-any
 // ExecutionContext output methods tests
 
 import { assertEquals } from "jsr:@std/assert";
-import type { ExecutionContext } from "./types.ts";
+import type { ExecutionContext } from "../src/types.ts";
 
 // Simple test that verifies ExecutionContext method signatures exist and work
 Deno.test("ExecutionContext - method signatures", () => {

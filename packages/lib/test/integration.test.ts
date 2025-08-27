@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 // Integration tests using Deno's testing framework
 //
 // These tests verify the RuntimeAgent works correctly with minimal

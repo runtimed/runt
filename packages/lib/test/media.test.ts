@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 import { assert, assertEquals } from "jsr:@std/assert";
 import {
   APPLICATION_MIME_TYPES,
@@ -13,7 +14,7 @@ import {
   KNOWN_MIME_TYPES,
   TEXT_MIME_TYPES,
 } from "@runt/schema";
-import { validateMediaBundle } from "./types.ts";
+import { validateMediaBundle } from "../src/media/types.ts";
 import {
   ensureTextPlainFallback,
   type RichOutputData,

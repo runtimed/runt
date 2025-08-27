@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 // RuntimeAgent unit tests using Deno's testing framework
 //
 // These tests verify the core RuntimeAgent functionality using simple
@@ -5,13 +6,13 @@
 
 import { assertEquals, assertExists, assertInstanceOf } from "jsr:@std/assert";
 
-import { RuntimeAgent } from "./runtime-agent.ts";
-import { RuntimeConfig } from "./config.ts";
+import { RuntimeAgent } from "../src/runtime-agent.ts";
+import { RuntimeConfig } from "../src/config.ts";
 import type {
   ExecutionContext,
   RuntimeAgentEventHandlers,
   RuntimeCapabilities,
-} from "./types.ts";
+} from "../src/types.ts";
 
 // Simple mock functions
 interface MockFunction {
