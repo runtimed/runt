@@ -29,7 +29,6 @@
   },
   "lock": false,
   "tasks": {
-    "dev": "deno run --allow-net --allow-env packages/lib/examples/echo-agent.ts",
     "test": "DENO_TESTING=true RUNT_LOG_LEVEL=ERROR RUNT_DISABLE_CONSOLE_LOGS=true deno test --allow-all --reporter=dot",
     "test:watch": "DENO_TESTING=true deno test --allow-all --watch",
     "test:coverage": "DENO_TESTING=true deno test --allow-all --coverage=cov/ --reporter=dot && deno coverage --lcov cov/ > cov.lcov",
