@@ -4,7 +4,7 @@ import {
   DEFAULT_CONFIG,
   RuntimeAgent,
   RuntimeConfig,
-} from "./mod.ts";
+} from "@runt/lib";
 
 Deno.test("Library exports are available", () => {
   // Test that main exports are defined
