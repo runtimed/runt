@@ -706,7 +706,7 @@ The system will automatically pull models if they're not available locally.`;
         defaultHeaders = {
           "X-Client-Version": "0.11.1",
           "X-Client-Source": "anaconda-runt-dev",
-        }
+        };
       }
 
       if (!groqApiKey || !groqBaseURL) {
