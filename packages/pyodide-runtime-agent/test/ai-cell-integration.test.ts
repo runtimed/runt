@@ -32,7 +32,9 @@ Deno.test({
           "ws://localhost:8787",
         ];
 
-        agent = new PyodideRuntimeAgent(agentArgs);
+        agent = new PyodideRuntimeAgent(agentArgs, {}, {
+          clientId: "ai-error-test-client",
+        });
         assertExists(agent);
         assertEquals(agent.config.capabilities.canExecuteAi, true);
 

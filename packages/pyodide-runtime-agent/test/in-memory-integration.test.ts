@@ -47,7 +47,9 @@ Deno.test({
           "ws://localhost:9999", // Won't connect, but that's fine
         ];
 
-        agent = new PyodideRuntimeAgent(agentArgs);
+        agent = new PyodideRuntimeAgent(agentArgs, {}, {
+          clientId: "test-client",
+        });
 
         assertExists(agent);
         assertEquals(agent.config.notebookId, notebookId);

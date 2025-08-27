@@ -12,7 +12,6 @@ import type {
   RuntimeCapabilities,
 } from "./types.ts";
 import { ArtifactClient } from "./artifact-client.ts";
-import { generateRuntimeClientId } from "./auth.ts";
 
 /**
  * Default configuration values
@@ -453,15 +452,10 @@ export function createRuntimeConfig(
       cleanCliConfig.runtimeType || mergedDefaults.runtimeType
     }-runtime-${Deno.pid}`;
 
-  // Generate clientId if not provided in defaults
-  const clientId = mergedDefaults.clientId ||
-    generateRuntimeClientId(runtimeId);
-
   const config: RuntimeAgentOptions = {
     ...mergedDefaults,
     ...cleanCliConfig,
     runtimeId,
-    clientId,
     environmentOptions: {
       ...mergedDefaults.environmentOptions,
       ...(cleanCliConfig.environmentOptions ?? {}),

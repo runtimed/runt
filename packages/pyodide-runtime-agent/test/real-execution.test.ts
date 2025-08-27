@@ -25,7 +25,9 @@ function createTestAgent(packages?: string[]): PyodideRuntimeAgent {
     "ws://localhost:8787",
   ];
 
-  return new PyodideRuntimeAgent(validArgs, packages ? { packages } : {});
+  return new PyodideRuntimeAgent(validArgs, packages ? { packages } : {}, {
+    clientId: "test-client",
+  });
 }
 
 // Simple output capture for testing
