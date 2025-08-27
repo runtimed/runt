@@ -13,7 +13,7 @@ import {
   KNOWN_MIME_TYPES,
   TEXT_MIME_TYPES,
 } from "@runt/schema";
-import { validateMediaBundle } from "./types.ts";
+import { validateMediaBundle } from "../src/media/types.ts";
 import {
   ensureTextPlainFallback,
   type RichOutputData,
