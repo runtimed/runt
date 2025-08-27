@@ -4,7 +4,7 @@
 // the runtime agent library, importing existing types from @runt/schema
 // and adding runtime-specific extensions.
 
-import type { Store } from "npm:@livestore/livestore";
+import type { Adapter, Store } from "npm:@livestore/livestore";
 import type { CellData, ExecutionQueueData, OutputType } from "@runt/schema";
 import { events, materializers, tables } from "@runt/schema";
 import { makeSchema, State } from "npm:@livestore/livestore";
@@ -91,6 +91,18 @@ export interface RuntimeAgentOptions {
   }>;
   /** Maximum iterations for AI agent tool calling loops (default: 10) */
   readonly aiMaxIterations?: number;
+}
+
+/**
+ * Constructor options for RuntimeAgent allowing adapter/store injection
+ */
+export interface RuntimeAgentConstructorOptions {
+  /** Custom LiveStore adapter to use instead of default */
+  adapter?: Adapter;
+  /** Pre-configured LiveStore instance to use (takes precedence over adapter) */
+  store?: Store<typeof schema>;
+  /** Override clientId for sync payload (defaults to discovered user ID) */
+  clientId?: string;
 }
 
 /**

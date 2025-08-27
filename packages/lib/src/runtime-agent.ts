@@ -31,6 +31,7 @@ import type {
   ExecutionResult,
   IArtifactClient,
   RawOutputData,
+  RuntimeAgentConstructorOptions,
   RuntimeAgentEventHandlers,
   RuntimeCapabilities,
   RuntimeSessionData,
@@ -53,13 +54,16 @@ export class RuntimeAgent {
   private cancellationHandlers: CancellationHandler[] = [];
   private signalHandlers = new Map<string, () => void>();
   private artifactClient: IArtifactClient;
+  private options: RuntimeAgentConstructorOptions;
 
   constructor(
     public config: RuntimeConfig,
     private capabilities: RuntimeCapabilities,
     private handlers: RuntimeAgentEventHandlers = {},
+    options: RuntimeAgentConstructorOptions = {},
   ) {
     this.artifactClient = config.artifactClient;
+    this.options = options;
   }
 
   /**
@@ -83,39 +87,68 @@ export class RuntimeAgent {
         notebookId: this.config.notebookId,
       });
 
-      // Discover authenticated user identity
-      const userId = await this.discoverUserIdentity();
-      this.logger.info("Authenticated as user", { userId });
+      // Handle store/adapter/clientId options with smart resolution
+      let clientId: string;
 
-      // Pretty console output for successful authentication
-      const syncUrl = new URL(this.config.syncUrl);
-      const protocol = syncUrl.protocol === "wss:" ? "https:" : "http:";
-      const apiHost = `${protocol}//${syncUrl.host}`;
+      // Strategy 1: Use custom store (no sync payload needed)
+      if (this.options.store) {
+        this.logger.info("Using pre-configured LiveStore instance");
+        this.#store = this.options.store;
+      } else {
+        // Strategy 2: Use provided clientId
+        if (this.options.clientId) {
+          this.logger.info("Using provided clientId", {
+            clientId: this.options.clientId,
+          });
+          clientId = this.options.clientId;
+        } // Strategy 3: Generate default for custom adapters
+        else if (this.options.adapter) {
+          clientId = `runtime-${this.config.runtimeId}`;
+          this.logger.info("Generated clientId for custom adapter", {
+            clientId,
+          });
+        } // Strategy 4: Discover identity for default adapter (existing behavior)
+        else {
+          clientId = await this.discoverUserIdentity();
+          this.logger.info("Discovered user identity", { clientId });
 
-      console.log(`\n🔐 \x1b[32m✅ Successfully authenticated\x1b[0m`);
-      console.log(`   \x1b[36mEndpoint:\x1b[0m ${apiHost}`);
-      console.log(`   \x1b[36mUser ID:\x1b[0m  ${userId}`);
+          // Pretty console output for successful authentication (only for default setup)
+          const syncUrl = new URL(this.config.syncUrl);
+          const protocol = syncUrl.protocol === "wss:" ? "https:" : "http:";
+          const apiHost = `${protocol}//${syncUrl.host}`;
 
-      // Create LiveStore adapter for real-time collaboration
-      const adapter = makeAdapter({
-        storage: { type: "in-memory" },
-        sync: {
-          backend: makeCfSync({ url: this.config.syncUrl }),
-          onSyncError: "ignore",
-        },
-      });
+          console.log(`\n🔐 \x1b[32m✅ Successfully authenticated\x1b[0m`);
+          console.log(`   \x1b[36mEndpoint:\x1b[0m ${apiHost}`);
+          console.log(`   \x1b[36mUser ID:\x1b[0m  ${clientId}`);
+        }
 
-      this.#store = await createStorePromise({
-        adapter,
-        schema,
+        // Create store with appropriate adapter and sync payload
+        const adapter = this.options.adapter || this.createDefaultAdapter();
+
+        this.#store = await createStorePromise({
+          adapter,
+          schema,
+          storeId: this.config.notebookId,
+          syncPayload: {
+            authToken: this.config.authToken,
+            runtime: true,
+            runtimeId: this.config.runtimeId,
+            sessionId: this.config.sessionId,
+            clientId,
+          },
+        });
+      }
+
+      // Register global debug access
+      // @ts-expect-error: Global debug access
+      globalThis.__debugLiveStore = globalThis.__debugLiveStore || {};
+      // @ts-expect-error: Global debug access
+      globalThis.__debugLiveStore[this.config.notebookId] = this.#store;
+
+      this.logger.info("LiveStore initialized", {
         storeId: this.config.notebookId,
-        syncPayload: {
-          authToken: this.config.authToken,
-          runtime: true,
-          runtimeId: this.config.runtimeId,
-          sessionId: this.config.sessionId,
-          clientId: userId,
-        },
+        hasCustomAdapter: !!this.options.adapter,
+        hasCustomStore: !!this.options.store,
       });
 
       // Register runtime session
@@ -174,6 +207,19 @@ export class RuntimeAgent {
       await this.handlers.onDisconnected?.(error as Error);
       throw error;
     }
+  }
+
+  /**
+   * Create the default adapter with Cloudflare sync
+   */
+  private createDefaultAdapter() {
+    return makeAdapter({
+      storage: { type: "in-memory" },
+      sync: {
+        backend: makeCfSync({ url: this.config.syncUrl }),
+        onSyncError: "ignore",
+      },
+    });
   }
 
   /**
@@ -332,8 +378,8 @@ export class RuntimeAgent {
       // Clean up signal handlers
       this.cleanupSignalHandlers();
 
-      // Close LiveStore connection
-      if (this.#store) {
+      // Close LiveStore connection (only if we created it, not custom stores)
+      if (this.#store && !this.options.store) {
         await this.store.shutdown?.();
       }
     } catch (error) {

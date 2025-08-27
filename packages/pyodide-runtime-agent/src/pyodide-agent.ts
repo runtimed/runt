@@ -7,6 +7,7 @@
 import {
   createRuntimeConfig,
   RuntimeAgent,
+  type RuntimeAgentConstructorOptions,
   type RuntimeConfig,
 } from "@runt/lib";
 import type { ExecutionContext } from "@runt/lib";
@@ -76,9 +77,13 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     resolve: (result: unknown) => void;
     reject: (error: unknown) => void;
   }>();
-  private options: PyodideAgentOptions;
+  private pyodideOptions: PyodideAgentOptions;
 
-  constructor(args: string[] = Deno.args, options: PyodideAgentOptions = {}) {
+  constructor(
+    args: string[] = Deno.args,
+    options: PyodideAgentOptions = {},
+    runtimeOptions: RuntimeAgentConstructorOptions = {},
+  ) {
     let config: RuntimeConfig;
     try {
       config = createRuntimeConfig(args, {
@@ -113,7 +118,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       onShutdown: async () => {
         await this.cleanupWorker();
       },
-    });
+    }, runtimeOptions);
 
     // Merge config mount paths with options mount paths
     const mergedOptions: PyodideAgentOptions = {
@@ -131,7 +136,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       mergedOptions.outputDir = finalOutputDir;
     }
 
-    this.options = mergedOptions;
+    this.pyodideOptions = mergedOptions;
     this.onExecution(this.executeCell.bind(this));
     this.onCancellation(this.handlePyodideCancellation.bind(this));
   }
@@ -146,7 +151,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     this.logger.info("Starting Pyodide Python runtime agent");
 
     // Discover available AI models if enabled
-    if (this.options.discoverAiModels !== false) {
+    if (this.pyodideOptions.discoverAiModels !== false) {
       try {
         this.logger.info("Discovering available AI models...");
         const models = await discoverAvailableAiModels();
@@ -180,7 +185,8 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       this.logger.info("Initializing Pyodide worker");
 
       // Determine packages to load based on options
-      const packagesToLoad = this.options.packages || getEssentialPackages();
+      const packagesToLoad = this.pyodideOptions.packages ||
+        getEssentialPackages();
 
       this.logger.info("Loading packages", {
         packageCount: packagesToLoad.length,
@@ -228,19 +234,22 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           readonly?: boolean;
         }
       > = [];
-      if (this.options.mountPaths && this.options.mountPaths.length > 0) {
+      if (
+        this.pyodideOptions.mountPaths &&
+        this.pyodideOptions.mountPaths.length > 0
+      ) {
         mountData = await this.readMountDirectories(
-          this.options.mountPaths,
-          this.options.mountMappings,
+          this.pyodideOptions.mountPaths,
+          this.pyodideOptions.mountMappings,
         );
 
         // Add readonly flag to all mount entries if mountReadonly is enabled
-        if (this.options.mountReadonly) {
+        if (this.pyodideOptions.mountReadonly) {
           mountData = mountData.map((entry) => ({ ...entry, readonly: true }));
         }
 
         // Start vector store ingestion asynchronously only if indexing is enabled
-        if (this.options.indexMountedFiles) {
+        if (this.pyodideOptions.indexMountedFiles) {
           // Initialize vector store in background to avoid blocking pyodide startup
           Promise.resolve().then(async () => {
             try {
@@ -573,7 +582,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         }
 
         // Sync /outputs directory back to host if outputDir is configured
-        if (this.options.outputDir) {
+        if (this.pyodideOptions.outputDir) {
           await this.syncOutputsToHost();
         }
 
@@ -915,7 +924,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
    * Sync files from /outputs directory back to host filesystem
    */
   private async syncOutputsToHost(): Promise<void> {
-    if (!this.options.outputDir) {
+    if (!this.pyodideOptions.outputDir) {
       return;
     }
 
@@ -932,7 +941,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
 
       // Ensure output directory exists on host
       try {
-        await Deno.mkdir(this.options.outputDir, { recursive: true });
+        await Deno.mkdir(this.pyodideOptions.outputDir, { recursive: true });
       } catch (_error) {
         // Directory might already exist, ignore error
       }
@@ -941,14 +950,14 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       let syncedCount = 0;
       for (const { path, content } of result.files) {
         try {
-          const hostPath: string = `${this.options.outputDir}/${path}`;
+          const hostPath: string = `${this.pyodideOptions.outputDir}/${path}`;
 
           // Create parent directories if needed
           const parentDir: string = hostPath.substring(
             0,
             hostPath.lastIndexOf("/"),
           );
-          if (parentDir !== this.options.outputDir) {
+          if (parentDir !== this.pyodideOptions.outputDir) {
             try {
               await Deno.mkdir(parentDir, { recursive: true });
             } catch (_error) {
@@ -966,7 +975,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
 
       if (syncedCount > 0) {
         this.logger.info(
-          `Synced ${syncedCount} files from /outputs to ${this.options.outputDir}`,
+          `Synced ${syncedCount} files from /outputs to ${this.pyodideOptions.outputDir}`,
         );
       }
     } catch (error) {
