@@ -1,4 +1,5 @@
-import { assertEquals, assertExists } from "jsr:@std/assert@1.0.13";
+import { assertEquals, assertExists } from "jsr:@std/assert";
+import { makeAdapter } from "npm:@livestore/adapter-node";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 import {
   cellReferences$,
@@ -6,6 +7,7 @@ import {
   events,
   tables,
 } from "@runt/schema";
+
 import { withQuietConsole } from "../../lib/test/test-config.ts";
 
 // Configure test environment for quiet logging
@@ -21,6 +23,11 @@ Deno.test({
   try {
     await t.step("setup", async () => {
       await withQuietConsole(async () => {
+        // Create explicit in-memory adapter for true isolation
+        const adapter = makeAdapter({
+          storage: { type: "in-memory" },
+        });
+
         const agentArgs = [
           "--runtime-id",
           "ai-error-test-runtime",
@@ -29,10 +36,11 @@ Deno.test({
           "--auth-token",
           "ai-error-test-token",
           "--sync-url",
-          "ws://localhost:8787",
+          "ws://localhost:8787", // Not used with explicit adapter
         ];
 
         agent = new PyodideRuntimeAgent(agentArgs, {}, {
+          adapter,
           clientId: "ai-error-test-client",
         });
         assertExists(agent);
@@ -81,10 +89,9 @@ Deno.test({
       // Wait for execution to complete
       let attempts = 0;
       while (attempts < 10) {
-        const queueEntries = agent.store.query(
+        const queueEntries = (agent.store.query(
           tables.executionQueue.select().where({ cellId: aiCellId }),
-        );
-
+        ) as unknown) as Array<{ cellId: string; status?: string }>;
         if (queueEntries.length > 0) {
           const entry = queueEntries[0];
           if (

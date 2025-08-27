@@ -7,6 +7,7 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import { delay } from "jsr:@std/async/delay";
 import { crypto } from "jsr:@std/crypto";
+import { makeAdapter } from "npm:@livestore/adapter-node";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 import {
   cellReferences$,
@@ -35,7 +36,11 @@ Deno.test({
         const notebookId = `test-${crypto.randomUUID()}`;
         const runtimeId = `runtime-${crypto.randomUUID()}`;
 
-        // Use a local-only sync URL - LiveStore works purely in-memory
+        // Create explicit in-memory adapter for true isolation
+        const adapter = makeAdapter({
+          storage: { type: "in-memory" },
+        });
+
         const agentArgs = [
           "--runtime-id",
           runtimeId,
@@ -44,10 +49,11 @@ Deno.test({
           "--auth-token",
           "test-token",
           "--sync-url",
-          "ws://localhost:9999", // Won't connect, but that's fine
+          "ws://localhost:9999", // Not used with explicit adapter
         ];
 
         agent = new PyodideRuntimeAgent(agentArgs, {}, {
+          adapter,
           clientId: "test-client",
         });
 

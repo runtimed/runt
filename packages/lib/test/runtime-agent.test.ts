@@ -5,6 +5,7 @@
 // mock functions to ensure reliable, fast unit testing.
 
 import { assertEquals, assertExists, assertInstanceOf } from "jsr:@std/assert";
+import { makeAdapter } from "npm:@livestore/adapter-node";
 
 import { RuntimeAgent } from "../src/runtime-agent.ts";
 import { RuntimeConfig } from "../src/config.ts";
@@ -51,13 +52,18 @@ Deno.test("RuntimeAgent", async (t) => {
       onExecutionError: createMockFunction(),
     };
 
+    const adapter = makeAdapter({
+      storage: { type: "in-memory" },
+    });
+
     config = new RuntimeConfig({
       runtimeId: "test-runtime",
       runtimeType: "test",
       notebookId: "test-notebook",
-      syncUrl: "ws://localhost:8787",
+      syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "test-token",
       clientId: "test-client",
+      adapter,
       capabilities,
       environmentOptions: {},
     });
@@ -165,13 +171,18 @@ Deno.test("RuntimeAgent", async (t) => {
 
 Deno.test("RuntimeConfig", async (t) => {
   await t.step("should create valid config with all required fields", () => {
+    const adapter = makeAdapter({
+      storage: { type: "in-memory" },
+    });
+
     const config = new RuntimeConfig({
       runtimeId: "test-runtime",
       runtimeType: "python",
       notebookId: "test-notebook",
-      syncUrl: "ws://localhost:8787",
+      syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "test-token",
       clientId: "test-client",
+      adapter,
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
@@ -189,13 +200,18 @@ Deno.test("RuntimeConfig", async (t) => {
   });
 
   await t.step("should generate unique session IDs", () => {
+    const adapter1 = makeAdapter({
+      storage: { type: "in-memory" },
+    });
+
     const config1 = new RuntimeConfig({
       runtimeId: "runtime1",
       runtimeType: "python",
       notebookId: "notebook1",
-      syncUrl: "ws://localhost:8787",
+      syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "token1",
       clientId: "client1",
+      adapter: adapter1,
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
@@ -204,13 +220,18 @@ Deno.test("RuntimeConfig", async (t) => {
       environmentOptions: {},
     });
 
+    const adapter2 = makeAdapter({
+      storage: { type: "in-memory" },
+    });
+
     const config2 = new RuntimeConfig({
       runtimeId: "runtime2",
       runtimeType: "python",
       notebookId: "notebook2",
-      syncUrl: "ws://localhost:8787",
+      syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "token2",
       clientId: "client2",
+      adapter: adapter2,
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
@@ -224,13 +245,18 @@ Deno.test("RuntimeConfig", async (t) => {
   });
 
   await t.step("should allow custom heartbeat interval", () => {
+    const adapter = makeAdapter({
+      storage: { type: "in-memory" },
+    });
+
     const _config = new RuntimeConfig({
       runtimeId: "test-runtime",
       runtimeType: "python",
       notebookId: "test-notebook",
-      syncUrl: "ws://localhost:8787",
+      syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "test-token",
       clientId: "test-client",
+      adapter,
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
