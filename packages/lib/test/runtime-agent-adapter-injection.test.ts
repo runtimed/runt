@@ -8,11 +8,7 @@ import { assertEquals, assertExists } from "jsr:@std/assert";
 
 import { crypto } from "jsr:@std/crypto";
 
-import {
-  RuntimeAgent,
-  type RuntimeAgentConstructorOptions,
-  type RuntimeCapabilities,
-} from "@runt/lib";
+import { RuntimeAgent, type RuntimeCapabilities } from "@runt/lib";
 import { createRuntimeConfig } from "../src/config.ts";
 import {
   createStorePromise,
@@ -54,12 +50,21 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
   );
 
   await t.step("should accept custom in-memory adapter", async () => {
+    // Create custom in-memory adapter
+    const adapter = makeAdapter({
+      storage: { type: "in-memory" },
+      // No sync backend needed for pure in-memory testing
+    });
+
     const config = createRuntimeConfig([
       "--notebook",
       "adapter-test",
       "--auth-token",
       "test-token",
-    ]);
+    ], {
+      adapter,
+      clientId: "test-client-123",
+    });
 
     const capabilities: RuntimeCapabilities = {
       canExecuteCode: true,
@@ -67,18 +72,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       canExecuteAi: false,
     };
 
-    // Create custom in-memory adapter
-    const adapter = makeAdapter({
-      storage: { type: "in-memory" },
-      // No sync backend needed for pure in-memory testing
-    });
-
-    const options: RuntimeAgentConstructorOptions = {
-      adapter,
-      clientId: "test-client-123",
-    };
-
-    const agent = new RuntimeAgent(config, capabilities, {}, options);
+    const agent = new RuntimeAgent(config, capabilities);
 
     assertExists(agent);
     assertEquals(agent.config.notebookId, "adapter-test");
@@ -92,54 +86,47 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
     await agent.shutdown();
   });
 
-  await t.step("should accept pre-configured store", async () => {
-    const config = createRuntimeConfig([
-      "--notebook",
-      "store-test",
-      "--auth-token",
-      "test-token",
-    ]);
+  await t.step(
+    "should accept custom adapter without explicit clientId",
+    async () => {
+      // Create custom in-memory adapter
+      const adapter = makeAdapter({
+        storage: { type: "in-memory" },
+      });
 
-    const capabilities: RuntimeCapabilities = {
-      canExecuteCode: true,
-      canExecuteSql: false,
-      canExecuteAi: false,
-    };
+      const config = createRuntimeConfig([
+        "--notebook",
+        "adapter-test-2",
+        "--auth-token",
+        "test-token",
+      ], {
+        adapter,
+        // No explicit clientId - should generate one
+      });
 
-    // Create pre-configured store
+      const capabilities: RuntimeCapabilities = {
+        canExecuteCode: true,
+        canExecuteSql: false,
+        canExecuteAi: false,
+      };
+
+      const agent = new RuntimeAgent(config, capabilities);
+
+      await agent.start();
+
+      // Verify store was created successfully
+      assertExists(agent.store);
+
+      await agent.shutdown();
+    },
+  );
+
+  await t.step("should generate clientId for custom adapter", async () => {
+    const runtimeId = `runtime-${crypto.randomUUID()}`;
     const adapter = makeAdapter({
       storage: { type: "in-memory" },
     });
 
-    const store = await createStorePromise({
-      adapter,
-      schema,
-      storeId: "pre-configured-store",
-    });
-
-    const options: RuntimeAgentConstructorOptions = {
-      store,
-    };
-
-    const agent = new RuntimeAgent(config, capabilities, {}, options);
-
-    await agent.start();
-
-    // Verify it's using our pre-configured store
-    assertEquals(agent.store, store);
-
-    // Agent shutdown shouldn't shutdown the custom store
-    await agent.shutdown();
-
-    // Store should still be available
-    assertExists(store);
-
-    // Clean up the store ourselves
-    await store.shutdown();
-  });
-
-  await t.step("should generate clientId for custom adapter", async () => {
-    const runtimeId = `runtime-${crypto.randomUUID()}`;
     const config = createRuntimeConfig([
       "--notebook",
       "clientid-test",
@@ -147,7 +134,10 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       runtimeId,
       "--auth-token",
       "test-token",
-    ]);
+    ], {
+      adapter,
+      // No explicit clientId - should generate one
+    });
 
     const capabilities: RuntimeCapabilities = {
       canExecuteCode: true,
@@ -155,16 +145,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       canExecuteAi: false,
     };
 
-    const adapter = makeAdapter({
-      storage: { type: "in-memory" },
-    });
-
-    const options: RuntimeAgentConstructorOptions = {
-      adapter,
-      // No explicit clientId - should generate one
-    };
-
-    const agent = new RuntimeAgent(config, capabilities, {}, options);
+    const agent = new RuntimeAgent(config, capabilities);
 
     await agent.start();
 
@@ -177,12 +158,21 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
   });
 
   await t.step("should use explicit clientId when provided", async () => {
+    const adapter = makeAdapter({
+      storage: { type: "in-memory" },
+    });
+
+    const explicitClientId = "my-custom-client-id";
+
     const config = createRuntimeConfig([
       "--notebook",
       "explicit-clientid-test",
       "--auth-token",
       "test-token",
-    ]);
+    ], {
+      adapter,
+      clientId: explicitClientId,
+    });
 
     const capabilities: RuntimeCapabilities = {
       canExecuteCode: true,
@@ -190,18 +180,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       canExecuteAi: false,
     };
 
-    const adapter = makeAdapter({
-      storage: { type: "in-memory" },
-    });
-
-    const explicitClientId = "my-custom-client-id";
-
-    const options: RuntimeAgentConstructorOptions = {
-      adapter,
-      clientId: explicitClientId,
-    };
-
-    const agent = new RuntimeAgent(config, capabilities, {}, options);
+    const agent = new RuntimeAgent(config, capabilities);
 
     await agent.start();
 
@@ -211,36 +190,36 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
     await agent.shutdown();
   });
 
-  await t.step("should handle multiple agents with shared store", async () => {
-    // Create shared store
+  await t.step("should handle multiple agents with same adapter", async () => {
+    // Create shared adapter
     const adapter = makeAdapter({
       storage: { type: "in-memory" },
     });
 
-    const sharedStore = await createStorePromise({
-      adapter,
-      schema,
-      storeId: "shared-notebook",
-    });
-
-    // Create two agents sharing the same store
+    // Create two agents using the same adapter
     const config1 = createRuntimeConfig([
       "--notebook",
-      "shared-notebook",
+      "shared-adapter-1",
       "--runtime-id",
       "agent-1",
       "--auth-token",
       "token1",
-    ]);
+    ], {
+      adapter,
+      clientId: "client-1",
+    });
 
     const config2 = createRuntimeConfig([
       "--notebook",
-      "shared-notebook",
+      "shared-adapter-2",
       "--runtime-id",
       "agent-2",
       "--auth-token",
       "token2",
-    ]);
+    ], {
+      adapter,
+      clientId: "client-2",
+    });
 
     const capabilities: RuntimeCapabilities = {
       canExecuteCode: true,
@@ -248,88 +227,21 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       canExecuteAi: false,
     };
 
-    const agent1 = new RuntimeAgent(config1, capabilities, {}, {
-      store: sharedStore,
-    });
-    const agent2 = new RuntimeAgent(config2, capabilities, {}, {
-      store: sharedStore,
-    });
+    const agent1 = new RuntimeAgent(config1, capabilities);
+    const agent2 = new RuntimeAgent(config2, capabilities);
 
     await agent1.start();
     await agent2.start();
 
-    // Both agents should have the same store instance
-    assertEquals(agent1.store, sharedStore);
-    assertEquals(agent2.store, sharedStore);
-    assertEquals(agent1.store, agent2.store);
+    // Both agents should have their own stores but use same adapter type
+    assertExists(agent1.store);
+    assertExists(agent2.store);
 
     await agent1.shutdown();
     await agent2.shutdown();
-
-    // Shared store should still be available
-    assertExists(sharedStore);
-
-    await sharedStore.shutdown();
   });
 
-  await t.step(
-    "should prioritize store over adapter when both provided",
-    async () => {
-      const config = createRuntimeConfig([
-        "--notebook",
-        "priority-test",
-        "--auth-token",
-        "test-token",
-      ]);
-
-      const capabilities: RuntimeCapabilities = {
-        canExecuteCode: true,
-        canExecuteSql: false,
-        canExecuteAi: false,
-      };
-
-      // Create both adapter and store
-      const adapter = makeAdapter({
-        storage: { type: "in-memory" },
-      });
-
-      const store = await createStorePromise({
-        adapter,
-        schema,
-        storeId: "priority-store",
-      });
-
-      const options: RuntimeAgentConstructorOptions = {
-        adapter, // This should be ignored
-        store, // This should take precedence
-      };
-
-      const agent = new RuntimeAgent(config, capabilities, {}, options);
-
-      await agent.start();
-
-      // Should use the provided store, not create one from adapter
-      assertEquals(agent.store, store);
-
-      await agent.shutdown();
-      await store.shutdown();
-    },
-  );
-
   await t.step("should work with file system adapter", async () => {
-    const config = createRuntimeConfig([
-      "--notebook",
-      "fs-test",
-      "--auth-token",
-      "test-token",
-    ]);
-
-    const capabilities: RuntimeCapabilities = {
-      canExecuteCode: true,
-      canExecuteSql: false,
-      canExecuteAi: false,
-    };
-
     // Create temporary directory for test
     const tempDir = `/tmp/runt-test-${crypto.randomUUID()}`;
 
@@ -340,12 +252,23 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       },
     });
 
-    const options: RuntimeAgentConstructorOptions = {
+    const config = createRuntimeConfig([
+      "--notebook",
+      "fs-test",
+      "--auth-token",
+      "test-token",
+    ], {
       adapter: fsAdapter,
       clientId: "fs-test-client",
+    });
+
+    const capabilities: RuntimeCapabilities = {
+      canExecuteCode: true,
+      canExecuteSql: false,
+      canExecuteAi: false,
     };
 
-    const agent = new RuntimeAgent(config, capabilities, {}, options);
+    const agent = new RuntimeAgent(config, capabilities);
 
     await agent.start();
 

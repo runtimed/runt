@@ -91,18 +91,10 @@ export interface RuntimeAgentOptions {
   }>;
   /** Maximum iterations for AI agent tool calling loops (default: 10) */
   readonly aiMaxIterations?: number;
-}
-
-/**
- * Constructor options for RuntimeAgent allowing adapter/store injection
- */
-export interface RuntimeAgentConstructorOptions {
   /** Custom LiveStore adapter to use instead of default */
-  adapter?: Adapter;
-  /** Pre-configured LiveStore instance to use (takes precedence over adapter) */
-  store?: Store<typeof schema>;
+  readonly adapter?: Adapter;
   /** Override clientId for sync payload (defaults to discovered user ID) */
-  clientId?: string;
+  readonly clientId?: string;
 }
 
 /**

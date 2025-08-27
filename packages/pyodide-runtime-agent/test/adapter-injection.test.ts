@@ -9,7 +9,6 @@ import { delay } from "jsr:@std/async/delay";
 import { crypto } from "jsr:@std/crypto";
 
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
-import type { RuntimeAgentConstructorOptions } from "@runt/lib";
 import {
   createStorePromise,
   makeSchema,
@@ -71,31 +70,24 @@ Deno.test({
     const notebookId = `adapter-test-${crypto.randomUUID()}`;
     const runtimeId = `runtime-${crypto.randomUUID()}`;
 
-    const args = [
-      "--notebook",
-      notebookId,
-      "--runtime-id",
-      runtimeId,
-      "--auth-token",
-      "test-token",
-      // No sync-url needed with custom adapter!
-    ];
-
     // Create custom in-memory adapter
     const adapter = makeAdapter({
       storage: { type: "in-memory" },
       // No sync backend needed for pure in-memory testing
     });
 
-    const runtimeOptions: RuntimeAgentConstructorOptions = {
-      adapter,
-      clientId: "test-client-123",
-    };
-
     const agent = new PyodideRuntimeAgent(
-      args,
+      [
+        "--notebook",
+        notebookId,
+        "--runtime-id",
+        runtimeId,
+        "--auth-token",
+        "test-token",
+        // No sync-url needed with custom adapter!
+      ],
       { discoverAiModels: false }, // pyodide options
-      runtimeOptions, // NEW: runtime options with adapter
+      { adapter, clientId: "test-client-123" }, // runtime options
     );
 
     assertExists(agent);
@@ -116,62 +108,35 @@ Deno.test({
     await agent.shutdown();
   });
 
-  await t.step("should accept pre-configured store", async () => {
-    const notebookId = `store-test-${crypto.randomUUID()}`;
+  await t.step(
+    "should accept custom adapter without explicit clientId",
+    async () => {
+      const notebookId = `adapter-test-${crypto.randomUUID()}`;
 
-    // Create pre-configured store with some initial data
-    const adapter = makeAdapter({
-      storage: { type: "in-memory" },
-    });
+      // Create adapter without explicit clientId
+      const adapter = makeAdapter({
+        storage: { type: "in-memory" },
+      });
 
-    const store = await createStorePromise({
-      adapter,
-      schema,
-      storeId: notebookId,
-    });
+      const agent = new PyodideRuntimeAgent(
+        [
+          "--notebook",
+          notebookId,
+          "--auth-token",
+          "test-token",
+        ],
+        { discoverAiModels: false },
+        { adapter }, // No explicit clientId - should generate one
+      );
 
-    // Pre-populate store with notebook data
-    store.commit(events.notebookInitialized({
-      id: notebookId,
-      title: "Pre-configured Test Notebook",
-      ownerId: "test-user",
-    }));
+      await agent.start();
 
-    const args = [
-      "--notebook",
-      notebookId,
-      "--auth-token",
-      "test-token",
-    ];
+      // Verify store was created successfully
+      assertExists(agent.store);
 
-    const runtimeOptions: RuntimeAgentConstructorOptions = {
-      store,
-    };
-
-    const agent = new PyodideRuntimeAgent(
-      args,
-      { discoverAiModels: false },
-      runtimeOptions,
-    );
-
-    await agent.start();
-
-    // Verify it's using our pre-configured store
-    assertEquals(agent.store, store);
-
-    // Verify pre-existing data is available through notebook metadata
-    const metadata = agent.store.query(tables.notebookMetadata);
-    assertEquals(metadata.length > 0, true, "Should have notebook metadata");
-
-    // Agent shutdown shouldn't shutdown the custom store
-    await agent.shutdown();
-
-    // Store should still be available
-    assertExists(store);
-
-    // Clean up the store ourselves
-    await store.shutdown();
-  });
+      await agent.shutdown();
+    },
+  );
 
   await t.step(
     "should work with mixed pyodide and runtime options",
@@ -179,21 +144,19 @@ Deno.test({
       const notebookId = `mixed-test-${crypto.randomUUID()}`;
       const runtimeId = `runtime-${crypto.randomUUID()}`;
 
-      const args = [
-        "--notebook",
-        notebookId,
-        "--runtime-id",
-        runtimeId,
-        "--auth-token",
-        "test-token",
-      ];
-
       const adapter = makeAdapter({
         storage: { type: "in-memory" },
       });
 
       const agent = new PyodideRuntimeAgent(
-        args,
+        [
+          "--notebook",
+          notebookId,
+          "--runtime-id",
+          runtimeId,
+          "--auth-token",
+          "test-token",
+        ],
         {
           // Pyodide-specific options
           packages: ["numpy", "pandas"],
@@ -220,76 +183,48 @@ Deno.test({
   );
 
   await t.step(
-    "should handle multiple PyodideRuntimeAgents with shared store",
+    "should handle multiple PyodideRuntimeAgents with same adapter",
     async () => {
-      const notebookId = `shared-${crypto.randomUUID()}`;
-
-      // Create shared store
       const adapter = makeAdapter({
         storage: { type: "in-memory" },
       });
 
-      const sharedStore = await createStorePromise({
-        adapter,
-        schema,
-        storeId: notebookId,
-      });
-
-      // Initialize shared notebook
-      sharedStore.commit(events.notebookInitialized({
-        id: notebookId,
-        title: "Shared Test Notebook",
-        ownerId: "test-user",
-      }));
-
-      // Create two PyodideRuntimeAgents sharing the same store
+      // Create two PyodideRuntimeAgents using the same adapter
       const agent1 = new PyodideRuntimeAgent(
         [
           "--notebook",
-          notebookId,
+          `shared-1-${crypto.randomUUID()}`,
           "--runtime-id",
           "agent-1",
           "--auth-token",
           "token1",
         ],
         { discoverAiModels: false },
-        { store: sharedStore },
+        { adapter, clientId: "client-1" },
       );
 
       const agent2 = new PyodideRuntimeAgent(
         [
           "--notebook",
-          notebookId,
+          `shared-2-${crypto.randomUUID()}`,
           "--runtime-id",
           "agent-2",
           "--auth-token",
           "token2",
         ],
         { discoverAiModels: false },
-        { store: sharedStore },
+        { adapter, clientId: "client-2" },
       );
 
       await agent1.start();
       await agent2.start();
 
-      // Both agents should have the same store instance
-      assertEquals(agent1.store, sharedStore);
-      assertEquals(agent2.store, sharedStore);
-      assertEquals(agent1.store, agent2.store);
-
-      // Both should see the same shared store data
-      assertEquals(agent1.store, agent2.store);
-      const metadata1 = agent1.store.query(tables.notebookMetadata);
-      const metadata2 = agent2.store.query(tables.notebookMetadata);
-      assertEquals(metadata1.length, metadata2.length);
+      // Both agents should have their own stores
+      assertExists(agent1.store);
+      assertExists(agent2.store);
 
       await agent1.shutdown();
       await agent2.shutdown();
-
-      // Shared store should still be available
-      assertExists(sharedStore);
-
-      await sharedStore.shutdown();
     },
   );
 
@@ -372,7 +307,6 @@ Deno.test({
       // Pattern 3: Empty options (should use defaults)
       const agent3 = new PyodideRuntimeAgent(
         ["--notebook", "compat-test-3", "--auth-token", "token"],
-        {},
         {},
       );
       assertExists(agent3);

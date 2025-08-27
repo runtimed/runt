@@ -7,7 +7,6 @@
 import {
   createRuntimeConfig,
   RuntimeAgent,
-  type RuntimeAgentConstructorOptions,
   type RuntimeConfig,
 } from "@runt/lib";
 import type { ExecutionContext } from "@runt/lib";
@@ -51,6 +50,14 @@ interface PyodideAgentOptions {
 }
 
 /**
+ * Runtime configuration options for PyodideRuntimeAgent
+ */
+interface PyodideRuntimeOptions {
+  adapter?: unknown; // LiveStore Adapter
+  clientId?: string;
+}
+
+/**
  * Pyodide-based Python runtime agent using web workers
  *
  * Extends the generic RuntimeAgent with advanced Python execution capabilities
@@ -82,7 +89,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
   constructor(
     args: string[] = Deno.args,
     options: PyodideAgentOptions = {},
-    runtimeOptions: RuntimeAgentConstructorOptions = {},
+    runtimeOptions: PyodideRuntimeOptions = {},
   ) {
     let config: RuntimeConfig;
     try {
@@ -94,6 +101,8 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           canExecuteAi: true,
           availableAiModels: [], // Will be populated during startup
         },
+        adapter: runtimeOptions.adapter,
+        clientId: runtimeOptions.clientId,
       });
     } catch (error) {
       // Configuration errors should still go to console for CLI usability
@@ -118,7 +127,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       onShutdown: async () => {
         await this.cleanupWorker();
       },
-    }, runtimeOptions);
+    });
 
     // Merge config mount paths with options mount paths
     const mergedOptions: PyodideAgentOptions = {
