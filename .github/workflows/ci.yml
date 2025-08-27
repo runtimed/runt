@@ -33,7 +33,7 @@ jobs:
         run: deno task check:tui
 
   test:
-    name: Test
+    name: Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
