@@ -462,7 +462,6 @@ export { OpenAIClient, RuntOllamaClient };
 export { closeMCPClient, getMCPClient, MCPClient } from "./mcp-client.ts";
 export { getAllTools } from "./tool-registry.ts";
 export {
-  enableVectorStoreIndexing,
   getVectorStore,
   isVectorStoreIndexingEnabled,
   VectorStoreService,

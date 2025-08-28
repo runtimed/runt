@@ -91,22 +91,13 @@ export class VectorStoreService {
           });
           throw openaiError;
         }
+      } else {
+        throw new Error("OPENAI_EMBEDDING_API_KEY was not found");
       }
-
-      // No OpenAI API key available
-      this.logger.warn(
-        "No OpenAI API key found. Vector store will use default embeddings, but performance may be limited.",
-      );
-      this.logger.info(
-        "To use optimal embeddings, set OPENAI_API_KEY environment variable",
-      );
-      embeddingConfigured = true;
     } catch (error) {
       this.logger.error("Failed to configure embedding model", {
         error: String(error),
       });
-      this.logger.warn("Using default embedding model as fallback");
-      embeddingConfigured = true;
       throw error; // Re-throw to surface the actual error
     }
   }
@@ -128,23 +119,13 @@ export class VectorStoreService {
       return;
     }
 
+    this.configureModel();
+    this.logger.debug("Step 1: Embedding model configured successfully");
+
     this.isIngesting = true;
     this.logger.info(
       `Starting vector store ingestion with ${mountData.length} mount paths...`,
     );
-
-    // Configure model before starting ingestion
-    this.logger.debug("Step 1: Configuring embedding model...");
-    try {
-      this.configureModel();
-      this.logger.debug("Step 1: Embedding model configured successfully");
-    } catch (error) {
-      this.logger.error("Failed to configure vector store model", {
-        error: String(error),
-      });
-      this.isIngesting = false;
-      return;
-    }
 
     // Log mount data details (reduced logging)
     const totalFiles = mountData.reduce(
@@ -176,6 +157,8 @@ export class VectorStoreService {
           ),
         });
       });
+
+      vectorStoreIndexingEnabled = true;
   }
 
   /**
@@ -803,13 +786,6 @@ export class VectorStoreService {
 let vectorStoreInstance: VectorStoreService | null = null;
 // Global flag to track if vector store indexing is enabled
 let vectorStoreIndexingEnabled = false;
-
-/**
- * Enable vector store indexing globally
- */
-export function enableVectorStoreIndexing(): void {
-  vectorStoreIndexingEnabled = true;
-}
 
 /**
  * Check if vector store indexing is enabled
