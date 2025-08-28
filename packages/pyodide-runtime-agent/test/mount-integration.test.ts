@@ -3,6 +3,7 @@
  */
 
 import { assertEquals } from "jsr:@std/assert";
+import { makeAdapter } from "npm:@livestore/adapter-node";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 
 Deno.test({
