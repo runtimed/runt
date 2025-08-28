@@ -71,6 +71,7 @@ const mockRuntimeOptions: RuntimeAgentOptions = {
   syncUrl: "wss://test.runt.run",
   authToken: "test-token",
   notebookId: "test-notebook",
+  clientId: "test-client",
   imageArtifactThresholdBytes: 6 * 1024, // 6KB threshold
   environmentOptions: {},
 };

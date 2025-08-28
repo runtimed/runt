@@ -8,14 +8,45 @@
 
 import { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
-import { createLogger } from "@runt/lib";
+import {
+  createLogger,
+  createRuntimeConfig,
+  discoverUserIdentity,
+} from "@runt/lib";
 
 // Run the agent if this file is executed directly
 if (import.meta.main) {
   const name = "PyoRunt";
   const logger = createLogger(name);
 
-  const agent = new PyodideRuntimeAgent();
+  logger.info("Authenticating...");
+
+  // Create temporary config to get auth details
+  const tempConfig = createRuntimeConfig(Deno.args, {
+    runtimeType: "python3-pyodide",
+    capabilities: {
+      canExecuteCode: true,
+      canExecuteSql: false,
+      canExecuteAi: true,
+      availableAiModels: [],
+    },
+    clientId: "temp", // Will be replaced
+  });
+
+  // Discover user identity first
+  const clientId = await discoverUserIdentity({
+    authToken: tempConfig.authToken,
+    syncUrl: tempConfig.syncUrl,
+  });
+
+  logger.info("Authenticated successfully", { clientId });
+
+  // Create agent with discovered clientId
+  const agent = new PyodideRuntimeAgent(
+    Deno.args,
+    {}, // pyodide options
+    { clientId }, // runtime options
+  );
 
   logger.info("Starting Agent");
 

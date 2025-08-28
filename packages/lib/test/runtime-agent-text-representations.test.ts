@@ -1,5 +1,6 @@
 /// <reference lib="deno.ns" />
 import { assertEquals } from "@std/assert";
+import { makeAdapter } from "npm:@livestore/adapter-node";
 import { RuntimeAgent } from "../src/runtime-agent.ts";
 import { RuntimeConfig } from "../src/config.ts";
 import {
@@ -35,13 +36,19 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         canExecuteAi: false,
       };
 
+      const adapter = makeAdapter({
+        storage: { type: "in-memory" },
+      });
+
       const config = new RuntimeConfig({
         runtimeId: "test-runtime",
         runtimeType: "test",
         notebookId: "test-notebook",
-        syncUrl: "ws://localhost:8080",
+        syncUrl: "ws://localhost:8787", // Not used with adapter
         authToken: "test-token",
-        capabilities,
+        clientId: "test-client",
+        adapter,
+        capabilities: capabilities,
         environmentOptions: {},
       });
 
@@ -145,12 +152,18 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         canExecuteAi: false,
       };
 
+      const adapter = makeAdapter({
+        storage: { type: "in-memory" },
+      });
+
       const config = new RuntimeConfig({
         runtimeId: "test-runtime",
         runtimeType: "test",
         notebookId: "test-notebook",
-        syncUrl: "ws://localhost:8080",
+        syncUrl: "ws://localhost:8787", // Not used with adapter
         authToken: "test-token",
+        clientId: "test-client",
+        adapter,
         capabilities,
         environmentOptions: {},
         imageArtifactThresholdBytes: 10, // Very low threshold to trigger artifacting
@@ -256,12 +269,18 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         canExecuteAi: false,
       };
 
+      const adapter = makeAdapter({
+        storage: { type: "in-memory" },
+      });
+
       const config = new RuntimeConfig({
         runtimeId: "test-runtime",
         runtimeType: "test",
         notebookId: "test-notebook",
-        syncUrl: "ws://localhost:8080",
+        syncUrl: "ws://localhost:8787", // Not used with adapter
         authToken: "test-token",
+        clientId: "test-client",
+        adapter,
         capabilities,
         environmentOptions: {},
         imageArtifactThresholdBytes: 10, // Very low threshold to trigger artifacting

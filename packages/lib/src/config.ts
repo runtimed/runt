@@ -5,6 +5,7 @@
 
 import { parseArgs } from "@std/cli/parse-args";
 import { createLogger } from "./logging.ts";
+import type { Adapter } from "npm:@livestore/livestore";
 import type {
   IArtifactClient,
   RuntimeAgentOptions,
@@ -42,6 +43,8 @@ export class RuntimeConfig {
   public readonly mountReadonly: boolean;
   public readonly outputDir: string | undefined;
   public readonly aiMaxIterations: number;
+  public readonly adapter: Adapter | undefined;
+  public readonly clientId: string;
 
   constructor(options: RuntimeAgentOptions) {
     this.runtimeId = options.runtimeId;
@@ -59,6 +62,8 @@ export class RuntimeConfig {
     this.mountReadonly = options.mountReadonly ?? false;
     this.outputDir = options.outputDir;
     this.aiMaxIterations = options.aiMaxIterations ?? 10;
+    this.adapter = options.adapter;
+    this.clientId = options.clientId;
 
     // Use injected artifact client or create default one
     this.artifactClient = options.artifactClient ??

@@ -30,6 +30,10 @@ export type {
   RuntimeCapabilities,
   RuntimeSessionData,
 } from "./src/types.ts";
+
+// Authentication utilities
+export { discoverUserIdentity, generateRuntimeClientId } from "./src/auth.ts";
+export type { DiscoverUserIdentityOptions, UserInfo } from "./src/auth.ts";
 export type { LoggerConfig } from "./src/logging.ts";
 
 // Media types and utilities for rich content handling

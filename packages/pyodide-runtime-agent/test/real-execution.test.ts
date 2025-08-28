@@ -5,6 +5,7 @@ import {
   assertExists,
   assertStringIncludes,
 } from "jsr:@std/assert";
+import { makeAdapter } from "npm:@livestore/adapter-node";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 import type {
   ExecutionContext,
@@ -14,6 +15,11 @@ import type {
 
 // Create test agent with minimal packages for speed
 function createTestAgent(packages?: string[]): PyodideRuntimeAgent {
+  // Create explicit in-memory adapter for true isolation
+  const adapter = makeAdapter({
+    storage: { type: "in-memory" },
+  });
+
   const validArgs = [
     "--runtime-id",
     "test-execution-runtime",
@@ -22,10 +28,13 @@ function createTestAgent(packages?: string[]): PyodideRuntimeAgent {
     "--auth-token",
     "test-token",
     "--sync-url",
-    "ws://localhost:8787",
+    "ws://localhost:8787", // Not used with explicit adapter
   ];
 
-  return new PyodideRuntimeAgent(validArgs, packages ? { packages } : {});
+  return new PyodideRuntimeAgent(validArgs, packages ? { packages } : {}, {
+    adapter,
+    clientId: "test-client",
+  });
 }
 
 // Simple output capture for testing

@@ -1,4 +1,5 @@
-import { assertEquals, assertExists } from "jsr:@std/assert@1.0.13";
+import { assertEquals, assertExists } from "jsr:@std/assert";
+import { makeAdapter } from "npm:@livestore/adapter-node";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
 import {
   cellReferences$,
@@ -20,6 +21,11 @@ Deno.test({
 
     await t.step("setup AI cancellation test environment", async () => {
       await withQuietConsole(async () => {
+        // Create explicit in-memory adapter for true isolation
+        const adapter = makeAdapter({
+          storage: { type: "in-memory" },
+        });
+
         const agentArgs = [
           "--runtime-id",
           "ai-cancel-test-runtime",
@@ -28,17 +34,17 @@ Deno.test({
           "--auth-token",
           "ai-cancel-test-token",
           "--sync-url",
-          "ws://localhost:8787",
+          "ws://localhost:8787", // Not used with explicit adapter
         ];
 
-        agent = new PyodideRuntimeAgent(agentArgs);
+        agent = new PyodideRuntimeAgent(agentArgs, {}, {
+          adapter,
+          clientId: "ai-cancellation-test-client",
+        });
         assertExists(agent);
         assertEquals(agent.config.capabilities.canExecuteAi, true);
 
-        await withQuietConsole(async () => {
-          if (!agent) throw new Error("Agent not initialized");
-          await agent.start();
-        });
+        await agent.start();
       });
     });
 
