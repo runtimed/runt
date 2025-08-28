@@ -64,7 +64,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       authToken: "test-integration-token",
       clientId: "test-integration-client",
       adapter,
-      environmentOptions: {},
+
       capabilities,
     });
   };
@@ -160,7 +160,6 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         clientId: "valid-client",
         adapter,
         capabilities: capabilities,
-        environmentOptions: {},
       });
 
       const agent = new RuntimeAgent(validConfig, capabilities);
@@ -186,7 +185,6 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
           clientId: "test-client",
           adapter,
           capabilities: capabilities,
-          environmentOptions: {},
         });
         config.validate(); // Explicitly call validate
       } catch (e) {
@@ -196,7 +194,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       assertExists(error);
       assertEquals(
         error?.message.includes(
-          "runtimeId: --runtime-id <id> or RUNTIME_ID env var",
+          "runtimeId: RUNTIME_ID environment variable",
         ),
         true,
       );
@@ -268,7 +266,6 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: false,
       },
-      environmentOptions: {},
     });
 
     // Verify all required fields are set correctly
@@ -298,7 +295,6 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: false,
       },
-      environmentOptions: {},
     });
 
     const adapter2 = makeAdapter({
@@ -318,7 +314,6 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: false,
       },
-      environmentOptions: {},
     });
 
     // Session IDs should be different
@@ -343,7 +338,6 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: true,
       },
-      environmentOptions: {},
     });
   });
 });

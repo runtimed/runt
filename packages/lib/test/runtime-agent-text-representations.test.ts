@@ -49,7 +49,6 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         clientId: "test-client",
         adapter,
         capabilities: capabilities,
-        environmentOptions: {},
       });
 
       const agent = new RuntimeAgent(config, capabilities);
@@ -165,7 +164,7 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         clientId: "test-client",
         adapter,
         capabilities,
-        environmentOptions: {},
+
         imageArtifactThresholdBytes: 10, // Very low threshold to trigger artifacting
       });
 
@@ -282,7 +281,7 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         clientId: "test-client",
         adapter,
         capabilities,
-        environmentOptions: {},
+
         imageArtifactThresholdBytes: 10, // Very low threshold to trigger artifacting
         artifactClient: mockArtifactClient,
       });

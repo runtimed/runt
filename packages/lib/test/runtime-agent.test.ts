@@ -65,7 +65,6 @@ Deno.test("RuntimeAgent", async (t) => {
       clientId: "test-client",
       adapter,
       capabilities,
-      environmentOptions: {},
     });
   };
 
@@ -188,7 +187,6 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: true,
       },
-      environmentOptions: {},
     });
 
     assertEquals(config.runtimeId, "test-runtime");
@@ -217,7 +215,6 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: false,
       },
-      environmentOptions: {},
     });
 
     const adapter2 = makeAdapter({
@@ -237,7 +234,6 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: false,
       },
-      environmentOptions: {},
     });
 
     // Session IDs should be different
@@ -262,7 +258,6 @@ Deno.test("RuntimeConfig", async (t) => {
         canExecuteSql: false,
         canExecuteAi: false,
       },
-      environmentOptions: {},
     });
   });
 });

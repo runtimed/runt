@@ -1,5 +1,5 @@
 import {
-  createRuntimeConfig,
+  createBaseRuntimeConfig,
   RuntimeAgent,
   type RuntimeConfig,
 } from "@runt/lib";
@@ -8,7 +8,7 @@ export class PythonRuntimeAgent extends RuntimeAgent {
   constructor(args: string[] = Deno.args) {
     let config: RuntimeConfig;
     try {
-      config = createRuntimeConfig(args, {
+      config = createBaseRuntimeConfig(args, {
         runtimeType: "python3",
         capabilities: {
           canExecuteCode: true,
