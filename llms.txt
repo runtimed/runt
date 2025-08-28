@@ -1,0 +1,22 @@
+# runt
+
+> runt is a modular, multi-language runtime and agent framework for AI, automation, and notebook environments. It provides unified interfaces for working with LLMs, agents, and tools across Python, Deno, and browser runtimes.
+
+runt supports flexible integration with popular LLM providers, local models, and custom agents. It is designed for extensibility, stability, and ease of use in research, development, and production settings.
+
+## Documentation
+
+- [README](https://github.com/runtimed/runt/blob/main/README.md): Project overview, installation, and usage instructions
+- [AGENTS.md](https://github.com/runtimed/runt/blob/main/AGENTS.md): Details on agent architecture and usage
+- [AI_TOOLS.md](https://github.com/runtimed/runt/blob/main/packages/ai/AI_TOOLS.md): Information on AI tools and integrations
+
+## Examples
+
+- [test-auth.ts](https://github.com/runtimed/runt/blob/main/test-auth.ts): Example authentication test
+- [test-directory-creation-order.py](https://github.com/runtimed/runt/blob/main/test-directory-creation-order.py): Directory creation order test
+
+## Optional
+
+- [LICENSE](https://github.com/runt/LICENSE): License information
+- [design.md](https://github.com/runtimed/runt/blob/main/packages/ai/design.md): AI package design notes
+
