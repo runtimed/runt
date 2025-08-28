@@ -158,7 +158,7 @@ export class VectorStoreService {
         });
       });
 
-      vectorStoreIndexingEnabled = true;
+    vectorStoreIndexingEnabled = true;
   }
 
   /**

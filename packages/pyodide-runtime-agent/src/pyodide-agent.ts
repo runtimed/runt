@@ -263,8 +263,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           // Initialize vector store in background to avoid blocking pyodide startup
           Promise.resolve().then(async () => {
             try {
-              const { getVectorStore } =
-                await import("@runt/ai");
+              const { getVectorStore } = await import("@runt/ai");
               const vectorStore = getVectorStore();
               vectorStore.startIngestion(mountData);
               this.logger.info(
