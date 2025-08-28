@@ -73,7 +73,6 @@ const mockRuntimeOptions: RuntimeAgentOptions = {
   notebookId: "test-notebook",
   clientId: "test-client",
   imageArtifactThresholdBytes: 6 * 1024, // 6KB threshold
-  environmentOptions: {},
 };
 
 // Mock fetch for testing

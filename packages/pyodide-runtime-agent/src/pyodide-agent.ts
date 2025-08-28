@@ -4,11 +4,11 @@
 // IPython integration, rich display support, and true interruption support
 // via Pyodide's built-in interrupt system.
 
+import { RuntimeAgent } from "@runt/lib";
 import {
-  createRuntimeConfig,
-  RuntimeAgent,
-  type RuntimeConfig,
-} from "@runt/lib";
+  createPyodideRuntimeConfig,
+  type PyodideRuntimeConfig,
+} from "./pyodide-config.ts";
 import type { Adapter } from "npm:@livestore/livestore";
 import type { ExecutionContext } from "@runt/lib";
 
@@ -66,6 +66,7 @@ interface PyodideRuntimeOptions {
  * pandas HTML tables, and error formatting.
  */
 export class PyodideRuntimeAgent extends RuntimeAgent {
+  declare public config: PyodideRuntimeConfig;
   private worker: Worker | null = null;
   private interruptBuffer?: SharedArrayBuffer;
   private isInitialized = false;
@@ -92,16 +93,16 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     options: PyodideAgentOptions = {},
     runtimeOptions: PyodideRuntimeOptions = {},
   ) {
-    let config: RuntimeConfig;
+    let config: PyodideRuntimeConfig;
     try {
-      config = createRuntimeConfig(args, {
-        runtimeType: "python3-pyodide",
+      config = createPyodideRuntimeConfig(args, {
         capabilities: {
           canExecuteCode: true,
           canExecuteSql: false,
           canExecuteAi: true,
           availableAiModels: [], // Will be populated during startup
         },
+        ...options, // Merge options into config
         ...(runtimeOptions.adapter && { adapter: runtimeOptions.adapter }),
         ...(runtimeOptions.clientId && { clientId: runtimeOptions.clientId }),
       });
@@ -125,28 +126,19 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     }
 
     super(config, config.capabilities, {
+      onStartup: async () => {
+        // Pyodide-specific startup logic if needed
+      },
       onShutdown: async () => {
         await this.cleanupWorker();
       },
     });
 
-    // Merge config mount paths with options mount paths
-    const mergedOptions: PyodideAgentOptions = {
+    // Store simplified options - config now handles the complex merging
+    this.pyodideOptions = {
       ...options,
-      mountPaths: options.mountPaths || config.mountPaths || [],
-      mountMappings: options.mountMappings || config.mountMappings || [],
-      indexMountedFiles: options.indexMountedFiles ??
-        config.indexMountedFiles ?? false,
-      mountReadonly: options.mountReadonly ?? config.mountReadonly ?? false,
+      discoverAiModels: options.discoverAiModels ?? true,
     };
-
-    // Only include outputDir if it has a value
-    const finalOutputDir = options.outputDir ?? config.outputDir;
-    if (finalOutputDir) {
-      mergedOptions.outputDir = finalOutputDir;
-    }
-
-    this.pyodideOptions = mergedOptions;
     this.onExecution(this.executeCell.bind(this));
     this.onCancellation(this.handlePyodideCancellation.bind(this));
   }
@@ -165,7 +157,8 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       try {
         this.logger.info("Discovering available AI models...");
         const models = await discoverAvailableAiModels();
-        this.config.capabilities.availableAiModels = models;
+        // Update the capabilities object with discovered models
+        (this.config.capabilities as any).availableAiModels = models;
 
         if (models.length === 0) {
           this.logger.warn(
@@ -244,22 +237,19 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           readonly?: boolean;
         }
       > = [];
-      if (
-        this.pyodideOptions.mountPaths &&
-        this.pyodideOptions.mountPaths.length > 0
-      ) {
+      if (this.config.mountPaths && this.config.mountPaths.length > 0) {
         mountData = await this.readMountDirectories(
-          this.pyodideOptions.mountPaths,
-          this.pyodideOptions.mountMappings,
+          this.config.mountPaths,
+          this.config.mountMappings,
         );
 
         // Add readonly flag to all mount entries if mountReadonly is enabled
-        if (this.pyodideOptions.mountReadonly) {
+        if (this.config.mountReadonly) {
           mountData = mountData.map((entry) => ({ ...entry, readonly: true }));
         }
 
         // Start vector store ingestion asynchronously only if indexing is enabled
-        if (this.pyodideOptions.indexMountedFiles) {
+        if (this.config.indexMountedFiles) {
           // Initialize vector store in background to avoid blocking pyodide startup
           Promise.resolve().then(async () => {
             try {
@@ -471,7 +461,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       ) as NotebookTool[];
 
       try {
-        const maxIterations = this.config.aiMaxIterations || 10;
+        const maxIterations = this.config.aiMaxIterations;
         return await executeAI(
           aiContext,
           notebookContext,
@@ -592,7 +582,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         }
 
         // Sync /outputs directory back to host if outputDir is configured
-        if (this.pyodideOptions.outputDir) {
+        if (this.config.outputDir) {
           await this.syncOutputsToHost();
         }
 
@@ -934,7 +924,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
    * Sync files from /outputs directory back to host filesystem
    */
   private async syncOutputsToHost(): Promise<void> {
-    if (!this.pyodideOptions.outputDir) {
+    if (!this.config.outputDir) {
       return;
     }
 
@@ -951,7 +941,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
 
       // Ensure output directory exists on host
       try {
-        await Deno.mkdir(this.pyodideOptions.outputDir, { recursive: true });
+        await Deno.mkdir(this.config.outputDir, { recursive: true });
       } catch (_error) {
         // Directory might already exist, ignore error
       }
@@ -960,14 +950,14 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       let syncedCount = 0;
       for (const { path, content } of result.files) {
         try {
-          const hostPath: string = `${this.pyodideOptions.outputDir}/${path}`;
+          const hostPath: string = `${this.config.outputDir}/${path}`;
 
           // Create parent directories if needed
           const parentDir: string = hostPath.substring(
             0,
             hostPath.lastIndexOf("/"),
           );
-          if (parentDir !== this.pyodideOptions.outputDir) {
+          if (parentDir !== this.config.outputDir) {
             try {
               await Deno.mkdir(parentDir, { recursive: true });
             } catch (_error) {
@@ -985,7 +975,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
 
       if (syncedCount > 0) {
         this.logger.info(
-          `Synced ${syncedCount} files from /outputs to ${this.pyodideOptions.outputDir}`,
+          `Synced ${syncedCount} files from /outputs to ${this.config.outputDir}`,
         );
       }
     } catch (error) {
