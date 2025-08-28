@@ -10,7 +10,7 @@ import {
   type PyodideRuntimeConfig,
 } from "./pyodide-config.ts";
 import type { Adapter } from "npm:@livestore/livestore";
-import type { ExecutionContext } from "@runt/lib";
+import type { ExecutionContext, RuntimeCapabilities } from "@runt/lib";
 
 import { type MediaBundle, validateMediaBundle } from "@runt/lib";
 import {
@@ -158,7 +158,8 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         this.logger.info("Discovering available AI models...");
         const models = await discoverAvailableAiModels();
         // Update the capabilities object with discovered models
-        (this.config.capabilities as any).availableAiModels = models;
+        (this.config.capabilities as RuntimeCapabilities).availableAiModels =
+          models;
 
         if (models.length === 0) {
           this.logger.warn(
