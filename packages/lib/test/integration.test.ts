@@ -194,7 +194,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       assertExists(error);
       assertEquals(
         error?.message.includes(
-          "runtimeId: --runtime-id <id> or RUNTIME_ID env var",
+          "runtimeId: RUNTIME_ID environment variable",
         ),
         true,
       );
