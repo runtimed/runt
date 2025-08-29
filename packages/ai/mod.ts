@@ -160,7 +160,8 @@ After executing code cells you should review the code and make changes to improv
 
 `;
 
-  const vectorStoreExtras = `IMPORTANT: If you have access to vector store tools (query_documents, find_mounted_file,
+  const vectorStoreExtras =
+    `IMPORTANT: If you have access to vector store tools (query_documents, find_mounted_file,
 list_indexed_files),
 use them to search and access mounted files rather than asking the user to provide files manually. These tools
 can search file contents and find file paths from mounted directories.
@@ -598,7 +599,7 @@ export async function executeAI(
       stderr("🛑 AI execution was already cancelled\n");
       return { success: false, error: "Execution cancelled" };
     }
-    
+
     const { isVectorStoreIndexingEnabled } = await import("./vector-store.ts");
 
     // Extract file path references from the prompt (pattern: @/path/to/file)
@@ -634,7 +635,11 @@ export async function executeAI(
       if (isOllamaReady) {
         const openaiMessages = buildConversationMessages(
           notebookContext,
-          createSystemPrompt(cell.id, extractedFilePaths, isVectorStoreIndexingEnabled()),
+          createSystemPrompt(
+            cell.id,
+            extractedFilePaths,
+            isVectorStoreIndexingEnabled(),
+          ),
           prompt,
         );
 
@@ -767,7 +772,11 @@ The system will automatically pull models if they're not available locally.`;
 
       const conversationMessages = buildConversationMessages(
         notebookContext,
-        createSystemPrompt(cell.id, extractedFilePaths, isVectorStoreIndexingEnabled()),
+        createSystemPrompt(
+          cell.id,
+          extractedFilePaths,
+          isVectorStoreIndexingEnabled(),
+        ),
         prompt,
       );
 
@@ -830,7 +839,11 @@ The system will automatically pull models if they're not available locally.`;
       // Use conversation-based approach for better AI interaction
       const conversationMessages = buildConversationMessages(
         notebookContext,
-        createSystemPrompt(cell.id, extractedFilePaths, isVectorStoreIndexingEnabled()),
+        createSystemPrompt(
+          cell.id,
+          extractedFilePaths,
+          isVectorStoreIndexingEnabled(),
+        ),
         prompt,
       );
 
