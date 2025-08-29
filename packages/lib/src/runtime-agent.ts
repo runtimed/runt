@@ -67,7 +67,7 @@ export class RuntimeAgent {
    */
   async start(): Promise<void> {
     try {
-      await this.handlers.onStartup?.(this.config.environmentOptions);
+      await this.handlers.onStartup?.();
 
       this.logger = createLogger(`${this.config.runtimeType}-agent`, {
         context: {
@@ -990,7 +990,7 @@ export class RuntimeAgent {
   /**
    * Process image content and upload to artifact service if above size threshold
    */
-  private async processImageContent(
+  protected async processImageContent(
     mimeType: ImageMimeType,
     content: unknown,
     metadata?: Record<string, unknown>,
@@ -1090,7 +1090,7 @@ export class RuntimeAgent {
   /**
    * Generate appropriate text representations for image artifacts
    */
-  private generateTextRepresentationsForArtifacts(
+  protected generateTextRepresentationsForArtifacts(
     representations: Record<string, MediaContainer>,
   ): void {
     for (const [mimeType, container] of Object.entries(representations)) {

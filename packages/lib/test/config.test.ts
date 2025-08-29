@@ -1,229 +1,230 @@
 /// <reference lib="deno.ns" />
-import { assert, assertEquals, assertThrows } from "jsr:@std/assert";
+import { assertEquals, assertThrows } from "jsr:@std/assert";
 import { stub } from "jsr:@std/testing/mock";
 import {
-  createRuntimeConfig,
+  createBaseRuntimeConfig,
   DEFAULT_CONFIG,
-  parseRuntimeArgs,
+  parseBaseRuntimeArgs,
   RuntimeConfig,
 } from "../src/config.ts";
 
-const REQUIRED_PARAMS = ["--notebook", "nb", "--auth-token", "tok"];
+const REQUIRED_PARAMS = ["--notebook", "test-nb", "--auth-token", "test-token"];
+
 function addRequiredParams(args: string[]): string[] {
   return [...REQUIRED_PARAMS, ...args];
 }
 
 function makeBaseConfig(overrides: Partial<Record<string, unknown>> = {}) {
   return {
-    runtimeId: "id",
-    runtimeType: "type",
-    syncUrl: "url",
-    authToken: "token",
-    notebookId: "nb",
+    runtimeId: "test-runtime-id",
+    runtimeType: "test-runtime",
+    syncUrl: "wss://test.example.com",
+    authToken: "test-token",
+    notebookId: "test-nb",
     clientId: "test-client",
     capabilities: {
       canExecuteCode: true,
       canExecuteSql: false,
       canExecuteAi: false,
     },
-    environmentOptions: {
-      runtimePackageManager: "pip",
-      runtimePythonPath: "/usr/bin/python3",
-      runtimeEnvPath: "/tmp/venv",
-      ...overrides,
-    },
+    ...overrides,
   };
 }
 
-Deno.test("parseRuntimeArgs: parses required CLI args", () => {
+Deno.test("parseBaseRuntimeArgs: parses required CLI args", () => {
   const args = [
     "--notebook",
     "nb1",
     "--auth-token",
-    "tok",
+    "token1",
     "--runtime-id",
-    "rid",
+    "runtime1",
     "--runtime-type",
     "python",
     "--sync-url",
-    "ws://foo",
-    "--runtime-python-path",
-    "/usr/bin/python3",
-    "--runtime-env-path",
-    "/tmp/venv",
-    "--runtime-package-manager",
-    "pipx",
-    "--runtime-env-externally-managed",
+    "wss://example.com",
   ];
-  const result = parseRuntimeArgs(args);
+
+  const result = parseBaseRuntimeArgs(args);
+
   assertEquals(result.notebookId, "nb1");
-  assertEquals(result.authToken, "tok");
-  assertEquals(result.runtimeId, "rid");
+  assertEquals(result.authToken, "token1");
+  assertEquals(result.runtimeId, "runtime1");
   assertEquals(result.runtimeType, "python");
-  assertEquals(result.syncUrl, "ws://foo");
-  assert(result.environmentOptions);
-  assertEquals(
-    result.environmentOptions?.runtimePythonPath,
-    "/usr/bin/python3",
-  );
-  assertEquals(result.environmentOptions?.runtimeEnvPath, "/tmp/venv");
-  assertEquals(result.environmentOptions?.runtimePackageManager, "pipx");
-  assertEquals(result.environmentOptions?.runtimeEnvExternallyManaged, true);
+  assertEquals(result.syncUrl, "wss://example.com");
 });
 
-Deno.test("parseRuntimeArgs: uses defaults for missing environmentOptions", () => {
-  const result = parseRuntimeArgs([
+Deno.test("parseBaseRuntimeArgs: uses environment variable fallbacks", () => {
+  const envMap: Record<string, string | undefined> = {
+    NOTEBOOK_ID: "env-notebook",
+    RUNT_API_KEY: "env-token",
+    RUNTIME_ID: "env-runtime-id",
+    RUNTIME_TYPE: "env-runtime-type",
+    LIVESTORE_SYNC_URL: "wss://env.example.com",
+  };
+
+  using _getStub = stub(Deno.env, "get", (key: string) => envMap[key]);
+
+  const result = parseBaseRuntimeArgs([]);
+
+  assertEquals(result.notebookId, "env-notebook");
+  assertEquals(result.authToken, "env-token");
+  assertEquals(result.runtimeId, "env-runtime-id");
+  assertEquals(result.runtimeType, "env-runtime-type");
+  assertEquals(result.syncUrl, "wss://env.example.com");
+});
+
+Deno.test("parseBaseRuntimeArgs: CLI args override environment variables", () => {
+  const envMap: Record<string, string | undefined> = {
+    NOTEBOOK_ID: "env-notebook",
+    RUNT_API_KEY: "env-token",
+  };
+
+  using _getStub = stub(Deno.env, "get", (key: string) => envMap[key]);
+
+  const result = parseBaseRuntimeArgs([
     "--notebook",
-    "nb2",
+    "cli-notebook",
     "--auth-token",
-    "tok2",
+    "cli-token",
   ]);
-  assert(result.environmentOptions);
-  assertEquals(result.environmentOptions?.runtimePythonPath, "python3");
-  assertEquals(result.environmentOptions?.runtimePackageManager, "pip");
-  assertEquals(result.environmentOptions?.runtimeEnvExternallyManaged, false);
+
+  assertEquals(result.notebookId, "cli-notebook");
+  assertEquals(result.authToken, "cli-token");
 });
 
-Deno.test("createRuntimeConfig - sets defaults for missing options", () => {
+Deno.test("parseBaseRuntimeArgs: parses image artifact threshold", () => {
+  const result = parseBaseRuntimeArgs([
+    "--notebook",
+    "test-nb",
+    "--auth-token",
+    "test-token",
+    "--image-artifact-threshold",
+    "8192",
+  ]);
+
+  assertEquals(result.imageArtifactThresholdBytes, 8192);
+});
+
+Deno.test("parseBaseRuntimeArgs: uses default sync URL when not provided", () => {
+  const result = parseBaseRuntimeArgs([
+    "--notebook",
+    "test-nb",
+    "--auth-token",
+    "test-token",
+  ]);
+
+  assertEquals(result.syncUrl, DEFAULT_CONFIG.syncUrl);
+});
+
+Deno.test("createBaseRuntimeConfig: creates valid config with defaults", () => {
   using _getStub = stub(Deno.env, "get", () => undefined);
-  const config = createRuntimeConfig(addRequiredParams([]));
+
+  const config = createBaseRuntimeConfig(addRequiredParams([]));
+
+  assertEquals(config.notebookId, "test-nb");
+  assertEquals(config.authToken, "test-token");
   assertEquals(config.syncUrl, DEFAULT_CONFIG.syncUrl);
-  assertEquals(config.environmentOptions?.runtimePythonPath, "python3");
-  assertEquals(config.environmentOptions?.runtimePackageManager, "pip");
-  assertEquals(config.environmentOptions?.runtimeEnvExternallyManaged, false);
+  assertEquals(config.runtimeType, "runtime");
+  assertEquals(config.capabilities.canExecuteCode, true);
+  assertEquals(config.capabilities.canExecuteSql, false);
+  assertEquals(config.capabilities.canExecuteAi, false);
 });
 
-Deno.test("createRuntimeConfig - deep merges environmentOptions from CLI, env, and defaults", () => {
-  const envMap: Record<string, string | undefined> = {
-    RUNTIME_PYTHON_PATH: "/env/python",
-    RUNTIME_PACKAGE_MANAGER: "conda",
-    RUNTIME_ENV_EXTERNALLY_MANAGED: "true",
-  };
-  using _getStub = stub(Deno.env, "get", (key: string) => envMap[key]);
-  const args = addRequiredParams(["--runtime-python-path", "/cli/python"]);
-  assertThrows(
-    () =>
-      createRuntimeConfig(args, {
-        runtimeType: "python",
-        capabilities: {
-          canExecuteCode: true,
-          canExecuteSql: false,
-          canExecuteAi: false,
-        },
-        environmentOptions: {
-          runtimePythonPath: "/default/python",
-          runtimePackageManager: "pip",
-          runtimeEnvExternallyManaged: false,
-        },
-      }),
-    Error,
-    "--runtime-package-manager",
-  );
-});
-
-Deno.test("createRuntimeConfig - runtimeEnvExternallyManaged is true if set in CLI", () => {
+Deno.test("createBaseRuntimeConfig: generates runtime ID with defaults", () => {
   using _getStub = stub(Deno.env, "get", () => undefined);
-  const args = addRequiredParams(["--runtime-env-externally-managed"]);
-  const config = createRuntimeConfig(args);
-  assertEquals(config.environmentOptions?.runtimeEnvExternallyManaged, true);
+
+  const config = createBaseRuntimeConfig(addRequiredParams([]));
+
+  assertEquals(config.runtimeId.startsWith("runtime-runtime-"), true);
 });
 
-Deno.test("createRuntimeConfig - runtimeEnvExternallyManaged is true if set in env", () => {
-  const envMap: Record<string, string | undefined> = {
-    RUNTIME_ENV_EXTERNALLY_MANAGED: "true",
-  };
-  using _getStub = stub(Deno.env, "get", (key: string) => envMap[key]);
-  const config = createRuntimeConfig(addRequiredParams([]));
-  assertEquals(config.environmentOptions?.runtimeEnvExternallyManaged, true);
-});
-
-Deno.test("createRuntimeConfig - runtimeEnvExternallyManaged is false if not set", () => {
+Deno.test("createBaseRuntimeConfig: uses provided runtime ID", () => {
   using _getStub = stub(Deno.env, "get", () => undefined);
-  const config = createRuntimeConfig(addRequiredParams([]));
-  assertEquals(config.environmentOptions?.runtimeEnvExternallyManaged, false);
+
+  const config = createBaseRuntimeConfig(addRequiredParams([
+    "--runtime-id",
+    "custom-id",
+  ]));
+
+  assertEquals(config.runtimeId, "custom-id");
 });
 
-Deno.test("RuntimeConfig.validate - passes with valid environmentOptions", () => {
+Deno.test("createBaseRuntimeConfig: merges with provided defaults", () => {
+  using _getStub = stub(Deno.env, "get", () => undefined);
+
+  const config = createBaseRuntimeConfig(addRequiredParams([]), {
+    runtimeType: "custom-runtime",
+    capabilities: {
+      canExecuteCode: false,
+      canExecuteSql: true,
+      canExecuteAi: true,
+    },
+  });
+
+  assertEquals(config.runtimeType, "custom-runtime");
+  assertEquals(config.capabilities.canExecuteCode, false);
+  assertEquals(config.capabilities.canExecuteSql, true);
+  assertEquals(config.capabilities.canExecuteAi, true);
+});
+
+Deno.test("RuntimeConfig.validate: passes with valid config", () => {
   const config = new RuntimeConfig(makeBaseConfig());
-  config.validate();
+  config.validate(); // Should not throw
 });
 
-Deno.test("RuntimeConfig.validate - throws for invalid manager", () => {
+Deno.test("RuntimeConfig.validate: throws for missing authToken", () => {
   assertThrows(
-    () =>
-      new RuntimeConfig(makeBaseConfig({ runtimePackageManager: "conda" }))
-        .validate(),
+    () => new RuntimeConfig(makeBaseConfig({ authToken: "" })).validate(),
     Error,
-    "--runtime-package-manager",
+    "Missing required configuration",
   );
 });
 
-Deno.test("RuntimeConfig.validate - throws for empty python path", () => {
+Deno.test("RuntimeConfig.validate: throws for missing notebookId", () => {
   assertThrows(
-    () =>
-      new RuntimeConfig(makeBaseConfig({ runtimePythonPath: "" })).validate(),
+    () => new RuntimeConfig(makeBaseConfig({ notebookId: "" })).validate(),
     Error,
-    "--runtime-python-path",
+    "Missing required configuration",
   );
 });
 
-Deno.test("RuntimeConfig.validate - throws for empty env path", () => {
+Deno.test("RuntimeConfig.validate: throws for missing runtimeId", () => {
   assertThrows(
-    () => new RuntimeConfig(makeBaseConfig({ runtimeEnvPath: "" })).validate(),
+    () => new RuntimeConfig(makeBaseConfig({ runtimeId: "" })).validate(),
     Error,
-    "--runtime-env-path",
+    "Missing required configuration",
   );
 });
 
-Deno.test("parseRuntimeArgs: parses mount paths from CLI", () => {
-  const args = [
-    "--notebook=test-nb",
-    "--auth-token=test-token",
-    "--mount=/home/user/data",
-    "--mount=/home/user/scripts",
-  ];
-
-  const result = parseRuntimeArgs(args);
-
-  assertEquals(result.notebookId, "test-nb");
-  assertEquals(result.authToken, "test-token");
-  assertEquals(result.mountPaths, ["/home/user/data", "/home/user/scripts"]);
+Deno.test("RuntimeConfig.validate: throws for missing runtimeType", () => {
+  assertThrows(
+    () => new RuntimeConfig(makeBaseConfig({ runtimeType: "" })).validate(),
+    Error,
+    "Missing required configuration",
+  );
 });
 
-Deno.test("parseRuntimeArgs: handles single mount path", () => {
-  const args = [
-    "--notebook=test-nb",
-    "--auth-token=test-token",
-    "--mount=/home/user/data",
-  ];
+Deno.test("RuntimeConfig: generates unique session IDs", () => {
+  const config1 = new RuntimeConfig(makeBaseConfig());
+  const config2 = new RuntimeConfig(makeBaseConfig());
 
-  const result = parseRuntimeArgs(args);
-
-  assertEquals(result.mountPaths, ["/home/user/data"]);
+  assertEquals(config1.sessionId !== config2.sessionId, true);
+  assertEquals(config1.sessionId.includes(config1.runtimeType), true);
+  assertEquals(config1.sessionId.includes(config1.runtimeId), true);
 });
 
-Deno.test("parseRuntimeArgs: handles no mount paths", () => {
-  const args = [
-    "--notebook=test-nb",
-    "--auth-token=test-token",
-  ];
-
-  const result = parseRuntimeArgs(args);
-
-  assertEquals(result.mountPaths, undefined);
+Deno.test("RuntimeConfig: sets default image artifact threshold", () => {
+  const config = new RuntimeConfig(makeBaseConfig());
+  assertEquals(
+    config.imageArtifactThresholdBytes,
+    DEFAULT_CONFIG.imageArtifactThresholdBytes,
+  );
 });
 
-Deno.test("parseRuntimeArgs: uses short alias for mount", () => {
-  const args = [
-    "--notebook=test-nb",
-    "--auth-token=test-token",
-    "-m",
-    "/home/user/data",
-    "-m",
-    "/home/user/scripts",
-  ];
-
-  const result = parseRuntimeArgs(args);
-
-  assertEquals(result.mountPaths, ["/home/user/data", "/home/user/scripts"]);
+Deno.test("RuntimeConfig: uses provided image artifact threshold", () => {
+  const config = new RuntimeConfig(
+    makeBaseConfig({ imageArtifactThresholdBytes: 10240 }),
+  );
+  assertEquals(config.imageArtifactThresholdBytes, 10240);
 });

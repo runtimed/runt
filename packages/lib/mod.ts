@@ -2,9 +2,9 @@
 
 export { RuntimeAgent } from "./src/runtime-agent.ts";
 export {
-  createRuntimeConfig,
+  createBaseRuntimeConfig,
   DEFAULT_CONFIG,
-  parseRuntimeArgs,
+  parseBaseRuntimeArgs,
   RuntimeConfig,
 } from "./src/config.ts";
 export {

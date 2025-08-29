@@ -23,8 +23,8 @@ Deno.test("Read-only mount configuration", () => {
 });
 
 Deno.test("CLI flag parsing includes mount-readonly", async () => {
-  // Import the config parser
-  const { parseRuntimeArgs } = await import("../../lib/src/config.ts");
+  // Import the pyodide config parser
+  const { parsePyodideRuntimeArgs } = await import("../src/pyodide-config.ts");
 
   const args = [
     "--notebook=test",
@@ -33,7 +33,7 @@ Deno.test("CLI flag parsing includes mount-readonly", async () => {
     "--mount-readonly",
   ];
 
-  const result = parseRuntimeArgs(args);
+  const result = parsePyodideRuntimeArgs(args);
 
   assertEquals(result.mountReadonly, true);
   assertEquals(result.mountPaths?.[0], "/test/path");

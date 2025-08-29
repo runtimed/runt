@@ -1,7 +1,7 @@
 // Configuration utilities for Anode runtime agents
 //
-// This module provides utilities for parsing command-line arguments and
-// environment variables to configure runtime agents with sensible defaults.
+// This module provides minimal, generic configuration interfaces that can be
+// extended by specific runtime implementations (Python, JavaScript, etc.).
 
 import { parseArgs } from "@std/cli/parse-args";
 import { createLogger } from "./logging.ts";
@@ -22,7 +22,8 @@ export const DEFAULT_CONFIG = {
 } as const;
 
 /**
- * Configuration class for runtime agents
+ * Core configuration class for runtime agents
+ * Can be extended by specific runtime implementations
  */
 export class RuntimeConfig {
   public readonly runtimeId: string;
@@ -32,17 +33,8 @@ export class RuntimeConfig {
   public readonly notebookId: string;
   public readonly capabilities: RuntimeCapabilities;
   public readonly sessionId: string;
-  public readonly environmentOptions: RuntimeAgentOptions["environmentOptions"];
   public readonly imageArtifactThresholdBytes: number;
   public readonly artifactClient: IArtifactClient;
-  public readonly mountPaths: string[];
-  public readonly mountMappings: Array<
-    { hostPath: string; targetPath: string }
-  >;
-  public readonly indexMountedFiles: boolean;
-  public readonly mountReadonly: boolean;
-  public readonly outputDir: string | undefined;
-  public readonly aiMaxIterations: number;
   public readonly adapter: Adapter | undefined;
   public readonly clientId: string;
 
@@ -53,15 +45,8 @@ export class RuntimeConfig {
     this.authToken = options.authToken;
     this.notebookId = options.notebookId;
     this.capabilities = options.capabilities;
-    this.environmentOptions = options.environmentOptions;
     this.imageArtifactThresholdBytes = options.imageArtifactThresholdBytes ??
       DEFAULT_CONFIG.imageArtifactThresholdBytes;
-    this.mountPaths = options.mountPaths ?? [];
-    this.mountMappings = options.mountMappings ?? [];
-    this.indexMountedFiles = options.indexMountedFiles ?? false;
-    this.mountReadonly = options.mountReadonly ?? false;
-    this.outputDir = options.outputDir;
-    this.aiMaxIterations = options.aiMaxIterations ?? 10;
     this.adapter = options.adapter;
     this.clientId = options.clientId;
 
@@ -108,26 +93,25 @@ export class RuntimeConfig {
     if (!this.authToken) {
       missing.push({
         field: "authToken",
-        suggestion:
-          "--auth-token <token> or RUNT_API_KEY env var (AUTH_TOKEN as fallback)",
+        suggestion: "AUTH_TOKEN or RUNT_API_KEY environment variable",
       });
     }
     if (!this.notebookId) {
       missing.push({
         field: "notebookId",
-        suggestion: "--notebook <id> or NOTEBOOK_ID env var",
+        suggestion: "NOTEBOOK_ID environment variable",
       });
     }
     if (!this.runtimeId) {
       missing.push({
         field: "runtimeId",
-        suggestion: "--runtime-id <id> or RUNTIME_ID env var",
+        suggestion: "RUNTIME_ID environment variable",
       });
     }
     if (!this.runtimeType) {
       missing.push({
         field: "runtimeType",
-        suggestion: "--runtime-type <type> or RUNTIME_TYPE env var",
+        suggestion: "RUNTIME_TYPE environment variable",
       });
     }
 
@@ -138,40 +122,19 @@ export class RuntimeConfig {
       throw new Error(
         `Missing required configuration:\n\n${
           messages.join("\n")
-        }\n\nUse --help for more information.`,
+        }\n\nConsult your runtime implementation for configuration details.`,
       );
-    }
-
-    if (this.environmentOptions) {
-      const invalid: string[] = [];
-      const { runtimePackageManager, runtimePythonPath, runtimeEnvPath } =
-        this.environmentOptions;
-      if (runtimePackageManager && runtimePackageManager !== "pip") {
-        invalid.push(`--runtime-package-manager`);
-      }
-
-      if (runtimePythonPath !== undefined && !runtimePythonPath) {
-        invalid.push(`--runtime-python-path`);
-      }
-      if (runtimeEnvPath !== undefined && !runtimeEnvPath) {
-        invalid.push(`--runtime-env-path`);
-      }
-
-      if (invalid.length > 0) {
-        throw new Error(
-          `Invalid value for:\n\n${
-            invalid.join("\n")
-          }\n\nUse --help for more information.`,
-        );
-      }
     }
   }
 }
 
 /**
- * Parse command-line arguments for runtime agent configuration
+ * Parse minimal command-line arguments for runtime agent configuration
+ * Runtime implementations can extend this with their own argument parsing
  */
-export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
+export function parseBaseRuntimeArgs(
+  args: string[],
+): Partial<RuntimeAgentOptions> {
   const parsed = parseArgs(args, {
     string: [
       "notebook",
@@ -179,21 +142,9 @@ export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
       "sync-url",
       "runtime-id",
       "runtime-type",
-      "heartbeat-interval",
-      "runtime-python-path",
-      "runtime-env-path",
-      "runtime-package-manager",
       "image-artifact-threshold",
-      "mount",
-      "output-dir",
-      "ai-max-iterations",
     ],
-    boolean: [
-      "help",
-      "runtime-env-externally-managed",
-      "index-mounted-files",
-      "mount-readonly",
-    ],
+    boolean: ["help"],
     alias: {
       n: "notebook",
       t: "auth-token",
@@ -201,62 +152,28 @@ export function parseRuntimeArgs(args: string[]): Partial<RuntimeAgentOptions> {
       r: "runtime-id",
       T: "runtime-type",
       h: "help",
-      m: "mount",
     },
-    collect: ["mount"], // Allow multiple --mount arguments
   });
 
   if (parsed.help) {
-    // Help text should still go to console for CLI usability
     console.log(`
-Runtime Agent Configuration
+Basic Runtime Agent Configuration
 
-Usage:
-  deno run --allow-net --allow-env main.ts [OPTIONS]
-
-Required Options:
+Required:
   --notebook, -n <id>        Notebook ID to connect to
   --auth-token, -t <token>   Authentication token for sync
 
-Optional Options:
+Optional:
   --sync-url, -s <url>       WebSocket URL for LiveStore sync
                              (default: ${DEFAULT_CONFIG.syncUrl})
   --runtime-id, -R <id>      Runtime identifier
-                             (default: <runtime-type>-runtime-{pid})
   --runtime-type, -T <type>  Runtime type identifier
-                             (default: "runtime")
-  --mount, -m <path>         Host directory to mount. Supports two formats:
-                             1. Simple: /path/to/local (mounts to auto-generated /mnt/ path)
-                             2. Docker-style: /path/to/local:/target/path
-                             Examples: --mount /data or --mount /data:/dataset
-                             (can be specified multiple times)
-  --output-dir <path>        Host directory to sync /outputs to after each cell execution
-  --mount-readonly           Mount directories as read-only (prevents modification)
-                             (only applies when --mount is also used)
-  --index-mounted-files      Enable vector store indexing of mounted files for AI search
-                             (only applies when --mount is also used)
-  --ai-max-iterations <num>  Maximum iterations for AI agent tool calling loops
-                             (default: 10)
   --help, -h                 Show this help message
 
-Examples:
-  deno run --allow-net --allow-env main.ts -n my-notebook -t your-token
-  deno run --allow-net --allow-env main.ts --notebook=test --auth-token=abc123
-  deno run --allow-net --allow-env main.ts -n my-notebook -t token --mount /path/to/data
-  deno run --allow-net --allow-env main.ts -n my-notebook -t token --mount /host/data:/data/dataset --index-mounted-files
+Environment Variables:
+  NOTEBOOK_ID, RUNT_API_KEY, AUTH_TOKEN, LIVESTORE_SYNC_URL, RUNTIME_ID, RUNTIME_TYPE
 
-Environment Variables (fallback):
-  NOTEBOOK_ID, RUNT_API_KEY, LIVESTORE_SYNC_URL, RUNTIME_ID, RUNTIME_TYPE
-  IMAGE_ARTIFACT_THRESHOLD_BYTES
-  AUTH_TOKEN (legacy fallback for service-level authentication)
-
-OpenAI Embedding Configuration (for --index-mounted-files):
-  OPENAI_EMBEDDING_API_KEY       OpenAI API key for optimal vector store embeddings
-  OPENAI_EMBEDDING_MODEL         OpenAI embedding model (default: text-embedding-3-large)
-
-Logging Configuration:
-  RUNT_LOG_LEVEL             Set to DEBUG, INFO, WARN, or ERROR (default: INFO)
-  RUNT_DISABLE_CONSOLE_LOGS  Set to disable console output
+For runtime-specific options, consult your runtime implementation documentation.
     `);
     Deno.exit(0);
   }
@@ -268,121 +185,25 @@ Logging Configuration:
 
   const notebookId = parsed.notebook || Deno.env.get("NOTEBOOK_ID");
   if (notebookId) {
-    result = {
-      ...result,
-      notebookId,
-    };
+    result = { ...result, notebookId };
   }
 
   const authToken = parsed["auth-token"] ||
     Deno.env.get("RUNT_API_KEY") ||
     Deno.env.get("AUTH_TOKEN");
   if (authToken) {
-    result = {
-      ...result,
-      authToken,
-    };
+    result = { ...result, authToken };
   }
 
   const runtimeType = parsed["runtime-type"] || Deno.env.get("RUNTIME_TYPE");
   if (runtimeType && typeof runtimeType === "string") {
-    result = {
-      ...result,
-      runtimeType,
-    };
+    result = { ...result, runtimeType };
   }
 
   const runtimeId = parsed["runtime-id"] || Deno.env.get("RUNTIME_ID");
   if (runtimeId && typeof runtimeId === "string") {
-    result = {
-      ...result,
-      runtimeId,
-    };
+    result = { ...result, runtimeId };
   }
-
-  // Handle mount paths - support both simple paths and Docker-style local:target format
-  if (parsed.mount && parsed.mount.length > 0) {
-    const mountArgs = Array.isArray(parsed.mount)
-      ? parsed.mount
-      : [parsed.mount];
-    const mountPaths: string[] = [];
-    const mountMappings: Array<{ hostPath: string; targetPath: string }> = [];
-
-    for (const mountArg of mountArgs) {
-      if (mountArg.includes(":")) {
-        // Docker-style mount: local-path:target-path
-        const [hostPath, targetPath] = mountArg.split(":", 2);
-        if (hostPath && targetPath) {
-          mountMappings.push({ hostPath, targetPath });
-          // Also add to mountPaths for backward compatibility
-          mountPaths.push(hostPath);
-        } else {
-          throw new Error(
-            `Invalid mount format: ${mountArg}. Expected format: <local-path>:<target-path>`,
-          );
-        }
-      } else {
-        // Simple path format (legacy)
-        mountPaths.push(mountArg);
-      }
-    }
-
-    result = {
-      ...result,
-      mountPaths,
-      mountMappings,
-    };
-  }
-
-  // Handle index-mounted-files flag
-  if (parsed["index-mounted-files"]) {
-    result = {
-      ...result,
-      indexMountedFiles: true,
-    };
-  }
-
-  // Handle mount-readonly flag
-  if (parsed["mount-readonly"]) {
-    result = {
-      ...result,
-      mountReadonly: true,
-    };
-  }
-
-  // Handle output-dir option
-  const outputDir = parsed["output-dir"] || Deno.env.get("OUTPUT_DIR");
-  if (outputDir && typeof outputDir === "string") {
-    result = {
-      ...result,
-      outputDir,
-    };
-  }
-
-  const environmentOptions: Record<string, unknown> = {};
-  environmentOptions.runtimePythonPath = parsed["runtime-python-path"] ||
-    Deno.env.get("RUNTIME_PYTHON_PATH") ||
-    "python3";
-  if (parsed["runtime-env-path"] || Deno.env.get("RUNTIME_ENV_PATH")) {
-    environmentOptions.runtimeEnvPath = parsed["runtime-env-path"] ||
-      Deno.env.get("RUNTIME_ENV_PATH");
-  }
-  environmentOptions.runtimePackageManager =
-    parsed["runtime-package-manager"] ||
-    Deno.env.get("RUNTIME_PACKAGE_MANAGER") ||
-    "pip";
-  const cliExternallyManaged = Boolean(
-    parsed["runtime-env-externally-managed"],
-  );
-  const envExternallyManaged =
-    Deno.env.get("RUNTIME_ENV_EXTERNALLY_MANAGED") === "1" ||
-    Deno.env.get("RUNTIME_ENV_EXTERNALLY_MANAGED") === "true";
-  environmentOptions.runtimeEnvExternallyManaged = cliExternallyManaged ||
-    envExternallyManaged;
-  result = {
-    ...result,
-    environmentOptions,
-  };
 
   // Parse image artifact threshold
   const thresholdArg = parsed["image-artifact-threshold"] ||
@@ -390,23 +211,7 @@ Logging Configuration:
   if (thresholdArg) {
     const threshold = parseInt(thresholdArg, 10);
     if (!isNaN(threshold) && threshold > 0) {
-      result = {
-        ...result,
-        imageArtifactThresholdBytes: threshold,
-      };
-    }
-  }
-
-  // Parse AI max iterations
-  const aiMaxIterationsArg = parsed["ai-max-iterations"] ||
-    Deno.env.get("AI_MAX_ITERATIONS");
-  if (aiMaxIterationsArg) {
-    const aiMaxIterations = parseInt(aiMaxIterationsArg, 10);
-    if (!isNaN(aiMaxIterations) && aiMaxIterations > 0) {
-      result = {
-        ...result,
-        aiMaxIterations,
-      };
+      result = { ...result, imageArtifactThresholdBytes: threshold };
     }
   }
 
@@ -414,13 +219,14 @@ Logging Configuration:
 }
 
 /**
- * Create a complete runtime configuration from CLI args and defaults
+ * Create a basic runtime configuration from CLI args and defaults
+ * Runtime implementations should extend this with their own createConfig function
  */
-export function createRuntimeConfig(
+export function createBaseRuntimeConfig(
   args: string[],
   defaults: Partial<RuntimeAgentOptions> = {},
 ): RuntimeConfig {
-  const cliConfig = parseRuntimeArgs(args);
+  const cliConfig = parseBaseRuntimeArgs(args);
 
   // Merge CLI config with defaults - CLI args override defaults
   const mergedDefaults = {
@@ -431,12 +237,6 @@ export function createRuntimeConfig(
       canExecuteSql: false,
       canExecuteAi: false,
     },
-    environmentOptions: {
-      runtimePythonPath: "python3",
-      runtimePackageManager: "pip",
-      runtimeEnvExternallyManaged: false,
-      ...(defaults.environmentOptions ?? {}),
-    },
     ...defaults,
   };
 
@@ -445,7 +245,7 @@ export function createRuntimeConfig(
     Object.entries(cliConfig).filter(([_, value]) => value !== undefined),
   );
 
-  // Compose the config object without mutating any readonly property
+  // Compose the config object
   const runtimeId = cleanCliConfig.runtimeId ||
     Deno.env.get("RUNTIME_ID") ||
     `${
@@ -456,10 +256,6 @@ export function createRuntimeConfig(
     ...mergedDefaults,
     ...cleanCliConfig,
     runtimeId,
-    environmentOptions: {
-      ...mergedDefaults.environmentOptions,
-      ...(cleanCliConfig.environmentOptions ?? {}),
-    },
   } as RuntimeAgentOptions;
 
   const runtimeConfig = new RuntimeConfig(config);
@@ -472,7 +268,6 @@ export function createRuntimeConfig(
     syncUrl: runtimeConfig.syncUrl,
     notebookId: runtimeConfig.notebookId,
     sessionId: runtimeConfig.sessionId,
-    environmentOptions: config.environmentOptions,
   });
 
   return runtimeConfig;

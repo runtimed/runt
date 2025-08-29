@@ -9,14 +9,14 @@ import { assertEquals, assertExists } from "jsr:@std/assert";
 import { crypto } from "jsr:@std/crypto";
 
 import { RuntimeAgent, type RuntimeCapabilities } from "@runt/lib";
-import { createRuntimeConfig } from "../src/config.ts";
+import { createBaseRuntimeConfig } from "../src/config.ts";
 import { makeAdapter } from "npm:@livestore/adapter-node";
 
 Deno.test("RuntimeAgent adapter injection", async (t) => {
   await t.step(
     "should work with default adapter (backward compatibility)",
     () => {
-      const config = createRuntimeConfig([
+      const config = createBaseRuntimeConfig([
         "--notebook",
         "test-notebook",
         "--auth-token",
@@ -48,7 +48,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       // No sync backend needed for pure in-memory testing
     });
 
-    const config = createRuntimeConfig([
+    const config = createBaseRuntimeConfig([
       "--notebook",
       "adapter-test",
       "--auth-token",
@@ -86,7 +86,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
         storage: { type: "in-memory" },
       });
 
-      const config = createRuntimeConfig([
+      const config = createBaseRuntimeConfig([
         "--notebook",
         "adapter-test-2",
         "--auth-token",
@@ -119,7 +119,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       storage: { type: "in-memory" },
     });
 
-    const config = createRuntimeConfig([
+    const config = createBaseRuntimeConfig([
       "--notebook",
       "clientid-test",
       "--runtime-id",
@@ -156,7 +156,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
 
     const explicitClientId = "my-custom-client-id";
 
-    const config = createRuntimeConfig([
+    const config = createBaseRuntimeConfig([
       "--notebook",
       "explicit-clientid-test",
       "--auth-token",
@@ -189,7 +189,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
     });
 
     // Create two agents using the same adapter
-    const config1 = createRuntimeConfig([
+    const config1 = createBaseRuntimeConfig([
       "--notebook",
       "shared-adapter-1",
       "--runtime-id",
@@ -201,7 +201,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       clientId: "client-1",
     });
 
-    const config2 = createRuntimeConfig([
+    const config2 = createBaseRuntimeConfig([
       "--notebook",
       "shared-adapter-2",
       "--runtime-id",
@@ -244,7 +244,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       },
     });
 
-    const config = createRuntimeConfig([
+    const config = createBaseRuntimeConfig([
       "--notebook",
       "fs-test",
       "--auth-token",
