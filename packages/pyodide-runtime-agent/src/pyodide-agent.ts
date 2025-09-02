@@ -16,7 +16,7 @@ import type {
   RuntimeCapabilities,
 } from "@runt/lib";
 
-import { logger, validateMediaBundle } from "@runt/lib";
+import { logger, LogLevel, validateMediaBundle } from "@runt/lib";
 import {
   cellReferences$,
   isJsonMimeType,
@@ -92,6 +92,42 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
   }>();
   private pyodideOptions: PyodideAgentOptions;
 
+  /**
+   * Parse log level from environment variable string
+   */
+  private parseLogLevel(levelStr: string | undefined): LogLevel {
+    if (!levelStr) return LogLevel.ERROR;
+
+    const normalizedLevel = levelStr.toUpperCase();
+    switch (normalizedLevel) {
+      case "DEBUG":
+        return LogLevel.DEBUG;
+      case "INFO":
+        return LogLevel.INFO;
+      case "WARN":
+      case "WARNING":
+        return LogLevel.WARN;
+      case "ERROR":
+        return LogLevel.ERROR;
+      default:
+        return LogLevel.ERROR;
+    }
+  }
+
+  /**
+   * Configure logger from environment variables
+   * Reads RUNT_LOG_LEVEL and RUNT_DISABLE_CONSOLE_LOGS
+   */
+  private configureLoggerFromEnvironment(): void {
+    const logLevel = this.parseLogLevel(Deno.env.get("RUNT_LOG_LEVEL"));
+    const disableConsole = Deno.env.get("RUNT_DISABLE_CONSOLE_LOGS") === "true";
+
+    logger.configure({
+      level: logLevel,
+      console: !disableConsole,
+    });
+  }
+
   constructor(
     args: string[] = Deno.args,
     options: PyodideAgentOptions = {},
@@ -137,6 +173,14 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         await this.cleanupWorker();
       },
     });
+
+    // Configure logger from environment variables early if not already configured
+    // This ensures RUNT_LOG_LEVEL is respected even when using PyodideRuntimeAgent programmatically
+    if (
+      Deno.env.get("RUNT_LOG_LEVEL") && logger.getLevel() === LogLevel.ERROR
+    ) {
+      this.configureLoggerFromEnvironment();
+    }
 
     // Store simplified options - config now handles the complex merging
     this.pyodideOptions = {

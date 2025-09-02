@@ -37,7 +37,7 @@ export interface LoggerConfig {
  */
 class Logger {
   private config: LoggerConfig = {
-    level: LogLevel.INFO,
+    level: LogLevel.ERROR,
     console: true,
     service: "runt-agent",
   };
