@@ -6,7 +6,7 @@ import {
   materializers,
   tables,
 } from "@runt/schema";
-import type { Logger } from "@runt/lib";
+
 import type { Store } from "npm:@livestore/livestore";
 import { makeSchema, State } from "npm:@livestore/livestore";
 import { logger } from "@runt/lib";
@@ -15,9 +15,6 @@ import { getMCPClient } from "./mcp-client.ts";
 // Create schema locally
 const state = State.SQLite.makeState({ tables, materializers });
 const schema = makeSchema({ events, state });
-
-// Create logger for tool execution debugging
-const toolLogger = logger;
 
 export interface NotebookTool {
   name: string;
@@ -198,7 +195,7 @@ export async function getAllTools(): Promise<NotebookTool[]> {
       notebookTools.push(...VECTOR_STORE_TOOLS);
     }
   } catch (_vectorstoreError) {
-    toolLogger.error(`failed to import vector store or get its status`);
+    logger.error(`failed to import vector store or get its status`);
   }
 
   try {
@@ -227,7 +224,7 @@ export async function getAllTools(): Promise<NotebookTool[]> {
 
     notebookTools.push(...convertedMcpTools);
   } catch (error) {
-    toolLogger.error("Failed to get MCP tools, using only notebook tools", {
+    logger.error("Failed to get MCP tools, using only notebook tools", {
       error: String(error),
     });
   }
@@ -253,7 +250,6 @@ function unescapeContent(content: string): string {
 
 export function createCell(
   store: Store<typeof schema>,
-  logger: Logger,
   sessionId: string,
   _currentCell: CellData,
   args: Record<string, unknown>,
@@ -327,7 +323,6 @@ export function createCell(
  */
 export async function handleToolCallWithResult(
   store: Store<typeof schema>,
-  logger: Logger,
   sessionId: string,
   currentCell: CellData,
   toolCall: {
@@ -506,7 +501,7 @@ export async function handleToolCallWithResult(
   // Handle built-in notebook tools
   switch (name) {
     case "create_cell": {
-      return createCell(store, logger, sessionId, currentCell, args);
+      return createCell(store, sessionId, currentCell, args);
     }
 
     case "modify_cell": {
@@ -651,7 +646,7 @@ export async function handleToolCallWithResult(
                     let resultText = "";
                     let usedFormat = "";
 
-                    toolLogger.debug(
+                    logger.debug(
                       "Processing multimedia_result for tool response",
                       {
                         cellId,
@@ -686,7 +681,7 @@ export async function handleToolCallWithResult(
                       usedFormat = "raw_data";
                     }
 
-                    toolLogger.debug("Tool result content extracted", {
+                    logger.debug("Tool result content extracted", {
                       cellId,
                       usedFormat,
                       contentLength: resultText.length,

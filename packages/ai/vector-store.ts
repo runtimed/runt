@@ -3,7 +3,6 @@ import { OpenAI, OpenAIEmbedding } from "@llamaindex/openai";
 import { SimpleDirectoryReader } from "@llamaindex/readers/directory";
 import { TextFileReader } from "@llamaindex/readers/text";
 import { logger, LogLevel } from "@runt/lib";
-import type { Logger } from "@runt/lib";
 import { dirname, join } from "@std/path";
 
 // Type definitions for llamaindex objects
@@ -27,9 +26,6 @@ interface VectorQueryEngine {
   query(params: { query: string }): Promise<{ toString(): string }>;
 }
 
-// Initialize logger for vector store operations
-const vectorLogger = logger;
-
 // Global flag to prevent multiple embedding model configuration
 let embeddingConfigured = false;
 
@@ -43,11 +39,9 @@ export class VectorStoreService {
   private isIngesting = false;
   private ingestionComplete = false;
   private ingestionPromise: Promise<void> | null = null;
-  private logger: Logger;
   private indexedFilePaths: string[] = [];
 
   constructor() {
-    this.logger = vectorLogger;
     // Don't configure model in constructor - defer until needed
   }
 
@@ -57,11 +51,11 @@ export class VectorStoreService {
   private configureModel(): void {
     // Only configure embeddings once globally to prevent "already imported" issues
     if (embeddingConfigured) {
-      this.logger.debug("Embedding model already configured, skipping");
+      logger.debug("Embedding model already configured, skipping");
       return;
     }
 
-    this.logger.debug("Configuring embedding model...");
+    logger.debug("Configuring embedding model...");
 
     try {
       // Use OpenAI embeddings if API key is available
@@ -69,7 +63,7 @@ export class VectorStoreService {
       const openaiEmbeddingModel = Deno.env.get("OPENAI_EMBEDDING_MODEL");
 
       if (openaiApiKey) {
-        this.logger.debug(
+        logger.debug(
           "OpenAI API key found - configuring OpenAI embeddings for vector store",
         );
 
@@ -82,11 +76,11 @@ export class VectorStoreService {
             model: "gpt-4o",
             apiKey: openaiApiKey,
           });
-          this.logger.info("OpenAI embeddings configured successfully");
+          logger.info("OpenAI embeddings configured successfully");
           embeddingConfigured = true;
           return;
         } catch (openaiError) {
-          this.logger.error("Failed to configure OpenAI embeddings", {
+          logger.error("Failed to configure OpenAI embeddings", {
             error: String(openaiError),
           });
           throw openaiError;
@@ -95,7 +89,7 @@ export class VectorStoreService {
         throw new Error("OPENAI_EMBEDDING_API_KEY was not found");
       }
     } catch (error) {
-      this.logger.error("Failed to configure embedding model", {
+      logger.error("Failed to configure embedding model", {
         error: String(error),
       });
       throw error; // Re-throw to surface the actual error

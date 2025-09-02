@@ -7,7 +7,7 @@ export {
   parseBaseRuntimeArgs,
   RuntimeConfig,
 } from "./src/config.ts";
-export { Logger, logger, LogLevel, withQuietLogging } from "./src/logging.ts";
+export { logger, LogLevel, withQuietLogging } from "./src/logging.ts";
 export type {
   AiModel,
   CancellationHandler,

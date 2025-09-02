@@ -79,7 +79,7 @@ export class RuntimeAgent {
 
       // Use provided clientId (now required)
       const clientId = this.config.clientId;
-      this.logger.info("Using clientId", { clientId });
+      logger.info("Using clientId", { clientId });
 
       // Create store with appropriate adapter and sync payload
       const adapter = this.config.adapter || this.createDefaultAdapter();
@@ -103,7 +103,7 @@ export class RuntimeAgent {
       // @ts-expect-error: Global debug access
       globalThis.__debugLiveStore[this.config.notebookId] = this.#store;
 
-      this.logger.info("LiveStore initialized", {
+      logger.info("LiveStore initialized", {
         storeId: this.config.notebookId,
         hasCustomAdapter: !!this.config.adapter,
       });
