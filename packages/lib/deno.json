@@ -37,16 +37,12 @@
     "fmt": "deno fmt",
     "lint": "deno lint"
   },
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["ESNext", "DOM"]
+  },
   "publish": {
-    "include": [
-      "mod.ts",
-      "src/",
-      "README.md"
-    ],
-    "exclude": [
-      "**/*.test.ts",
-      "**/test_*.ts",
-      "examples/"
-    ]
+    "include": ["mod.ts", "src/", "README.md"],
+    "exclude": ["**/*.test.ts", "**/test_*.ts", "examples/"]
   }
 }
