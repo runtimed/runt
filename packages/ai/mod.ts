@@ -1,12 +1,7 @@
 import stripAnsi from "strip-ansi";
 import type OpenAI from "@openai/openai";
 
-import type {
-  AiModel,
-  ExecutionContext,
-  Logger,
-  ModelCapability,
-} from "@runt/lib";
+import type { AiModel, ExecutionContext, ModelCapability } from "@runt/lib";
 
 import { handleToolCallWithResult } from "./tool-registry.ts";
 import type {
@@ -573,7 +568,6 @@ export type AIExecutionContext = ExecutionContext & {
 export async function executeAI(
   context: AIExecutionContext,
   notebookContext: NotebookContextData,
-  logger: Logger,
   store: Store<typeof schema>,
   sessionId: string,
   notebookTools: NotebookTool[] = [],
@@ -674,7 +668,6 @@ export async function executeAI(
               });
               return await handleToolCallWithResult(
                 store,
-                logger,
                 sessionId,
                 cell,
                 toolCall,
@@ -801,7 +794,6 @@ The system will automatically pull models if they're not available locally.`;
             });
             return await handleToolCallWithResult(
               store,
-              logger,
               sessionId,
               cell,
               toolCall,
@@ -875,7 +867,6 @@ The system will automatically pull models if they're not available locally.`;
             });
             return await handleToolCallWithResult(
               store,
-              logger,
               sessionId,
               cell,
               toolCall,

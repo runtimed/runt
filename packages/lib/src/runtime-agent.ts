@@ -139,7 +139,7 @@ export class RuntimeAgent {
       }));
 
       await this.handlers.onConnected?.();
-      this.logger.info("Runtime agent connected and ready");
+      logger.info("Runtime agent connected and ready");
 
       // Pretty console output for successful connection
       const connectionUrl = new URL(this.config.syncUrl);
@@ -230,7 +230,7 @@ export class RuntimeAgent {
       });
     }
 
-    shutdownLogger.info("Runtime agent shutdown complete", {
+    logger.info("Runtime agent shutdown complete", {
       runtimeId: this.config.runtimeId,
       sessionId: this.config.sessionId,
     });
