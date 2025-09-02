@@ -1,11 +1,10 @@
 import { PythonRuntimeAgent } from "./src/python-runtime-agent.ts";
-import { createLogger } from "@runt/lib";
+import { logger } from "@runt/lib";
 export { PythonRuntimeAgent };
 
 if (import.meta.main) {
   const name = "PyRunt";
 
-  const logger = createLogger(name);
   const agent = new PythonRuntimeAgent();
 
   logger.info("Starting Agent");

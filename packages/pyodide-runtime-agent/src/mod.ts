@@ -8,13 +8,43 @@
 
 import { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
-import { createLogger, discoverUserIdentity } from "@runt/lib";
+import { discoverUserIdentity, logger, LogLevel } from "@runt/lib";
 import { createPyodideRuntimeConfig } from "./pyodide-config.ts";
 
 // Run the agent if this file is executed directly
 if (import.meta.main) {
   const name = "PyoRunt";
-  const logger = createLogger(name);
+
+  // Configure logger early based on environment variables for CLI usage
+  const runtLogLevel = Deno.env.get("RUNT_LOG_LEVEL");
+  const disableConsole = Deno.env.get("RUNT_DISABLE_CONSOLE_LOGS") === "true";
+
+  if (runtLogLevel) {
+    const normalizedLevel = runtLogLevel.toUpperCase();
+    let logLevel: LogLevel;
+    switch (normalizedLevel) {
+      case "DEBUG":
+        logLevel = LogLevel.DEBUG;
+        break;
+      case "INFO":
+        logLevel = LogLevel.INFO;
+        break;
+      case "WARN":
+      case "WARNING":
+        logLevel = LogLevel.WARN;
+        break;
+      case "ERROR":
+        logLevel = LogLevel.ERROR;
+        break;
+      default:
+        logLevel = LogLevel.ERROR;
+    }
+
+    logger.configure({
+      level: logLevel,
+      console: !disableConsole,
+    });
+  }
 
   logger.info("Authenticating...");
 

@@ -1,12 +1,7 @@
 import stripAnsi from "strip-ansi";
 import type OpenAI from "@openai/openai";
 
-import type {
-  AiModel,
-  ExecutionContext,
-  Logger,
-  ModelCapability,
-} from "@runt/lib";
+import type { AiModel, ExecutionContext, ModelCapability } from "@runt/lib";
 
 import { handleToolCallWithResult } from "./tool-registry.ts";
 import type {
@@ -23,7 +18,7 @@ import {
 import type { Store } from "npm:@livestore/livestore";
 import { makeSchema, State } from "npm:@livestore/livestore";
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
-import { createLogger } from "@runt/lib";
+import { logger } from "@runt/lib";
 
 // Create schema locally
 const state = State.SQLite.makeState({ tables, materializers });
@@ -60,8 +55,7 @@ export {
 // Export notebook context functions
 export { gatherNotebookContext } from "./notebook-context.ts";
 
-// Create logger for AI conversation debugging
-const logger = createLogger("ai-conversation");
+// Use global logger instance for AI conversation debugging
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
@@ -146,12 +140,11 @@ function createSystemPrompt(
   filepaths?: string[],
   vectorStoreEnabled: boolean = false,
 ): string {
-  let prompt =
-    `You are an AI assistant in a collaborative notebook environment. 
+  let prompt = `You are an AI assistant in a collaborative notebook environment.
 
 You have the full context of all cells (code, ai, and markdown) above your current cell.
-You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. 
-You can also execute code yourself using tool calls. 
+You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed.
+You can also execute code yourself using tool calls.
 When you write code use caution not to double encode new lines.
 Use the visible outputs and your execution capabilities to help analyze data and answer questions.
 You should carefully review the code you've written and the output it produces.
@@ -575,7 +568,6 @@ export type AIExecutionContext = ExecutionContext & {
 export async function executeAI(
   context: AIExecutionContext,
   notebookContext: NotebookContextData,
-  logger: Logger,
   store: Store<typeof schema>,
   sessionId: string,
   notebookTools: NotebookTool[] = [],
@@ -676,7 +668,6 @@ export async function executeAI(
               });
               return await handleToolCallWithResult(
                 store,
-                logger,
                 sessionId,
                 cell,
                 toolCall,
@@ -803,7 +794,6 @@ The system will automatically pull models if they're not available locally.`;
             });
             return await handleToolCallWithResult(
               store,
-              logger,
               sessionId,
               cell,
               toolCall,
@@ -877,7 +867,6 @@ The system will automatically pull models if they're not available locally.`;
             });
             return await handleToolCallWithResult(
               store,
-              logger,
               sessionId,
               cell,
               toolCall,
