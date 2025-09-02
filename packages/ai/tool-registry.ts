@@ -9,7 +9,7 @@ import {
 import type { Logger } from "@runt/lib";
 import type { Store } from "npm:@livestore/livestore";
 import { makeSchema, State } from "npm:@livestore/livestore";
-import { createLogger } from "@runt/lib";
+import { logger } from "@runt/lib";
 import { getMCPClient } from "./mcp-client.ts";
 
 // Create schema locally
@@ -17,7 +17,7 @@ const state = State.SQLite.makeState({ tables, materializers });
 const schema = makeSchema({ events, state });
 
 // Create logger for tool execution debugging
-const toolLogger = createLogger("ai-tools");
+const toolLogger = logger;
 
 export interface NotebookTool {
   name: string;

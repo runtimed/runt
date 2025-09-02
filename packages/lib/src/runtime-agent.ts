@@ -15,7 +15,7 @@ import {
   type MediaContainer,
   tables,
 } from "@runt/schema";
-import { createLogger } from "./logging.ts";
+import { logger } from "./logging.ts";
 import { makeSchema, State } from "npm:@livestore/livestore";
 
 // Create schema locally
@@ -44,7 +44,7 @@ import { decodeBase64 } from "@std/encoding/base64";
  */
 export class RuntimeAgent {
   #store!: Store<typeof schema>;
-  protected logger!: ReturnType<typeof createLogger>;
+  // Use global logger instance from logging module
   private isShuttingDown = false;
   private processedExecutions = new Set<string>();
 
@@ -69,15 +69,9 @@ export class RuntimeAgent {
     try {
       await this.handlers.onStartup?.();
 
-      this.logger = createLogger(`${this.config.runtimeType}-agent`, {
-        context: {
-          notebookId: this.config.notebookId,
-          runtimeId: this.config.runtimeId,
-          sessionId: this.config.sessionId,
-        },
-      });
+      // Global logger is configured at application startup
 
-      this.logger.info("Starting runtime agent", {
+      logger.info("Starting runtime agent", {
         runtimeId: this.config.runtimeId,
         runtimeType: this.config.runtimeType,
         notebookId: this.config.notebookId,
@@ -165,7 +159,6 @@ export class RuntimeAgent {
 
       // No return value
     } catch (error) {
-      const logger = createLogger(`${this.config.runtimeType}-agent`);
       logger.error("Failed to start runtime agent", error);
       await this.handlers.onDisconnected?.(error as Error);
       throw error;
@@ -192,8 +185,7 @@ export class RuntimeAgent {
     if (this.isShuttingDown) return;
     this.isShuttingDown = true;
 
-    const shutdownLogger = createLogger(`${this.config.runtimeType}-agent`);
-    shutdownLogger.info("Runtime agent shutting down", {
+    logger.info("Runtime agent shutting down", {
       runtimeId: this.config.runtimeId,
       sessionId: this.config.sessionId,
     });
@@ -215,11 +207,10 @@ export class RuntimeAgent {
           }));
         }
       } catch (error) {
-        const termLogger = createLogger(`${this.config.runtimeType}-agent`);
         if (error instanceof Error) {
-          termLogger.error("Failed to mark session as terminated", error);
+          logger.error("Failed to mark session as terminated", error);
         } else {
-          termLogger.warn("Failed to mark session as terminated", {
+          logger.warn("Failed to mark session as terminated", {
             error: String(error),
           });
         }
@@ -233,7 +224,6 @@ export class RuntimeAgent {
         await this.store.shutdown?.();
       }
     } catch (error) {
-      const logger = createLogger(`${this.config.runtimeType}-agent`);
       logger.error("Error during shutdown", error, {
         runtimeId: this.config.runtimeId,
         sessionId: this.config.sessionId,
@@ -358,7 +348,6 @@ export class RuntimeAgent {
               try {
                 await this.processExecution(queueEntry);
               } catch (error) {
-                const logger = createLogger(`${this.config.runtimeType}-agent`);
                 logger.error("Error processing execution", error, {
                   executionId: queueEntry.id,
                   cellId: queueEntry.cellId,
@@ -381,8 +370,6 @@ export class RuntimeAgent {
           if (this.isShuttingDown) return;
 
           if (entries.length > 0) {
-            const logger = createLogger(`${this.config.runtimeType}-agent`);
-
             // Log cell count for sync debugging
             try {
               const allCells = this.store.query(tables.cells.select());
@@ -416,7 +403,6 @@ export class RuntimeAgent {
               );
             } catch (error) {
               // Mask LiveStore errors to prevent interference with runtime execution
-              const logger = createLogger(`${this.config.runtimeType}-agent`);
               logger.debug("LiveStore query failed for active runtimes", {
                 error: error instanceof Error ? error.message : String(error),
                 sessionId: this.config.sessionId,
@@ -503,7 +489,6 @@ export class RuntimeAgent {
   ): void {
     const controller = this.activeExecutions.get(queueId);
     if (controller) {
-      const logger = createLogger(`${this.config.runtimeType}-agent`);
       logger.debug("Cancelling execution", {
         queueId,
         cellId,
@@ -517,11 +502,10 @@ export class RuntimeAgent {
         try {
           handler(queueId, cellId, reason);
         } catch (error) {
-          const cancelLogger = createLogger(`${this.config.runtimeType}-agent`);
           if (error instanceof Error) {
-            cancelLogger.error("Cancellation handler error", error);
+            logger.error("Cancellation handler error", error);
           } else {
-            cancelLogger.warn("Cancellation handler error", {
+            logger.warn("Cancellation handler error", {
               error: String(error),
             });
           }
@@ -536,7 +520,6 @@ export class RuntimeAgent {
   private async processExecution(
     queueEntry: ExecutionQueueData,
   ): Promise<void> {
-    const logger = createLogger(`${this.config.runtimeType}-agent`);
     logger.debug("Processing execution", {
       executionId: queueEntry.id,
       cellId: queueEntry.cellId,
@@ -557,7 +540,6 @@ export class RuntimeAgent {
       cell = cells[0] as CellData;
     } catch (error) {
       // Mask LiveStore errors but still need to handle missing cell
-      const logger = createLogger(`${this.config.runtimeType}-agent`);
       logger.debug("LiveStore query failed for cell data", {
         error: error instanceof Error ? error.message : String(error),
         cellId: queueEntry.cellId,
@@ -812,7 +794,6 @@ export class RuntimeAgent {
           }));
         } catch (error) {
           // Mask LiveStore errors to prevent interference with runtime execution
-          const logger = createLogger(`${this.config.runtimeType}-agent`);
           logger.debug("LiveStore commit failed for clear output", {
             error: error instanceof Error ? error.message : String(error),
             cellId: cell.id,
@@ -836,7 +817,6 @@ export class RuntimeAgent {
         }));
       } catch (error) {
         // Mask LiveStore errors to prevent interference with runtime execution
-        const logger = createLogger(`${this.config.runtimeType}-agent`);
         logger.debug("LiveStore commit failed for executionStarted", {
           error: error instanceof Error ? error.message : String(error),
           queueId: queueEntry.id,
@@ -870,7 +850,6 @@ export class RuntimeAgent {
         }));
       } catch (error) {
         // Mask LiveStore errors to prevent interference with runtime execution
-        const logger = createLogger(`${this.config.runtimeType}-agent`);
         logger.debug("LiveStore commit failed for executionCompleted", {
           error: error instanceof Error ? error.message : String(error),
           queueId: queueEntry.id,
@@ -942,8 +921,7 @@ export class RuntimeAgent {
     Deno.addSignalListener("SIGTERM" as Deno.Signal, shutdown);
 
     globalThis.addEventListener("unhandledrejection", (event) => {
-      const errorLogger = createLogger(`${this.config.runtimeType}-agent`);
-      errorLogger.error(
+      logger.error(
         "Unhandled rejection",
         event.reason instanceof Error ? event.reason : undefined,
         {
@@ -956,8 +934,7 @@ export class RuntimeAgent {
     });
 
     globalThis.addEventListener("error", (event) => {
-      const errorLogger = createLogger(`${this.config.runtimeType}-agent`);
-      errorLogger.error(
+      logger.error(
         "Uncaught error",
         event.error instanceof Error ? event.error : undefined,
         {
@@ -977,8 +954,7 @@ export class RuntimeAgent {
         Deno.removeSignalListener(signal as Deno.Signal, handler);
       } catch (error) {
         // Ignore errors during cleanup
-        const cleanupLogger = createLogger(`${this.config.runtimeType}-agent`);
-        cleanupLogger.debug("Error removing signal listener", {
+        logger.debug("Error removing signal listener", {
           signal,
           error: error instanceof Error ? error.message : String(error),
         });
@@ -1009,7 +985,6 @@ export class RuntimeAgent {
       const imageData = decodeBase64(content);
       const imageSizeBytes = imageData.length;
 
-      const logger = createLogger("runtime-agent");
       logger.debug("Processing image content for artifact upload", {
         mimeType,
         imageSizeBytes,
@@ -1069,7 +1044,7 @@ export class RuntimeAgent {
       };
     } catch (error) {
       // If artifact upload fails, fall back to inline
-      const logger = createLogger("runtime-agent");
+
       logger.warn(
         "Failed to upload image as artifact, falling back to inline",
         {

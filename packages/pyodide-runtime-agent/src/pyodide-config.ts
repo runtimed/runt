@@ -7,7 +7,7 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { DEFAULT_CONFIG, parseBaseRuntimeArgs, RuntimeConfig } from "@runt/lib";
 import type { RuntimeAgentOptions } from "@runt/lib";
-import { createLogger } from "@runt/lib";
+import { logger } from "@runt/lib";
 
 /**
  * Pyodide-specific configuration options
@@ -365,7 +365,6 @@ export function createPyodideRuntimeConfig(
   const runtimeConfig = new PyodideRuntimeConfig(config);
   runtimeConfig.validate();
 
-  const logger = createLogger("pyodide-config");
   logger.debug("Pyodide runtime configuration created", {
     runtimeType: runtimeConfig.runtimeType,
     runtimeId: runtimeConfig.runtimeId,

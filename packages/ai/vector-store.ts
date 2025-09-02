@@ -2,7 +2,7 @@ import { type Document, Settings, VectorStoreIndex } from "llamaindex";
 import { OpenAI, OpenAIEmbedding } from "@llamaindex/openai";
 import { SimpleDirectoryReader } from "@llamaindex/readers/directory";
 import { TextFileReader } from "@llamaindex/readers/text";
-import { createLogger, LogLevel } from "@runt/lib";
+import { logger, LogLevel } from "@runt/lib";
 import type { Logger } from "@runt/lib";
 import { dirname, join } from "@std/path";
 
@@ -28,7 +28,7 @@ interface VectorQueryEngine {
 }
 
 // Initialize logger for vector store operations
-const vectorLogger = createLogger("vector-store");
+const vectorLogger = logger;
 
 // Global flag to prevent multiple embedding model configuration
 let embeddingConfigured = false;
