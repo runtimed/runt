@@ -261,7 +261,6 @@ export function createBaseRuntimeConfig(
   const runtimeConfig = new RuntimeConfig(config);
   runtimeConfig.validate();
 
-
   logger.debug("Runtime configuration created", {
     runtimeType: runtimeConfig.runtimeType,
     runtimeId: runtimeConfig.runtimeId,

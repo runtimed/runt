@@ -41,7 +41,6 @@ export async function discoverUserIdentity(
 ): Promise<string> {
   const { authToken, syncUrl, skipInTests = true } = options;
 
-
   // Skip authentication in test environments if enabled
   if (skipInTests) {
     const isTestEnvironment = Deno.env.get("DENO_TESTING") === "true" ||
