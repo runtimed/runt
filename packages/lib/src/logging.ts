@@ -58,6 +58,10 @@ class Logger {
     return { ...this.config };
   }
 
+  getLevel(): LogLevel {
+    return this.config.level;
+  }
+
   /**
    * Log a debug message
    */

@@ -89,8 +89,8 @@ deno task test:watch
 ## Logging
 
 ```typescript
-import { createLogger } from "@runt/lib";
-const logger = createLogger("my-agent");
+import { logger } from "@runt/lib";
+logger.debug("Simple debug log")
 ```
 
 Environment variables: `RUNT_LOG_LEVEL`, `RUNT_DISABLE_CONSOLE_LOGS`. Default

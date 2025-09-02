@@ -8,13 +8,12 @@
 
 import { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
-import { createLogger, discoverUserIdentity } from "@runt/lib";
+import { discoverUserIdentity, logger } from "@runt/lib";
 import { createPyodideRuntimeConfig } from "./pyodide-config.ts";
 
 // Run the agent if this file is executed directly
 if (import.meta.main) {
   const name = "PyoRunt";
-  const logger = createLogger(name);
 
   logger.info("Authenticating...");
 
