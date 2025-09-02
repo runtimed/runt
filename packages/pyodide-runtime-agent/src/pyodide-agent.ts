@@ -10,9 +10,13 @@ import {
   type PyodideRuntimeConfig,
 } from "./pyodide-config.ts";
 import type { Adapter } from "npm:@livestore/livestore";
-import type { ExecutionContext, RuntimeCapabilities } from "@runt/lib";
+import type {
+  ExecutionContext,
+  MediaBundle,
+  RuntimeCapabilities,
+} from "@runt/lib";
 
-import { type MediaBundle, validateMediaBundle } from "@runt/lib";
+import { logger, validateMediaBundle } from "@runt/lib";
 import {
   cellReferences$,
   isJsonMimeType,
@@ -150,28 +154,28 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     // Call parent start first to initialize logger and LiveStore
     await super.start();
 
-    this.logger.info("Starting Pyodide Python runtime agent");
+    logger.info("Starting Pyodide Python runtime agent");
 
     // Discover available AI models if enabled
     if (this.pyodideOptions.discoverAiModels !== false) {
       try {
-        this.logger.info("Discovering available AI models...");
+        logger.info("Discovering available AI models...");
         const models = await discoverAvailableAiModels();
         // Update the capabilities object with discovered models
         (this.config.capabilities as RuntimeCapabilities).availableAiModels =
           models;
 
         if (models.length === 0) {
-          this.logger.warn(
+          logger.warn(
             "No AI models discovered - OpenAI API key or Ollama server may not be available",
           );
         } else {
-          this.logger.info(
+          logger.info(
             `Discovered ${models.length} AI models from providers`,
           );
         }
       } catch (error) {
-        this.logger.error("Failed to discover AI models", {
+        logger.error("Failed to discover AI models", {
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -186,13 +190,13 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
    */
   private async initializePyodideWorker(): Promise<void> {
     try {
-      this.logger.info("Initializing Pyodide worker");
+      logger.info("Initializing Pyodide worker");
 
       // Determine packages to load based on options
       const packagesToLoad = this.pyodideOptions.packages ||
         getEssentialPackages();
 
-      this.logger.info("Loading packages", {
+      logger.info("Loading packages", {
         packageCount: packagesToLoad.length,
         packages: packagesToLoad,
       });
@@ -214,7 +218,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         this.handleWorkerMessage.bind(this),
       );
       this.worker.addEventListener("error", (error) => {
-        this.logger.error("Worker error", {
+        logger.error("Worker error", {
           message: error.message || "Unknown worker error",
           filename: error.filename,
           lineno: error.lineno,
@@ -222,7 +226,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         this.handleWorkerCrash("Worker error event");
       });
       this.worker.addEventListener("messageerror", (error) => {
-        this.logger.error("Worker message error", {
+        logger.error("Worker message error", {
           type: error.type,
           data: error.data,
         });
@@ -257,20 +261,20 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
               const { getVectorStore } = await import("@runt/ai");
               const vectorStore = getVectorStore();
               vectorStore.startIngestion(mountData);
-              this.logger.info(
+              logger.info(
                 "Vector store indexing started for mounted files",
               );
             } catch (error) {
-              this.logger.error("Vector store ingestion failed", {
+              logger.error("Vector store ingestion failed", {
                 error: String(error),
               });
             }
           });
-          this.logger.info(
+          logger.info(
             "Vector store indexing enabled - initialization started in background",
           );
         } else {
-          this.logger.info(
+          logger.info(
             "Vector store indexing disabled - mounted files will not be indexed for AI search",
           );
         }
@@ -284,9 +288,9 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       });
 
       this.isInitialized = true;
-      this.logger.info("Pyodide worker initialized successfully");
+      logger.info("Pyodide worker initialized successfully");
     } catch (error) {
-      this.logger.error("Failed to initialize Pyodide worker", {
+      logger.error("Failed to initialize Pyodide worker", {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -321,7 +325,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     const { id, type, data, error } = event.data;
 
     if (type === "log") {
-      this.logger.debug("Worker log", { message: data });
+      logger.debug("Worker log", { message: data });
       return;
     }
 
@@ -464,7 +468,6 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         return await executeAI(
           aiContext,
           notebookContext,
-          this.logger,
           this.store,
           this.config.sessionId,
           notebookTools,
@@ -731,7 +734,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     cellId: string,
     reason: string,
   ): void {
-    this.logger.info("Python execution cancellation", {
+    logger.info("Python execution cancellation", {
       queueId,
       cellId,
       reason,
@@ -739,7 +742,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
 
     // Check if this is an AI cell being cancelled
     if (this.currentAIExecution && this.currentAIExecution.cellId === cellId) {
-      this.logger.info("Cancelling AI execution", {
+      logger.info("Cancelling AI execution", {
         cellId,
       });
       this.currentAIExecution.abortController.abort();
@@ -769,7 +772,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     this.executionQueue.length = 0;
 
     if (initialQueueLength > 0) {
-      this.logger.info("Cancelled all queued executions due to interrupt", {
+      logger.info("Cancelled all queued executions due to interrupt", {
         triggeringCellId: cellId,
         cancelledCount: initialQueueLength,
       });
@@ -780,7 +783,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
    * Handle worker crash and cleanup
    */
   private handleWorkerCrash(reason: string): void {
-    this.logger.error("Uncaught error", { error: "null" });
+    logger.error("Uncaught error", { error: "null" });
 
     // Reject all pending executions
     for (const [_id, pending] of this.pendingExecutions) {
@@ -800,7 +803,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
 
     // Clean up worker (async but don't wait for it in crash handler)
     this.cleanupWorker().catch((error) => {
-      this.logger.debug("Error during worker cleanup after crash", {
+      logger.debug("Error during worker cleanup after crash", {
         error: error instanceof Error ? error.message : String(error),
       });
     });
@@ -819,7 +822,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         await new Promise((resolve) => setTimeout(resolve, 100));
       } catch (error) {
         // Ignore errors during shutdown - worker might already be terminated
-        this.logger.debug(
+        logger.debug(
           "Worker shutdown message failed (expected during cleanup)",
           {
             error: error instanceof Error ? error.message : String(error),
@@ -831,7 +834,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       this.worker = null;
     }
 
-    this.logger.info("Pyodide worker cleanup completed");
+    logger.info("Pyodide worker cleanup completed");
   }
 
   /**
@@ -874,13 +877,13 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           : { hostPath, files };
         mountData.push(mountEntry);
 
-        this.logger.info(
+        logger.info(
           `Read ${files.length} files from mount path: ${hostPath}${
             targetPath ? ` -> ${targetPath}` : ""
           }`,
         );
       } catch (error) {
-        this.logger.warn(`Failed to read mount directory: ${hostPath}`, {
+        logger.warn(`Failed to read mount directory: ${hostPath}`, {
           error,
         });
       }
@@ -907,7 +910,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
             const content = await Deno.readFile(fullPath);
             files.push({ path: relativePath, content });
           } catch (error) {
-            this.logger.warn(`Failed to read file: ${fullPath}`, { error });
+            logger.warn(`Failed to read file: ${fullPath}`, { error });
           }
         } else if (entry.isDirectory) {
           // Recursively read subdirectory
@@ -915,7 +918,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         }
       }
     } catch (error) {
-      this.logger.warn(`Failed to read directory: ${currentPath}`, { error });
+      logger.warn(`Failed to read directory: ${currentPath}`, { error });
     }
   }
 
@@ -934,7 +937,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       };
 
       if (!result.files || result.files.length === 0) {
-        this.logger.debug("No files found in /outputs directory to sync");
+        logger.debug("No files found in /outputs directory to sync");
         return;
       }
 
@@ -968,17 +971,17 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           await Deno.writeFile(hostPath, content);
           syncedCount++;
         } catch (error) {
-          this.logger.warn(`Failed to sync file ${path} to host: ${error}`);
+          logger.warn(`Failed to sync file ${path} to host: ${error}`);
         }
       }
 
       if (syncedCount > 0) {
-        this.logger.info(
+        logger.info(
           `Synced ${syncedCount} files from /outputs to ${this.config.outputDir}`,
         );
       }
     } catch (error) {
-      this.logger.warn(`Failed to sync outputs to host: ${error}`);
+      logger.warn(`Failed to sync outputs to host: ${error}`);
     }
   }
 }
