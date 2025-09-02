@@ -4,7 +4,7 @@
 // extended by specific runtime implementations (Python, JavaScript, etc.).
 
 import { parseArgs } from "@std/cli/parse-args";
-import { createLogger } from "./logging.ts";
+import { logger } from "./logging.ts";
 import type { Adapter } from "npm:@livestore/livestore";
 import type {
   IArtifactClient,
@@ -72,7 +72,7 @@ export class RuntimeConfig {
       return `${protocol}//${url.host}`;
     } catch (error) {
       // Fallback to default if URL parsing fails
-      const logger = createLogger("runtime-config");
+
       logger.warn(
         "Failed to parse sync URL for artifact service, using default",
         {
@@ -261,7 +261,7 @@ export function createBaseRuntimeConfig(
   const runtimeConfig = new RuntimeConfig(config);
   runtimeConfig.validate();
 
-  const logger = createLogger("config");
+
   logger.debug("Runtime configuration created", {
     runtimeType: runtimeConfig.runtimeType,
     runtimeId: runtimeConfig.runtimeId,

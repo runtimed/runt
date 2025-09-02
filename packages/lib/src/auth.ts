@@ -4,7 +4,7 @@
 // and discovering user identity. These should be used by CLI tools
 // before creating runtime agents.
 
-import { createLogger } from "./logging.ts";
+import { logger } from "./logging.ts";
 
 /**
  * Options for user identity discovery
@@ -40,7 +40,7 @@ export async function discoverUserIdentity(
   options: DiscoverUserIdentityOptions,
 ): Promise<string> {
   const { authToken, syncUrl, skipInTests = true } = options;
-  const logger = createLogger("auth");
+
 
   // Skip authentication in test environments if enabled
   if (skipInTests) {
