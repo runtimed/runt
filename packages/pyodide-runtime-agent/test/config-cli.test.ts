@@ -1,12 +1,11 @@
 /// <reference lib="deno.ns" />
 import { assertEquals, assertThrows } from "jsr:@std/assert";
 import { stub } from "jsr:@std/testing/mock";
+import { DEFAULT_CONFIG, RuntimeConfig } from "@runt/lib";
 import {
   createBaseRuntimeConfig,
-  DEFAULT_CONFIG,
   parseBaseRuntimeArgs,
-  RuntimeConfig,
-} from "../src/config.ts";
+} from "../src/config-cli.ts";
 
 const REQUIRED_PARAMS = ["--notebook", "test-nb", "--auth-token", "test-token"];
 

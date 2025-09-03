@@ -4,7 +4,7 @@
 // and discovering user identity. These should be used by CLI tools
 // before creating runtime agents.
 
-import { logger } from "./logging.ts";
+import { logger } from "@runt/lib";
 
 /**
  * Options for user identity discovery

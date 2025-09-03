@@ -8,23 +8,44 @@ import { assertEquals, assertExists } from "jsr:@std/assert";
 
 import { crypto } from "jsr:@std/crypto";
 
-import { RuntimeAgent, type RuntimeCapabilities } from "@runt/lib";
-import { createBaseRuntimeConfig } from "../src/config.ts";
+import {
+  RuntimeAgent,
+  type RuntimeAgentOptions,
+  type RuntimeCapabilities,
+  RuntimeConfig,
+} from "@runt/lib";
 import { makeAdapter } from "npm:@livestore/adapter-node";
+
+// Helper function for creating test configs since createBaseRuntimeConfig moved to pyodide package
+function createTestRuntimeConfig(
+  args: string[],
+  defaults: Partial<RuntimeAgentOptions> = {},
+): RuntimeConfig {
+  const config: RuntimeAgentOptions = {
+    runtimeId: "test-runtime-id",
+    runtimeType: "test-runtime",
+    syncUrl: "ws://fake-url:9999",
+    authToken: "test-token",
+    notebookId: "test-notebook",
+    capabilities: {
+      canExecuteCode: true,
+      canExecuteSql: false,
+      canExecuteAi: false,
+    },
+    clientId: "test-client",
+    ...defaults,
+  };
+  return new RuntimeConfig(config);
+}
 
 Deno.test("RuntimeAgent adapter injection", async (t) => {
   await t.step(
     "should work with default adapter (backward compatibility)",
     () => {
-      const config = createBaseRuntimeConfig([
-        "--notebook",
-        "test-notebook",
-        "--auth-token",
-        "test-token",
-        "--sync-url",
-        "ws://fake-url:9999", // Will fail but that's expected
-      ], {
+      const config = createTestRuntimeConfig([], {
         clientId: "test-client-backward-compat",
+        notebookId: "test-notebook",
+        syncUrl: "ws://fake-url:9999", // Will fail but that's expected
       });
 
       const capabilities: RuntimeCapabilities = {
@@ -48,14 +69,11 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       // No sync backend needed for pure in-memory testing
     });
 
-    const config = createBaseRuntimeConfig([
-      "--notebook",
-      "adapter-test",
-      "--auth-token",
-      "test-token",
-    ], {
+    const config = createTestRuntimeConfig([], {
       adapter,
-      clientId: "test-client-123",
+      clientId: "test-client-adapter",
+      notebookId: "adapter-test",
+      syncUrl: "ws://fake-url:9999",
     });
 
     const capabilities: RuntimeCapabilities = {
@@ -86,14 +104,12 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
         storage: { type: "in-memory" },
       });
 
-      const config = createBaseRuntimeConfig([
-        "--notebook",
-        "adapter-test-2",
-        "--auth-token",
-        "test-token",
-      ], {
+      const config = createTestRuntimeConfig([], {
         adapter,
         clientId: "test-client-generated",
+        notebookId: "adapter-test-2",
+        authToken: "test-token",
+        syncUrl: "ws://fake-url:9999",
       });
 
       const capabilities: RuntimeCapabilities = {
@@ -119,16 +135,11 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       storage: { type: "in-memory" },
     });
 
-    const config = createBaseRuntimeConfig([
-      "--notebook",
-      "clientid-test",
-      "--runtime-id",
-      runtimeId,
-      "--auth-token",
-      "test-token",
-    ], {
+    const config = createTestRuntimeConfig([], {
       adapter,
-      clientId: `runtime-${runtimeId}`,
+      runtimeId,
+      notebookId: "clientid-test",
+      syncUrl: "ws://fake-url:9999",
     });
 
     const capabilities: RuntimeCapabilities = {
@@ -156,14 +167,11 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
 
     const explicitClientId = "my-custom-client-id";
 
-    const config = createBaseRuntimeConfig([
-      "--notebook",
-      "explicit-clientid-test",
-      "--auth-token",
-      "test-token",
-    ], {
+    const config = createTestRuntimeConfig([], {
       adapter,
       clientId: explicitClientId,
+      notebookId: "explicit-clientid-test",
+      syncUrl: "ws://fake-url:9999",
     });
 
     const capabilities: RuntimeCapabilities = {
@@ -189,28 +197,22 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
     });
 
     // Create two agents using the same adapter
-    const config1 = createBaseRuntimeConfig([
-      "--notebook",
-      "shared-adapter-1",
-      "--runtime-id",
-      "agent-1",
-      "--auth-token",
-      "token1",
-    ], {
+    const config1 = createTestRuntimeConfig([], {
       adapter,
       clientId: "client-1",
+      notebookId: "shared-adapter-1",
+      runtimeId: "agent-1",
+      authToken: "token1",
+      syncUrl: "ws://fake-url:9999",
     });
 
-    const config2 = createBaseRuntimeConfig([
-      "--notebook",
-      "shared-adapter-2",
-      "--runtime-id",
-      "agent-2",
-      "--auth-token",
-      "token2",
-    ], {
+    const config2 = createTestRuntimeConfig([], {
       adapter,
       clientId: "client-2",
+      notebookId: "shared-adapter-2",
+      runtimeId: "agent-2",
+      authToken: "token2",
+      syncUrl: "ws://fake-url:9999",
     });
 
     const capabilities: RuntimeCapabilities = {
@@ -244,14 +246,12 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       },
     });
 
-    const config = createBaseRuntimeConfig([
-      "--notebook",
-      "fs-test",
-      "--auth-token",
-      "test-token",
-    ], {
+    const config = createTestRuntimeConfig([], {
       adapter: fsAdapter,
-      clientId: "fs-test-client",
+      clientId: "fs-client",
+      notebookId: "fs-test",
+      authToken: "test-token",
+      syncUrl: "ws://fake-url:9999",
     });
 
     const capabilities: RuntimeCapabilities = {
