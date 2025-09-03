@@ -3,7 +3,7 @@
 // Tests for logging configuration from environment variables
 
 import { assertEquals, assertExists } from "@std/assert";
-import { logger, LogLevel } from "./logging.ts";
+import { logger, LogLevel } from "../src/logging.ts";
 
 Deno.test("logger configuration", async (t) => {
   await t.step("should allow manual logger configuration", () => {
