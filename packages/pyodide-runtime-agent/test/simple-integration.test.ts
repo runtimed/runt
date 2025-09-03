@@ -4,6 +4,7 @@
 // the type system or using type assertions.
 
 import {
+  assert,
   assertEquals,
   assertExists,
   assertStringIncludes,
@@ -123,7 +124,15 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
 
     const agent = new PyodideRuntimeAgent(agentArgs);
 
-    assertStringIncludes(agent.config.syncUrl, "localhost");
+    // Should be either localhost (from .env override) or default URL (in CI)
+    const syncUrl = agent.config.syncUrl;
+    const hasLocalhost = syncUrl.includes("localhost");
+    const hasDefaultUrl = syncUrl.includes("anode-docworker") ||
+      syncUrl.startsWith("wss://");
+    assert(
+      hasLocalhost || hasDefaultUrl,
+      `Expected sync URL to contain localhost or be a valid WebSocket URL, got: ${syncUrl}`,
+    );
   });
 
   await t.step("supports environment variables", () => {
