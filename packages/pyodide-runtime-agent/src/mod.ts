@@ -10,7 +10,7 @@ import { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 import { logger, LogLevel } from "@runt/lib";
 import { discoverUserIdentity } from "./auth.ts";
-import { createPyodideRuntimeConfig } from "./pyodide-config.ts";
+import { parseBaseRuntimeArgs } from "./config-cli.ts";
 import { makeAdapter } from "npm:@livestore/adapter-node";
 import { makeCfSync } from "npm:@livestore/sync-cf";
 
@@ -51,15 +51,22 @@ if (import.meta.main) {
 
   logger.info("Authenticating...");
 
-  // Create temporary config to get auth details
-  const tempConfig = createPyodideRuntimeConfig(Deno.args, {
-    clientId: "temp", // Will be replaced
-  });
+  // Parse CLI args once to get auth details
+  const cliConfig = parseBaseRuntimeArgs(Deno.args);
+  const syncUrl = cliConfig.syncUrl ||
+    "wss://anode-docworker.rgbkrk.workers.dev";
+  const authToken = cliConfig.authToken;
+
+  if (!authToken) {
+    console.error("❌ Configuration Error: Missing auth token");
+    console.error("Use --auth-token or set RUNT_API_KEY environment variable");
+    Deno.exit(1);
+  }
 
   // Discover user identity first
   const clientId = await discoverUserIdentity({
-    authToken: tempConfig.authToken,
-    syncUrl: tempConfig.syncUrl,
+    authToken,
+    syncUrl,
   });
 
   logger.info("Authenticated successfully", { clientId });
@@ -68,7 +75,7 @@ if (import.meta.main) {
   const adapter = makeAdapter({
     storage: { type: "in-memory" },
     sync: {
-      backend: makeCfSync({ url: tempConfig.syncUrl }),
+      backend: makeCfSync({ url: syncUrl }),
       onSyncError: "ignore",
     },
   });
