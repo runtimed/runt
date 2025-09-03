@@ -1,8 +1,4 @@
-import {
-  RuntimeAgent,
-  type RuntimeCapabilities,
-  RuntimeConfig,
-} from "@runt/lib";
+import { RuntimeAgent, RuntimeConfig } from "@runt/lib";
 
 export class PythonRuntimeAgent extends RuntimeAgent {
   constructor(_args: string[] = Deno.args) {
