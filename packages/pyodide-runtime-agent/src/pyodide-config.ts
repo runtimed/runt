@@ -8,7 +8,7 @@ import { parseArgs } from "@std/cli/parse-args";
 import { DEFAULT_CONFIG, RuntimeConfig } from "@runt/lib";
 import type { RuntimeAgentOptions } from "@runt/lib";
 import { logger } from "@runt/lib";
-import { createBaseRuntimeConfig, parseBaseRuntimeArgs } from "./config-cli.ts";
+import { parseBaseRuntimeArgs } from "./config-cli.ts";
 
 /**
  * Pyodide-specific configuration options

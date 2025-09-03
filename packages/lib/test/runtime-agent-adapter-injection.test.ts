@@ -18,7 +18,7 @@ import { makeAdapter } from "npm:@livestore/adapter-node";
 
 // Helper function for creating test configs since createBaseRuntimeConfig moved to pyodide package
 function createTestRuntimeConfig(
-  args: string[],
+  _args: string[],
   defaults: Partial<RuntimeAgentOptions> = {},
 ): RuntimeConfig {
   const config: RuntimeAgentOptions = {
