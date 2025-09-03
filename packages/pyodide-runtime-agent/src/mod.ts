@@ -69,15 +69,14 @@ if (import.meta.main) {
     Deno.exit(1);
   }
 
-  // Discover user identity and generate proper clientId
-  const { userId, clientId, userInfo } = await discoverUserIdentity({
+  // Discover user identity - LiveStore will handle clientId internally
+  const { userId, userInfo } = await discoverUserIdentity({
     authToken,
     syncUrl,
   });
 
   logger.info("Authenticated successfully", {
     userId,
-    clientId,
     email: userInfo.email,
   });
 
@@ -90,11 +89,11 @@ if (import.meta.main) {
     },
   });
 
-  // Create agent with discovered clientId, userId, and Node.js adapter
+  // Create agent with discovered userId and Node.js adapter
   const agent = new PyodideRuntimeAgent(
     Deno.args,
     {}, // pyodide options
-    { clientId, adapter, userId }, // runtime options
+    { adapter, userId }, // runtime options
   );
 
   logger.info("Starting Agent");

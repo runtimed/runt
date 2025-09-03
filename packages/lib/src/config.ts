@@ -35,7 +35,6 @@ export class RuntimeConfig {
   public readonly imageArtifactThresholdBytes: number;
   public readonly artifactClient: IArtifactClient;
   public readonly adapter: Adapter | undefined;
-  public readonly clientId: string;
   public readonly userId: string;
 
   constructor(options: RuntimeAgentOptions) {
@@ -48,7 +47,6 @@ export class RuntimeConfig {
     this.imageArtifactThresholdBytes = options.imageArtifactThresholdBytes ??
       DEFAULT_CONFIG.imageArtifactThresholdBytes;
     this.adapter = options.adapter;
-    this.clientId = options.clientId;
     this.userId = options.userId;
 
     // Use injected artifact client or create default one

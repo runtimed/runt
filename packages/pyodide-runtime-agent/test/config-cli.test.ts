@@ -21,7 +21,6 @@ function makeBaseConfig(overrides: Partial<Record<string, unknown>> = {}) {
     syncUrl: "wss://test.example.com",
     authToken: "test-token",
     notebookId: "test-nb",
-    clientId: "test-client",
     userId: "test-user-id",
     adapter: makeInMemoryAdapter({}),
     capabilities: {

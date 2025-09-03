@@ -54,7 +54,6 @@ Deno.test({
 
         agent = new PyodideRuntimeAgent(agentArgs, {}, {
           adapter,
-          clientId: "test-client",
         });
 
         assertExists(agent);

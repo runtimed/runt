@@ -32,19 +32,17 @@ export interface UserInfo {
  */
 export interface AuthenticationResult {
   userId: string;
-  clientId: string;
   userInfo: UserInfo;
 }
 
 /**
  * Discover authenticated user identity via /api/me endpoint
  *
- * This should be called before creating runtime agents to get the clientId.
- * The clientId is generated using the user ID as a prefix plus a unique identifier,
- * following LiveStore best practices where clientId identifies device/app instances.
+ * This should be called before creating runtime agents to get user identity.
+ * LiveStore will handle clientId generation internally for device/app instances.
  *
  * @param options - Configuration for identity discovery
- * @returns Promise resolving to authentication result with userId and generated clientId
+ * @returns Promise resolving to authentication result with userId and user info
  * @throws Error if authentication fails
  */
 export async function discoverUserIdentity(
@@ -67,10 +65,8 @@ export async function discoverUserIdentity(
     if (isTestEnvironment) {
       logger.debug("Skipping authentication in test environment");
       const userId = "test-user-id";
-      const clientId = `${userId}-${crypto.randomUUID()}`;
       return {
         userId,
-        clientId,
         userInfo: { id: userId, email: "test@example.com" },
       };
     }
@@ -121,21 +117,17 @@ export async function discoverUserIdentity(
       throw new Error("User ID not found in response");
     }
 
-    // Generate clientId using user ID as prefix plus unique identifier
-    // This follows LiveStore best practices where clientId identifies device/app instances
+    // User identity discovered - LiveStore will handle clientId internally
     const userId = userInfo.id;
-    const clientId = `${userId}-${crypto.randomUUID()}`;
 
-    logger.debug("User identity discovered and clientId generated", {
+    logger.debug("User identity discovered", {
       userId,
-      clientId,
       email: userInfo.email,
       name: userInfo.name,
     });
 
     return {
       userId,
-      clientId,
       userInfo,
     };
   } catch (error) {
@@ -177,6 +169,3 @@ export async function discoverUserIdentity(
  * @param runtimeId - The runtime ID
  * @returns Generated client ID in the format "runtime-{runtimeId}"
  */
-export function generateRuntimeClientId(runtimeId: string): string {
-  return `runtime-${runtimeId}`;
-}

@@ -27,7 +27,7 @@ Deno.test("RuntimeConfig validation works", () => {
       syncUrl: "ws://test",
       authToken: "", // Missing
       notebookId: "", // Missing
-      clientId: "test-client",
+
       userId: "test-user-id",
       adapter: makeInMemoryAdapter({}),
       capabilities: {
@@ -52,7 +52,7 @@ Deno.test("RuntimeConfig validation works", () => {
     syncUrl: "ws://test",
     authToken: "test-token",
     notebookId: "test-notebook",
-    clientId: "test-client",
+
     userId: "test-user-id",
     adapter: makeInMemoryAdapter({}),
     capabilities: {

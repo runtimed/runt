@@ -37,9 +37,7 @@ Deno.test({
     ], {
       mountPaths: [tempMountDir],
       mountReadonly: true,
-    }, {
-      clientId: "test-client",
-    });
+    }, {});
 
     // Initialize the agent
     await agent.start();

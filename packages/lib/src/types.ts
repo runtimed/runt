@@ -71,8 +71,6 @@ export interface RuntimeAgentOptions {
   readonly artifactClient?: IArtifactClient;
   /** LiveStore adapter (required) */
   readonly adapter: Adapter;
-  /** Client ID for sync payload (must be provided) */
-  readonly clientId: string;
   /** User ID for sync payload authorization (must be provided) */
   readonly userId: string;
 }

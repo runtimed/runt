@@ -16,9 +16,7 @@ Deno.test({
       `--output-dir=${tempOutputDir}`,
     ], {
       outputDir: tempOutputDir,
-    }, {
-      clientId: "test-client",
-    });
+    }, {});
 
     // Initialize the agent
     await agent.start();
@@ -139,9 +137,7 @@ Deno.test({
       "--auth-token=test-token",
     ],
     {},
-    {
-      clientId: "test-client",
-    },
+    {},
   );
 
   await agent.start();
@@ -221,9 +217,7 @@ Deno.test({
       `--output-dir=${tempOutputDir}`,
     ], {
       outputDir: tempOutputDir,
-    }, {
-      clientId: "test-client",
-    });
+    }, {});
 
     await agent.start();
 
