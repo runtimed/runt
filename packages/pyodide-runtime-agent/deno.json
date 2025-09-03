@@ -1,6 +1,6 @@
 {
   "name": "@runt/pyodide-runtime-agent",
-  "version": "0.11.1",
+  "version": "0.12.0",
   "description": "Python runtime agent using Pyodide with IPython integration",
   "license": "BSD-3-Clause",
   "repository": {
@@ -14,9 +14,9 @@
     "pyorunt": "./src/mod.ts"
   },
   "imports": {
-    "@runt/ai": "jsr:@runt/ai@^0.11.1",
-    "@runt/lib": "jsr:@runt/lib@^0.11.1",
-    "@runt/schema": "jsr:@runt/schema@^0.11.1",
+    "@runt/ai": "jsr:@runt/ai@^0.12.0",
+    "@runt/lib": "jsr:@runt/lib@^0.12.0",
+    "@runt/schema": "jsr:@runt/schema@^0.12.0",
     "npm:pyodide": "npm:pyodide@^0.27.7",
     "@std/async": "jsr:@std/async@^1.0.0",
     "@std/cli": "jsr:@std/cli@^1.0.0",
