@@ -8,7 +8,8 @@
 
 import { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
-import { discoverUserIdentity, logger, LogLevel } from "@runt/lib";
+import { logger, LogLevel } from "@runt/lib";
+import { discoverUserIdentity } from "./auth.ts";
 import { createPyodideRuntimeConfig } from "./pyodide-config.ts";
 
 // Run the agent if this file is executed directly

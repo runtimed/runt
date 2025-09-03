@@ -51,7 +51,7 @@ export class RuntimeAgent {
   private subscriptions: (() => void)[] = [];
   private activeExecutions = new Map<string, AbortController>();
   private cancellationHandlers: CancellationHandler[] = [];
-  private signalHandlers = new Map<string, () => void>();
+
   private artifactClient: IArtifactClient;
 
   constructor(
@@ -216,8 +216,8 @@ export class RuntimeAgent {
         }
       }
 
-      // Clean up signal handlers
-      this.cleanupSignalHandlers();
+      // Clean up shutdown handlers
+      this.cleanupShutdownHandlers();
 
       // Close LiveStore connection
       if (this.#store) {
@@ -908,18 +908,13 @@ export class RuntimeAgent {
   }
 
   /**
-   * Set up shutdown signal handlers
+   * Set up shutdown handlers
+   * Override this method in subclasses to add platform-specific signal handling
    */
-  private setupShutdownHandlers(): void {
+  protected setupShutdownHandlers(): void {
     const shutdown = () => this.shutdown();
 
-    // Store signal handlers for cleanup
-    this.signalHandlers.set("SIGINT", shutdown);
-    this.signalHandlers.set("SIGTERM", shutdown);
-
-    Deno.addSignalListener("SIGINT" as Deno.Signal, shutdown);
-    Deno.addSignalListener("SIGTERM" as Deno.Signal, shutdown);
-
+    // Set up global error handlers (platform-agnostic)
     globalThis.addEventListener("unhandledrejection", (event) => {
       logger.error(
         "Unhandled rejection",
@@ -946,21 +941,12 @@ export class RuntimeAgent {
   }
 
   /**
-   * Clean up signal handlers
+   * Clean up shutdown handlers
+   * Override this method in subclasses to clean up platform-specific handlers
    */
-  private cleanupSignalHandlers(): void {
-    for (const [signal, handler] of this.signalHandlers) {
-      try {
-        Deno.removeSignalListener(signal as Deno.Signal, handler);
-      } catch (error) {
-        // Ignore errors during cleanup
-        logger.debug("Error removing signal listener", {
-          signal,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    this.signalHandlers.clear();
+  protected cleanupShutdownHandlers(): void {
+    // Base implementation does nothing
+    // Subclasses can override to clean up their specific handlers
   }
 
   /**

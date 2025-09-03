@@ -25,7 +25,7 @@
   },
   "tasks": {
     "dev": "deno run --allow-all --env-file=.env src/pyodide-agent.ts",
-    "test": "deno test --allow-all --env-file=.env",
+    "test": "deno test --allow-all",
     "check": "deno check src/**/*.ts",
     "fmt": "deno fmt",
     "lint": "deno lint"

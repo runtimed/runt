@@ -1,17 +1,12 @@
 /// <reference lib="deno.ns" />
 import { assertEquals } from "jsr:@std/assert";
-import {
-  createBaseRuntimeConfig,
-  DEFAULT_CONFIG,
-  RuntimeAgent,
-  RuntimeConfig,
-} from "@runt/lib";
+import { DEFAULT_CONFIG, RuntimeAgent, RuntimeConfig } from "@runt/lib";
 
 Deno.test("Library exports are available", () => {
   // Test that main exports are defined
   assertEquals(typeof RuntimeAgent, "function");
   assertEquals(typeof RuntimeConfig, "function");
-  assertEquals(typeof createBaseRuntimeConfig, "function");
+
   assertEquals(typeof DEFAULT_CONFIG, "object");
 });
 
