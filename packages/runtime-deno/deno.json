@@ -1,6 +1,6 @@
 {
   "name": "@runt/runtime-deno",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Deno runtime and CLI for runt agents",
   "license": "BSD-3-Clause",
   "repository": {

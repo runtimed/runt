@@ -1,6 +1,6 @@
 {
   "name": "@runt/runtime-core",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Shared runtime core for runt agents",
   "license": "BSD-3-Clause",
   "repository": {

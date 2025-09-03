@@ -1,6 +1,6 @@
 {
   "name": "@runt/runtime-browser",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Browser runtime for runt agents",
   "license": "BSD-3-Clause",
   "repository": {
