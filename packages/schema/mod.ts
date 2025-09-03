@@ -35,7 +35,7 @@ export * from "./queries/index.ts";
  *
  * USER CLIENTS (runtime: false/undefined):
  * - Regular users: clientId = userId-{uniqueId} (e.g. "user123-abc-def-ghi")
- * - Anonymous users: clientId = "anonymous-{uniqueId}" (e.g. "anonymous-abc-def-ghi")
+
  * - User clients use OIDC tokens for authentication
  * - User ID is passed separately in sync payload for authorization
  * - ClientId identifies device/app instances following LiveStore best practices
@@ -1253,7 +1253,7 @@ export function getNotebookInfo(
 ) {
   return {
     title: getNotebookMetadata(metadataRecords, "title", "Untitled"),
-    ownerId: getNotebookMetadata(metadataRecords, "ownerId", "anonymous"),
+    ownerId: getNotebookMetadata(metadataRecords, "ownerId", "unknown"),
     runtimeType: getNotebookMetadata(metadataRecords, "runtimeType", "python3"),
     isPublic:
       getNotebookMetadata(metadataRecords, "isPublic", "false") === "true",
