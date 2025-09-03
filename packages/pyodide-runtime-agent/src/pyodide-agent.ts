@@ -98,7 +98,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
    * Parse log level from environment variable string
    */
   private parseLogLevel(levelStr: string | undefined): LogLevel {
-    if (!levelStr) return LogLevel.ERROR;
+    if (!levelStr) return LogLevel.INFO;
 
     const normalizedLevel = levelStr.toUpperCase();
     switch (normalizedLevel) {
@@ -112,7 +112,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       case "ERROR":
         return LogLevel.ERROR;
       default:
-        return LogLevel.ERROR;
+        return LogLevel.INFO;
     }
   }
 
@@ -180,7 +180,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     // Configure logger from environment variables early if not already configured
     // This ensures RUNT_LOG_LEVEL is respected even when using PyodideRuntimeAgent programmatically
     if (
-      Deno.env.get("RUNT_LOG_LEVEL") && logger.getLevel() === LogLevel.ERROR
+      Deno.env.get("RUNT_LOG_LEVEL") && logger.getLevel() === LogLevel.INFO
     ) {
       this.configureLoggerFromEnvironment();
     }

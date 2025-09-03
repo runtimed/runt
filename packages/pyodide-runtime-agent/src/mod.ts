@@ -40,11 +40,17 @@ if (import.meta.main) {
         logLevel = LogLevel.ERROR;
         break;
       default:
-        logLevel = LogLevel.ERROR;
+        logLevel = LogLevel.INFO;
     }
 
     logger.configure({
       level: logLevel,
+      console: !disableConsole,
+    });
+  } else {
+    // Configure with INFO as default when no RUNT_LOG_LEVEL is set
+    logger.configure({
+      level: LogLevel.INFO,
       console: !disableConsole,
     });
   }
