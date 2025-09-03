@@ -69,8 +69,8 @@ export interface RuntimeAgentOptions {
   readonly imageArtifactThresholdBytes?: number;
   /** Artifact client for dependency injection (optional) */
   readonly artifactClient?: IArtifactClient;
-  /** Custom LiveStore adapter to use instead of default */
-  readonly adapter?: Adapter;
+  /** LiveStore adapter (required) */
+  readonly adapter: Adapter;
   /** Client ID for sync payload (must be provided) */
   readonly clientId: string;
 }

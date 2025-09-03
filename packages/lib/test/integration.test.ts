@@ -5,7 +5,7 @@
 // mocked dependencies to test the core integration points.
 
 import { assertEquals, assertExists } from "jsr:@std/assert";
-import { makeAdapter } from "npm:@livestore/adapter-node";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 
 import { RuntimeAgent } from "../src/runtime-agent.ts";
 import { RuntimeConfig } from "../src/config.ts";
@@ -52,9 +52,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       onExecutionError: createMockFunction(),
     };
 
-    const adapter = makeAdapter({
-      storage: { type: "in-memory" },
-    });
+    const adapter = makeInMemoryAdapter({});
 
     config = new RuntimeConfig({
       runtimeId: "integration-test-runtime",
@@ -147,9 +145,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
   await t.step("configuration validation", async (t) => {
     setup();
     await t.step("should accept valid configuration", () => {
-      const adapter = makeAdapter({
-        storage: { type: "in-memory" },
-      });
+      const adapter = makeInMemoryAdapter({});
 
       const validConfig = new RuntimeConfig({
         runtimeId: "valid-runtime",
@@ -172,9 +168,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       let error: Error | null = null;
 
       try {
-        const adapter = makeAdapter({
-          storage: { type: "in-memory" },
-        });
+        const adapter = makeInMemoryAdapter({});
 
         const config = new RuntimeConfig({
           runtimeId: "", // Invalid empty runtime ID
@@ -249,9 +243,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 
 Deno.test("RuntimeConfig", async (t) => {
   await t.step("should create valid config with all required fields", () => {
-    const adapter = makeAdapter({
-      storage: { type: "in-memory" },
-    });
+    const adapter = makeInMemoryAdapter({});
 
     const config = new RuntimeConfig({
       runtimeId: "test-runtime-3",
@@ -278,9 +270,7 @@ Deno.test("RuntimeConfig", async (t) => {
   });
 
   await t.step("should generate unique session IDs", () => {
-    const adapter1 = makeAdapter({
-      storage: { type: "in-memory" },
-    });
+    const adapter1 = makeInMemoryAdapter({});
 
     const config1 = new RuntimeConfig({
       runtimeId: "runtime1",
@@ -297,9 +287,7 @@ Deno.test("RuntimeConfig", async (t) => {
       },
     });
 
-    const adapter2 = makeAdapter({
-      storage: { type: "in-memory" },
-    });
+    const adapter2 = makeInMemoryAdapter({});
 
     const config2 = new RuntimeConfig({
       runtimeId: "runtime2",
@@ -321,9 +309,7 @@ Deno.test("RuntimeConfig", async (t) => {
   });
 
   await t.step("should allow custom heartbeat interval", () => {
-    const adapter = makeAdapter({
-      storage: { type: "in-memory" },
-    });
+    const adapter = makeInMemoryAdapter({});
 
     const _config = new RuntimeConfig({
       runtimeId: "test-ai-runtime",

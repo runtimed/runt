@@ -1,8 +1,8 @@
 # Runt
 
 Runtime agents for connecting to
-[Anode notebooks](https://github.com/rgbkrk/anode) with real-time collaboration,
-rich output support, and AI integration.
+[Anode notebooks](https://github.com/runtimed/anode) with real-time
+collaboration, rich output support, and AI integration.
 
 ## Features
 
@@ -50,7 +50,7 @@ deno task ci
 # Run tests only
 deno task test
 
-# Run example agent  
+# Run example agent
 deno task dev
 ```
 

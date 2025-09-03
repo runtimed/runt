@@ -1,12 +1,11 @@
 // RuntimeAgent - Base class for building Anode runtime agents
 
-import { makeAdapter } from "npm:@livestore/adapter-node";
 import {
   createStorePromise,
   queryDb,
   type Store,
 } from "npm:@livestore/livestore";
-import { makeCfSync } from "npm:@livestore/sync-cf";
+
 import {
   events,
   type ImageMimeType,
@@ -81,8 +80,13 @@ export class RuntimeAgent {
       const clientId = this.config.clientId;
       logger.info("Using clientId", { clientId });
 
-      // Create store with appropriate adapter and sync payload
-      const adapter = this.config.adapter || this.createDefaultAdapter();
+      // Create store with required adapter
+      const adapter = this.config.adapter;
+      if (!adapter) {
+        throw new Error(
+          "RuntimeAgent requires an adapter to be provided via config.adapter",
+        );
+      }
 
       this.#store = await createStorePromise({
         adapter,
@@ -163,19 +167,6 @@ export class RuntimeAgent {
       await this.handlers.onDisconnected?.(error as Error);
       throw error;
     }
-  }
-
-  /**
-   * Create the default adapter with Cloudflare sync
-   */
-  private createDefaultAdapter() {
-    return makeAdapter({
-      storage: { type: "in-memory" },
-      sync: {
-        backend: makeCfSync({ url: this.config.syncUrl }),
-        onSyncError: "ignore",
-      },
-    });
   }
 
   /**

@@ -11,7 +11,7 @@ on stability and extensibility.
 ## Project Overview
 
 Runt is a TypeScript/Deno library for building runtime agents that connect to
-[Anode notebooks](https://github.com/rgbkrk/anode). It uses LiveStore for
+[Anode notebooks](https://github.com/runtimed/anode). It uses LiveStore for
 event-sourcing and real-time sync between multiple users.
 
 **Current Status**: Working system with 58 passing tests. Core functionality is

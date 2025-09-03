@@ -1,4 +1,5 @@
 import { RuntimeAgent, RuntimeConfig } from "@runt/lib";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 
 export class PythonRuntimeAgent extends RuntimeAgent {
   constructor(_args: string[] = Deno.args) {
@@ -15,6 +16,7 @@ export class PythonRuntimeAgent extends RuntimeAgent {
         canExecuteAi: false,
       },
       clientId: "dummy",
+      adapter: makeInMemoryAdapter({}),
     });
 
     super(dummyConfig, dummyConfig.capabilities, {});

@@ -6,6 +6,7 @@ import {
   createBaseRuntimeConfig,
   parseBaseRuntimeArgs,
 } from "../src/config-cli.ts";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 
 const REQUIRED_PARAMS = ["--notebook", "test-nb", "--auth-token", "test-token"];
 
@@ -21,6 +22,7 @@ function makeBaseConfig(overrides: Partial<Record<string, unknown>> = {}) {
     authToken: "test-token",
     notebookId: "test-nb",
     clientId: "test-client",
+    adapter: makeInMemoryAdapter({}),
     capabilities: {
       canExecuteCode: true,
       canExecuteSql: false,
