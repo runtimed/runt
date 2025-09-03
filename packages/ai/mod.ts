@@ -488,7 +488,7 @@ export async function discoverAvailableAiModels(): Promise<AiModel[]> {
   }
 
   // Discover Groq models
-  if (Deno.env.get("GROQ_API_KEY")) {
+  if (Deno.env.get("GROQ_API_KEY") || Deno.env.get("GROQ_BASE_URL")) {
     const groqModels: AiModel[] = [
       {
         provider: "groq",
@@ -745,8 +745,22 @@ The system will automatically pull models if they're not available locally.`;
       }
     } else if (provider === "groq") {
       // Use Groq provider with RuntOpenAIClient configured for Groq
-      const groqApiKey = Deno.env.get("GROQ_API_KEY");
-      if (!groqApiKey) {
+      let groqBaseURL = Deno.env.get("GROQ_BASE_URL");
+      let groqApiKey: string | undefined;
+      let defaultHeaders: Record<string, string> = {};
+
+      if (!groqBaseURL) {
+        groqApiKey = Deno.env.get("GROQ_API_KEY");
+        groqBaseURL = "https://api.groq.com/openai/v1";
+      } else {
+        groqApiKey = Deno.env.get("RUNT_API_KEY");
+        defaultHeaders = {
+          "X-Client-Version": "0.11.1",
+          "X-Client-Source": "anaconda-runt-dev",
+        };
+      }
+
+      if (!groqApiKey || !groqBaseURL) {
         context.display({
           "text/markdown":
             "# Groq Configuration Required\n\nGroq API key not found. Please set `GROQ_API_KEY` environment variable.",
@@ -758,7 +772,8 @@ The system will automatically pull models if they're not available locally.`;
 
       const groqClient = new OpenAIClient({
         apiKey: groqApiKey,
-        baseURL: "https://api.groq.com/openai/v1",
+        baseURL: groqBaseURL,
+        defaultHeaders: defaultHeaders,
       }, notebookTools);
 
       const conversationMessages = buildConversationMessages(
