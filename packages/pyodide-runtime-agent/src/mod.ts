@@ -11,6 +11,8 @@ export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 import { logger, LogLevel } from "@runt/lib";
 import { discoverUserIdentity } from "./auth.ts";
 import { createPyodideRuntimeConfig } from "./pyodide-config.ts";
+import { makeAdapter } from "npm:@livestore/adapter-node";
+import { makeCfSync } from "npm:@livestore/sync-cf";
 
 // Run the agent if this file is executed directly
 if (import.meta.main) {
@@ -62,11 +64,20 @@ if (import.meta.main) {
 
   logger.info("Authenticated successfully", { clientId });
 
-  // Create agent with discovered clientId
+  // Create adapter for Node.js environment with Cloudflare sync
+  const adapter = makeAdapter({
+    storage: { type: "in-memory" },
+    sync: {
+      backend: makeCfSync({ url: tempConfig.syncUrl }),
+      onSyncError: "ignore",
+    },
+  });
+
+  // Create agent with discovered clientId and Node.js adapter
   const agent = new PyodideRuntimeAgent(
     Deno.args,
     {}, // pyodide options
-    { clientId }, // runtime options
+    { clientId, adapter }, // runtime options
   );
 
   logger.info("Starting Agent");

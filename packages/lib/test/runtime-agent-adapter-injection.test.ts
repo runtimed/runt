@@ -14,6 +14,7 @@ import {
   type RuntimeCapabilities,
   RuntimeConfig,
 } from "@runt/lib";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 import { makeAdapter } from "npm:@livestore/adapter-node";
 
 // Helper function for creating test configs since createBaseRuntimeConfig moved to pyodide package
@@ -21,6 +22,9 @@ function createTestRuntimeConfig(
   _args: string[],
   defaults: Partial<RuntimeAgentOptions> = {},
 ): RuntimeConfig {
+  // Create default in-memory adapter for testing
+  const defaultAdapter = makeInMemoryAdapter({});
+
   const config: RuntimeAgentOptions = {
     runtimeId: "test-runtime-id",
     runtimeType: "test-runtime",
@@ -33,6 +37,7 @@ function createTestRuntimeConfig(
       canExecuteAi: false,
     },
     clientId: "test-client",
+    adapter: defaultAdapter,
     ...defaults,
   };
   return new RuntimeConfig(config);
@@ -64,8 +69,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
 
   await t.step("should accept custom in-memory adapter", async () => {
     // Create custom in-memory adapter
-    const adapter = makeAdapter({
-      storage: { type: "in-memory" },
+    const adapter = makeInMemoryAdapter({
       // No sync backend needed for pure in-memory testing
     });
 
@@ -100,9 +104,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
     "should accept custom adapter without explicit clientId",
     async () => {
       // Create custom in-memory adapter
-      const adapter = makeAdapter({
-        storage: { type: "in-memory" },
-      });
+      const adapter = makeInMemoryAdapter({});
 
       const config = createTestRuntimeConfig([], {
         adapter,
@@ -131,9 +133,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
 
   await t.step("should generate clientId for custom adapter", async () => {
     const runtimeId = `runtime-${crypto.randomUUID()}`;
-    const adapter = makeAdapter({
-      storage: { type: "in-memory" },
-    });
+    const adapter = makeInMemoryAdapter({});
 
     const config = createTestRuntimeConfig([], {
       adapter,
@@ -161,9 +161,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
   });
 
   await t.step("should use explicit clientId when provided", async () => {
-    const adapter = makeAdapter({
-      storage: { type: "in-memory" },
-    });
+    const adapter = makeInMemoryAdapter({});
 
     const explicitClientId = "my-custom-client-id";
 
@@ -192,9 +190,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
 
   await t.step("should handle multiple agents with same adapter", async () => {
     // Create shared adapter
-    const adapter = makeAdapter({
-      storage: { type: "in-memory" },
-    });
+    const adapter = makeInMemoryAdapter({});
 
     // Create two agents using the same adapter
     const config1 = createTestRuntimeConfig([], {

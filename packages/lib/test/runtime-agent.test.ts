@@ -5,7 +5,7 @@
 // mock functions to ensure reliable, fast unit testing.
 
 import { assertEquals, assertExists, assertInstanceOf } from "jsr:@std/assert";
-import { makeAdapter } from "npm:@livestore/adapter-node";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 
 import { RuntimeAgent } from "../src/runtime-agent.ts";
 import { RuntimeConfig } from "../src/config.ts";
@@ -52,9 +52,7 @@ Deno.test("RuntimeAgent", async (t) => {
       onExecutionError: createMockFunction(),
     };
 
-    const adapter = makeAdapter({
-      storage: { type: "in-memory" },
-    });
+    const adapter = makeInMemoryAdapter({});
 
     config = new RuntimeConfig({
       runtimeId: "test-runtime",
@@ -170,9 +168,7 @@ Deno.test("RuntimeAgent", async (t) => {
 
 Deno.test("RuntimeConfig", async (t) => {
   await t.step("should create valid config with all required fields", () => {
-    const adapter = makeAdapter({
-      storage: { type: "in-memory" },
-    });
+    const adapter = makeInMemoryAdapter({});
 
     const config = new RuntimeConfig({
       runtimeId: "test-runtime",
@@ -198,9 +194,7 @@ Deno.test("RuntimeConfig", async (t) => {
   });
 
   await t.step("should generate unique session IDs", () => {
-    const adapter1 = makeAdapter({
-      storage: { type: "in-memory" },
-    });
+    const adapter1 = makeInMemoryAdapter({});
 
     const config1 = new RuntimeConfig({
       runtimeId: "runtime1",
@@ -217,9 +211,7 @@ Deno.test("RuntimeConfig", async (t) => {
       },
     });
 
-    const adapter2 = makeAdapter({
-      storage: { type: "in-memory" },
-    });
+    const adapter2 = makeInMemoryAdapter({});
 
     const config2 = new RuntimeConfig({
       runtimeId: "runtime2",
@@ -241,9 +233,7 @@ Deno.test("RuntimeConfig", async (t) => {
   });
 
   await t.step("should allow custom heartbeat interval", () => {
-    const adapter = makeAdapter({
-      storage: { type: "in-memory" },
-    });
+    const adapter = makeInMemoryAdapter({});
 
     const _config = new RuntimeConfig({
       runtimeId: "test-runtime",

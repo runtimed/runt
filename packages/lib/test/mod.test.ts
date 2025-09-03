@@ -1,6 +1,7 @@
 /// <reference lib="deno.ns" />
 import { assertEquals } from "jsr:@std/assert";
 import { DEFAULT_CONFIG, RuntimeAgent, RuntimeConfig } from "@runt/lib";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 
 Deno.test("Library exports are available", () => {
   // Test that main exports are defined
@@ -27,6 +28,7 @@ Deno.test("RuntimeConfig validation works", () => {
       authToken: "", // Missing
       notebookId: "", // Missing
       clientId: "test-client",
+      adapter: makeInMemoryAdapter({}),
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
@@ -50,6 +52,7 @@ Deno.test("RuntimeConfig validation works", () => {
     authToken: "test-token",
     notebookId: "test-notebook",
     clientId: "test-client",
+    adapter: makeInMemoryAdapter({}),
     capabilities: {
       canExecuteCode: true,
       canExecuteSql: false,

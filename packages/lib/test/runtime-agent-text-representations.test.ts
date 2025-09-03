@@ -1,6 +1,6 @@
 /// <reference lib="deno.ns" />
 import { assertEquals } from "@std/assert";
-import { makeAdapter } from "npm:@livestore/adapter-node";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 import { RuntimeAgent } from "../src/runtime-agent.ts";
 import { RuntimeConfig } from "../src/config.ts";
 import {
@@ -36,9 +36,7 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         canExecuteAi: false,
       };
 
-      const adapter = makeAdapter({
-        storage: { type: "in-memory" },
-      });
+      const adapter = makeInMemoryAdapter({});
 
       const config = new RuntimeConfig({
         runtimeId: "test-runtime",
@@ -151,9 +149,7 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         canExecuteAi: false,
       };
 
-      const adapter = makeAdapter({
-        storage: { type: "in-memory" },
-      });
+      const adapter = makeInMemoryAdapter({});
 
       const config = new RuntimeConfig({
         runtimeId: "test-runtime",
@@ -268,9 +264,7 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         canExecuteAi: false,
       };
 
-      const adapter = makeAdapter({
-        storage: { type: "in-memory" },
-      });
+      const adapter = makeInMemoryAdapter({});
 
       const config = new RuntimeConfig({
         runtimeId: "test-runtime",
