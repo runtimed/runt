@@ -60,7 +60,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       notebookId: "test-notebook-integration",
       syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "test-integration-token",
-      clientId: "test-integration-client",
+
       userId: "test-user-id",
       adapter,
 
@@ -154,7 +154,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
         notebookId: "test-notebook",
         syncUrl: "ws://localhost:8787", // Not used with adapter
         authToken: "valid-token",
-        clientId: "valid-client",
+
         userId: "test-user-id",
         adapter,
         capabilities: capabilities,
@@ -178,7 +178,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
           notebookId: "test",
           syncUrl: "ws://localhost:8787", // Not used with adapter
           authToken: "token",
-          clientId: "test-client",
+
           userId: "test-user-id",
           adapter,
           capabilities: capabilities,
@@ -254,7 +254,7 @@ Deno.test("RuntimeConfig", async (t) => {
       notebookId: "test-notebook",
       syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "test-token",
-      clientId: "test-client-3",
+
       userId: "test-user-id",
       adapter,
       capabilities: {
@@ -282,8 +282,8 @@ Deno.test("RuntimeConfig", async (t) => {
       notebookId: "notebook1",
       syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "token1",
-      clientId: "client1",
-      userId: "test-user-1",
+
+      userId: "test-user-id",
       adapter: adapter1,
       capabilities: {
         canExecuteCode: true,
@@ -300,8 +300,8 @@ Deno.test("RuntimeConfig", async (t) => {
       notebookId: "notebook2",
       syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "token2",
-      clientId: "client2",
-      userId: "test-user-2",
+
+      userId: "test-user-id",
       adapter: adapter2,
       capabilities: {
         canExecuteCode: true,
@@ -323,7 +323,7 @@ Deno.test("RuntimeConfig", async (t) => {
       notebookId: "test-ai-notebook",
       syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "test-ai-token",
-      clientId: "test-client-ai",
+
       userId: "test-user-id",
       adapter,
       capabilities: {

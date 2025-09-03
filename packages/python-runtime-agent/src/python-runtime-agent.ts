@@ -15,7 +15,7 @@ export class PythonRuntimeAgent extends RuntimeAgent {
         canExecuteSql: false,
         canExecuteAi: false,
       },
-      clientId: "dummy",
+
       userId: "dummy",
       adapter: makeInMemoryAdapter({}),
     });

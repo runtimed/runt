@@ -48,9 +48,7 @@ Deno.test({
       } as typeof Worker;
 
       try {
-        const agent = new PyodideRuntimeAgent(args, {}, {
-          clientId: "test-client",
-        });
+        const agent = new PyodideRuntimeAgent(args, {}, {});
 
         // Don't actually start the agent (since we're mocking the worker)
         // Just verify that the mount paths are properly configured
@@ -161,9 +159,7 @@ Deno.test({
     ];
 
     // This should not throw
-    const agent = new PyodideRuntimeAgent(args, {}, {
-      clientId: "test-client",
-    });
+    const agent = new PyodideRuntimeAgent(args, {}, {});
     assertEquals(Array.isArray(agent["pyodideOptions"].mountPaths), true);
     assertEquals(agent["pyodideOptions"].mountPaths?.length, 1);
     assertEquals(agent["pyodideOptions"].mountPaths?.[0], "/valid/path");
@@ -177,9 +173,7 @@ Deno.test({
       "--auth-token=test-token",
     ];
 
-    const agent = new PyodideRuntimeAgent(args, {}, {
-      clientId: "test-client",
-    });
+    const agent = new PyodideRuntimeAgent(args, {}, {});
     assertEquals(agent["pyodideOptions"].mountPaths, []);
 
     console.log("✅ Empty mount paths handled correctly");

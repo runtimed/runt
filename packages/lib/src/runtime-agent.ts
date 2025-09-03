@@ -76,10 +76,6 @@ export class RuntimeAgent {
         notebookId: this.config.notebookId,
       });
 
-      // Use provided clientId (now required)
-      const clientId = this.config.clientId;
-      logger.info("Using clientId", { clientId });
-
       // Create store with required adapter
       const adapter = this.config.adapter;
       if (!adapter) {
@@ -97,7 +93,6 @@ export class RuntimeAgent {
           runtime: true,
           runtimeId: this.config.runtimeId,
           sessionId: this.config.sessionId,
-          clientId,
           userId: this.config.userId,
         },
       });

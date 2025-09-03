@@ -59,7 +59,6 @@ interface PyodideAgentOptions {
  */
 interface PyodideRuntimeOptions {
   adapter?: Adapter;
-  clientId?: string;
   userId?: string;
 }
 
@@ -146,7 +145,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         },
         ...options, // Merge options into config
         ...(runtimeOptions.adapter && { adapter: runtimeOptions.adapter }),
-        ...(runtimeOptions.clientId && { clientId: runtimeOptions.clientId }),
+
         ...(runtimeOptions.userId && { userId: runtimeOptions.userId }),
       });
     } catch (error) {

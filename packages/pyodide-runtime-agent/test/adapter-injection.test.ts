@@ -78,7 +78,7 @@ Deno.test({
         // No sync-url needed with custom adapter!
       ],
       { discoverAiModels: false }, // pyodide options
-      { adapter, clientId: "test-client-123" }, // runtime options
+      { adapter }, // runtime options
     );
 
     assertExists(agent);
@@ -100,11 +100,11 @@ Deno.test({
   });
 
   await t.step(
-    "should accept custom adapter without explicit clientId",
+    "should accept custom adapter",
     async () => {
       const notebookId = `adapter-test-${crypto.randomUUID()}`;
 
-      // Create adapter without explicit clientId
+      // Create adapter - LiveStore will handle clientId internally
       const adapter = makeAdapter({
         storage: { type: "in-memory" },
       });
@@ -117,7 +117,7 @@ Deno.test({
           "test-token",
         ],
         { discoverAiModels: false },
-        { adapter, clientId: "test-client-generated" }, // explicit clientId
+        { adapter }, // LiveStore handles clientId
       );
 
       await agent.start();
@@ -157,7 +157,6 @@ Deno.test({
         {
           // Runtime options
           adapter,
-          clientId: "mixed-test-client",
         },
       );
 
@@ -191,7 +190,7 @@ Deno.test({
           "token1",
         ],
         { discoverAiModels: false },
-        { adapter, clientId: "client-1" },
+        { adapter },
       );
 
       const agent2 = new PyodideRuntimeAgent(
@@ -204,7 +203,7 @@ Deno.test({
           "token2",
         ],
         { discoverAiModels: false },
-        { adapter, clientId: "client-2" },
+        { adapter },
       );
 
       await agent1.start();
@@ -234,7 +233,7 @@ Deno.test({
         const agent = new PyodideRuntimeAgent(
           [`--notebook`, `perf-test-${i}`, "--auth-token", "test"],
           { discoverAiModels: false },
-          { adapter, clientId: `perf-client-${i}` },
+          { adapter },
         );
 
         const startTime = performance.now();
@@ -277,12 +276,12 @@ Deno.test({
   );
 
   await t.step(
-    "should require clientId for programmatic usage (CLI handles auth separately)",
+    "should support programmatic usage (LiveStore handles clientId)",
     () => {
       // Note: CLI usage (import.meta.main in mod.ts) handles auth first,
-      // but programmatic usage now requires explicit clientId
+      // but programmatic usage works with LiveStore managing clientId
 
-      // Pattern 1: Constructor with clientId (now required)
+      // Pattern 1: Constructor without explicit clientId
       const agent1 = new PyodideRuntimeAgent(
         [
           "--notebook",
@@ -291,23 +290,23 @@ Deno.test({
           "token",
         ],
         {}, // pyodide options
-        { clientId: "programmatic-client-1" }, // now required
+        {}, // LiveStore handles clientId
       );
+
       assertExists(agent1);
 
-      // Pattern 2: Constructor with pyodide options and clientId
+      // Pattern 2: Constructor with pyodide options
       const agent2 = new PyodideRuntimeAgent(
         ["--notebook", "programmatic-test-2", "--auth-token", "token"],
         { packages: ["numpy"] }, // pyodide options
-        { clientId: "programmatic-client-2" }, // now required
+        {}, // LiveStore handles clientId
       );
+
       assertExists(agent2);
 
       // Verify configs are set correctly
       assertEquals(agent1.config.notebookId, "programmatic-test-1");
-      assertEquals(agent1.config.clientId, "programmatic-client-1");
       assertEquals(agent2.config.notebookId, "programmatic-test-2");
-      assertEquals(agent2.config.clientId, "programmatic-client-2");
     },
   );
 });

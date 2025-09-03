@@ -41,7 +41,6 @@ Deno.test({
 
         agent = new PyodideRuntimeAgent(agentArgs, {}, {
           adapter,
-          clientId: "ai-error-test-client",
         });
         assertExists(agent);
         assertEquals(agent.config.capabilities.canExecuteAi, true);

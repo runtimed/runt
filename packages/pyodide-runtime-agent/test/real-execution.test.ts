@@ -33,7 +33,6 @@ function createTestAgent(packages?: string[]): PyodideRuntimeAgent {
 
   return new PyodideRuntimeAgent(validArgs, packages ? { packages } : {}, {
     adapter,
-    clientId: "test-client",
   });
 }
 

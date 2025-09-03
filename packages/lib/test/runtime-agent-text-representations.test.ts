@@ -44,7 +44,7 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         notebookId: "test-notebook",
         syncUrl: "ws://localhost:8787",
         authToken: "test-token",
-        clientId: "test-client",
+
         userId: "test-user-id",
         adapter,
         capabilities: capabilities,
@@ -159,7 +159,7 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         notebookId: "test-notebook",
         syncUrl: "ws://localhost:8787", // Not used with adapter
         authToken: "test-token",
-        clientId: "test-client",
+
         userId: "test-user-id",
         adapter,
         capabilities,
@@ -275,7 +275,7 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         notebookId: "test-notebook",
         syncUrl: "ws://localhost:8787", // Not used with adapter
         authToken: "test-token",
-        clientId: "test-client",
+
         userId: "test-user-id",
         adapter,
         capabilities,

@@ -31,16 +31,16 @@ function createTestRuntimeConfig(
     syncUrl: "ws://fake-url:9999",
     authToken: "test-token",
     notebookId: "test-notebook",
+    userId: "test-user-id",
+    adapter: defaultAdapter,
     capabilities: {
       canExecuteCode: true,
       canExecuteSql: false,
       canExecuteAi: false,
     },
-    clientId: "test-client",
-    userId: "test-user-id",
-    adapter: defaultAdapter,
     ...defaults,
   };
+
   return new RuntimeConfig(config);
 }
 
@@ -49,7 +49,6 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
     "should work with default adapter (backward compatibility)",
     () => {
       const config = createTestRuntimeConfig([], {
-        clientId: "test-client-backward-compat",
         userId: "test-user-id",
         notebookId: "test-notebook",
         syncUrl: "ws://fake-url:9999", // Will fail but that's expected
@@ -77,7 +76,6 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
 
     const config = createTestRuntimeConfig([], {
       adapter,
-      clientId: "test-client-adapter",
       userId: "test-user-id",
       notebookId: "adapter-test",
       syncUrl: "ws://fake-url:9999",
@@ -111,7 +109,6 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
 
       const config = createTestRuntimeConfig([], {
         adapter,
-        clientId: "test-client-generated",
         userId: "test-user-id",
         notebookId: "adapter-test-2",
         authToken: "test-token",
@@ -135,65 +132,6 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
     },
   );
 
-  await t.step("should generate clientId for custom adapter", async () => {
-    const runtimeId = `runtime-${crypto.randomUUID()}`;
-    const adapter = makeInMemoryAdapter({});
-
-    const config = createTestRuntimeConfig([], {
-      adapter,
-      runtimeId,
-      userId: "test-user-id",
-      notebookId: "clientid-test",
-      syncUrl: "ws://fake-url:9999",
-    });
-
-    const capabilities: RuntimeCapabilities = {
-      canExecuteCode: true,
-      canExecuteSql: false,
-      canExecuteAi: false,
-    };
-
-    const agent = new RuntimeAgent(config, capabilities);
-
-    await agent.start();
-
-    // The generated clientId should be "runtime-{runtimeId}"
-    // We can't directly verify this without accessing internals,
-    // but we can verify the store was created successfully
-    assertExists(agent.store);
-
-    await agent.shutdown();
-  });
-
-  await t.step("should use explicit clientId when provided", async () => {
-    const adapter = makeInMemoryAdapter({});
-
-    const explicitClientId = "my-custom-client-id";
-
-    const config = createTestRuntimeConfig([], {
-      adapter,
-      clientId: explicitClientId,
-      userId: "test-user-id",
-      notebookId: "explicit-clientid-test",
-      syncUrl: "ws://fake-url:9999",
-    });
-
-    const capabilities: RuntimeCapabilities = {
-      canExecuteCode: true,
-      canExecuteSql: false,
-      canExecuteAi: false,
-    };
-
-    const agent = new RuntimeAgent(config, capabilities);
-
-    await agent.start();
-
-    // Store should be created successfully with custom clientId
-    assertExists(agent.store);
-
-    await agent.shutdown();
-  });
-
   await t.step("should handle multiple agents with same adapter", async () => {
     // Create shared adapter
     const adapter = makeInMemoryAdapter({});
@@ -201,16 +139,13 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
     // Create two agents using the same adapter
     const config1 = createTestRuntimeConfig([], {
       adapter,
-      clientId: "client-1",
       notebookId: "shared-adapter-1",
       runtimeId: "agent-1",
       authToken: "token1",
-      syncUrl: "ws://fake-url:9999",
     });
 
     const config2 = createTestRuntimeConfig([], {
       adapter,
-      clientId: "client-2",
       notebookId: "shared-adapter-2",
       runtimeId: "agent-2",
       authToken: "token2",
@@ -250,7 +185,6 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
 
     const config = createTestRuntimeConfig([], {
       adapter: fsAdapter,
-      clientId: "fs-client",
       notebookId: "fs-test",
       authToken: "test-token",
       syncUrl: "ws://fake-url:9999",
