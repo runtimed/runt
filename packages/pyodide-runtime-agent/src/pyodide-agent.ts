@@ -198,9 +198,6 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
    * Start the Pyodide runtime agent
    */
   override async start(): Promise<void> {
-    // Call parent start first to initialize logger and LiveStore
-    await super.start();
-
     logger.info("Starting Pyodide Python runtime agent");
 
     // Discover available AI models if enabled
@@ -227,6 +224,8 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         });
       }
     }
+    // Call parent to initialize LiveStore
+    await super.start();
 
     // Initialize Pyodide worker after logger is available
     await this.initializePyodideWorker();
