@@ -1,3 +1,5 @@
+/// <reference lib="deno.ns" />
+
 // Tests for logging configuration from environment variables
 
 import { assertEquals, assertExists } from "@std/assert";

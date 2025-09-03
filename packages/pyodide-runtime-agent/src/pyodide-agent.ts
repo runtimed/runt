@@ -82,14 +82,15 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     reject: (error: unknown) => void;
   }> = [];
   private isExecuting = false;
+  private pendingExecutions = new Map<string, {
+    resolve: (data: unknown) => void;
+    reject: (error: unknown) => void;
+  }>();
   private currentAIExecution: {
     cellId: string;
     abortController: AbortController;
   } | null = null;
-  private pendingExecutions = new Map<string, {
-    resolve: (result: unknown) => void;
-    reject: (error: unknown) => void;
-  }>();
+  private signalHandlers = new Map<string, () => void>();
   private pyodideOptions: PyodideAgentOptions;
 
   /**
@@ -1027,5 +1028,45 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     } catch (error) {
       logger.warn(`Failed to sync outputs to host: ${error}`);
     }
+  }
+
+  /**
+   * Set up Deno-specific signal handlers
+   */
+  protected override setupShutdownHandlers(): void {
+    // Call parent implementation for global error handlers
+    super.setupShutdownHandlers();
+
+    const shutdown = () => this.shutdown();
+
+    // Store signal handlers for cleanup
+    this.signalHandlers.set("SIGINT", shutdown);
+    this.signalHandlers.set("SIGTERM", shutdown);
+
+    // Add Deno signal listeners
+    Deno.addSignalListener("SIGINT" as Deno.Signal, shutdown);
+    Deno.addSignalListener("SIGTERM" as Deno.Signal, shutdown);
+  }
+
+  /**
+   * Clean up Deno-specific signal handlers
+   */
+  protected override cleanupShutdownHandlers(): void {
+    // Clean up Deno signal listeners
+    for (const [signal, handler] of this.signalHandlers) {
+      try {
+        Deno.removeSignalListener(signal as Deno.Signal, handler);
+      } catch (error) {
+        // Ignore errors during cleanup
+        logger.debug("Error removing signal listener", {
+          signal,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    this.signalHandlers.clear();
+
+    // Call parent implementation
+    super.cleanupShutdownHandlers();
   }
 }
