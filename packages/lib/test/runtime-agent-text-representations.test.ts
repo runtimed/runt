@@ -42,11 +42,13 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         runtimeId: "test-runtime",
         runtimeType: "test",
         notebookId: "test-notebook",
-        syncUrl: "ws://localhost:8787", // Not used with adapter
+        syncUrl: "ws://localhost:8787",
         authToken: "test-token",
         clientId: "test-client",
+        userId: "test-user-id",
         adapter,
         capabilities: capabilities,
+        imageArtifactThresholdBytes: 1024,
       });
 
       const agent = new RuntimeAgent(config, capabilities);
@@ -158,6 +160,7 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         syncUrl: "ws://localhost:8787", // Not used with adapter
         authToken: "test-token",
         clientId: "test-client",
+        userId: "test-user-id",
         adapter,
         capabilities,
 
@@ -273,6 +276,7 @@ Deno.test("RuntimeAgent Text Representations for Artifacts", async (t) => {
         syncUrl: "ws://localhost:8787", // Not used with adapter
         authToken: "test-token",
         clientId: "test-client",
+        userId: "test-user-id",
         adapter,
         capabilities,
 

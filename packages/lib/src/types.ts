@@ -73,6 +73,8 @@ export interface RuntimeAgentOptions {
   readonly adapter: Adapter;
   /** Client ID for sync payload (must be provided) */
   readonly clientId: string;
+  /** User ID for sync payload authorization (must be provided) */
+  readonly userId: string;
 }
 
 /**

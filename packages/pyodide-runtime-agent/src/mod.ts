@@ -40,11 +40,17 @@ if (import.meta.main) {
         logLevel = LogLevel.ERROR;
         break;
       default:
-        logLevel = LogLevel.ERROR;
+        logLevel = LogLevel.INFO;
     }
 
     logger.configure({
       level: logLevel,
+      console: !disableConsole,
+    });
+  } else {
+    // Configure with INFO as default when no RUNT_LOG_LEVEL is set
+    logger.configure({
+      level: LogLevel.INFO,
       console: !disableConsole,
     });
   }
@@ -63,13 +69,17 @@ if (import.meta.main) {
     Deno.exit(1);
   }
 
-  // Discover user identity first
-  const clientId = await discoverUserIdentity({
+  // Discover user identity and generate proper clientId
+  const { userId, clientId, userInfo } = await discoverUserIdentity({
     authToken,
     syncUrl,
   });
 
-  logger.info("Authenticated successfully", { clientId });
+  logger.info("Authenticated successfully", {
+    userId,
+    clientId,
+    email: userInfo.email,
+  });
 
   // Create adapter for Node.js environment with Cloudflare sync
   const adapter = makeAdapter({
@@ -80,11 +90,11 @@ if (import.meta.main) {
     },
   });
 
-  // Create agent with discovered clientId and Node.js adapter
+  // Create agent with discovered clientId, userId, and Node.js adapter
   const agent = new PyodideRuntimeAgent(
     Deno.args,
     {}, // pyodide options
-    { clientId, adapter }, // runtime options
+    { clientId, adapter, userId }, // runtime options
   );
 
   logger.info("Starting Agent");

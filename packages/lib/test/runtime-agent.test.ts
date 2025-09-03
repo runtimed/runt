@@ -61,6 +61,7 @@ Deno.test("RuntimeAgent", async (t) => {
       syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "test-token",
       clientId: "test-client",
+      userId: "test-user-id",
       adapter,
       capabilities,
     });
@@ -177,6 +178,7 @@ Deno.test("RuntimeConfig", async (t) => {
       syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "test-token",
       clientId: "test-client",
+      userId: "test-user-id",
       adapter,
       capabilities: {
         canExecuteCode: true,
@@ -203,6 +205,7 @@ Deno.test("RuntimeConfig", async (t) => {
       syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "token1",
       clientId: "client1",
+      userId: "test-user-1",
       adapter: adapter1,
       capabilities: {
         canExecuteCode: true,
@@ -220,6 +223,7 @@ Deno.test("RuntimeConfig", async (t) => {
       syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "token2",
       clientId: "client2",
+      userId: "test-user-2",
       adapter: adapter2,
       capabilities: {
         canExecuteCode: true,
@@ -242,6 +246,7 @@ Deno.test("RuntimeConfig", async (t) => {
       syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "test-token",
       clientId: "test-client",
+      userId: "test-user-id",
       adapter,
       capabilities: {
         canExecuteCode: true,

@@ -28,17 +28,28 @@ export interface UserInfo {
 }
 
 /**
+ * Authentication result containing user info and generated client ID
+ */
+export interface AuthenticationResult {
+  userId: string;
+  clientId: string;
+  userInfo: UserInfo;
+}
+
+/**
  * Discover authenticated user identity via /api/me endpoint
  *
  * This should be called before creating runtime agents to get the clientId.
+ * The clientId is generated using the user ID as a prefix plus a unique identifier,
+ * following LiveStore best practices where clientId identifies device/app instances.
  *
  * @param options - Configuration for identity discovery
- * @returns Promise resolving to user ID
+ * @returns Promise resolving to authentication result with userId and generated clientId
  * @throws Error if authentication fails
  */
 export async function discoverUserIdentity(
   options: DiscoverUserIdentityOptions,
-): Promise<string> {
+): Promise<AuthenticationResult> {
   const { authToken, syncUrl, skipInTests = true } = options;
 
   // Skip authentication in test environments if enabled
@@ -55,7 +66,13 @@ export async function discoverUserIdentity(
 
     if (isTestEnvironment) {
       logger.debug("Skipping authentication in test environment");
-      return "test-user-id";
+      const userId = "test-user-id";
+      const clientId = `${userId}-${crypto.randomUUID()}`;
+      return {
+        userId,
+        clientId,
+        userInfo: { id: userId, email: "test@example.com" },
+      };
     }
   }
 
@@ -104,13 +121,23 @@ export async function discoverUserIdentity(
       throw new Error("User ID not found in response");
     }
 
-    logger.debug("User identity discovered", {
-      userId: userInfo.id,
+    // Generate clientId using user ID as prefix plus unique identifier
+    // This follows LiveStore best practices where clientId identifies device/app instances
+    const userId = userInfo.id;
+    const clientId = `${userId}-${crypto.randomUUID()}`;
+
+    logger.debug("User identity discovered and clientId generated", {
+      userId,
+      clientId,
       email: userInfo.email,
       name: userInfo.name,
     });
 
-    return userInfo.id;
+    return {
+      userId,
+      clientId,
+      userInfo,
+    };
   } catch (error) {
     // If we haven't already logged the error above, log it here
     if (!(error instanceof Error && error.message.startsWith("HTTP "))) {

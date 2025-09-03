@@ -28,6 +28,7 @@ Deno.test("RuntimeConfig validation works", () => {
       authToken: "", // Missing
       notebookId: "", // Missing
       clientId: "test-client",
+      userId: "test-user-id",
       adapter: makeInMemoryAdapter({}),
       capabilities: {
         canExecuteCode: true,
@@ -52,6 +53,7 @@ Deno.test("RuntimeConfig validation works", () => {
     authToken: "test-token",
     notebookId: "test-notebook",
     clientId: "test-client",
+    userId: "test-user-id",
     adapter: makeInMemoryAdapter({}),
     capabilities: {
       canExecuteCode: true,
