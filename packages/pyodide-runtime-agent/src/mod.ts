@@ -54,7 +54,7 @@ if (import.meta.main) {
   // Parse CLI args once to get auth details
   const cliConfig = parseBaseRuntimeArgs(Deno.args);
   const syncUrl = cliConfig.syncUrl ||
-    "wss://anode-docworker.rgbkrk.workers.dev";
+    "wss://app.runt.run";
   const authToken = cliConfig.authToken;
 
   if (!authToken) {
