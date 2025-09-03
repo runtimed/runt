@@ -5,7 +5,7 @@ import {
   queryDb,
   type Store,
 } from "npm:@livestore/livestore";
-import { makeCfSync } from "npm:@livestore/sync-cf";
+
 import {
   events,
   type ImageMimeType,
