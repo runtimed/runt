@@ -1,6 +1,6 @@
 {
   "name": "@runt/python-runtime-agent",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Stub Python runtime agent for Runt platform.",
   "license": "BSD-3-Clause",
   "repository": {
@@ -14,8 +14,8 @@
     "pyrunt": "./mod.ts"
   },
   "imports": {
-    "@runt/lib": "jsr:@runt/lib@^0.12.0",
-    "@runt/schema": "jsr:@runt/schema@^0.12.0",
+    "@runt/lib": "jsr:@runt/lib@^0.13.0",
+    "@runt/schema": "jsr:@runt/schema@^0.13.0",
     "npm:@livestore/adapter-web": "npm:@livestore/adapter-web@^0.3.1"
   },
   "tasks": {
