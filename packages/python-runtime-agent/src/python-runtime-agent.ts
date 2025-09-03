@@ -16,6 +16,7 @@ export class PythonRuntimeAgent extends RuntimeAgent {
         canExecuteAi: false,
       },
       clientId: "dummy",
+      userId: "dummy",
       adapter: makeInMemoryAdapter({}),
     });
 

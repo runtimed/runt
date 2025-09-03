@@ -73,6 +73,7 @@ const mockRuntimeOptions: RuntimeAgentOptions = {
   authToken: "test-token",
   notebookId: "test-notebook",
   clientId: "test-client",
+  userId: "test-user-id",
   imageArtifactThresholdBytes: 6 * 1024, // 6KB threshold
   adapter: makeInMemoryAdapter({}),
 };

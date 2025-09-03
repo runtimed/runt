@@ -37,6 +37,7 @@ function createTestRuntimeConfig(
       canExecuteAi: false,
     },
     clientId: "test-client",
+    userId: "test-user-id",
     adapter: defaultAdapter,
     ...defaults,
   };
@@ -49,6 +50,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
     () => {
       const config = createTestRuntimeConfig([], {
         clientId: "test-client-backward-compat",
+        userId: "test-user-id",
         notebookId: "test-notebook",
         syncUrl: "ws://fake-url:9999", // Will fail but that's expected
       });
@@ -76,6 +78,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
     const config = createTestRuntimeConfig([], {
       adapter,
       clientId: "test-client-adapter",
+      userId: "test-user-id",
       notebookId: "adapter-test",
       syncUrl: "ws://fake-url:9999",
     });
@@ -109,6 +112,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       const config = createTestRuntimeConfig([], {
         adapter,
         clientId: "test-client-generated",
+        userId: "test-user-id",
         notebookId: "adapter-test-2",
         authToken: "test-token",
         syncUrl: "ws://fake-url:9999",
@@ -138,6 +142,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
     const config = createTestRuntimeConfig([], {
       adapter,
       runtimeId,
+      userId: "test-user-id",
       notebookId: "clientid-test",
       syncUrl: "ws://fake-url:9999",
     });
@@ -168,6 +173,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
     const config = createTestRuntimeConfig([], {
       adapter,
       clientId: explicitClientId,
+      userId: "test-user-id",
       notebookId: "explicit-clientid-test",
       syncUrl: "ws://fake-url:9999",
     });

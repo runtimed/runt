@@ -22,6 +22,7 @@ function makeBaseConfig(overrides: Partial<Record<string, unknown>> = {}) {
     authToken: "test-token",
     notebookId: "test-nb",
     clientId: "test-client",
+    userId: "test-user-id",
     adapter: makeInMemoryAdapter({}),
     capabilities: {
       canExecuteCode: true,
