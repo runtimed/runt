@@ -15,7 +15,8 @@
   },
   "imports": {
     "@runt/lib": "jsr:@runt/lib@^0.11.1",
-    "@runt/schema": "jsr:@runt/schema@^0.11.1"
+    "@runt/schema": "jsr:@runt/schema@^0.11.1",
+    "npm:@livestore/adapter-web": "npm:@livestore/adapter-web@^0.3.1"
   },
   "tasks": {
     "test": "deno test --allow-all",
@@ -39,20 +40,11 @@
   },
   "lint": {
     "rules": {
-      "tags": [
-        "recommended"
-      ]
+      "tags": ["recommended"]
     }
   },
   "publish": {
-    "include": [
-      "mod.ts",
-      "src/",
-      "README.md"
-    ],
-    "exclude": [
-      "**/*.test.ts",
-      "**/test_*.ts"
-    ]
+    "include": ["mod.ts", "src/", "README.md"],
+    "exclude": ["**/*.test.ts", "**/test_*.ts"]
   }
 }
