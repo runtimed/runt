@@ -1,6 +1,7 @@
 {
   "workspace": [
     "./packages/ai",
+    "./packages/deno-agent",
     "./packages/schema",
     "./packages/lib",
     "./packages/runtime-core",
@@ -12,6 +13,7 @@
   ],
   "imports": {
     "@runt/ai": "./packages/ai/mod.ts",
+    "@runt/deno-agent": "./packages/deno-agent/mod.ts",
     "@runt/schema": "./packages/schema/mod.ts",
     "@runt/lib": "./packages/lib/mod.ts",
     "@runt/runtime-core": "./packages/runtime-core/mod.ts",
