@@ -1,19 +1,8 @@
 // @runt/lib - Core library for building Anode runtime agents
 
 export { RuntimeAgent } from "./src/runtime-agent.ts";
-export {
-  createRuntimeConfig,
-  DEFAULT_CONFIG,
-  parseRuntimeArgs,
-  RuntimeConfig,
-} from "./src/config.ts";
-export {
-  createLogger,
-  Logger,
-  logger,
-  LogLevel,
-  withQuietLogging,
-} from "./src/logging.ts";
+export { DEFAULT_CONFIG, RuntimeConfig } from "./src/config.ts";
+export { logger, LogLevel, withQuietLogging } from "./src/logging.ts";
 export type {
   AiModel,
   CancellationHandler,
@@ -30,6 +19,7 @@ export type {
   RuntimeCapabilities,
   RuntimeSessionData,
 } from "./src/types.ts";
+
 export type { LoggerConfig } from "./src/logging.ts";
 
 // Media types and utilities for rich content handling

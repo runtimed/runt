@@ -9,6 +9,7 @@ import { RuntimeAgent } from "../src/runtime-agent.ts";
 import { RuntimeConfig } from "../src/config.ts";
 import type { RuntimeAgentOptions } from "../src/types.ts";
 import type { ImageMimeType, MediaContainer } from "@runt/schema";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 
 // Testing interface to access private methods
 interface RuntimeAgentWithTestMethods {
@@ -71,8 +72,10 @@ const mockRuntimeOptions: RuntimeAgentOptions = {
   syncUrl: "wss://test.runt.run",
   authToken: "test-token",
   notebookId: "test-notebook",
+
+  userId: "test-user-id",
   imageArtifactThresholdBytes: 6 * 1024, // 6KB threshold
-  environmentOptions: {},
+  adapter: makeInMemoryAdapter({}),
 };
 
 // Mock fetch for testing

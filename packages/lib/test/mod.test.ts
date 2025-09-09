@@ -1,24 +1,20 @@
 /// <reference lib="deno.ns" />
 import { assertEquals } from "jsr:@std/assert";
-import {
-  createRuntimeConfig,
-  DEFAULT_CONFIG,
-  RuntimeAgent,
-  RuntimeConfig,
-} from "@runt/lib";
+import { DEFAULT_CONFIG, RuntimeAgent, RuntimeConfig } from "@runt/lib";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 
 Deno.test("Library exports are available", () => {
   // Test that main exports are defined
   assertEquals(typeof RuntimeAgent, "function");
   assertEquals(typeof RuntimeConfig, "function");
-  assertEquals(typeof createRuntimeConfig, "function");
+
   assertEquals(typeof DEFAULT_CONFIG, "object");
 });
 
 Deno.test("DEFAULT_CONFIG has expected values", () => {
   assertEquals(
     DEFAULT_CONFIG.syncUrl,
-    "wss://anode-docworker.rgbkrk.workers.dev",
+    "wss://app.runt.run",
   );
 });
 
@@ -31,12 +27,14 @@ Deno.test("RuntimeConfig validation works", () => {
       syncUrl: "ws://test",
       authToken: "", // Missing
       notebookId: "", // Missing
+
+      userId: "test-user-id",
+      adapter: makeInMemoryAdapter({}),
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
         canExecuteAi: false,
       },
-      environmentOptions: {},
     });
     config.validate();
     throw new Error("Should have thrown validation error");
@@ -52,14 +50,16 @@ Deno.test("RuntimeConfig validation works", () => {
     runtimeId: "test",
     runtimeType: "test",
     syncUrl: "ws://test",
-    authToken: "token",
-    notebookId: "notebook",
+    authToken: "test-token",
+    notebookId: "test-notebook",
+
+    userId: "test-user-id",
+    adapter: makeInMemoryAdapter({}),
     capabilities: {
       canExecuteCode: true,
       canExecuteSql: false,
       canExecuteAi: false,
     },
-    environmentOptions: {},
   });
 
   // Should not throw

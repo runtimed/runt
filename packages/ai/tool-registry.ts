@@ -6,18 +6,15 @@ import {
   materializers,
   tables,
 } from "@runt/schema";
-import type { Logger } from "@runt/lib";
+
 import type { Store } from "npm:@livestore/livestore";
 import { makeSchema, State } from "npm:@livestore/livestore";
-import { createLogger } from "@runt/lib";
+import { logger } from "@runt/lib";
 import { getMCPClient } from "./mcp-client.ts";
 
 // Create schema locally
 const state = State.SQLite.makeState({ tables, materializers });
 const schema = makeSchema({ events, state });
-
-// Create logger for tool execution debugging
-const toolLogger = createLogger("ai-tools");
 
 export interface NotebookTool {
   name: string;
@@ -132,27 +129,6 @@ const VECTOR_STORE_TOOLS: NotebookTool[] = [
       required: ["query"],
     },
   },
-  // {
-  //   name: "find_mounted_file",
-  //   description:
-  //     "Find the full file path to mounted data files based on a search query. " +
-  //     "Use this tool when you need to write code that loads specific files, " +
-  //     "or when you need to know the exact file paths for data analysis. " +
-  //     "This tool returns file paths that can be used in data loading functions " +
-  //     "like pd.read_csv(), np.loadtxt(), json.load(), or open(). ",
-  //   parameters: {
-  //     type: "object",
-  //     properties: {
-  //       query: {
-  //         type: "string",
-  //         description:
-  //           "Search query to find data files by name, type, or content " +
-  //           "(e.g., 'CSV files', 'customer data', 'sales report', 'JSON config files', 'Python scripts')",
-  //       },
-  //     },
-  //     required: ["query"],
-  //   },
-  // },
   {
     name: "list_indexed_files",
     description:
@@ -210,15 +186,19 @@ function convertMcpParameterToToolParameter(
  * Get all available tools including both notebook tools and MCP tools
  */
 export async function getAllTools(): Promise<NotebookTool[]> {
+  const notebookTools = [...BASIC_NOTEBOOK_TOOLS];
+
   try {
     // Import vector store checking function to avoid circular dependencies
     const { isVectorStoreIndexingEnabled } = await import("./vector-store.ts");
+    if (isVectorStoreIndexingEnabled()) {
+      notebookTools.push(...VECTOR_STORE_TOOLS);
+    }
+  } catch (_vectorstoreError) {
+    logger.error(`failed to import vector store or get its status`);
+  }
 
-    // Determine which notebook tools to include based on vector store indexing status
-    const notebookTools = isVectorStoreIndexingEnabled()
-      ? [...BASIC_NOTEBOOK_TOOLS, ...VECTOR_STORE_TOOLS]
-      : BASIC_NOTEBOOK_TOOLS;
-
+  try {
     const mcpClient = await getMCPClient();
     const mcpTools = mcpClient.getTools();
 
@@ -242,26 +222,14 @@ export async function getAllTools(): Promise<NotebookTool[]> {
       },
     }));
 
-    return [...notebookTools, ...convertedMcpTools];
+    notebookTools.push(...convertedMcpTools);
   } catch (error) {
-    toolLogger.warn("Failed to get MCP tools, using only notebook tools", {
+    logger.error("Failed to get MCP tools, using only notebook tools", {
       error: String(error),
     });
-
-    // Import vector store checking function to avoid circular dependencies
-    try {
-      const { isVectorStoreIndexingEnabled } = await import(
-        "./vector-store.ts"
-      );
-      const notebookTools = isVectorStoreIndexingEnabled()
-        ? [...BASIC_NOTEBOOK_TOOLS, ...VECTOR_STORE_TOOLS]
-        : BASIC_NOTEBOOK_TOOLS;
-      return [...notebookTools];
-    } catch (_vectorStoreError) {
-      // If we can't check vector store status, default to basic tools only
-      return [...BASIC_NOTEBOOK_TOOLS];
-    }
   }
+
+  return notebookTools;
 }
 
 /**
@@ -282,7 +250,6 @@ function unescapeContent(content: string): string {
 
 export function createCell(
   store: Store<typeof schema>,
-  logger: Logger,
   sessionId: string,
   _currentCell: CellData,
   args: Record<string, unknown>,
@@ -356,7 +323,6 @@ export function createCell(
  */
 export async function handleToolCallWithResult(
   store: Store<typeof schema>,
-  logger: Logger,
   sessionId: string,
   currentCell: CellData,
   toolCall: {
@@ -535,7 +501,7 @@ export async function handleToolCallWithResult(
   // Handle built-in notebook tools
   switch (name) {
     case "create_cell": {
-      return createCell(store, logger, sessionId, currentCell, args);
+      return createCell(store, sessionId, currentCell, args);
     }
 
     case "modify_cell": {
@@ -680,7 +646,7 @@ export async function handleToolCallWithResult(
                     let resultText = "";
                     let usedFormat = "";
 
-                    toolLogger.debug(
+                    logger.debug(
                       "Processing multimedia_result for tool response",
                       {
                         cellId,
@@ -715,7 +681,7 @@ export async function handleToolCallWithResult(
                       usedFormat = "raw_data";
                     }
 
-                    toolLogger.debug("Tool result content extracted", {
+                    logger.debug("Tool result content extracted", {
                       cellId,
                       usedFormat,
                       contentLength: resultText.length,
@@ -818,59 +784,6 @@ export async function handleToolCallWithResult(
 
         throw new Error(
           `Document search failed: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
-
-    case "find_mounted_file": {
-      const query = String(args.query || "");
-
-      if (!query) {
-        logger.error("find_mounted_file: query is required");
-        throw new Error("find_mounted_file: query is required");
-      }
-
-      logger.info("Finding mounted file paths", {
-        query,
-        queryLength: query.length,
-      });
-
-      try {
-        // Import vector store here to avoid circular dependencies
-        const { getVectorStore } = await import("./vector-store.ts");
-        const vectorStore = getVectorStore();
-
-        // Check vector store status
-        const status = vectorStore.getStatus();
-
-        if (status.isIngesting && !status.ingestionComplete) {
-          logger.info(
-            "Vector store ingestion in progress, waiting for completion",
-          );
-        }
-
-        // Retrieve file paths using the vector store (will wait for ingestion if needed)
-        const response = await vectorStore.retrieveFilePaths(query);
-
-        logger.info("File path retrieval completed successfully");
-
-        return response;
-      } catch (error) {
-        logger.error("File path retrieval failed", {
-          query,
-          error: String(error),
-        });
-
-        if (
-          error instanceof Error && error.message.includes("not initialized")
-        ) {
-          return "No files have been mounted to search. Use the --mount flag when starting the runtime to add files to the vector store.";
-        }
-
-        throw new Error(
-          `File path search failed: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );

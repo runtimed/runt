@@ -4,7 +4,7 @@
 // the runtime agent library, importing existing types from @runt/schema
 // and adding runtime-specific extensions.
 
-import type { Store } from "npm:@livestore/livestore";
+import type { Adapter, Store } from "npm:@livestore/livestore";
 import type { CellData, ExecutionQueueData, OutputType } from "@runt/schema";
 import { events, materializers, tables } from "@runt/schema";
 import { makeSchema, State } from "npm:@livestore/livestore";
@@ -49,7 +49,8 @@ export interface ArtifactSubmissionResult {
 }
 
 /**
- * Configuration options for runtime agents
+ * Core configuration options for runtime agents
+ * Runtime implementations can extend this interface with their own specific options
  */
 export interface RuntimeAgentOptions {
   /** Unique identifier for this runtime */
@@ -68,29 +69,10 @@ export interface RuntimeAgentOptions {
   readonly imageArtifactThresholdBytes?: number;
   /** Artifact client for dependency injection (optional) */
   readonly artifactClient?: IArtifactClient;
-  /** Host directories to mount into the runtime filesystem */
-  readonly mountPaths?: string[];
-  /** Mount mappings for Docker-style mounts: local-path -> target-path */
-  readonly mountMappings?: Array<{ hostPath: string; targetPath: string }>;
-  /** Whether to index mounted files in vector store for AI search */
-  readonly indexMountedFiles?: boolean;
-  /** Whether to mount directories as read-only */
-  readonly mountReadonly?: boolean;
-  /** Host directory where files from /outputs will be synced */
-  readonly outputDir?: string;
-  /** Environment-related options for the runtime */
-  readonly environmentOptions: Readonly<{
-    /** Path to the python executable to use (default: "python3") */
-    readonly runtimePythonPath?: string;
-    /** Path to the environment/venv to use (default: unset) */
-    readonly runtimeEnvPath?: string;
-    /** Package manager to use (default: "pip") */
-    readonly runtimePackageManager?: string;
-    /** If true, treat the environment as externally managed (default: false) */
-    readonly runtimeEnvExternallyManaged?: boolean;
-  }>;
-  /** Maximum iterations for AI agent tool calling loops (default: 10) */
-  readonly aiMaxIterations?: number;
+  /** LiveStore adapter (required) */
+  readonly adapter: Adapter;
+  /** User ID for sync payload authorization (must be provided) */
+  readonly userId: string;
 }
 
 /**
@@ -242,9 +224,7 @@ export type ExecutionHandler = (
  */
 export interface RuntimeAgentEventHandlers {
   /** Called when agent starts up */
-  onStartup?: (
-    environmentOptions: RuntimeAgentOptions["environmentOptions"],
-  ) => void | Promise<void>;
+  onStartup?: () => void | Promise<void>;
   /** Called when agent shuts down */
   onShutdown?: () => void | Promise<void>;
   /** Called when connection to LiveStore is established */

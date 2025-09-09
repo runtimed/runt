@@ -4,14 +4,19 @@
 // IPython integration, rich display support, and true interruption support
 // via Pyodide's built-in interrupt system.
 
+import { RuntimeAgent } from "@runt/lib";
 import {
-  createRuntimeConfig,
-  RuntimeAgent,
-  type RuntimeConfig,
+  createPyodideRuntimeConfig,
+  type PyodideRuntimeConfig,
+} from "./pyodide-config.ts";
+import type { Adapter } from "npm:@livestore/livestore";
+import type {
+  ExecutionContext,
+  MediaBundle,
+  RuntimeCapabilities,
 } from "@runt/lib";
-import type { ExecutionContext } from "@runt/lib";
 
-import { type MediaBundle, validateMediaBundle } from "@runt/lib";
+import { logger, LogLevel, validateMediaBundle } from "@runt/lib";
 import {
   cellReferences$,
   isJsonMimeType,
@@ -50,6 +55,14 @@ interface PyodideAgentOptions {
 }
 
 /**
+ * Runtime configuration options for PyodideRuntimeAgent
+ */
+interface PyodideRuntimeOptions {
+  adapter?: Adapter;
+  userId?: string;
+}
+
+/**
  * Pyodide-based Python runtime agent using web workers
  *
  * Extends the generic RuntimeAgent with advanced Python execution capabilities
@@ -57,6 +70,7 @@ interface PyodideAgentOptions {
  * pandas HTML tables, and error formatting.
  */
 export class PyodideRuntimeAgent extends RuntimeAgent {
+  declare public config: PyodideRuntimeConfig;
   private worker: Worker | null = null;
   private interruptBuffer?: SharedArrayBuffer;
   private isInitialized = false;
@@ -68,27 +82,71 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     reject: (error: unknown) => void;
   }> = [];
   private isExecuting = false;
+  private pendingExecutions = new Map<string, {
+    resolve: (data: unknown) => void;
+    reject: (error: unknown) => void;
+  }>();
   private currentAIExecution: {
     cellId: string;
     abortController: AbortController;
   } | null = null;
-  private pendingExecutions = new Map<string, {
-    resolve: (result: unknown) => void;
-    reject: (error: unknown) => void;
-  }>();
-  private options: PyodideAgentOptions;
+  private signalHandlers = new Map<string, () => void>();
+  private pyodideOptions: PyodideAgentOptions;
 
-  constructor(args: string[] = Deno.args, options: PyodideAgentOptions = {}) {
-    let config: RuntimeConfig;
+  /**
+   * Parse log level from environment variable string
+   */
+  private parseLogLevel(levelStr: string | undefined): LogLevel {
+    if (!levelStr) return LogLevel.INFO;
+
+    const normalizedLevel = levelStr.toUpperCase();
+    switch (normalizedLevel) {
+      case "DEBUG":
+        return LogLevel.DEBUG;
+      case "INFO":
+        return LogLevel.INFO;
+      case "WARN":
+      case "WARNING":
+        return LogLevel.WARN;
+      case "ERROR":
+        return LogLevel.ERROR;
+      default:
+        return LogLevel.INFO;
+    }
+  }
+
+  /**
+   * Configure logger from environment variables
+   * Reads RUNT_LOG_LEVEL and RUNT_DISABLE_CONSOLE_LOGS
+   */
+  private configureLoggerFromEnvironment(): void {
+    const logLevel = this.parseLogLevel(Deno.env.get("RUNT_LOG_LEVEL"));
+    const disableConsole = Deno.env.get("RUNT_DISABLE_CONSOLE_LOGS") === "true";
+
+    logger.configure({
+      level: logLevel,
+      console: !disableConsole,
+    });
+  }
+
+  constructor(
+    args: string[] = Deno.args,
+    options: PyodideAgentOptions = {},
+    runtimeOptions: PyodideRuntimeOptions = {},
+  ) {
+    let config: PyodideRuntimeConfig;
     try {
-      config = createRuntimeConfig(args, {
-        runtimeType: "python3-pyodide",
+      config = createPyodideRuntimeConfig(args, {
         capabilities: {
           canExecuteCode: true,
           canExecuteSql: false,
           canExecuteAi: true,
           availableAiModels: [], // Will be populated during startup
         },
+        ...options, // Merge options into config
+        ...(runtimeOptions.adapter && { adapter: runtimeOptions.adapter }),
+
+        ...(runtimeOptions.userId && { userId: runtimeOptions.userId }),
       });
     } catch (error) {
       // Configuration errors should still go to console for CLI usability
@@ -110,28 +168,27 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     }
 
     super(config, config.capabilities, {
+      onStartup: async () => {
+        // Pyodide-specific startup logic if needed
+      },
       onShutdown: async () => {
         await this.cleanupWorker();
       },
     });
 
-    // Merge config mount paths with options mount paths
-    const mergedOptions: PyodideAgentOptions = {
-      ...options,
-      mountPaths: options.mountPaths || config.mountPaths || [],
-      mountMappings: options.mountMappings || config.mountMappings || [],
-      indexMountedFiles: options.indexMountedFiles ??
-        config.indexMountedFiles ?? false,
-      mountReadonly: options.mountReadonly ?? config.mountReadonly ?? false,
-    };
-
-    // Only include outputDir if it has a value
-    const finalOutputDir = options.outputDir ?? config.outputDir;
-    if (finalOutputDir) {
-      mergedOptions.outputDir = finalOutputDir;
+    // Configure logger from environment variables early if not already configured
+    // This ensures RUNT_LOG_LEVEL is respected even when using PyodideRuntimeAgent programmatically
+    if (
+      Deno.env.get("RUNT_LOG_LEVEL") && logger.getLevel() === LogLevel.INFO
+    ) {
+      this.configureLoggerFromEnvironment();
     }
 
-    this.options = mergedOptions;
+    // Store simplified options - config now handles the complex merging
+    this.pyodideOptions = {
+      ...options,
+      discoverAiModels: options.discoverAiModels ?? true,
+    };
     this.onExecution(this.executeCell.bind(this));
     this.onCancellation(this.handlePyodideCancellation.bind(this));
   }
@@ -140,34 +197,33 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
    * Start the Pyodide runtime agent
    */
   override async start(): Promise<void> {
-    // Call parent start first to initialize logger and LiveStore
-    await super.start();
-
-    this.logger.info("Starting Pyodide Python runtime agent");
+    logger.info("Starting Pyodide Python runtime agent");
 
     // Discover available AI models if enabled
-    if (this.options.discoverAiModels !== false) {
+    if (this.pyodideOptions.discoverAiModels !== false) {
       try {
-        this.logger.info("Discovering available AI models...");
+        logger.info("Discovering available AI models...");
         const models = await discoverAvailableAiModels();
-        this.config.capabilities.availableAiModels = models;
+        // Update the capabilities object with discovered models
+        (this.config.capabilities as RuntimeCapabilities).availableAiModels =
+          models;
 
         if (models.length === 0) {
-          this.logger.warn(
+          logger.warn(
             "No AI models discovered - OpenAI API key or Ollama server may not be available",
           );
         } else {
-          this.logger.info(
+          logger.info(
             `Discovered ${models.length} AI models from providers`,
           );
         }
       } catch (error) {
-        this.logger.error("Failed to discover AI models", {
+        logger.error("Failed to discover AI models", {
           error: error instanceof Error ? error.message : String(error),
         });
       }
     }
-    // Call parent start first to initialize logger and LiveStore
+    // Call parent to initialize LiveStore
     await super.start();
 
     // Initialize Pyodide worker after logger is available
@@ -179,12 +235,13 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
    */
   private async initializePyodideWorker(): Promise<void> {
     try {
-      this.logger.info("Initializing Pyodide worker");
+      logger.info("Initializing Pyodide worker");
 
       // Determine packages to load based on options
-      const packagesToLoad = this.options.packages || getEssentialPackages();
+      const packagesToLoad = this.pyodideOptions.packages ||
+        getEssentialPackages();
 
-      this.logger.info("Loading packages", {
+      logger.info("Loading packages", {
         packageCount: packagesToLoad.length,
         packages: packagesToLoad,
       });
@@ -206,7 +263,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         this.handleWorkerMessage.bind(this),
       );
       this.worker.addEventListener("error", (error) => {
-        this.logger.error("Worker error", {
+        logger.error("Worker error", {
           message: error.message || "Unknown worker error",
           filename: error.filename,
           lineno: error.lineno,
@@ -214,7 +271,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         this.handleWorkerCrash("Worker error event");
       });
       this.worker.addEventListener("messageerror", (error) => {
-        this.logger.error("Worker message error", {
+        logger.error("Worker message error", {
           type: error.type,
           data: error.data,
         });
@@ -230,41 +287,39 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           readonly?: boolean;
         }
       > = [];
-      if (this.options.mountPaths && this.options.mountPaths.length > 0) {
+      if (this.config.mountPaths && this.config.mountPaths.length > 0) {
         mountData = await this.readMountDirectories(
-          this.options.mountPaths,
-          this.options.mountMappings,
+          this.config.mountPaths,
+          this.config.mountMappings,
         );
 
         // Add readonly flag to all mount entries if mountReadonly is enabled
-        if (this.options.mountReadonly) {
+        if (this.config.mountReadonly) {
           mountData = mountData.map((entry) => ({ ...entry, readonly: true }));
         }
 
         // Start vector store ingestion asynchronously only if indexing is enabled
-        if (this.options.indexMountedFiles) {
+        if (this.config.indexMountedFiles) {
           // Initialize vector store in background to avoid blocking pyodide startup
           Promise.resolve().then(async () => {
             try {
-              const { getVectorStore, enableVectorStoreIndexing } =
-                await import("@runt/ai");
-              enableVectorStoreIndexing();
+              const { getVectorStore } = await import("@runt/ai");
               const vectorStore = getVectorStore();
               vectorStore.startIngestion(mountData);
-              this.logger.info(
+              logger.info(
                 "Vector store indexing started for mounted files",
               );
             } catch (error) {
-              this.logger.error("Vector store ingestion failed", {
+              logger.error("Vector store ingestion failed", {
                 error: String(error),
               });
             }
           });
-          this.logger.info(
+          logger.info(
             "Vector store indexing enabled - initialization started in background",
           );
         } else {
-          this.logger.info(
+          logger.info(
             "Vector store indexing disabled - mounted files will not be indexed for AI search",
           );
         }
@@ -278,9 +333,9 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       });
 
       this.isInitialized = true;
-      this.logger.info("Pyodide worker initialized successfully");
+      logger.info("Pyodide worker initialized successfully");
     } catch (error) {
-      this.logger.error("Failed to initialize Pyodide worker", {
+      logger.error("Failed to initialize Pyodide worker", {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -315,7 +370,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     const { id, type, data, error } = event.data;
 
     if (type === "log") {
-      this.logger.debug("Worker log", { message: data });
+      logger.debug("Worker log", { message: data });
       return;
     }
 
@@ -454,11 +509,10 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       ) as NotebookTool[];
 
       try {
-        const maxIterations = this.config.aiMaxIterations || 10;
+        const maxIterations = this.config.aiMaxIterations;
         return await executeAI(
           aiContext,
           notebookContext,
-          this.logger,
           this.store,
           this.config.sessionId,
           notebookTools,
@@ -575,7 +629,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         }
 
         // Sync /outputs directory back to host if outputDir is configured
-        if (this.options.outputDir) {
+        if (this.config.outputDir) {
           await this.syncOutputsToHost();
         }
 
@@ -725,7 +779,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     cellId: string,
     reason: string,
   ): void {
-    this.logger.info("Python execution cancellation", {
+    logger.info("Python execution cancellation", {
       queueId,
       cellId,
       reason,
@@ -733,7 +787,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
 
     // Check if this is an AI cell being cancelled
     if (this.currentAIExecution && this.currentAIExecution.cellId === cellId) {
-      this.logger.info("Cancelling AI execution", {
+      logger.info("Cancelling AI execution", {
         cellId,
       });
       this.currentAIExecution.abortController.abort();
@@ -763,7 +817,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     this.executionQueue.length = 0;
 
     if (initialQueueLength > 0) {
-      this.logger.info("Cancelled all queued executions due to interrupt", {
+      logger.info("Cancelled all queued executions due to interrupt", {
         triggeringCellId: cellId,
         cancelledCount: initialQueueLength,
       });
@@ -774,7 +828,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
    * Handle worker crash and cleanup
    */
   private handleWorkerCrash(reason: string): void {
-    this.logger.error("Uncaught error", { error: "null" });
+    logger.error("Uncaught error", { error: "null" });
 
     // Reject all pending executions
     for (const [_id, pending] of this.pendingExecutions) {
@@ -794,7 +848,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
 
     // Clean up worker (async but don't wait for it in crash handler)
     this.cleanupWorker().catch((error) => {
-      this.logger.debug("Error during worker cleanup after crash", {
+      logger.debug("Error during worker cleanup after crash", {
         error: error instanceof Error ? error.message : String(error),
       });
     });
@@ -813,7 +867,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         await new Promise((resolve) => setTimeout(resolve, 100));
       } catch (error) {
         // Ignore errors during shutdown - worker might already be terminated
-        this.logger.debug(
+        logger.debug(
           "Worker shutdown message failed (expected during cleanup)",
           {
             error: error instanceof Error ? error.message : String(error),
@@ -825,7 +879,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       this.worker = null;
     }
 
-    this.logger.info("Pyodide worker cleanup completed");
+    logger.info("Pyodide worker cleanup completed");
   }
 
   /**
@@ -868,13 +922,13 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           : { hostPath, files };
         mountData.push(mountEntry);
 
-        this.logger.info(
+        logger.info(
           `Read ${files.length} files from mount path: ${hostPath}${
             targetPath ? ` -> ${targetPath}` : ""
           }`,
         );
       } catch (error) {
-        this.logger.warn(`Failed to read mount directory: ${hostPath}`, {
+        logger.warn(`Failed to read mount directory: ${hostPath}`, {
           error,
         });
       }
@@ -901,7 +955,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
             const content = await Deno.readFile(fullPath);
             files.push({ path: relativePath, content });
           } catch (error) {
-            this.logger.warn(`Failed to read file: ${fullPath}`, { error });
+            logger.warn(`Failed to read file: ${fullPath}`, { error });
           }
         } else if (entry.isDirectory) {
           // Recursively read subdirectory
@@ -909,7 +963,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         }
       }
     } catch (error) {
-      this.logger.warn(`Failed to read directory: ${currentPath}`, { error });
+      logger.warn(`Failed to read directory: ${currentPath}`, { error });
     }
   }
 
@@ -917,7 +971,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
    * Sync files from /outputs directory back to host filesystem
    */
   private async syncOutputsToHost(): Promise<void> {
-    if (!this.options.outputDir) {
+    if (!this.config.outputDir) {
       return;
     }
 
@@ -928,13 +982,13 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       };
 
       if (!result.files || result.files.length === 0) {
-        this.logger.debug("No files found in /outputs directory to sync");
+        logger.debug("No files found in /outputs directory to sync");
         return;
       }
 
       // Ensure output directory exists on host
       try {
-        await Deno.mkdir(this.options.outputDir, { recursive: true });
+        await Deno.mkdir(this.config.outputDir, { recursive: true });
       } catch (_error) {
         // Directory might already exist, ignore error
       }
@@ -943,14 +997,14 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       let syncedCount = 0;
       for (const { path, content } of result.files) {
         try {
-          const hostPath: string = `${this.options.outputDir}/${path}`;
+          const hostPath: string = `${this.config.outputDir}/${path}`;
 
           // Create parent directories if needed
           const parentDir: string = hostPath.substring(
             0,
             hostPath.lastIndexOf("/"),
           );
-          if (parentDir !== this.options.outputDir) {
+          if (parentDir !== this.config.outputDir) {
             try {
               await Deno.mkdir(parentDir, { recursive: true });
             } catch (_error) {
@@ -962,17 +1016,57 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           await Deno.writeFile(hostPath, content);
           syncedCount++;
         } catch (error) {
-          this.logger.warn(`Failed to sync file ${path} to host: ${error}`);
+          logger.warn(`Failed to sync file ${path} to host: ${error}`);
         }
       }
 
       if (syncedCount > 0) {
-        this.logger.info(
-          `Synced ${syncedCount} files from /outputs to ${this.options.outputDir}`,
+        logger.info(
+          `Synced ${syncedCount} files from /outputs to ${this.config.outputDir}`,
         );
       }
     } catch (error) {
-      this.logger.warn(`Failed to sync outputs to host: ${error}`);
+      logger.warn(`Failed to sync outputs to host: ${error}`);
     }
+  }
+
+  /**
+   * Set up Deno-specific signal handlers
+   */
+  protected override setupShutdownHandlers(): void {
+    // Call parent implementation for global error handlers
+    super.setupShutdownHandlers();
+
+    const shutdown = () => this.shutdown();
+
+    // Store signal handlers for cleanup
+    this.signalHandlers.set("SIGINT", shutdown);
+    this.signalHandlers.set("SIGTERM", shutdown);
+
+    // Add Deno signal listeners
+    Deno.addSignalListener("SIGINT" as Deno.Signal, shutdown);
+    Deno.addSignalListener("SIGTERM" as Deno.Signal, shutdown);
+  }
+
+  /**
+   * Clean up Deno-specific signal handlers
+   */
+  protected override cleanupShutdownHandlers(): void {
+    // Clean up Deno signal listeners
+    for (const [signal, handler] of this.signalHandlers) {
+      try {
+        Deno.removeSignalListener(signal as Deno.Signal, handler);
+      } catch (error) {
+        // Ignore errors during cleanup
+        logger.debug("Error removing signal listener", {
+          signal,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    this.signalHandlers.clear();
+
+    // Call parent implementation
+    super.cleanupShutdownHandlers();
   }
 }

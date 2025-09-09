@@ -5,10 +5,9 @@ import {
   CallToolResultSchema,
   ListToolsResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { createLogger } from "@runt/lib";
+import { logger } from "@runt/lib";
 import { join } from "@std/path";
 
-const logger = createLogger("mcp-client");
 interface MCPServerConfig {
   command?: string;
   args?: string[];

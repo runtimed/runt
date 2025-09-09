@@ -72,15 +72,6 @@ language queries.
 Example: "Find functions that handle user authentication"
 ```
 
-### `find_mounted_file`
-
-Find specific file paths based on search criteria. This is particularly useful
-when you need to write code that loads data files.
-
-```text
-Example: "Find CSV files containing sales data"
-```
-
 ### `list_indexed_files`
 
 Lists all file paths that have been successfully indexed from mounted

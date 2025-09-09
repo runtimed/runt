@@ -1,8 +1,8 @@
 import OpenAI from "@openai/openai";
 import {
   type AiModel,
-  createLogger,
   type ExecutionContext,
+  logger,
   type ModelCapability,
 } from "@runt/lib";
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
@@ -65,7 +65,7 @@ interface AnodeCellMetadata {
 export class RuntOpenAIClient {
   private client: OpenAI | null = null;
   private isConfigured = false;
-  private logger = createLogger("openai-client");
+  // Use global logger instance
   private notebookTools: NotebookTool[];
 
   constructor(config?: OpenAIConfig, notebookTools: NotebookTool[] = []) {
@@ -94,9 +94,9 @@ export class RuntOpenAIClient {
         defaultHeaders: config?.defaultHeaders,
       });
       this.isConfigured = true;
-      this.logger.info("OpenAI client configured successfully");
+      logger.info("OpenAI client configured successfully");
     } catch (error) {
-      this.logger.error("Failed to configure OpenAI client", error);
+      logger.error("Failed to configure OpenAI client", error);
       this.isConfigured = false;
     }
   }
@@ -272,7 +272,7 @@ export class RuntOpenAIClient {
    */
   discoverAiModels(): Promise<AiModel[]> {
     if (!this.isReady()) {
-      this.logger.warn("OpenAI client not ready, returning empty models list");
+      logger.warn("OpenAI client not ready, returning empty models list");
       return Promise.resolve([]);
     }
 
@@ -293,7 +293,7 @@ export class RuntOpenAIClient {
 
       return Promise.resolve(aiModels);
     } catch (error) {
-      this.logger.error("Failed to discover OpenAI models", error);
+      logger.error("Failed to discover OpenAI models", error);
       return Promise.resolve([]);
     }
   }
@@ -339,7 +339,7 @@ export class RuntOpenAIClient {
       while (iteration < maxIterations) {
         // Check for interruption
         if (interruptSignal?.aborted) {
-          this.logger.info("Agentic conversation interrupted");
+          logger.info("Agentic conversation interrupted");
           break;
         }
 
@@ -350,14 +350,14 @@ export class RuntOpenAIClient {
             conversationMessages,
           );
           if (!shouldContinue) {
-            this.logger.info(
+            logger.info(
               "Agentic conversation stopped by iteration callback",
             );
             break;
           }
         }
 
-        this.logger.info(`Agentic iteration ${iteration + 1}/${maxIterations}`);
+        logger.info(`Agentic iteration ${iteration + 1}/${maxIterations}`);
 
         // Prepare tools if enabled
         let all_tools: NotebookTool[] = [];
@@ -491,7 +491,7 @@ export class RuntOpenAIClient {
 
         // Handle tool calls if present
         if (toolCalls && toolCalls.length > 0 && onToolCall) {
-          this.logger.info(
+          logger.info(
             `Processing ${toolCalls.length} tool calls in iteration ${
               iteration + 1
             }`,
@@ -512,7 +512,7 @@ export class RuntOpenAIClient {
                 parseError = error instanceof Error
                   ? error
                   : new Error(String(error));
-                this.logger.error(
+                logger.error(
                   `Error parsing tool arguments for ${toolCall.function.name}`,
                   error,
                 );
@@ -540,7 +540,7 @@ export class RuntOpenAIClient {
                   validationError = error instanceof Error
                     ? error
                     : new Error(String(error));
-                  this.logger.error(
+                  logger.error(
                     `Error validating tool parameters for ${toolCall.function.name}`,
                     error,
                   );
@@ -603,7 +603,7 @@ export class RuntOpenAIClient {
               }
 
               try {
-                this.logger.info(`Calling tool: ${toolCall.function.name}`, {
+                logger.info(`Calling tool: ${toolCall.function.name}`, {
                   args,
                   iteration: iteration + 1,
                 });
@@ -691,7 +691,7 @@ export class RuntOpenAIClient {
                   `Tool ${toolCall.function.name} failed: ${errorMessage}`,
                 );
 
-                this.logger.error(
+                logger.error(
                   `Error executing tool ${toolCall.function.name}`,
                   error,
                 );
@@ -750,14 +750,14 @@ export class RuntOpenAIClient {
         // Content was already emitted above with role metadata
 
         // No more tool calls, conversation is complete
-        this.logger.info(
+        logger.info(
           `Agentic conversation completed after ${iteration + 1} iterations`,
         );
         break;
       }
 
       if (iteration >= maxIterations) {
-        this.logger.warn(
+        logger.warn(
           `Agentic conversation reached max iterations (${maxIterations})`,
         );
         context.display({
@@ -773,7 +773,7 @@ export class RuntOpenAIClient {
         });
       }
     } catch (error: unknown) {
-      this.logger.error("OpenAI API error in agentic conversation", error);
+      logger.error("OpenAI API error in agentic conversation", error);
 
       let errorMessage = "Unknown error occurred";
       if (error && typeof error === "object") {

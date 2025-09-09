@@ -123,7 +123,7 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
 
     const agent = new PyodideRuntimeAgent(agentArgs);
 
-    assertStringIncludes(agent.config.syncUrl, "anode-docworker");
+    assertStringIncludes(agent.config.syncUrl, "app.runt.run");
   });
 
   await t.step("supports environment variables", () => {

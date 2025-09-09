@@ -5,6 +5,7 @@
 // mocked dependencies to test the core integration points.
 
 import { assertEquals, assertExists } from "jsr:@std/assert";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 
 import { RuntimeAgent } from "../src/runtime-agent.ts";
 import { RuntimeConfig } from "../src/config.ts";
@@ -51,13 +52,18 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       onExecutionError: createMockFunction(),
     };
 
+    const adapter = makeInMemoryAdapter({});
+
     config = new RuntimeConfig({
       runtimeId: "integration-test-runtime",
       runtimeType: "test",
       notebookId: "test-notebook-integration",
-      syncUrl: "ws://localhost:8787",
+      syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "test-integration-token",
-      environmentOptions: {},
+
+      userId: "test-user-id",
+      adapter,
+
       capabilities,
     });
   };
@@ -140,14 +146,18 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
   await t.step("configuration validation", async (t) => {
     setup();
     await t.step("should accept valid configuration", () => {
+      const adapter = makeInMemoryAdapter({});
+
       const validConfig = new RuntimeConfig({
         runtimeId: "valid-runtime",
         runtimeType: "test",
         notebookId: "test-notebook",
-        syncUrl: "ws://localhost:8787",
+        syncUrl: "ws://localhost:8787", // Not used with adapter
         authToken: "valid-token",
+
+        userId: "test-user-id",
+        adapter,
         capabilities: capabilities,
-        environmentOptions: {},
       });
 
       const agent = new RuntimeAgent(validConfig, capabilities);
@@ -160,14 +170,18 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       let error: Error | null = null;
 
       try {
+        const adapter = makeInMemoryAdapter({});
+
         const config = new RuntimeConfig({
           runtimeId: "", // Invalid empty runtime ID
           runtimeType: "test",
           notebookId: "test",
-          syncUrl: "ws://localhost:8787",
+          syncUrl: "ws://localhost:8787", // Not used with adapter
           authToken: "token",
+
+          userId: "test-user-id",
+          adapter,
           capabilities: capabilities,
-          environmentOptions: {},
         });
         config.validate(); // Explicitly call validate
       } catch (e) {
@@ -177,7 +191,7 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
       assertExists(error);
       assertEquals(
         error?.message.includes(
-          "runtimeId: --runtime-id <id> or RUNTIME_ID env var",
+          "runtimeId: RUNTIME_ID environment variable",
         ),
         true,
       );
@@ -232,22 +246,27 @@ Deno.test("RuntimeAgent Integration Tests", async (t) => {
 
 Deno.test("RuntimeConfig", async (t) => {
   await t.step("should create valid config with all required fields", () => {
+    const adapter = makeInMemoryAdapter({});
+
     const config = new RuntimeConfig({
-      runtimeId: "test-runtime",
-      runtimeType: "python",
+      runtimeId: "test-runtime-3",
+      runtimeType: "test",
       notebookId: "test-notebook",
-      syncUrl: "ws://localhost:8787",
+      syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "test-token",
+
+      userId: "test-user-id",
+      adapter,
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
-        canExecuteAi: true,
+        canExecuteAi: false,
       },
-      environmentOptions: {},
     });
 
-    assertEquals(config.runtimeId, "test-runtime");
-    assertEquals(config.runtimeType, "python");
+    // Verify all required fields are set correctly
+    assertEquals(config.runtimeId, "test-runtime-3");
+    assertEquals(config.runtimeType, "test");
     assertEquals(config.notebookId, "test-notebook");
     assertEquals(config.syncUrl, "ws://localhost:8787");
     assertEquals(config.authToken, "test-token");
@@ -255,32 +274,40 @@ Deno.test("RuntimeConfig", async (t) => {
   });
 
   await t.step("should generate unique session IDs", () => {
+    const adapter1 = makeInMemoryAdapter({});
+
     const config1 = new RuntimeConfig({
       runtimeId: "runtime1",
       runtimeType: "python",
       notebookId: "notebook1",
-      syncUrl: "ws://localhost:8787",
+      syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "token1",
+
+      userId: "test-user-id",
+      adapter: adapter1,
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
         canExecuteAi: false,
       },
-      environmentOptions: {},
     });
+
+    const adapter2 = makeInMemoryAdapter({});
 
     const config2 = new RuntimeConfig({
       runtimeId: "runtime2",
       runtimeType: "python",
       notebookId: "notebook2",
-      syncUrl: "ws://localhost:8787",
+      syncUrl: "ws://localhost:8787", // Not used with adapter
       authToken: "token2",
+
+      userId: "test-user-id",
+      adapter: adapter2,
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
         canExecuteAi: false,
       },
-      environmentOptions: {},
     });
 
     // Session IDs should be different
@@ -288,19 +315,22 @@ Deno.test("RuntimeConfig", async (t) => {
   });
 
   await t.step("should allow custom heartbeat interval", () => {
-    const _config = new RuntimeConfig({
-      runtimeId: "test-runtime",
-      runtimeType: "python",
-      notebookId: "test-notebook",
-      syncUrl: "ws://localhost:8787",
-      authToken: "test-token",
+    const adapter = makeInMemoryAdapter({});
 
+    const _config = new RuntimeConfig({
+      runtimeId: "test-ai-runtime",
+      runtimeType: "test-ai",
+      notebookId: "test-ai-notebook",
+      syncUrl: "ws://localhost:8787", // Not used with adapter
+      authToken: "test-ai-token",
+
+      userId: "test-user-id",
+      adapter,
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
-        canExecuteAi: false,
+        canExecuteAi: true,
       },
-      environmentOptions: {},
     });
   });
 });

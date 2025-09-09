@@ -1,7 +1,7 @@
 import { Ollama } from "npm:ollama";
 import type { Message, Tool } from "npm:ollama";
 import type { AiModel, ModelCapability } from "@runt/lib";
-import { createLogger, type ExecutionContext } from "@runt/lib";
+import { type ExecutionContext, logger } from "@runt/lib";
 
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
 
@@ -42,7 +42,7 @@ interface ModelInfo {
 export class RuntOllamaClient {
   private client: Ollama;
   private isConfigured = false;
-  private logger = createLogger("ollama-client");
+  // Use global logger instance
   private config: OllamaConfig;
 
   constructor(config?: OllamaConfig) {
@@ -66,9 +66,9 @@ export class RuntOllamaClient {
       });
       this.config = { ...this.config, ...config, host };
       this.isConfigured = true;
-      this.logger.info("Ollama client configured successfully", { host });
+      logger.info("Ollama client configured successfully", { host });
     } catch (error) {
-      this.logger.error("Failed to configure Ollama client", error);
+      logger.error("Failed to configure Ollama client", error);
       this.isConfigured = false;
     }
   }
@@ -87,7 +87,7 @@ export class RuntOllamaClient {
       await this.client.list();
       return true;
     } catch (error) {
-      this.logger.error("Ollama server not available", error);
+      logger.error("Ollama server not available", error);
       return false;
     }
   }
@@ -111,7 +111,7 @@ export class RuntOllamaClient {
         },
       }));
     } catch (error) {
-      this.logger.info("Ollama server not available", {
+      logger.info("Ollama server not available", {
         host: this.config.host,
       });
       throw error;
@@ -124,7 +124,7 @@ export class RuntOllamaClient {
       const modelExists = models.some((model) => model.name === modelName);
 
       if (!modelExists) {
-        this.logger.info(
+        logger.info(
           `Model ${modelName} not found locally, attempting to pull...`,
         );
 
@@ -135,17 +135,17 @@ export class RuntOllamaClient {
         });
 
         if (pullResponse.status === "success") {
-          this.logger.info(`Successfully pulled model ${modelName}`);
+          logger.info(`Successfully pulled model ${modelName}`);
           return true;
         } else {
-          this.logger.error(`Failed to pull model ${modelName}`, pullResponse);
+          logger.error(`Failed to pull model ${modelName}`, pullResponse);
           return false;
         }
       }
 
       return true;
     } catch (error) {
-      this.logger.error(`Error checking/pulling model ${modelName}`, error);
+      logger.error(`Error checking/pulling model ${modelName}`, error);
       return false;
     }
   }
@@ -178,7 +178,7 @@ export class RuntOllamaClient {
 
       return mappedCapabilities;
     } catch (_error) {
-      this.logger.warn(
+      logger.warn(
         `Could not get capabilities for model ${modelName}`,
       );
       return ["completion"]; // Default to basic completion
@@ -207,7 +207,7 @@ export class RuntOllamaClient {
             capabilities,
           });
         } catch (_error) {
-          this.logger.warn(
+          logger.warn(
             `Could not get capabilities for model ${model.name}`,
           );
           // Still include the model with basic capabilities
@@ -222,7 +222,7 @@ export class RuntOllamaClient {
 
       return aiModels;
     } catch (_error) {
-      this.logger.info(
+      logger.info(
         "Ollama models not available - server may not be running",
       );
       return [];
@@ -330,7 +330,7 @@ export class RuntOllamaClient {
       while (iteration < maxIterations) {
         // Check for interruption
         if (interruptSignal?.aborted) {
-          this.logger.info("Agentic conversation interrupted");
+          logger.info("Agentic conversation interrupted");
           break;
         }
 
@@ -341,14 +341,14 @@ export class RuntOllamaClient {
             conversationMessages,
           );
           if (!shouldContinue) {
-            this.logger.info(
+            logger.info(
               "Agentic conversation stopped by iteration callback",
             );
             break;
           }
         }
 
-        this.logger.info(`Agentic iteration ${iteration + 1}/${maxIterations}`);
+        logger.info(`Agentic iteration ${iteration + 1}/${maxIterations}`);
 
         // Prepare tools if enabled
         const tools: Tool[] | undefined = enableTools && allTools.length > 0
@@ -451,7 +451,7 @@ export class RuntOllamaClient {
 
         // Handle tool calls if present
         if (toolCalls && toolCalls.length > 0 && onToolCall) {
-          this.logger.info(
+          logger.info(
             `Processing ${toolCalls.length} tool calls in iteration ${
               iteration + 1
             }`,
@@ -462,7 +462,7 @@ export class RuntOllamaClient {
 
           for (const toolCall of toolCalls) {
             try {
-              this.logger.info(`Calling tool: ${toolCall.function.name}`, {
+              logger.info(`Calling tool: ${toolCall.function.name}`, {
                 args: toolCall.function.arguments,
                 iteration: iteration + 1,
               });
@@ -554,7 +554,7 @@ export class RuntOllamaClient {
                 `Tool ${toolCall.function.name} failed: ${errorMessage}`,
               );
 
-              this.logger.error(
+              logger.error(
                 `Error executing tool ${toolCall.function.name}`,
                 error,
               );
@@ -608,14 +608,14 @@ export class RuntOllamaClient {
         }
 
         // No more tool calls, conversation is complete
-        this.logger.info(
+        logger.info(
           `Agentic conversation completed after ${iteration + 1} iterations`,
         );
         break;
       }
 
       if (iteration >= maxIterations) {
-        this.logger.warn(
+        logger.warn(
           `Agentic conversation reached max iterations (${maxIterations})`,
         );
         context.display({
@@ -631,7 +631,7 @@ export class RuntOllamaClient {
         });
       }
     } catch (error: unknown) {
-      this.logger.error("Ollama API error in agentic conversation", error);
+      logger.error("Ollama API error in agentic conversation", error);
 
       let errorMessage = "Unknown error occurred";
       if (error && typeof error === "object") {

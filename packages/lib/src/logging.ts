@@ -1,8 +1,7 @@
 // Structured logging utilities for Runt runtime agents
 //
 // This module provides a clean logging interface that leverages OpenTelemetry
-// for structured, observable logging. It automatically detects the available
-// OpenTelemetry API through LiveStore's dependency chain.
+// for structured, observable logging. Configure once at startup, use everywhere.
 
 import {
   context,
@@ -31,43 +30,34 @@ export interface LoggerConfig {
   console: boolean;
   /** Service name for structured logs */
   service: string;
-  /** Additional context to include in all logs */
-  context?: Record<string, unknown>;
 }
-
-/**
- * Default logger configuration
- */
-const DEFAULT_CONFIG: LoggerConfig = {
-  level: LogLevel.ERROR,
-  console: true,
-  service: "runt-agent",
-};
 
 /**
  * Structured logger that uses OpenTelemetry for observability
  */
-export class Logger {
-  private config: LoggerConfig;
+class Logger {
+  private config: LoggerConfig = {
+    level: LogLevel.INFO,
+    console: true,
+    service: "runt-agent",
+  };
+
   private tracer = trace.getTracer("@runt/lib");
 
-  constructor(config: Partial<LoggerConfig> = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+  /**
+   * Configure the logger (call once at startup)
+   */
+  configure(config: Partial<LoggerConfig>): void {
+    this.config = { ...this.config, ...config };
   }
 
   /**
-   * Create a child logger with additional context
+   * Get the current configuration
    */
-  child(context: Record<string, unknown>): Logger {
-    return new Logger({
-      ...this.config,
-      context: { ...this.config.context, ...context },
-    });
+  getConfig(): LoggerConfig {
+    return { ...this.config };
   }
 
-  /**
-   * Get the current log level
-   */
   getLevel(): LogLevel {
     return this.config.level;
   }
@@ -75,22 +65,22 @@ export class Logger {
   /**
    * Log a debug message
    */
-  debug(message: string, data?: Record<string, unknown>): void {
-    this.log(LogLevel.DEBUG, message, data);
+  debug(message: string, context?: Record<string, unknown>): void {
+    this.log(LogLevel.DEBUG, message, context);
   }
 
   /**
    * Log an info message
    */
-  info(message: string, data?: Record<string, unknown>): void {
-    this.log(LogLevel.INFO, message, data);
+  info(message: string, context?: Record<string, unknown>): void {
+    this.log(LogLevel.INFO, message, context);
   }
 
   /**
    * Log a warning message
    */
-  warn(message: string, data?: Record<string, unknown>): void {
-    this.log(LogLevel.WARN, message, data);
+  warn(message: string, context?: Record<string, unknown>): void {
+    this.log(LogLevel.WARN, message, context);
   }
 
   /**
@@ -99,7 +89,7 @@ export class Logger {
   error(
     message: string,
     error?: Error | unknown,
-    data?: Record<string, unknown>,
+    context?: Record<string, unknown>,
   ): void {
     const errorData = error instanceof Error
       ? {
@@ -108,9 +98,9 @@ export class Logger {
           message: error.message,
           stack: error.stack,
         },
-        ...data,
+        ...context,
       }
-      : { error: String(error), ...data };
+      : { error: String(error), ...context };
 
     this.log(LogLevel.ERROR, message, errorData);
   }
@@ -127,7 +117,6 @@ export class Logger {
       kind: SpanKind.INTERNAL,
       attributes: {
         service: this.config.service,
-        ...this.config.context,
         ...attributes,
       },
     });
@@ -161,21 +150,21 @@ export class Logger {
   async time<T>(
     name: string,
     operation: () => Promise<T>,
-    data?: Record<string, unknown>,
+    context?: Record<string, unknown>,
   ): Promise<T> {
     const start = performance.now();
     try {
       const result = await operation();
       const duration = performance.now() - start;
       this.info(`${name} completed`, {
-        ...data,
+        ...context,
         duration_ms: Math.round(duration),
       });
       return result;
     } catch (error) {
       const duration = performance.now() - start;
       this.error(`${name} failed`, error, {
-        ...data,
+        ...context,
         duration_ms: Math.round(duration),
       });
       throw error;
@@ -188,7 +177,7 @@ export class Logger {
   private log(
     level: LogLevel,
     message: string,
-    data?: Record<string, unknown>,
+    context?: Record<string, unknown>,
   ): void {
     if (level < this.config.level) {
       return;
@@ -199,8 +188,7 @@ export class Logger {
       level: LogLevel[level],
       service: this.config.service,
       message,
-      ...this.config.context,
-      ...data,
+      ...context,
     };
 
     // Add to OpenTelemetry span if available
@@ -208,7 +196,7 @@ export class Logger {
     if (activeSpan) {
       activeSpan.addEvent(message, {
         level: LogLevel[level],
-        ...data,
+        ...context,
       });
     }
 
@@ -251,47 +239,9 @@ export class Logger {
 }
 
 /**
- * Default logger instance
+ * Global logger instance - configure once, use everywhere
  */
 export const logger = new Logger();
-
-/**
- * Create a logger with environment-based configuration
- */
-export function createLogger(
-  service: string,
-  options: Partial<LoggerConfig> = {},
-): Logger {
-  const level = getLogLevelFromEnv();
-  const console = !Deno.env.get("RUNT_DISABLE_CONSOLE_LOGS");
-
-  return new Logger({
-    service,
-    level,
-    console,
-    ...options,
-  });
-}
-
-/**
- * Get log level from environment variables
- */
-function getLogLevelFromEnv(): LogLevel {
-  const envLevel = Deno.env.get("RUNT_LOG_LEVEL")?.toUpperCase();
-  switch (envLevel) {
-    case "DEBUG":
-      return LogLevel.DEBUG;
-    case "INFO":
-      return LogLevel.INFO;
-    case "WARN":
-    case "WARNING":
-      return LogLevel.WARN;
-    case "ERROR":
-      return LogLevel.ERROR;
-    default:
-      return LogLevel.ERROR;
-  }
-}
 
 /**
  * Utility to suppress console output for libraries that should be quiet

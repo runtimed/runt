@@ -8,14 +8,93 @@
 
 import { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
-import { createLogger } from "@runt/lib";
+import { logger, LogLevel } from "@runt/lib";
+import { discoverUserIdentity } from "./auth.ts";
+import { parseBaseRuntimeArgs } from "./config-cli.ts";
+import { makeAdapter } from "npm:@livestore/adapter-node";
+import { makeCfSync } from "npm:@livestore/sync-cf";
 
 // Run the agent if this file is executed directly
 if (import.meta.main) {
   const name = "PyoRunt";
-  const logger = createLogger(name);
 
-  const agent = new PyodideRuntimeAgent();
+  // Configure logger early based on environment variables for CLI usage
+  const runtLogLevel = Deno.env.get("RUNT_LOG_LEVEL");
+  const disableConsole = Deno.env.get("RUNT_DISABLE_CONSOLE_LOGS") === "true";
+
+  if (runtLogLevel) {
+    const normalizedLevel = runtLogLevel.toUpperCase();
+    let logLevel: LogLevel;
+    switch (normalizedLevel) {
+      case "DEBUG":
+        logLevel = LogLevel.DEBUG;
+        break;
+      case "INFO":
+        logLevel = LogLevel.INFO;
+        break;
+      case "WARN":
+      case "WARNING":
+        logLevel = LogLevel.WARN;
+        break;
+      case "ERROR":
+        logLevel = LogLevel.ERROR;
+        break;
+      default:
+        logLevel = LogLevel.INFO;
+    }
+
+    logger.configure({
+      level: logLevel,
+      console: !disableConsole,
+    });
+  } else {
+    // Configure with INFO as default when no RUNT_LOG_LEVEL is set
+    logger.configure({
+      level: LogLevel.INFO,
+      console: !disableConsole,
+    });
+  }
+
+  logger.info("Authenticating...");
+
+  // Parse CLI args once to get auth details
+  const cliConfig = parseBaseRuntimeArgs(Deno.args);
+  const syncUrl = cliConfig.syncUrl ||
+    "wss://app.runt.run";
+  const authToken = cliConfig.authToken;
+
+  if (!authToken) {
+    console.error("❌ Configuration Error: Missing auth token");
+    console.error("Use --auth-token or set RUNT_API_KEY environment variable");
+    Deno.exit(1);
+  }
+
+  // Discover user identity - LiveStore will handle clientId internally
+  const { userId, userInfo } = await discoverUserIdentity({
+    authToken,
+    syncUrl,
+  });
+
+  logger.info("Authenticated successfully", {
+    userId,
+    email: userInfo.email,
+  });
+
+  // Create adapter for Node.js environment with Cloudflare sync
+  const adapter = makeAdapter({
+    storage: { type: "in-memory" },
+    sync: {
+      backend: makeCfSync({ url: syncUrl }),
+      onSyncError: "ignore",
+    },
+  });
+
+  // Create agent with discovered userId and Node.js adapter
+  const agent = new PyodideRuntimeAgent(
+    Deno.args,
+    {}, // pyodide options
+    { adapter, userId }, // runtime options
+  );
 
   logger.info("Starting Agent");
 

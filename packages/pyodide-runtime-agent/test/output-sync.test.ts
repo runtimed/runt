@@ -16,7 +16,7 @@ Deno.test({
       `--output-dir=${tempOutputDir}`,
     ], {
       outputDir: tempOutputDir,
-    });
+    }, {});
 
     // Initialize the agent
     await agent.start();
@@ -131,10 +131,14 @@ Deno.test({
   name: "PyodideRuntimeAgent no output sync when outputDir not configured",
   ignore: true,
 }, async () => {
-  const agent = new PyodideRuntimeAgent([
-    "--notebook=test-notebook",
-    "--auth-token=test-token",
-  ]);
+  const agent = new PyodideRuntimeAgent(
+    [
+      "--notebook=test-notebook",
+      "--auth-token=test-token",
+    ],
+    {},
+    {},
+  );
 
   await agent.start();
 
@@ -213,7 +217,7 @@ Deno.test({
       `--output-dir=${tempOutputDir}`,
     ], {
       outputDir: tempOutputDir,
-    });
+    }, {});
 
     await agent.start();
 

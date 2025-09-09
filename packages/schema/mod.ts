@@ -34,10 +34,11 @@ export * from "./queries/index.ts";
  * - ClientId must be non-numeric to prevent user impersonation
  *
  * USER CLIENTS (runtime: false/undefined):
- * - Regular users: clientId = authenticated user ID
- * - Anonymous users: clientId = "anonymous-user"
+ * - Regular users: clientId = userId-{uniqueId} (e.g. "user123-abc-def-ghi")
+
  * - User clients use OIDC tokens for authentication
- * - ClientId must match authenticated user ID
+ * - User ID is passed separately in sync payload for authorization
+ * - ClientId identifies device/app instances following LiveStore best practices
  *
  * PRESENCE DISPLAY:
  * - Runtime agents: Bot icon with runtimeType label
@@ -1252,7 +1253,7 @@ export function getNotebookInfo(
 ) {
   return {
     title: getNotebookMetadata(metadataRecords, "title", "Untitled"),
-    ownerId: getNotebookMetadata(metadataRecords, "ownerId", "anonymous"),
+    ownerId: getNotebookMetadata(metadataRecords, "ownerId", "unknown"),
     runtimeType: getNotebookMetadata(metadataRecords, "runtimeType", "python3"),
     isPublic:
       getNotebookMetadata(metadataRecords, "isPublic", "false") === "true",

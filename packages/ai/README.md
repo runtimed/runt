@@ -178,7 +178,6 @@ import { handleToolCallWithResult } from "@runt/ai";
 
 const result = await handleToolCallWithResult(
   store,
-  logger,
   sessionId,
   currentCell,
   toolCall,
@@ -352,7 +351,7 @@ const capabilities = {
   models
 - `filterModelsByCapabilities(models: AiModel[], capabilities: string[]): AiModel[]` -
   Filter models by capabilities
-- `handleToolCallWithResult(store, logger, sessionId, currentCell, toolCall): Promise<string>` -
+- `handleToolCallWithResult(store, sessionId, currentCell, toolCall): Promise<string>` -
   Execute tool calls
 
 ### Classes

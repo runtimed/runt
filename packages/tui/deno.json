@@ -1,6 +1,6 @@
 {
   "name": "@runt/tui",
-  "version": "0.11.1",
+  "version": "0.13.0",
   "description": "A powerful terminal-based notebook interface for Runt runtime agents, enabling interactive editing, execution, and real-time collaboration.",
   "license": "BSD-3-Clause",
   "exports": {
@@ -22,9 +22,9 @@
     "lint": "deno lint"
   },
   "imports": {
-    "@runt/schema": "jsr:@runt/schema@^0.11.1",
-    "@runt/lib": "jsr:@runt/lib@^0.11.1",
-    "@runt/ai": "jsr:@runt/ai@^0.11.1",
+    "@runt/schema": "jsr:@runt/schema@^0.13.0",
+    "@runt/lib": "jsr:@runt/lib@^0.13.0",
+    "@runt/ai": "jsr:@runt/ai@^0.13.0",
     "@inkjs/ui": "npm:@inkjs/ui@^2.0.0",
     "@livestore/adapter-node": "npm:@livestore/adapter-node@^0.3.1",
     "@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
@@ -46,22 +46,10 @@
     "jsx": "react",
     "strict": false,
     "noImplicitAny": false,
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "es2022",
-      "deno.ns"
-    ]
+    "lib": ["dom", "dom.iterable", "es2022", "deno.ns"]
   },
   "publish": {
-    "include": [
-      "src/",
-      "README.md",
-      "LICENSE"
-    ],
-    "exclude": [
-      "src/**/*.test.ts",
-      "src/**/*.test.tsx"
-    ]
+    "include": ["src/", "README.md", "LICENSE"],
+    "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
   }
 }

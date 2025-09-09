@@ -37,7 +37,7 @@ Deno.test({
     ], {
       mountPaths: [tempMountDir],
       mountReadonly: true,
-    });
+    }, {});
 
     // Initialize the agent
     await agent.start();
@@ -108,7 +108,7 @@ with open(f"{mount_dir}/readonly.txt", 'r') as f:
     content = f.read()
     print(f"File content: {content}")
 
-# Read the CSV file  
+# Read the CSV file
 with open(f"{mount_dir}/data.csv", 'r') as f:
     csv_content = f.read()
     print(f"CSV content: {csv_content}")
@@ -276,7 +276,7 @@ try:
     with open(f"{mount_dir}/writable.txt", 'w') as f:
         f.write("Modified content")
     print("SUCCESS: Write operation succeeded as expected")
-    
+
     # Verify the content was changed
     with open(f"{mount_dir}/writable.txt", 'r') as f:
         content = f.read()
@@ -284,12 +284,12 @@ try:
             print("SUCCESS: File content was correctly modified")
         else:
             print(f"ERROR: File content is unexpected: {content}")
-    
+
     # Create a new file (should succeed)
     with open(f"{mount_dir}/new_file.txt", 'w') as f:
         f.write("New file content")
     print("SUCCESS: New file creation succeeded")
-    
+
 except Exception as e:
     print(f"ERROR: Write operation failed unexpectedly: {e}")
 

@@ -1,12 +1,7 @@
 import stripAnsi from "strip-ansi";
 import type OpenAI from "@openai/openai";
 
-import type {
-  AiModel,
-  ExecutionContext,
-  Logger,
-  ModelCapability,
-} from "@runt/lib";
+import type { AiModel, ExecutionContext, ModelCapability } from "@runt/lib";
 
 import { handleToolCallWithResult } from "./tool-registry.ts";
 import type {
@@ -23,7 +18,7 @@ import {
 import type { Store } from "npm:@livestore/livestore";
 import { makeSchema, State } from "npm:@livestore/livestore";
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
-import { createLogger } from "@runt/lib";
+import { logger } from "@runt/lib";
 
 // Create schema locally
 const state = State.SQLite.makeState({ tables, materializers });
@@ -60,8 +55,7 @@ export {
 // Export notebook context functions
 export { gatherNotebookContext } from "./notebook-context.ts";
 
-// Create logger for AI conversation debugging
-const logger = createLogger("ai-conversation");
+// Use global logger instance for AI conversation debugging
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
@@ -144,31 +138,41 @@ export interface CellContextData {
 function createSystemPrompt(
   currentCellId?: string,
   filepaths?: string[],
+  vectorStoreEnabled: boolean = false,
 ): string {
-  let prompt =
-    `You are an AI assistant in a collaborative notebook environment. 
-
-IMPORTANT: If you have access to vector store tools (query_documents, find_mounted_file, list_indexed_files), use them to search and access mounted files rather than asking the user to provide files manually. These tools can search file contents and find file paths from mounted directories.
+  let prompt = `You are an AI assistant in a collaborative notebook environment.
 
 You have the full context of all cells (code, ai, and markdown) above your current cell.
-You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed. 
-You can also execute code yourself using tool calls. 
+You can see all cell outputs (including terminal text, plots, tables, and errors) from code that has been executed.
+You can also execute code yourself using tool calls.
 When you write code use caution not to double encode new lines.
 Use the visible outputs and your execution capabilities to help analyze data and answer questions.
 You should carefully review the code you've written and the output it produces.
 Devise metrics by which you can evaluate the quality of your code and the results it produces.
 After executing code cells you should review the code and make changes to improve the result.
 
+`;
+
+  const vectorStoreExtras =
+    `IMPORTANT: If you have access to vector store tools (query_documents, find_mounted_file,
+list_indexed_files),
+use them to search and access mounted files rather than asking the user to provide files manually. These tools
+can search file contents and find file paths from mounted directories.
+
 When working with data files:
-1. Use find_mounted_file to locate data files by name or type
 2. Use query_documents to search file contents for specific information
 3. Use list_indexed_files to see what files are available
 
 Should you need to write data for any reason you will only be able to write to the /outputs directory.`;
 
+  if (vectorStoreEnabled) {
+    prompt += vectorStoreExtras;
+  }
+
   if (currentCellId) {
     prompt +=
-      ` Your current cell ID is: ${currentCellId}. When using the create_cell tool, use this ID as the after_id parameter to place new cells below yourself.`;
+      ` Your current cell ID is: ${currentCellId}. When using the create_cell tool, use this ID as the after_id
+parameter to place new cells below yourself.`;
   }
 
   // Add file path context if provided
@@ -461,7 +465,6 @@ export { OpenAIClient, RuntOllamaClient };
 export { closeMCPClient, getMCPClient, MCPClient } from "./mcp-client.ts";
 export { getAllTools } from "./tool-registry.ts";
 export {
-  enableVectorStoreIndexing,
   getVectorStore,
   isVectorStoreIndexingEnabled,
   VectorStoreService,
@@ -565,7 +568,6 @@ export type AIExecutionContext = ExecutionContext & {
 export async function executeAI(
   context: AIExecutionContext,
   notebookContext: NotebookContextData,
-  logger: Logger,
   store: Store<typeof schema>,
   sessionId: string,
   notebookTools: NotebookTool[] = [],
@@ -589,6 +591,8 @@ export async function executeAI(
       stderr("🛑 AI execution was already cancelled\n");
       return { success: false, error: "Execution cancelled" };
     }
+
+    const { isVectorStoreIndexingEnabled } = await import("./vector-store.ts");
 
     // Extract file path references from the prompt (pattern: @/path/to/file)
     const filePathPattern = /@([^\s]+)/g;
@@ -623,7 +627,11 @@ export async function executeAI(
       if (isOllamaReady) {
         const openaiMessages = buildConversationMessages(
           notebookContext,
-          createSystemPrompt(cell.id, extractedFilePaths),
+          createSystemPrompt(
+            cell.id,
+            extractedFilePaths,
+            isVectorStoreIndexingEnabled(),
+          ),
           prompt,
         );
 
@@ -660,7 +668,6 @@ export async function executeAI(
               });
               return await handleToolCallWithResult(
                 store,
-                logger,
                 sessionId,
                 cell,
                 toolCall,
@@ -771,7 +778,11 @@ The system will automatically pull models if they're not available locally.`;
 
       const conversationMessages = buildConversationMessages(
         notebookContext,
-        createSystemPrompt(cell.id, extractedFilePaths),
+        createSystemPrompt(
+          cell.id,
+          extractedFilePaths,
+          isVectorStoreIndexingEnabled(),
+        ),
         prompt,
       );
 
@@ -798,7 +809,6 @@ The system will automatically pull models if they're not available locally.`;
             });
             return await handleToolCallWithResult(
               store,
-              logger,
               sessionId,
               cell,
               toolCall,
@@ -834,7 +844,11 @@ The system will automatically pull models if they're not available locally.`;
       // Use conversation-based approach for better AI interaction
       const conversationMessages = buildConversationMessages(
         notebookContext,
-        createSystemPrompt(cell.id, extractedFilePaths),
+        createSystemPrompt(
+          cell.id,
+          extractedFilePaths,
+          isVectorStoreIndexingEnabled(),
+        ),
         prompt,
       );
 
@@ -868,7 +882,6 @@ The system will automatically pull models if they're not available locally.`;
             });
             return await handleToolCallWithResult(
               store,
-              logger,
               sessionId,
               cell,
               toolCall,
