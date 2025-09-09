@@ -492,6 +492,12 @@ export async function discoverAvailableAiModels(): Promise<AiModel[]> {
     const groqModels: AiModel[] = [
       {
         provider: "groq",
+        name: "moonshotai/kimi-k2-instruct-0905",
+        displayName: "Kimi K2 Instruct 0905",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
         name: "moonshotai/kimi-k2-instruct",
         displayName: "Kimi K2 Instruct",
         capabilities: ["completion", "tools", "thinking"],
