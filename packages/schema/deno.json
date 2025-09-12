@@ -22,7 +22,8 @@
   },
   "imports": {
     "@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
-    "fractional-indexing": "npm:fractional-indexing@^3.2.0"
+    "fractional-indexing": "npm:fractional-indexing@^3.2.0",
+    "@runtimed/schema": "npm:@runtimed/schema@^0.1.0"
   },
   "lint": {
     "rules": {
