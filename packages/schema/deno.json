@@ -8,10 +8,7 @@
     "url": "https://github.com/runtimed/anode.git"
   },
   "exports": {
-    ".": "./mod.ts",
-    "./types": "./types.ts",
-    "./tables": "./tables.ts",
-    "./queries": "./queries/index.ts"
+    ".": "./mod.ts"
   },
   "publish": {
     "include": ["mod.ts", "types.ts", "tables.ts", "queries/", "README.md"]
