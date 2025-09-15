@@ -10,7 +10,6 @@
     "./packages/python-runtime-agent",
     "./packages/tui"
   ],
-  "nodeModulesDir": "auto",
   "imports": {
     "@runt/ai": "./packages/ai/mod.ts",
     "@runt/schema": "./packages/schema/mod.ts",
