@@ -1,10 +1,6 @@
 // RuntimeAgent - Base class for building Anode runtime agents
 
-import {
-  createStorePromise,
-  queryDb,
-  type Store,
-} from "npm:@livestore/livestore";
+import { createStorePromise, queryDb, type Store } from "jsr:@runtimed/schema";
 
 import {
   events,
@@ -15,7 +11,7 @@ import {
   tables,
 } from "@runt/schema";
 import { logger } from "./logging.ts";
-import { makeSchema, State } from "npm:@livestore/livestore";
+import { makeSchema, State } from "jsr:@runtimed/schema";
 
 // Create schema locally
 const state = State.SQLite.makeState({ tables, materializers });
