@@ -4,14 +4,13 @@
 // the runtime agent library, importing existing types from @runt/schema
 // and adding runtime-specific extensions.
 
-import type { Adapter, Store } from "jsr:@runtimed/schema";
-import type { CellData, ExecutionQueueData, OutputType } from "@runt/schema";
-import { events, materializers, tables } from "@runt/schema";
-import { makeSchema, State } from "jsr:@runtimed/schema";
-
-// Create schema locally
-const state = State.SQLite.makeState({ tables, materializers });
-const schema = makeSchema({ events, state });
+import type {
+  Adapter,
+  CellData,
+  ExecutionQueueData,
+  OutputType,
+  Store,
+} from "jsr:@runtimed/schema";
 
 /**
  * Raw output data format accepted by context.display() methods
@@ -126,7 +125,7 @@ export interface ExecutionContext {
   /** The execution queue entry */
   queueEntry: ExecutionQueueData;
   /** LiveStore instance */
-  store: Store<typeof schema>;
+  store: Store;
   /** This runtime's session ID */
   sessionId: string;
   /** Runtime ID */

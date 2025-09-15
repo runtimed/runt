@@ -38,7 +38,7 @@ import { decodeBase64 } from "@std/encoding/base64";
  * Base RuntimeAgent class providing LiveStore integration and execution management
  */
 export class RuntimeAgent {
-  #store!: Store<typeof schema>;
+  #store!: Store;
   // Use global logger instance from logging module
   private isShuttingDown = false;
   private processedExecutions = new Set<string>();
@@ -233,7 +233,7 @@ export class RuntimeAgent {
     this.cancellationHandlers.push(handler);
   }
 
-  public get store(): Store<typeof schema> {
+  public get store(): Store {
     return this.#store;
   }
 
