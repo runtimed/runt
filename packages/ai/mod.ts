@@ -15,8 +15,8 @@ import {
   materializers,
   tables,
 } from "@runt/schema";
-import type { Store } from "npm:@livestore/livestore";
-import { makeSchema, State } from "npm:@livestore/livestore";
+import type { Store } from "jsr:@runtimed/schema";
+import { makeSchema, State } from "jsr:@runtimed/schema";
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
 import { logger } from "@runt/lib";
 
