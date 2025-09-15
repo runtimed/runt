@@ -9,20 +9,12 @@ import type {
   AiToolResultData,
   MediaContainer,
 } from "@runt/schema";
+import type { CellReference, Store } from "jsr:@runtimed/schema";
 import {
-  type CellReference,
-  events,
-  materializers,
-  tables,
-} from "@runt/schema";
-import type { Store } from "npm:@livestore/livestore";
-import { makeSchema, State } from "npm:@livestore/livestore";
-import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
+  AI_TOOL_CALL_MIME_TYPE,
+  AI_TOOL_RESULT_MIME_TYPE,
+} from "jsr:@runtimed/schema";
 import { logger } from "@runt/lib";
-
-// Create schema locally
-const state = State.SQLite.makeState({ tables, materializers });
-const schema = makeSchema({ events, state });
 
 import { OpenAIClient } from "./openai-client.ts";
 import { RuntOllamaClient } from "./ollama-client.ts";
@@ -568,7 +560,7 @@ export type AIExecutionContext = ExecutionContext & {
 export async function executeAI(
   context: AIExecutionContext,
   notebookContext: NotebookContextData,
-  store: Store<typeof schema>,
+  store: Store,
   sessionId: string,
   notebookTools: NotebookTool[] = [],
   maxIterations: number = 10,

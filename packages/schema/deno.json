@@ -8,10 +8,7 @@
     "url": "https://github.com/runtimed/anode.git"
   },
   "exports": {
-    ".": "./mod.ts",
-    "./types": "./types.ts",
-    "./tables": "./tables.ts",
-    "./queries": "./queries/index.ts"
+    ".": "./mod.ts"
   },
   "publish": {
     "include": ["mod.ts", "types.ts", "tables.ts", "queries/", "README.md"]
@@ -21,8 +18,9 @@
     "lib": ["ESNext", "DOM"]
   },
   "imports": {
-    "@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
-    "fractional-indexing": "npm:fractional-indexing@^3.2.0"
+    "fractional-indexing": "npm:fractional-indexing@^3.2.0",
+    "@runtimed/schema": "jsr:@runtimed/schema@0.1.12",
+    "jsr:@std/testing": "jsr:@std/testing@^1.0.15"
   },
   "lint": {
     "rules": {

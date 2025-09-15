@@ -21,3 +21,5 @@ __pycache__/
 .env
 .env.*
 .env.production
+
+node_modules
