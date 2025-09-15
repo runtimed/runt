@@ -25,7 +25,7 @@
   },
   "lint": {
     "rules": {
-      "exclude": ["no-slow-types"]
+      "exclude": ["no-slow-types", "no-import-prefix", "no-unversioned-import"]
     },
     "exclude": ["packages/tui/"]
   },
