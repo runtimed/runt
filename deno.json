@@ -20,10 +20,6 @@
     "@runt/pyodide-runtime-agent": "./packages/pyodide-runtime-agent/src/mod.ts",
     "@runt/python-runtime-agent": "./packages/python-runtime-agent/mod.ts",
     "@runt/tui": "./packages/tui/src/cli.tsx",
-    "npm:@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
-    "npm:@livestore/adapter-web": "npm:@livestore/adapter-web@^0.3.1",
-    "npm:@livestore/adapter-node": "npm:@livestore/adapter-node@^0.3.1",
-    "npm:@livestore/sync-cf": "npm:@livestore/sync-cf@^0.3.1",
     "jsr:@std/cli": "jsr:@std/cli@^1.0.22"
   },
   "lint": {
