@@ -20,7 +20,8 @@
     "@runt/pyodide-runtime-agent": "./packages/pyodide-runtime-agent/src/mod.ts",
     "@runt/python-runtime-agent": "./packages/python-runtime-agent/mod.ts",
     "@runt/tui": "./packages/tui/src/cli.tsx",
-    "jsr:@std/cli": "jsr:@std/cli@^1.0.22"
+    "jsr:@std/cli": "jsr:@std/cli@^1.0.22",
+    "jsr:@std/testing": "jsr:@std/testing@^1.0.15"
   },
   "lint": {
     "rules": {

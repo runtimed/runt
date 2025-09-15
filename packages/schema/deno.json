@@ -19,7 +19,8 @@
   },
   "imports": {
     "fractional-indexing": "npm:fractional-indexing@^3.2.0",
-    "@runtimed/schema": "jsr:@runtimed/schema@^0.1.1"
+    "@runtimed/schema": "jsr:@runtimed/schema@^0.1.1",
+    "jsr:@std/testing": "jsr:@std/testing@^1.0.15"
   },
   "lint": {
     "rules": {
