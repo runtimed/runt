@@ -3,18 +3,12 @@ import {
   cellReferences$,
   createCellBetween,
   events,
-  materializers,
   tables,
 } from "@runt/schema";
 
-import type { Store } from "npm:@livestore/livestore";
-import { makeSchema, State } from "npm:@livestore/livestore";
+import type { Store } from "jsr:@runtimed/schema";
 import { logger } from "@runt/lib";
 import { getMCPClient } from "./mcp-client.ts";
-
-// Create schema locally
-const state = State.SQLite.makeState({ tables, materializers });
-const schema = makeSchema({ events, state });
 
 export interface NotebookTool {
   name: string;
@@ -249,7 +243,7 @@ function unescapeContent(content: string): string {
 }
 
 export function createCell(
-  store: Store<typeof schema>,
+  store: Store,
   sessionId: string,
   _currentCell: CellData,
   args: Record<string, unknown>,
@@ -322,7 +316,7 @@ export function createCell(
  * Handle tool calls from AI with result return
  */
 export async function handleToolCallWithResult(
-  store: Store<typeof schema>,
+  store: Store,
   sessionId: string,
   currentCell: CellData,
   toolCall: {
