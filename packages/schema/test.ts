@@ -5,7 +5,7 @@ import {
   makeSchema,
   State,
   type Store as LiveStore,
-} from "@livestore/livestore";
+} from "npm:@livestore/livestore";
 
 import { makeAdapter } from "npm:@livestore/adapter-node";
 

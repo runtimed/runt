@@ -21,6 +21,7 @@ import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
 import { logger } from "@runt/lib";
 
 // Create schema locally
+// @ts-ignore slightly mismatching context because of LiveStore
 const state = State.SQLite.makeState({ tables, materializers });
 const schema = makeSchema({ events, state });
 

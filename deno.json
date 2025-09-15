@@ -10,6 +10,7 @@
     "./packages/python-runtime-agent",
     "./packages/tui"
   ],
+  "nodeModulesDir": "auto",
   "imports": {
     "@runt/ai": "./packages/ai/mod.ts",
     "@runt/schema": "./packages/schema/mod.ts",
@@ -19,7 +20,11 @@
     "@runt/runtime-browser": "./packages/runtime-browser/mod.ts",
     "@runt/pyodide-runtime-agent": "./packages/pyodide-runtime-agent/src/mod.ts",
     "@runt/python-runtime-agent": "./packages/python-runtime-agent/mod.ts",
-    "@runt/tui": "./packages/tui/src/cli.tsx"
+    "@runt/tui": "./packages/tui/src/cli.tsx",
+    "npm:@livestore/livestore": "npm:@livestore/livestore@^0.3.1",
+    "npm:@livestore/adapter-web": "npm:@livestore/adapter-web@^0.3.1",
+    "npm:@livestore/adapter-node": "npm:@livestore/adapter-node@^0.3.1",
+    "npm:@livestore/sync-cf": "npm:@livestore/sync-cf@^0.3.1"
   },
   "lint": {
     "rules": {
