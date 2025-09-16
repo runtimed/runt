@@ -772,6 +772,7 @@ The system will automatically pull models if they're not available locally.`;
         apiKey: groqApiKey,
         baseURL: groqBaseURL,
         defaultHeaders: defaultHeaders,
+        provider: "groq"
       }, notebookTools);
 
       const conversationMessages = buildConversationMessages(
