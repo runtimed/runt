@@ -4,7 +4,7 @@
 // extended by specific runtime implementations (Python, JavaScript, etc.).
 
 import { logger } from "./logging.ts";
-import type { Adapter } from "npm:@livestore/livestore";
+import type { Adapter } from "jsr:@runtimed/schema";
 import type {
   IArtifactClient,
   RuntimeAgentOptions,

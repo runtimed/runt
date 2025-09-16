@@ -19,11 +19,14 @@
     "@runt/runtime-browser": "./packages/runtime-browser/mod.ts",
     "@runt/pyodide-runtime-agent": "./packages/pyodide-runtime-agent/src/mod.ts",
     "@runt/python-runtime-agent": "./packages/python-runtime-agent/mod.ts",
-    "@runt/tui": "./packages/tui/src/cli.tsx"
+    "@runt/tui": "./packages/tui/src/cli.tsx",
+    "jsr:@runtimed/schema": "jsr:@runtimed/schema@0.1.12",
+    "jsr:@std/cli": "jsr:@std/cli@^1.0.22",
+    "jsr:@std/testing": "jsr:@std/testing@^1.0.15"
   },
   "lint": {
     "rules": {
-      "exclude": ["no-slow-types"]
+      "exclude": ["no-slow-types", "no-import-prefix", "no-unversioned-import"]
     },
     "exclude": ["packages/tui/"]
   },

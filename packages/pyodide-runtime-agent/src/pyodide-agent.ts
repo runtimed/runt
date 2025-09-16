@@ -9,7 +9,7 @@ import {
   createPyodideRuntimeConfig,
   type PyodideRuntimeConfig,
 } from "./pyodide-config.ts";
-import type { Adapter } from "npm:@livestore/livestore";
+import type { Adapter } from "jsr:@runtimed/schema";
 import type {
   ExecutionContext,
   MediaBundle,

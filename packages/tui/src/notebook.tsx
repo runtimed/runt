@@ -4,7 +4,7 @@ import { LiveStoreProvider } from "@livestore/react";
 import { makeAdapter } from "@livestore/adapter-node";
 import { makeCfSync } from "@livestore/sync-cf";
 import { events, materializers, tables } from "@runt/schema";
-import { makeSchema, State } from "@livestore/livestore";
+import { makeSchema, State } from "jsr:@runtimed/schema";
 import { useStore } from "@livestore/react";
 import { NotebookRenderer } from "./components/notebook/NotebookRenderer.tsx";
 import { LoadingIndicator } from "./components/layout/LoadingIndicator.tsx";

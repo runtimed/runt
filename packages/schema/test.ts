@@ -5,7 +5,7 @@ import {
   makeSchema,
   State,
   type Store as LiveStore,
-} from "@livestore/livestore";
+} from "npm:@livestore/livestore";
 
 import { makeAdapter } from "npm:@livestore/adapter-node";
 
@@ -23,7 +23,6 @@ import { events, materializers, tables } from "@runt/schema";
 const state = State.SQLite.makeState({ tables, materializers });
 const schema = makeSchema({ events, state });
 
-// Type for the store created by setupStore
 type TestStore = LiveStore<typeof schema>;
 
 // Simple mapping of events to their date fields

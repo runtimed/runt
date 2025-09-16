@@ -14,7 +14,7 @@ import type {
   RawOutputData,
   RuntimeCapabilities,
 } from "../src/types.ts";
-import { queryDb, Schema, sql } from "npm:@livestore/livestore";
+import { queryDb, Schema, sql } from "jsr:@runtimed/schema";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

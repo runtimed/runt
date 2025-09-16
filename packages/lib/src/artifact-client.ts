@@ -86,7 +86,7 @@ export class ArtifactClient implements IArtifactClient {
       const response = await fetch(url, {
         method: "POST",
         headers,
-        body: data,
+        body: new Uint8Array(data).buffer,
       });
 
       if (!response.ok) {
