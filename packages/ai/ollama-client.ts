@@ -44,6 +44,7 @@ export class RuntOllamaClient {
   private isConfigured = false;
   // Use global logger instance
   private config: OllamaConfig;
+  provider: string = "ollama";
 
   constructor(config?: OllamaConfig) {
     this.config = config || {};
