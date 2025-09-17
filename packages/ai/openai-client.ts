@@ -66,29 +66,21 @@ interface AnodeCellMetadata {
 export class RuntOpenAIClient {
   private client: OpenAI | null = null;
   private isConfigured = false;
-  // Use global logger instance
   private notebookTools: NotebookTool[];
-  private provider: string = "openai";
+  provider: string = "openai";
+  protected apiKey: string | null = Deno.env.get("OPENAI_API_KEY") || null;
+  protected baseURL: string | null = Deno.env.get("OPENAI_BASE_URL") || null;
 
   constructor(config?: OpenAIConfig, notebookTools: NotebookTool[] = []) {
-    // Set default provider to 'openai' if not explicitly provided
-    const openaiConfig = config
-      ? {
-        provider: "openai",
-        ...config, // This allows config.provider to override the default
-      }
-      : undefined;
-
-    // Don't configure immediately to avoid early initialization logs
-    if (openaiConfig) {
-      this.configure(openaiConfig);
+    if (config) {
+      this.configure(config);
     }
     this.notebookTools = [...notebookTools];
   }
 
   configure(config?: OpenAIConfig) {
-    const apiKey = config?.apiKey || Deno.env.get("OPENAI_API_KEY");
-    const baseURL = config?.baseURL || Deno.env.get("OPENAI_BASE_URL");
+    const apiKey = config?.apiKey || this.apiKey;
+    const baseURL = config?.baseURL || this.baseURL;
     this.provider = config?.provider ?? this.provider;
 
     if (!apiKey) {
@@ -124,7 +116,7 @@ export class RuntOpenAIClient {
    * Get hardcoded OpenAI model capabilities
    * (OpenAI doesn't expose capabilities via API)
    */
-  private getOpenAIModelCapabilities(modelName: string): ModelCapability[] {
+  private getModelCapabilities(modelName: string): ModelCapability[] {
     const capabilities: ModelCapability[] = ["completion"];
 
     // All current OpenAI models support tools
@@ -231,7 +223,7 @@ export class RuntOpenAIClient {
   /**
    * Get available OpenAI models (hardcoded for now)
    */
-  private getOpenAIModels(): Array<{
+  private getModels(): Array<{
     name: string;
     displayName: string;
     contextLength: number;
@@ -290,11 +282,11 @@ export class RuntOpenAIClient {
     }
 
     try {
-      const models = this.getOpenAIModels();
+      const models = this.getModels();
       const aiModels: AiModel[] = [];
 
       for (const model of models) {
-        const capabilities = this.getOpenAIModelCapabilities(model.name);
+        const capabilities = this.getModelCapabilities(model.name);
 
         aiModels.push({
           name: model.name,
