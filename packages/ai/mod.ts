@@ -465,6 +465,7 @@ export {
 
 
 const AI_ClIENTS: { [key: string]: OpenAIClient | RuntOllamaClient } = {
+  anaconda: new AnacondaAIClient(),
   openai: new OpenAIClient(),
   groq: new GroqClient(),
   ollama: new RuntOllamaClient()
