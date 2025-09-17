@@ -18,7 +18,7 @@ import { logger } from "@runt/lib";
 
 import { OpenAIClient } from "./openai-client.ts";
 import { RuntOllamaClient } from "./ollama-client.ts";
-import { GroqClient, AnacondaAIClient } from "./groq-client.ts";
+import { AnacondaAIClient, GroqClient } from "./groq-client.ts";
 import type { NotebookTool } from "./tool-registry.ts";
 
 export type { NotebookTool };
@@ -463,13 +463,12 @@ export {
   VectorStoreService,
 } from "./vector-store.ts";
 
-
 const AI_ClIENTS: { [key: string]: OpenAIClient | RuntOllamaClient } = {
   anaconda: new AnacondaAIClient(),
   openai: new OpenAIClient(),
   groq: new GroqClient(),
-  ollama: new RuntOllamaClient()
-} as const
+  ollama: new RuntOllamaClient(),
+} as const;
 
 /**
  * Discover available AI models from all configured providers
@@ -488,11 +487,9 @@ export async function discoverAvailableAiModels(): Promise<AiModel[]> {
     }
   }
 
-  logger.debug(`Discovered AI models`,
-    {
-      allModels: allModels,
-    },
-  );
+  logger.debug(`Discovered AI models`, {
+    allModels: allModels,
+  });
   return allModels;
 }
 
@@ -516,7 +513,6 @@ const DEFAULT_MODELS = {
   groq: "moonshot/kimi-k2-instruct-0905",
   ollama: "llama3.1",
 } as const;
-
 
 export type AIExecutionContext = ExecutionContext & {
   sendWorkerMessage?: (type: string, data: unknown) => Promise<unknown>;
@@ -570,78 +566,78 @@ export async function executeAI(
 
     const client = AI_ClIENTS[provider];
     if (client.isReady()) {
-        client.setNotebookTools(notebookTools);
+      client.setNotebookTools(notebookTools);
 
-        const conversationMessages = buildConversationMessages(
-          notebookContext,
-          createSystemPrompt(
-            cell.id,
-            extractedFilePaths,
-            isVectorStoreIndexingEnabled(),
-          ),
-          prompt,
-        );
+      const conversationMessages = buildConversationMessages(
+        notebookContext,
+        createSystemPrompt(
+          cell.id,
+          extractedFilePaths,
+          isVectorStoreIndexingEnabled(),
+        ),
+        prompt,
+      );
 
-        logger.debug(`Conversation messages for ${provider}`, {
-          cellId: cell.id,
-          provider: provider,
+      logger.debug(`Conversation messages for ${provider}`, {
+        cellId: cell.id,
+        provider: provider,
+        model: model,
+        messageCount: conversationMessages.length,
+        messages: conversationMessages.map((msg, idx) => ({
+          index: idx,
+          role: msg.role,
+          contentLength: msg.content?.length || 0,
+          fullContent: msg.content || "",
+          hasToolCalls: !!(msg as ChatMessageWithToolCalls).tool_calls,
+          toolCallCount: (msg as ChatMessageWithToolCalls).tool_calls?.length ||
+            0,
+          toolCallId: (msg as ChatMessageWithToolCallId).tool_call_id || null,
+        })),
+      });
+
+      await client.generateAgenticResponse(
+        conversationMessages,
+        context,
+        {
           model: model,
-          messageCount: conversationMessages.length,
-          messages: conversationMessages.map((msg, idx) => ({
-            index: idx,
-            role: msg.role,
-            contentLength: msg.content?.length || 0,
-            fullContent: msg.content || "",
-            hasToolCalls: !!(msg as ChatMessageWithToolCalls).tool_calls,
-            toolCallCount: (msg as ChatMessageWithToolCalls).tool_calls?.length ||
-              0,
-            toolCallId: (msg as ChatMessageWithToolCallId).tool_call_id || null,
-          })),
-        });
-
-        await client.generateAgenticResponse(
-          conversationMessages,
-          context,
-          {
-            model: model,
-            provider: provider,
-            enableTools: true,
-            maxIterations: maxIterations,
-            interruptSignal: abortSignal,
-            onToolCall: async (toolCall) => {
-              logger.info("AI requested tool call", {
-                toolName: toolCall.name,
-                cellId: cell.id,
-              });
-              return await handleToolCallWithResult(
-                store,
-                sessionId,
-                cell,
-                toolCall,
-                context.sendWorkerMessage,
-              );
-            },
-            onIteration: (iteration, messages) => {
-              // Check if execution was cancelled
-              if (abortSignal.aborted) {
-                logger.info("AI conversation interrupted", {
-                  iteration,
-                  cellId: cell.id,
-                });
-                return Promise.resolve(false);
-              }
-
-              logger.info("AI conversation iteration", {
-                iteration: iteration + 1,
-                messageCount: messages.length,
-                cellId: cell.id,
-              });
-
-              return Promise.resolve(true);
-            },
+          provider: provider,
+          enableTools: true,
+          maxIterations: maxIterations,
+          interruptSignal: abortSignal,
+          onToolCall: async (toolCall) => {
+            logger.info("AI requested tool call", {
+              toolName: toolCall.name,
+              cellId: cell.id,
+            });
+            return await handleToolCallWithResult(
+              store,
+              sessionId,
+              cell,
+              toolCall,
+              context.sendWorkerMessage,
+            );
           },
-        );
-        logger.info(`${provider} conversation completed`);
+          onIteration: (iteration, messages) => {
+            // Check if execution was cancelled
+            if (abortSignal.aborted) {
+              logger.info("AI conversation interrupted", {
+                iteration,
+                cellId: cell.id,
+              });
+              return Promise.resolve(false);
+            }
+
+            logger.info("AI conversation iteration", {
+              iteration: iteration + 1,
+              messageCount: messages.length,
+              cellId: cell.id,
+            });
+
+            return Promise.resolve(true);
+          },
+        },
+      );
+      logger.info(`${provider} conversation completed`);
     } else {
       // Show provider configuration help
       const configMessage = client.getConfigMessage();
@@ -658,7 +654,6 @@ export async function executeAI(
     }
 
     return { success: true };
-
   } catch (err) {
     if (
       abortSignal.aborted ||

@@ -7,7 +7,7 @@ import type OpenAI from "@openai/openai";
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
 
 import { getAllTools } from "./tool-registry.ts";
-import type { NotebookTool } from "./tool-registry.ts"
+import type { NotebookTool } from "./tool-registry.ts";
 import {
   type AgenticOptions,
   type AnodeCellMetadata,
@@ -385,7 +385,8 @@ The system will automatically pull models if they're not available locally.`;
     // Get all available tools (notebook + MCP) at the start
     const allTools = enableTools ? await getAllTools() : [];
 
-    const conversationMessages: OllamaChatMessage[] = this.convertOpenAIMessages(messages);
+    const conversationMessages: OllamaChatMessage[] = this
+      .convertOpenAIMessages(messages);
 
     let iteration = 0;
 

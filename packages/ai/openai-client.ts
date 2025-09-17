@@ -68,7 +68,7 @@ export class RuntOpenAIClient {
   private isConfigured = false;
   private notebookTools: NotebookTool[];
   provider: string = "openai";
-  protected envPrefix: string | null = null
+  protected envPrefix: string | null = null;
   protected defaultConfig: OpenAIConfig = {};
 
   constructor(config?: OpenAIConfig, notebookTools: NotebookTool[] = []) {
@@ -81,7 +81,8 @@ export class RuntOpenAIClient {
   configure(config?: OpenAIConfig) {
     this.provider = config?.provider ?? this.provider;
 
-    const envPrefix = this.envPrefix?.toUpperCase() || this.provider.toUpperCase();
+    const envPrefix = this.envPrefix?.toUpperCase() ||
+      this.provider.toUpperCase();
     const apiKey = config?.apiKey || Deno.env.get(`${envPrefix}_API_KEY`);
     const baseURL = config?.baseURL || Deno.env.get(`${envPrefix}_BASE_URL`);
 
@@ -97,7 +98,7 @@ export class RuntOpenAIClient {
         baseURL: baseURL,
         organization: config?.organization,
         defaultHeaders: config?.defaultHeaders,
-        ...this.defaultConfig
+        ...this.defaultConfig,
       });
       this.isConfigured = true;
       logger.info(`${this.provider} client configured successfully`);

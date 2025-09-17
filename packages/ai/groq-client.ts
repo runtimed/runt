@@ -1,15 +1,14 @@
 import { RuntOpenAIClient } from "./openai-client.ts";
-import type { OpenAIConfig } from "./openai-client.ts"
+import type { OpenAIConfig } from "./openai-client.ts";
 import type { AiModel } from "@runt/lib";
-import { logger } from "@runt/lib"
-import pkgInfo from "../lib/deno.json" with { type: "json" }
-
+import { logger } from "@runt/lib";
+import pkgInfo from "../lib/deno.json" with { type: "json" };
 
 export class GroqClient extends RuntOpenAIClient {
-    override provider: string = "groq";
-    override defaultConfig: OpenAIConfig = {
-      baseURL: "https://api.groq.com/openai/v1"
-    };
+  override provider: string = "groq";
+  override defaultConfig: OpenAIConfig = {
+    baseURL: "https://api.groq.com/openai/v1",
+  };
 
   override getConfigMessage(): string {
     const configMessage = `# Groq Configuration Required
@@ -67,27 +66,26 @@ Groq API key not found. Please set \`GROQ_API_KEY\` environment variable.`;
   }
 }
 
-
 export class AnacondaAIClient extends GroqClient {
-    override provider: string = "anaconda";
-    override envPrefix: string = "RUNT"
-    override defaultConfig: OpenAIConfig = {
-        baseURL: "https://anaconda.com/api/assistant/v3/groq",
-        defaultHeaders: {
-          "X-Client-Version": pkgInfo.version,
-          "X-Client-Source": "anaconda-runt-dev",
-        }
-    };
+  override provider: string = "anaconda";
+  override envPrefix: string = "RUNT";
+  override defaultConfig: OpenAIConfig = {
+    baseURL: "https://anaconda.com/api/assistant/v3/groq",
+    defaultHeaders: {
+      "X-Client-Version": pkgInfo.version,
+      "X-Client-Source": "anaconda-runt-dev",
+    },
+  };
 
-    override async discoverAiModels(): Promise<AiModel[]> {
-      const models = await super.discoverAiModels();
+  override async discoverAiModels(): Promise<AiModel[]> {
+    const models = await super.discoverAiModels();
 
-      for (const model of models) {
-        model.provider = "anaconda";
-      }
-
-      return models;
+    for (const model of models) {
+      model.provider = "anaconda";
     }
+
+    return models;
+  }
 
   override getConfigMessage(): string {
     const configMessage = `# Anaconda/Runt Configuration Required
