@@ -564,7 +564,16 @@ export async function executeAI(
       promptLength: prompt.length,
     });
 
-    const client = AI_ClIENTS[provider];
+    let client;
+    try {
+      client = AI_ClIENTS[provider];
+      if (!client) {
+        throw new Error(`No AI client found for provider: ${provider}`);
+      }
+    } catch (err) {
+      logger.error(`Failed to get AI client for provider ${provider}:`, err);
+      throw err;
+    }
     if (client.isReady()) {
       client.setNotebookTools(notebookTools);
 
