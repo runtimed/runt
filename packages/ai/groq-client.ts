@@ -87,4 +87,11 @@ export class AnacondaAIClient extends GroqClient {
 
       return models;
     }
+
+  override getConfigMessage(): string {
+    const configMessage = `# Anaconda/Runt Configuration Required
+    
+RUNT API key not found. Please set \`RUNT_API_KEY\` environment variable.`;
+    return configMessage;
+  }
 }
