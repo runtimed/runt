@@ -1,5 +1,6 @@
 // @runt/lib - Core library for building Anode runtime agents
 
+export { VERSION } from "./src/version.ts";
 export { RuntimeAgent } from "./src/runtime-agent.ts";
 export { DEFAULT_CONFIG, RuntimeConfig } from "./src/config.ts";
 export { logger, LogLevel, withQuietLogging } from "./src/logging.ts";
