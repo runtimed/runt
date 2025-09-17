@@ -18,6 +18,7 @@ import { logger } from "@runt/lib";
 
 import { OpenAIClient } from "./openai-client.ts";
 import { RuntOllamaClient } from "./ollama-client.ts";
+import { GroqClient, AnacondaAIClient } from "./groq-client.ts";
 import type { NotebookTool } from "./tool-registry.ts";
 
 export type { NotebookTool };
@@ -468,74 +469,27 @@ export {
 export async function discoverAvailableAiModels(): Promise<AiModel[]> {
   const allModels: AiModel[] = [];
 
-  // Discover OpenAI models
+  // Discover models
   const openaiClient = new OpenAIClient();
-  try {
-    const openaiModels = await openaiClient.discoverAiModels();
-    allModels.push(...openaiModels);
-  } catch (_error) {
-    console.warn(
-      "Failed to discover OpenAI models - API may not be configured",
-    );
+  const groqClient = new GroqClient();
+  const ollamaClient = new RuntOllamaClient();
+  
+  for (const client of [openaiClient, groqClient, ollamaClient]) {
+    try {
+      const models = await client.discoverAiModels();
+      allModels.push(...models);
+    } catch (_error) {
+      console.warn(
+        `Failed to discover ${client.provider} models - API may not be configured`,
+      );
+    }
   }
 
-  // Discover Groq models
-  if (Deno.env.get("GROQ_API_KEY") || Deno.env.get("GROQ_BASE_URL")) {
-    const groqModels: AiModel[] = [
-      {
-        provider: "groq",
-        name: "moonshotai/kimi-k2-instruct-0905",
-        displayName: "Kimi K2 Instruct 0905",
-        capabilities: ["completion", "tools", "thinking"],
-      },
-      {
-        provider: "groq",
-        name: "moonshotai/kimi-k2-instruct",
-        displayName: "Kimi K2 Instruct",
-        capabilities: ["completion", "tools", "thinking"],
-      },
-      {
-        provider: "groq",
-        name: "llama3-8b-8192",
-        displayName: "Llama 3.1 8B",
-        capabilities: ["completion", "tools", "thinking"],
-      },
-      {
-        provider: "groq",
-        name: "llama3-70b-8192",
-        displayName: "Llama 3.1 70B",
-        capabilities: ["completion", "tools", "thinking"],
-      },
-      {
-        provider: "groq",
-        name: "mixtral-8x7b-32768",
-        displayName: "Mixtral 8x7B",
-        capabilities: ["completion", "tools"],
-      },
-      {
-        provider: "groq",
-        name: "gemma2-9b-it",
-        displayName: "Gemma 2 9B",
-        capabilities: ["completion", "tools"],
-      },
-    ];
-    allModels.push(...groqModels);
-  }
-
-  // Discover Ollama models
-  const ollamaHost = Deno.env.get("OLLAMA_HOST") || "http://localhost:11434";
-  const ollamaClient = new RuntOllamaClient({
-    host: ollamaHost,
-  });
-  try {
-    const ollamaModels = await ollamaClient.discoverAiModels();
-    allModels.push(...ollamaModels);
-  } catch (_error) {
-    console.warn(
-      "Failed to discover Ollama models - server may not be running",
-    );
-  }
-
+  logger.debug(`Discovered AI models`,
+    {
+      allModels: allModels,
+    },
+  );
   return allModels;
 }
 
