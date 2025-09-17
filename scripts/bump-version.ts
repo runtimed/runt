@@ -116,6 +116,21 @@ async function updatePackageJson(
   console.log(`✅ Updated ${filePath} to version ${newVersion}`);
 }
 
+async function writeVersionFile(newVersion: string): Promise<void> {
+  const versionData = {
+    version: newVersion,
+  };
+  const versionJsonPath = "packages/lib/src/version.json";
+  await Deno.writeTextFile(
+    versionJsonPath,
+    JSON.stringify(versionData, null, 2) + "\n",
+  );
+
+  console.log(
+    `✅ Updated ${versionJsonPath} with version ${newVersion}`,
+  );
+}
+
 async function getCurrentVersion(): Promise<string> {
   // Get current version from schema package (our reference package)
   const schemaConfig = JSON.parse(
@@ -186,6 +201,9 @@ This script will:
     for (const file of packageJsonFiles) {
       await updatePackageJson(file, newVersion);
     }
+
+    // Write version file
+    await writeVersionFile(newVersion);
 
     console.log(
       `\n🎉 Successfully updated all packages to version ${newVersion}`,
