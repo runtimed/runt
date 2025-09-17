@@ -68,6 +68,7 @@ export class RuntOpenAIClient {
   private isConfigured = false;
   private notebookTools: NotebookTool[];
   provider: string = "openai";
+  protected envPrefix: string | null = null
   protected defaultConfig: OpenAIConfig = {};
 
   constructor(config?: OpenAIConfig, notebookTools: NotebookTool[] = []) {
@@ -78,9 +79,11 @@ export class RuntOpenAIClient {
   }
 
   configure(config?: OpenAIConfig) {
-    const apiKey = config?.apiKey || Deno.env.get(`${this.provider.toUpperCase()}_API_KEY`);
-    const baseURL = config?.baseURL || Deno.env.get(`${this.provider.toUpperCase()}_BASE_URL`);
     this.provider = config?.provider ?? this.provider;
+
+    const envPrefix = this.envPrefix?.toUpperCase() || this.provider.toUpperCase();
+    const apiKey = config?.apiKey || Deno.env.get(`${envPrefix}_API_KEY`);
+    const baseURL = config?.baseURL || Deno.env.get(`${envPrefix}_BASE_URL`);
 
     if (!apiKey) {
       // Don't log warning at startup - only when actually trying to use OpenAI
