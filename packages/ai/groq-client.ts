@@ -2,6 +2,7 @@ import { RuntOpenAIClient } from "./openai-client.ts";
 import type { OpenAIConfig } from "./openai-client.ts"
 import type { AiModel } from "@runt/lib";
 import { logger } from "@runt/lib"
+import pkgInfo from "../lib/deno.json" with { type: "json" }
 
 
 export class GroqClient extends RuntOpenAIClient {
@@ -73,7 +74,7 @@ export class AnacondaAIClient extends GroqClient {
     override defaultConfig: OpenAIConfig = {
         baseURL: "https://anaconda.com/api/assistant/v3/groq",
         defaultHeaders: {
-          "X-Client-Version": "0.11.1",
+          "X-Client-Version": pkgInfo.version,
           "X-Client-Source": "anaconda-runt-dev",
         }
     };
