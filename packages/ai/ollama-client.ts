@@ -2,10 +2,12 @@ import { Ollama } from "npm:ollama";
 import type { Message, Tool } from "npm:ollama";
 import type { AiModel, ModelCapability } from "@runt/lib";
 import { type ExecutionContext, logger } from "@runt/lib";
+import type OpenAI from "@openai/openai";
 
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
 
 import { getAllTools } from "./tool-registry.ts";
+import type { NotebookTool } from "./tool-registry.ts"
 import {
   type AgenticOptions,
   type AnodeCellMetadata,
@@ -19,6 +21,8 @@ import {
 
 // Define message types compatible with Ollama
 type OllamaChatMessage = Message;
+
+type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
 interface OllamaConfig {
   host?: string;
@@ -44,11 +48,13 @@ export class RuntOllamaClient {
   private isConfigured = false;
   // Use global logger instance
   private config: OllamaConfig;
+  private notebookTools: NotebookTool[];
   provider: string = "ollama";
 
-  constructor(config?: OllamaConfig) {
+  constructor(config?: OllamaConfig, notebookTools: NotebookTool[] = []) {
     this.config = config || {};
     this.client = new Ollama();
+    this.notebookTools = [...notebookTools];
     this.configure(config);
   }
 
@@ -72,6 +78,50 @@ export class RuntOllamaClient {
       logger.error("Failed to configure Ollama client", error);
       this.isConfigured = false;
     }
+  }
+
+  /**
+   * Set notebookTools for use in the agentic loop
+   */
+  setNotebookTools(notebookTools: NotebookTool[]) {
+    this.notebookTools = [...notebookTools];
+  }
+
+  getConfigMessage(): string {
+    const configMessage = `# Ollama Configuration Required
+
+Ollama is not available at \`${this.config.host}\`. To use Ollama models, you need to:
+
+## Setup Instructions
+
+1. **Install Ollama**: Visit [ollama.ai](https://ollama.ai/) and follow the installation instructions
+2. **Start Ollama server**: Run \`ollama serve\`
+3. **Pull models**: Download models with \`ollama pull llama3.1\`
+
+## Environment Configuration
+
+Current Ollama host: \`${this.config.host}\`
+
+To use a different host, set the environment variable:
+\`\`\`bash
+export OLLAMA_HOST=http://your-ollama-host:11434
+\`\`\`
+
+## Available Models
+
+- \`llama3.1\` - General purpose model (8B parameters)
+- \`llama3.1:70b\` - Large general purpose model (70B parameters)
+- \`mistral\` - Fast and efficient (7B parameters)
+- \`codellama\` - Optimized for coding tasks (7B parameters)
+- \`qwen2.5\` - Multilingual model (7B parameters)
+- \`qwen2.5:32b\` - Large multilingual model (32B parameters)
+- \`gemma2\` - Google's Gemma model (9B parameters)
+- \`deepseek-coder\` - Specialized coding model (6.7B parameters)
+- \`phi3\` - Microsoft's compact model (3.8B parameters)
+
+The system will automatically pull models if they're not available locally.`;
+
+    return configMessage;
   }
 
   async isReady(): Promise<boolean> {
@@ -257,8 +307,20 @@ export class RuntOllamaClient {
     return name;
   }
 
+  convertOpenAIMessages(messages: ChatMessage[]): OllamaChatMessage[] {
+    const conversationMessages = messages.map((
+      msg,
+    ): { role: string; content: string } => ({
+      role: msg.role,
+      content: typeof msg.content === "string"
+        ? msg.content
+        : JSON.stringify(msg.content),
+    }));
+    return conversationMessages;
+  }
+
   async generateAgenticResponse(
-    messages: OllamaChatMessage[],
+    messages: ChatMessage[],
     context: ExecutionContext,
     options: {
       model?: string;
@@ -323,7 +385,7 @@ export class RuntOllamaClient {
     // Get all available tools (notebook + MCP) at the start
     const allTools = enableTools ? await getAllTools() : [];
 
-    const conversationMessages: OllamaChatMessage[] = [...messages];
+    const conversationMessages: OllamaChatMessage[] = this.convertOpenAIMessages(messages);
 
     let iteration = 0;
 

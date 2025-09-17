@@ -463,18 +463,20 @@ export {
   VectorStoreService,
 } from "./vector-store.ts";
 
+
+const AI_ClIENTS: { [key: string]: OpenAIClient | RuntOllamaClient } = {
+  openai: new OpenAIClient(),
+  groq: new GroqClient(),
+  ollama: new RuntOllamaClient()
+} as const
+
 /**
  * Discover available AI models from all configured providers
  */
 export async function discoverAvailableAiModels(): Promise<AiModel[]> {
   const allModels: AiModel[] = [];
 
-  // Discover models
-  const openaiClient = new OpenAIClient();
-  const groqClient = new GroqClient();
-  const ollamaClient = new RuntOllamaClient();
-  
-  for (const client of [openaiClient, groqClient, ollamaClient]) {
+  for (const client of Object.values(AI_ClIENTS)) {
     try {
       const models = await client.discoverAiModels();
       allModels.push(...models);
@@ -510,8 +512,10 @@ export function filterModelsByCapabilities(
 // Default models for each provider
 const DEFAULT_MODELS = {
   openai: "gpt-4o-mini",
+  groq: "moonshot/kimi-k2-instruct-0905",
   ollama: "llama3.1",
 } as const;
+
 
 export type AIExecutionContext = ExecutionContext & {
   sendWorkerMessage?: (type: string, data: unknown) => Promise<unknown>;
@@ -563,21 +567,11 @@ export async function executeAI(
       promptLength: prompt.length,
     });
 
-    // Initialize AI clients based on provider
-    const openaiClient = new OpenAIClient(undefined, notebookTools);
+    const client = AI_ClIENTS[provider];
+    if (client.isReady()) {
+        client.setNotebookTools(notebookTools);
 
-    // Configure Ollama client with environment-aware host detection
-    const ollamaHost = Deno.env.get("OLLAMA_HOST") || "http://localhost:11434";
-    const ollamaClient = new RuntOllamaClient({
-      host: ollamaHost,
-    });
-
-    if (provider === "ollama") {
-      // Use Ollama client
-      const isOllamaReady = await ollamaClient.isReady();
-
-      if (isOllamaReady) {
-        const openaiMessages = buildConversationMessages(
+        const conversationMessages = buildConversationMessages(
           notebookContext,
           createSystemPrompt(
             cell.id,
@@ -587,31 +581,31 @@ export async function executeAI(
           prompt,
         );
 
-        // Convert OpenAI message format to Ollama message format
-        const conversationMessages = openaiMessages.map((
-          msg,
-        ): { role: string; content: string } => ({
-          role: msg.role,
-          content: typeof msg.content === "string"
-            ? msg.content
-            : JSON.stringify(msg.content),
-        }));
-
-        logger.debug("Conversation messages for Ollama", {
+        logger.debug(`Conversation messages for ${provider}`, {
           cellId: cell.id,
+          provider: provider,
+          model: model,
           messageCount: conversationMessages.length,
-          provider: "ollama",
-          model,
+          messages: conversationMessages.map((msg, idx) => ({
+            index: idx,
+            role: msg.role,
+            contentLength: msg.content?.length || 0,
+            fullContent: msg.content || "",
+            hasToolCalls: !!(msg as ChatMessageWithToolCalls).tool_calls,
+            toolCallCount: (msg as ChatMessageWithToolCalls).tool_calls?.length ||
+              0,
+            toolCallId: (msg as ChatMessageWithToolCallId).tool_call_id || null,
+          })),
         });
 
-        await ollamaClient.generateAgenticResponse(
+        await client.generateAgenticResponse(
           conversationMessages,
           context,
           {
-            model,
-            provider: "ollama",
+            model: model,
+            provider: provider,
             enableTools: true,
-            maxIterations,
+            maxIterations: maxIterations,
             interruptSignal: abortSignal,
             onToolCall: async (toolCall) => {
               logger.info("AI requested tool call", {
@@ -646,264 +640,24 @@ export async function executeAI(
             },
           },
         );
-
-        logger.info("Ollama conversation completed");
-      } else {
-        // Show Ollama configuration help
-        const configMessage = `# Ollama Configuration Required
-
-Ollama is not available at \`${ollamaHost}\`. To use Ollama models, you need to:
-
-## Setup Instructions
-
-1. **Install Ollama**: Visit [ollama.ai](https://ollama.ai/) and follow the installation instructions
-2. **Start Ollama server**: Run \`ollama serve\`
-3. **Pull models**: Download models with \`ollama pull llama3.1\`
-
-## Environment Configuration
-
-Current Ollama host: \`${ollamaHost}\`
-
-To use a different host, set the environment variable:
-\`\`\`bash
-export OLLAMA_HOST=http://your-ollama-host:11434
-\`\`\`
-
-## Available Models
-
-- \`llama3.1\` - General purpose model (8B parameters)
-- \`llama3.1:70b\` - Large general purpose model (70B parameters)
-- \`mistral\` - Fast and efficient (7B parameters)
-- \`codellama\` - Optimized for coding tasks (7B parameters)
-- \`qwen2.5\` - Multilingual model (7B parameters)
-- \`qwen2.5:32b\` - Large multilingual model (32B parameters)
-- \`gemma2\` - Google's Gemma model (9B parameters)
-- \`deepseek-coder\` - Specialized coding model (6.7B parameters)
-- \`phi3\` - Microsoft's compact model (3.8B parameters)
-
-The system will automatically pull models if they're not available locally.`;
-
-        context.display({
-          "text/markdown": configMessage,
-          "text/plain": configMessage.replace(/[#*`]/g, "").replace(
-            /\n+/g,
-            "\n",
-          ).trim(),
-        }, {
-          "anode/ai_config_help": true,
-          "anode/ai_provider": "ollama",
-          "anode/ollama_host": ollamaHost,
-        });
-      }
-    } else if (provider === "groq") {
-      // Use Groq provider with RuntOpenAIClient configured for Groq
-      let groqBaseURL = Deno.env.get("GROQ_BASE_URL");
-      let groqApiKey: string | undefined;
-      let defaultHeaders: Record<string, string> = {};
-
-      if (!groqBaseURL) {
-        groqApiKey = Deno.env.get("GROQ_API_KEY");
-        groqBaseURL = "https://api.groq.com/openai/v1";
-      } else {
-        groqApiKey = Deno.env.get("RUNT_API_KEY");
-        defaultHeaders = {
-          "X-Client-Version": "0.11.1",
-          "X-Client-Source": "anaconda-runt-dev",
-        };
-      }
-
-      if (!groqApiKey || !groqBaseURL) {
-        context.display({
-          "text/markdown":
-            "# Groq Configuration Required\n\nGroq API key not found. Please set `GROQ_API_KEY` environment variable.",
-          "text/plain":
-            "Groq API key not found. Please set GROQ_API_KEY environment variable.",
-        });
-        return { success: false, error: "Groq API key not configured" };
-      }
-
-      const groqClient = new OpenAIClient({
-        apiKey: groqApiKey,
-        baseURL: groqBaseURL,
-        defaultHeaders: defaultHeaders,
-        provider: "groq"
-      }, notebookTools);
-
-      const conversationMessages = buildConversationMessages(
-        notebookContext,
-        createSystemPrompt(
-          cell.id,
-          extractedFilePaths,
-          isVectorStoreIndexingEnabled(),
-        ),
-        prompt,
-      );
-
-      logger.debug("Conversation messages for Groq", {
-        cellId: cell.id,
-        messageCount: conversationMessages.length,
-        provider: "groq",
-        model,
-      });
-
-      await groqClient.generateAgenticResponse(
-        conversationMessages,
-        context,
-        {
-          model,
-          provider: "groq",
-          enableTools: true,
-          maxIterations,
-          interruptSignal: abortSignal,
-          onToolCall: async (toolCall) => {
-            logger.info("AI requested tool call", {
-              toolName: toolCall.name,
-              cellId: cell.id,
-            });
-            return await handleToolCallWithResult(
-              store,
-              sessionId,
-              cell,
-              toolCall,
-              context.sendWorkerMessage,
-            );
-          },
-          onIteration: (iteration, messages) => {
-            // Check if execution was cancelled
-            if (abortSignal.aborted) {
-              logger.info("AI conversation interrupted", {
-                iteration,
-                cellId: cell.id,
-              });
-              return Promise.resolve(false);
-            }
-
-            logger.info("AI conversation iteration", {
-              iteration: iteration + 1,
-              messageCount: messages.length,
-              cellId: cell.id,
-            });
-
-            return Promise.resolve(true);
-          },
-        },
-      );
-
-      logger.info("Groq conversation completed");
-    } else if (
-      openaiClient.isReady() &&
-      (provider === "openai" || !provider)
-    ) {
-      // Use conversation-based approach for better AI interaction
-      const conversationMessages = buildConversationMessages(
-        notebookContext,
-        createSystemPrompt(
-          cell.id,
-          extractedFilePaths,
-          isVectorStoreIndexingEnabled(),
-        ),
-        prompt,
-      );
-
-      logger.debug("Conversation messages for OpenAI", {
-        cellId: cell.id,
-        messageCount: conversationMessages.length,
-        messages: conversationMessages.map((msg, idx) => ({
-          index: idx,
-          role: msg.role,
-          contentLength: msg.content?.length || 0,
-          fullContent: msg.content || "",
-          hasToolCalls: !!(msg as ChatMessageWithToolCalls).tool_calls,
-          toolCallCount: (msg as ChatMessageWithToolCalls).tool_calls?.length ||
-            0,
-          toolCallId: (msg as ChatMessageWithToolCallId).tool_call_id || null,
-        })),
-      });
-
-      await openaiClient.generateAgenticResponse(
-        conversationMessages,
-        context,
-        {
-          model,
-          enableTools: true,
-          maxIterations,
-          interruptSignal: abortSignal,
-          onToolCall: async (toolCall) => {
-            logger.info("AI requested tool call", {
-              toolName: toolCall.name,
-              cellId: cell.id,
-            });
-            return await handleToolCallWithResult(
-              store,
-              sessionId,
-              cell,
-              toolCall,
-              context.sendWorkerMessage,
-            );
-          },
-          onIteration: (iteration, messages) => {
-            // Check if execution was cancelled
-            if (abortSignal.aborted) {
-              logger.info("AI conversation interrupted", {
-                iteration,
-                cellId: cell.id,
-              });
-              return Promise.resolve(false);
-            }
-
-            logger.info("AI conversation iteration", {
-              iteration: iteration + 1,
-              messageCount: messages.length,
-              cellId: cell.id,
-            });
-
-            return Promise.resolve(true);
-          },
-        },
-      );
-
-      logger.info("OpenAI conversation completed");
+        logger.info(`${provider} conversation completed`);
     } else {
-      // Show helpful configuration message when AI is not configured
-      const configMessage = `# AI Configuration Required
-
-AI has not been configured for this runtime yet. To use AI Cells, you need to set an \`OPENAI_API_KEY\` before starting your runtime agent.
-
-## Setup Instructions
-
-Set your API key as an environment variable:
-
-\`\`\`bash
-OPENAI_API_KEY=your-api-key-here deno run --allow-all your-script.ts
-\`\`\`
-
-Or add it to your \`.env\` file:
-
-\`\`\`
-OPENAI_API_KEY=your-api-key-here
-\`\`\`
-
-## Get an API Key
-
-1. Visit [OpenAI's website](https://platform.openai.com/api-keys)
-2. Create an account or sign in
-3. Generate a new API key
-4. Copy the key and use it in your environment
-
-Once configured, your AI cells will work with real OpenAI models!`;
-
+      // Show provider configuration help
+      const configMessage = client.getConfigMessage();
       context.display({
-        "text/markdown": configMessage,
+        "text/markdown": client.getConfigMessage(),
         "text/plain": configMessage.replace(/[#*`]/g, "").replace(
           /\n+/g,
           "\n",
         ).trim(),
       }, {
         "anode/ai_config_help": true,
+        "anode/ai_provider": provider,
       });
     }
 
     return { success: true };
+
   } catch (err) {
     if (
       abortSignal.aborted ||

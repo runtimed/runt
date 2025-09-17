@@ -13,7 +13,7 @@ import type { NotebookTool } from "./tool-registry.ts";
 // Define message types inline to avoid import issues
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
-interface OpenAIConfig {
+export interface OpenAIConfig {
   apiKey?: string;
   baseURL?: string;
   organization?: string;
@@ -68,8 +68,7 @@ export class RuntOpenAIClient {
   private isConfigured = false;
   private notebookTools: NotebookTool[];
   provider: string = "openai";
-  protected apiKey: string | null = Deno.env.get("OPENAI_API_KEY") || null;
-  protected baseURL: string | null = Deno.env.get("OPENAI_BASE_URL") || null;
+  protected defaultConfig: OpenAIConfig = {};
 
   constructor(config?: OpenAIConfig, notebookTools: NotebookTool[] = []) {
     if (config) {
@@ -79,8 +78,8 @@ export class RuntOpenAIClient {
   }
 
   configure(config?: OpenAIConfig) {
-    const apiKey = config?.apiKey || this.apiKey;
-    const baseURL = config?.baseURL || this.baseURL;
+    const apiKey = config?.apiKey || Deno.env.get(`${this.provider.toUpperCase()}_API_KEY`);
+    const baseURL = config?.baseURL || Deno.env.get(`${this.provider.toUpperCase()}_BASE_URL`);
     this.provider = config?.provider ?? this.provider;
 
     if (!apiKey) {
@@ -95,6 +94,7 @@ export class RuntOpenAIClient {
         baseURL: baseURL,
         organization: config?.organization,
         defaultHeaders: config?.defaultHeaders,
+        ...this.defaultConfig
       });
       this.isConfigured = true;
       logger.info(`${this.provider} client configured successfully`);
@@ -104,12 +104,49 @@ export class RuntOpenAIClient {
     }
   }
 
+  getConfigMessage(): string {
+    const configMessage = `# AI Configuration Required
+
+AI has not been configured for this runtime yet. To use AI Cells, you need to set an \`OPENAI_API_KEY\` before starting your runtime agent.
+
+## Setup Instructions
+
+Set your API key as an environment variable:
+
+\`\`\`bash
+OPENAI_API_KEY=your-api-key-here deno run --allow-all your-script.ts
+\`\`\`
+
+Or add it to your \`.env\` file:
+
+\`\`\`
+OPENAI_API_KEY=your-api-key-here
+\`\`\`
+
+## Get an API Key
+
+1. Visit [OpenAI's website](https://platform.openai.com/api-keys)
+2. Create an account or sign in
+3. Generate a new API key
+4. Copy the key and use it in your environment
+
+Once configured, your AI cells will work with real OpenAI models!`;
+    return configMessage;
+  }
+
   isReady(): boolean {
     // Try to configure if not already configured and not already failed
     if (!this.isConfigured && this.client === null) {
       this.configure();
     }
     return this.isConfigured && this.client !== null;
+  }
+
+  /**
+   * Set notebookTools for use in the agentic loop
+   */
+  setNotebookTools(notebookTools: NotebookTool[]) {
+    this.notebookTools = [...notebookTools];
   }
 
   /**

@@ -1,21 +1,79 @@
 import { RuntOpenAIClient } from "./openai-client.ts";
-import type { NotebookTool } from "./tool-registry.ts";
+import type { OpenAIConfig } from "./openai-client.ts"
+import type { AiModel } from "@runt/lib";
+import { logger } from "@runt/lib"
 
-interface GroqConfig {
-    apiKey?: string;
-    baseURL?: string;
-    organization?: string;
-    defaultHeaders?: Record<string, string>;
-    provider?: string;
-}
 
 export class GroqClient extends RuntOpenAIClient {
-    constructor(config?: GroqConfig, notebookTools: NotebookTool[] = []) {
-      // Set default provider to 'groq' if not explicitly provided
-        const groqConfig = {
-            provider: "groq",
-            ...config, // This allows config.provider to override the default
-        };
-        super(groqConfig, notebookTools);
+    override provider: string = "groq";
+    override defaultConfig: OpenAIConfig = {
+      baseURL: "https://api.groq.com/openai/v1"
+    };
+
+  override getConfigMessage(): string {
+    const configMessage = `# Groq Configuration Required
+    
+Groq API key not found. Please set \`GROQ_API_KEY\` environment variable.`;
+    return configMessage;
+  }
+
+  override discoverAiModels(): Promise<AiModel[]> {
+    if (!this.isReady()) {
+      logger.warn(
+        `${this.provider} client not ready, returning empty models list`,
+      );
+      return Promise.resolve([]);
     }
+    const groqModels: AiModel[] = [
+      {
+        provider: "groq",
+        name: "moonshotai/kimi-k2-instruct-0905",
+        displayName: "Kimi K2 Instruct 0905",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "moonshotai/kimi-k2-instruct",
+        displayName: "Kimi K2 Instruct",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "llama3-8b-8192",
+        displayName: "Llama 3.1 8B",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "llama3-70b-8192",
+        displayName: "Llama 3.1 70B",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "mixtral-8x7b-32768",
+        displayName: "Mixtral 8x7B",
+        capabilities: ["completion", "tools"],
+      },
+      {
+        provider: "groq",
+        name: "gemma2-9b-it",
+        displayName: "Gemma 2 9B",
+        capabilities: ["completion", "tools"],
+      },
+    ];
+    return Promise.resolve(groqModels);
+  }
+}
+
+
+export class AnacondaAIClient extends GroqClient {
+    override provider: string = "anaconda";
+    override defaultConfig: OpenAIConfig = {
+        baseURL: "https://anaconda.com/api/assistant/v3/groq",
+        defaultHeaders: {
+          "X-Client-Version": "0.11.1",
+          "X-Client-Source": "anaconda-runt-dev",
+        }
+    };
 }
