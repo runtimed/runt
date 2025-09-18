@@ -33,6 +33,7 @@
       "mod.ts",
       "openai-client.ts",
       "ollama-client.ts",
+      "groq-client.ts",
       "mcp-client.ts",
       "mcp-config.example.json",
       "MCP_INTEGRATION.md",

@@ -241,7 +241,7 @@ class Logger {
 /**
  * Global logger instance - configure once, use everywhere
  */
-export const logger = new Logger();
+export const logger: Logger = new Logger();
 
 /**
  * Utility to suppress console output for libraries that should be quiet

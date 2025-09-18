@@ -13,10 +13,12 @@ import type { NotebookTool } from "./tool-registry.ts";
 // Define message types inline to avoid import issues
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
-interface OpenAIConfig {
+export interface OpenAIConfig {
   apiKey?: string;
   baseURL?: string;
   organization?: string;
+  defaultHeaders?: Record<string, string>;
+  provider?: string;
 }
 
 interface ToolCall {
@@ -64,11 +66,12 @@ interface AnodeCellMetadata {
 export class RuntOpenAIClient {
   private client: OpenAI | null = null;
   private isConfigured = false;
-  // Use global logger instance
   private notebookTools: NotebookTool[];
+  provider: string = "openai";
+  protected envPrefix: string | null = null;
+  protected defaultConfig: OpenAIConfig = {};
 
   constructor(config?: OpenAIConfig, notebookTools: NotebookTool[] = []) {
-    // Don't configure immediately to avoid early initialization logs
     if (config) {
       this.configure(config);
     }
@@ -76,8 +79,12 @@ export class RuntOpenAIClient {
   }
 
   configure(config?: OpenAIConfig) {
-    const apiKey = config?.apiKey || Deno.env.get("OPENAI_API_KEY");
-    const baseURL = config?.baseURL || Deno.env.get("OPENAI_BASE_URL");
+    this.provider = config?.provider ?? this.provider;
+
+    const envPrefix = this.envPrefix?.toUpperCase() ||
+      this.provider.toUpperCase();
+    const apiKey = config?.apiKey || Deno.env.get(`${envPrefix}_API_KEY`);
+    const baseURL = config?.baseURL || Deno.env.get(`${envPrefix}_BASE_URL`);
 
     if (!apiKey) {
       // Don't log warning at startup - only when actually trying to use OpenAI
@@ -90,13 +97,45 @@ export class RuntOpenAIClient {
         apiKey,
         baseURL: baseURL,
         organization: config?.organization,
+        defaultHeaders: config?.defaultHeaders,
+        ...this.defaultConfig,
       });
       this.isConfigured = true;
-      logger.info("OpenAI client configured successfully");
+      logger.info(`${this.provider} client configured successfully`);
     } catch (error) {
-      logger.error("Failed to configure OpenAI client", error);
+      logger.error(`Failed to configure ${this.provider} client`, error);
       this.isConfigured = false;
     }
+  }
+
+  getConfigMessage(): string {
+    const configMessage = `# AI Configuration Required
+
+AI has not been configured for this runtime yet. To use AI Cells, you need to set an \`OPENAI_API_KEY\` before starting your runtime agent.
+
+## Setup Instructions
+
+Set your API key as an environment variable:
+
+\`\`\`bash
+OPENAI_API_KEY=your-api-key-here deno run --allow-all your-script.ts
+\`\`\`
+
+Or add it to your \`.env\` file:
+
+\`\`\`
+OPENAI_API_KEY=your-api-key-here
+\`\`\`
+
+## Get an API Key
+
+1. Visit [OpenAI's website](https://platform.openai.com/api-keys)
+2. Create an account or sign in
+3. Generate a new API key
+4. Copy the key and use it in your environment
+
+Once configured, your AI cells will work with real OpenAI models!`;
+    return configMessage;
   }
 
   isReady(): boolean {
@@ -108,10 +147,17 @@ export class RuntOpenAIClient {
   }
 
   /**
+   * Set notebookTools for use in the agentic loop
+   */
+  setNotebookTools(notebookTools: NotebookTool[]) {
+    this.notebookTools = [...notebookTools];
+  }
+
+  /**
    * Get hardcoded OpenAI model capabilities
    * (OpenAI doesn't expose capabilities via API)
    */
-  private getOpenAIModelCapabilities(modelName: string): ModelCapability[] {
+  private getModelCapabilities(modelName: string): ModelCapability[] {
     const capabilities: ModelCapability[] = ["completion"];
 
     // All current OpenAI models support tools
@@ -218,7 +264,7 @@ export class RuntOpenAIClient {
   /**
    * Get available OpenAI models (hardcoded for now)
    */
-  private getOpenAIModels(): Array<{
+  private getModels(): Array<{
     name: string;
     displayName: string;
     contextLength: number;
@@ -270,28 +316,30 @@ export class RuntOpenAIClient {
    */
   discoverAiModels(): Promise<AiModel[]> {
     if (!this.isReady()) {
-      logger.warn("OpenAI client not ready, returning empty models list");
+      logger.warn(
+        `${this.provider} client not ready, returning empty models list`,
+      );
       return Promise.resolve([]);
     }
 
     try {
-      const models = this.getOpenAIModels();
+      const models = this.getModels();
       const aiModels: AiModel[] = [];
 
       for (const model of models) {
-        const capabilities = this.getOpenAIModelCapabilities(model.name);
+        const capabilities = this.getModelCapabilities(model.name);
 
         aiModels.push({
           name: model.name,
           displayName: model.displayName,
-          provider: "openai",
+          provider: this.provider,
           capabilities,
         });
       }
 
       return Promise.resolve(aiModels);
     } catch (error) {
-      logger.error("Failed to discover OpenAI models", error);
+      logger.error(`Failed to discover ${this.provider} models`, error);
       return Promise.resolve([]);
     }
   }
@@ -428,7 +476,7 @@ export class RuntOpenAIClient {
               // Start new markdown output
               const metadata: AnodeCellMetadata = {
                 role: "assistant",
-                ai_provider: "openai",
+                ai_provider: this.provider,
                 ai_model: model,
                 iteration: iteration + 1,
               };
@@ -765,31 +813,32 @@ export class RuntOpenAIClient {
             "Reached maximum iterations - conversation may be incomplete",
         }, {
           "anode/ai_response": true,
-          "anode/ai_provider": "openai",
+          "anode/ai_provider": this.provider,
           "anode/ai_model": model,
           "anode/max_iterations_reached": true,
         });
       }
     } catch (error: unknown) {
-      logger.error("OpenAI API error in agentic conversation", error);
+      logger.error(`${this.provider} API error in agentic conversation`, error);
 
       let errorMessage = "Unknown error occurred";
       if (error && typeof error === "object") {
         const err = error as { status?: number; message?: string };
         if (err.status === 401) {
           errorMessage =
-            "Invalid API key. Please check your OPENAI_API_KEY environment variable.";
+            "Invalid API key. Please check your API key environment variable.";
         } else if (err.status === 429) {
           errorMessage = "Rate limit exceeded. Please try again later.";
         } else if (err.status === 500) {
-          errorMessage = "OpenAI server error. Please try again later.";
+          errorMessage =
+            `${this.provider} server error. Please try again later.`;
         } else if (err.message) {
           errorMessage = err.message;
         }
       }
 
       const errorOutputs = this.createErrorOutput(
-        `OpenAI API Error: ${errorMessage}`,
+        `${this.provider} API Error: ${errorMessage}`,
       );
       for (const output of errorOutputs) {
         if (output.type === "display_data") {
