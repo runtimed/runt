@@ -1,6 +1,12 @@
 // Import removed - no assertions needed for this test
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
-import { type ExecutionContext } from "../../lib/src/types.ts";
+import { type ExecutionContext } from "@runtimed/agent-core";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
+import {
+  createRuntimeSyncPayload,
+  createStorePromise,
+} from "@runtimed/agent-core";
+import { crypto } from "jsr:@std/crypto";
 
 Deno.test({
   name: "PyodideRuntimeAgent read-only mounting functionality",
@@ -29,71 +35,86 @@ Deno.test({
       "Nested read-only file",
     );
 
-    const agent = new PyodideRuntimeAgent([
-      "--notebook=test-notebook",
-      "--auth-token=test-token",
-      `--mount=${tempMountDir}`,
-      "--mount-readonly",
-    ], {
-      mountPaths: [tempMountDir],
-      mountReadonly: true,
-    }, {});
+    try {
+      // Create store
+      const adapter = makeInMemoryAdapter({});
+      const store = await createStorePromise({
+        adapter,
+        notebookId: "test-notebook",
+        syncPayload: createRuntimeSyncPayload({
+          authToken: "test-token",
+          runtimeId: crypto.randomUUID(),
+          sessionId: crypto.randomUUID(),
+          userId: "test-user-id",
+        }),
+      });
 
-    // Initialize the agent
-    await agent.start();
+      // Create a PyodideRuntimeAgent with read-only mounting
+      const agent = new PyodideRuntimeAgent([
+        "--notebook=test-notebook",
+        "--auth-token=test-token",
+        `--mount=${tempMountDir}`,
+        "--mount-readonly",
+      ], {
+        mountPaths: [tempMountDir],
+        mountReadonly: true,
+      }, { store });
 
-    // Create a mock execution context with cell structure
-    const createMockContext = (code: string): ExecutionContext => ({
-      cell: {
-        id: "test-cell-id",
-        cellType: "code" as const,
-        source: code,
+      // Initialize the agent
+      await agent.start();
 
-        fractionalIndex: "1.0",
-        executionCount: null,
-        executionState: "idle",
-        assignedRuntimeSession: null,
-        lastExecutionDurationMs: null,
-        sqlConnectionId: null,
-        sqlResultVariable: null,
-        aiProvider: null,
-        aiModel: null,
-        aiSettings: null,
-        sourceVisible: true,
-        outputVisible: true,
-        aiContextVisible: true,
-        createdBy: "test",
-      },
-      queueEntry: {
-        id: "queue-entry-1",
-        cellId: "test-cell-id",
-        executionCount: 1,
-        requestedBy: "test",
-        status: "pending",
-        assignedRuntimeSession: null,
-        startedAt: null,
-        completedAt: null,
-        executionDurationMs: null,
-      },
-      store: agent.store,
-      sessionId: agent.config.sessionId,
-      runtimeId: agent.config.runtimeId,
-      result: async () => {},
-      stderr: () => {},
-      stdout: () => {},
-      display: async () => {},
-      updateDisplay: async () => {},
-      error: () => {},
-      clear: () => {},
-      appendTerminal: () => {},
-      markdown: () => "",
-      appendMarkdown: () => {},
-      abortSignal: new AbortController().signal,
-      checkCancellation: () => {},
-    });
+      // Create a mock execution context with cell structure
+      const createMockContext = (code: string): ExecutionContext => ({
+        cell: {
+          id: "test-cell-id",
+          cellType: "code" as const,
+          source: code,
 
-    // Test 1: Reading files should work
-    const readTestCode = `
+          fractionalIndex: "1.0",
+          executionCount: null,
+          executionState: "idle",
+          assignedRuntimeSession: null,
+          lastExecutionDurationMs: null,
+          sqlConnectionId: null,
+          sqlResultVariable: null,
+          aiProvider: null,
+          aiModel: null,
+          aiSettings: null,
+          sourceVisible: true,
+          outputVisible: true,
+          aiContextVisible: true,
+          createdBy: "test",
+        },
+        queueEntry: {
+          id: "queue-entry-1",
+          cellId: "test-cell-id",
+          executionCount: 1,
+          requestedBy: "test",
+          status: "pending",
+          assignedRuntimeSession: null,
+          startedAt: null,
+          completedAt: null,
+          executionDurationMs: null,
+        },
+        store: agent.store,
+        sessionId: agent.config.sessionId,
+        runtimeId: agent.config.runtimeId,
+        result: async () => {},
+        stderr: () => {},
+        stdout: () => {},
+        display: async () => {},
+        updateDisplay: async () => {},
+        error: () => {},
+        clear: () => {},
+        appendTerminal: () => {},
+        markdown: () => "",
+        appendMarkdown: () => {},
+        abortSignal: new AbortController().signal,
+        checkCancellation: () => {},
+      });
+
+      // Test 1: Reading files should work
+      const readTestCode = `
 import os
 
 # List files in mounted directory
@@ -116,10 +137,10 @@ with open(f"{mount_dir}/data.csv", 'r') as f:
 print("Reading files successful")
 `;
 
-    await agent.executeCell(createMockContext(readTestCode));
+      await agent.executeCell(createMockContext(readTestCode));
 
-    // Test 2: Writing to read-only files should fail
-    const writeTestCode = `
+      // Test 2: Writing to read-only files should fail
+      const writeTestCode = `
 import os
 
 mount_dir = "/mnt/_${tempMountDir.replace(/[^a-zA-Z0-9_-]/g, "_")}"
@@ -172,12 +193,16 @@ except (OSError, PermissionError) as e:
 print("Read-only protection is working correctly")
 `;
 
-    await agent.executeCell(createMockContext(writeTestCode));
+      await agent.executeCell(createMockContext(writeTestCode));
 
-    // Wait a bit for execution to complete
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Wait a bit for execution to complete
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    await agent.shutdown();
+      await agent.shutdown();
+    } catch (error) {
+      console.error("Test failed:", error);
+      throw error;
+    }
   } finally {
     // Clean up temp directory
     try {
@@ -204,15 +229,26 @@ Deno.test({
       "This file should be writable",
     );
 
+    const adapter2 = makeInMemoryAdapter({});
+    const store2 = await createStorePromise({
+      adapter: adapter2,
+      notebookId: "test-notebook",
+      syncPayload: createRuntimeSyncPayload({
+        authToken: "test-token",
+        runtimeId: crypto.randomUUID(),
+        sessionId: crypto.randomUUID(),
+        userId: "test-user-id",
+      }),
+    });
+
     const agent = new PyodideRuntimeAgent([
       "--notebook=test-notebook",
       "--auth-token=test-token",
       `--mount=${tempMountDir}`,
-      // Note: no --mount-readonly flag
     ], {
       mountPaths: [tempMountDir],
       mountReadonly: false,
-    });
+    }, { store: store2 });
 
     await agent.start();
 

@@ -4,8 +4,8 @@
 // that runtime implementations can use to bootstrap from command line.
 
 import { parseArgs } from "@std/cli/parse-args";
-import { DEFAULT_CONFIG, logger, RuntimeConfig } from "@runt/lib";
-import type { RuntimeAgentOptions } from "@runt/lib";
+import { DEFAULT_CONFIG, logger, RuntimeConfig } from "@runtimed/agent-core";
+import type { RuntimeAgentOptions } from "@runtimed/agent-core";
 
 /**
  * Parse minimal command-line arguments for runtime agent configuration

@@ -14,7 +14,7 @@
     "pyrunt": "./mod.ts"
   },
   "imports": {
-    "@runt/lib": "jsr:@runt/lib@^0.13.0",
+    "@runtimed/agent-core": "jsr:@runtimed/agent-core@^0.2.0",
     "@runt/schema": "jsr:@runt/schema@^0.13.0",
     "npm:@livestore/adapter-web": "npm:@livestore/adapter-web@^0.3.1"
   },

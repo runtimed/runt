@@ -5,9 +5,9 @@
 // and vector store indexing.
 
 import { parseArgs } from "@std/cli/parse-args";
-import { DEFAULT_CONFIG, RuntimeConfig } from "@runt/lib";
-import type { RuntimeAgentOptions } from "@runt/lib";
-import { logger } from "@runt/lib";
+import { DEFAULT_CONFIG, RuntimeConfig } from "@runtimed/agent-core";
+import type { RuntimeAgentOptions } from "@runtimed/agent-core";
+import { logger } from "@runtimed/agent-core";
 import { parseBaseRuntimeArgs } from "./config-cli.ts";
 
 /**

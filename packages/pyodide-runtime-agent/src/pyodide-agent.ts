@@ -4,19 +4,18 @@
 // IPython integration, rich display support, and true interruption support
 // via Pyodide's built-in interrupt system.
 
-import { RuntimeAgent } from "@runt/lib";
+import { RuntimeAgent } from "@runtimed/agent-core";
 import {
   createPyodideRuntimeConfig,
   type PyodideRuntimeConfig,
 } from "./pyodide-config.ts";
-import type { Adapter } from "jsr:@runtimed/schema";
+import type { Adapter, Store } from "jsr:@runtimed/schema";
 import type {
   ExecutionContext,
-  MediaBundle,
   RuntimeCapabilities,
-} from "@runt/lib";
+} from "@runtimed/agent-core";
 
-import { logger, LogLevel, validateMediaBundle } from "@runt/lib";
+import { logger, LogLevel } from "@runtimed/agent-core";
 import {
   cellReferences$,
   isJsonMimeType,
@@ -41,6 +40,42 @@ import {
   type NotebookTool,
 } from "@runt/ai";
 
+// Temporary definitions until @runtimed/schema exports are published
+interface MediaBundle {
+  [mimeType: string]: unknown;
+}
+
+function validateMediaBundle(bundle: MediaBundle): MediaBundle {
+  const result: MediaBundle = {};
+
+  for (const [mimeType, value] of Object.entries(bundle)) {
+    if (value == null) continue;
+
+    if (isTextBasedMimeType(mimeType)) {
+      // Text-based types should be strings
+      result[mimeType] = String(value);
+    } else if (isJsonMimeType(mimeType)) {
+      // JSON types should be objects or properly formatted JSON strings
+      if (typeof value === "object") {
+        result[mimeType] = value;
+      } else if (typeof value === "string") {
+        try {
+          result[mimeType] = JSON.parse(value);
+        } catch {
+          result[mimeType] = value; // Keep as string if not valid JSON
+        }
+      } else {
+        result[mimeType] = value;
+      }
+    } else {
+      // Keep other types as-is
+      result[mimeType] = value;
+    }
+  }
+
+  return result;
+}
+
 /**
  * Configuration options for PyodideRuntimeAgent
  */
@@ -60,6 +95,7 @@ interface PyodideAgentOptions {
 interface PyodideRuntimeOptions {
   adapter?: Adapter;
   userId?: string;
+  store: Store;
 }
 
 /**
@@ -96,7 +132,9 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
   /**
    * Parse log level from environment variable string
    */
-  private parseLogLevel(levelStr: string | undefined): LogLevel {
+  private parseLogLevel(
+    levelStr: string | undefined,
+  ): typeof LogLevel[keyof typeof LogLevel] {
     if (!levelStr) return LogLevel.INFO;
 
     const normalizedLevel = levelStr.toUpperCase();
@@ -132,7 +170,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
   constructor(
     args: string[] = Deno.args,
     options: PyodideAgentOptions = {},
-    runtimeOptions: PyodideRuntimeOptions = {},
+    runtimeOptions: PyodideRuntimeOptions,
   ) {
     let config: PyodideRuntimeConfig;
     try {
@@ -143,10 +181,8 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           canExecuteAi: true,
           availableAiModels: [], // Will be populated during startup
         },
+        store: runtimeOptions.store,
         ...options, // Merge options into config
-        ...(runtimeOptions.adapter && { adapter: runtimeOptions.adapter }),
-
-        ...(runtimeOptions.userId && { userId: runtimeOptions.userId }),
       });
     } catch (error) {
       // Configuration errors should still go to console for CLI usability
@@ -165,6 +201,11 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       );
       console.error("  pyorunt --notebook my-notebook --auth-token your-token");
       Deno.exit(1);
+    }
+
+    // Store is required and should be passed in
+    if (!runtimeOptions.store) {
+      throw new Error("LiveStore instance is required for PyodideRuntimeAgent");
     }
 
     super(config, config.capabilities, {

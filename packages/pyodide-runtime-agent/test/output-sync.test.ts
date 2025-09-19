@@ -1,6 +1,12 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
-import { type ExecutionContext } from "../../lib/src/types.ts";
+import { type ExecutionContext } from "@runtimed/agent-core";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
+import {
+  createRuntimeSyncPayload,
+  createStorePromise,
+} from "@runtimed/agent-core";
+import { crypto } from "jsr:@std/crypto";
 
 Deno.test({
   name: "PyodideRuntimeAgent output directory sync",
@@ -10,13 +16,24 @@ Deno.test({
   const tempOutputDir = await Deno.makeTempDir({ prefix: "runt-output-test-" });
 
   try {
+    const adapter = makeInMemoryAdapter({});
+    const store = await createStorePromise({
+      adapter,
+      notebookId: "test-notebook",
+      syncPayload: createRuntimeSyncPayload({
+        authToken: "test-token",
+        runtimeId: crypto.randomUUID(),
+        sessionId: crypto.randomUUID(),
+        userId: "test-user-id",
+      }),
+    });
     const agent = new PyodideRuntimeAgent([
       "--notebook=test-notebook",
       "--auth-token=test-token",
       `--output-dir=${tempOutputDir}`,
     ], {
       outputDir: tempOutputDir,
-    }, {});
+    }, { store });
 
     // Initialize the agent
     await agent.start();
@@ -131,13 +148,24 @@ Deno.test({
   name: "PyodideRuntimeAgent no output sync when outputDir not configured",
   ignore: true,
 }, async () => {
+  const adapter2 = makeInMemoryAdapter({});
+  const store2 = await createStorePromise({
+    adapter: adapter2,
+    notebookId: "test-notebook",
+    syncPayload: createRuntimeSyncPayload({
+      authToken: "test-token",
+      runtimeId: crypto.randomUUID(),
+      sessionId: crypto.randomUUID(),
+      userId: "test-user-id",
+    }),
+  });
   const agent = new PyodideRuntimeAgent(
     [
       "--notebook=test-notebook",
       "--auth-token=test-token",
     ],
     {},
-    {},
+    { store: store2 },
   );
 
   await agent.start();
@@ -211,13 +239,24 @@ Deno.test({
   });
 
   try {
+    const adapter3 = makeInMemoryAdapter({});
+    const store3 = await createStorePromise({
+      adapter: adapter3,
+      notebookId: "test-notebook",
+      syncPayload: createRuntimeSyncPayload({
+        authToken: "test-token",
+        runtimeId: crypto.randomUUID(),
+        sessionId: crypto.randomUUID(),
+        userId: "test-user-id",
+      }),
+    });
     const agent = new PyodideRuntimeAgent([
       "--notebook=test-notebook",
       "--auth-token=test-token",
       `--output-dir=${tempOutputDir}`,
     ], {
       outputDir: tempOutputDir,
-    }, {});
+    }, { store: store3 });
 
     await agent.start();
 

@@ -5,7 +5,7 @@ import {
   CallToolResultSchema,
   ListToolsResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { logger } from "@runt/lib";
+import { logger } from "@runtimed/agent-core";
 import { join } from "@std/path";
 
 interface MCPServerConfig {

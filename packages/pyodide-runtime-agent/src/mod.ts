@@ -8,7 +8,13 @@
 
 import { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
-import { logger, LogLevel } from "@runt/lib";
+import {
+  createRuntimeSyncPayload,
+  createStorePromise,
+  logger,
+  LogLevel,
+} from "@runtimed/agent-core";
+import type { CreateStoreConfig } from "@runtimed/agent-core";
 import { discoverUserIdentity } from "./auth.ts";
 import { parseBaseRuntimeArgs } from "./config-cli.ts";
 import { makeAdapter } from "npm:@livestore/adapter-node";
@@ -24,7 +30,7 @@ if (import.meta.main) {
 
   if (runtLogLevel) {
     const normalizedLevel = runtLogLevel.toUpperCase();
-    let logLevel: LogLevel;
+    let logLevel: typeof LogLevel[keyof typeof LogLevel];
     switch (normalizedLevel) {
       case "DEBUG":
         logLevel = LogLevel.DEBUG;
@@ -89,11 +95,51 @@ if (import.meta.main) {
     },
   });
 
-  // Create agent with discovered userId and Node.js adapter
+  // Create sync payload for runtime
+  const syncPayload = createRuntimeSyncPayload({
+    authToken,
+    runtimeId: `python3-pyodide-runtime-${Deno.pid}`,
+    sessionId: crypto.randomUUID(),
+    userId,
+  });
+
+  // Get notebook ID with proper error handling
+  let notebookId: string;
+  if (Deno.args.includes("--notebook")) {
+    const notebookIndex = Deno.args.indexOf("--notebook");
+    const notebookValue = Deno.args[notebookIndex + 1];
+    if (!notebookValue || notebookValue.startsWith("-")) {
+      console.error("❌ --notebook flag requires a notebook ID value");
+      Deno.exit(1);
+    }
+    notebookId = notebookValue;
+  } else {
+    notebookId = Deno.env.get("NOTEBOOK_ID") || "";
+    if (!notebookId) {
+      console.error(
+        "❌ Notebook ID is required. Set NOTEBOOK_ID environment variable or use --notebook flag",
+      );
+      Deno.exit(1);
+    }
+  }
+
+  // Create store configuration
+  const storeConfig: CreateStoreConfig = {
+    adapter,
+    notebookId,
+    syncPayload,
+  };
+
+  // Create the store
+  logger.info("Creating LiveStore instance...");
+  const store = await createStorePromise(storeConfig);
+  logger.info("LiveStore instance created successfully");
+
+  // Create agent with store
   const agent = new PyodideRuntimeAgent(
     Deno.args,
     {}, // pyodide options
-    { adapter, userId }, // runtime options
+    { store, userId }, // runtime options
   );
 
   logger.info("Starting Agent");

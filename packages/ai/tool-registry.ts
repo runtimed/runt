@@ -7,7 +7,7 @@ import {
 } from "@runt/schema";
 
 import type { Store } from "jsr:@runtimed/schema";
-import { logger } from "@runt/lib";
+import { logger } from "@runtimed/agent-core";
 import { getMCPClient } from "./mcp-client.ts";
 
 export interface NotebookTool {

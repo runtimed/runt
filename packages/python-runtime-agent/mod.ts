@@ -1,5 +1,5 @@
 import { PythonRuntimeAgent } from "./src/python-runtime-agent.ts";
-import { logger } from "@runt/lib";
+import { logger } from "@runtimed/agent-core";
 export { PythonRuntimeAgent };
 
 if (import.meta.main) {

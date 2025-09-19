@@ -4,7 +4,7 @@
 // and discovering user identity. These should be used by CLI tools
 // before creating runtime agents.
 
-import { logger } from "@runt/lib";
+import { logger } from "@runtimed/agent-core";
 
 /**
  * Options for user identity discovery

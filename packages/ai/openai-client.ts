@@ -4,7 +4,7 @@ import {
   type ExecutionContext,
   logger,
   type ModelCapability,
-} from "@runt/lib";
+} from "@runtimed/agent-core";
 import { AI_TOOL_CALL_MIME_TYPE, AI_TOOL_RESULT_MIME_TYPE } from "@runt/schema";
 
 import { getAllTools } from "./tool-registry.ts";

@@ -3,7 +3,7 @@ import {
   assertRejects,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { RuntOllamaClient } from "../ollama-client.ts";
-import type { ExecutionContext } from "@runt/lib";
+import type { ExecutionContext } from "@runtimed/agent-core";
 
 // Test utilities
 interface TestOutput {
