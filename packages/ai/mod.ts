@@ -1,7 +1,11 @@
 import stripAnsi from "strip-ansi";
 import type OpenAI from "@openai/openai";
 
-import type { AiModel, ExecutionContext, ModelCapability } from "@runt/lib";
+import type {
+  AiModel,
+  ExecutionContext,
+  ModelCapability,
+} from "@runtimed/agent-core";
 
 import { handleToolCallWithResult } from "./tool-registry.ts";
 import type {
@@ -14,7 +18,7 @@ import {
   AI_TOOL_CALL_MIME_TYPE,
   AI_TOOL_RESULT_MIME_TYPE,
 } from "jsr:@runtimed/schema";
-import { logger } from "@runt/lib";
+import { logger } from "@runtimed/agent-core";
 
 import { OpenAIClient } from "./openai-client.ts";
 import { RuntOllamaClient } from "./ollama-client.ts";

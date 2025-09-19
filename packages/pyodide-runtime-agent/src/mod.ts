@@ -8,7 +8,7 @@
 
 import { PyodideRuntimeAgent } from "./pyodide-agent.ts";
 export { PyodideRuntimeAgent } from "./pyodide-agent.ts";
-import { logger, LogLevel } from "@runt/lib";
+import { logger, LogLevel } from "@runtimed/agent-core";
 import { discoverUserIdentity } from "./auth.ts";
 import { parseBaseRuntimeArgs } from "./config-cli.ts";
 import { makeAdapter } from "npm:@livestore/adapter-node";
@@ -24,7 +24,7 @@ if (import.meta.main) {
 
   if (runtLogLevel) {
     const normalizedLevel = runtLogLevel.toUpperCase();
-    let logLevel: LogLevel;
+    let logLevel: typeof LogLevel[keyof typeof LogLevel];
     switch (normalizedLevel) {
       case "DEBUG":
         logLevel = LogLevel.DEBUG;

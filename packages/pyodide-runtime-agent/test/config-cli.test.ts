@@ -1,7 +1,7 @@
 /// <reference lib="deno.ns" />
 import { assertEquals, assertThrows } from "jsr:@std/assert";
 import { stub } from "jsr:@std/testing/mock";
-import { DEFAULT_CONFIG, RuntimeConfig } from "@runt/lib";
+import { DEFAULT_CONFIG, RuntimeConfig } from "@runtimed/agent-core";
 import {
   createBaseRuntimeConfig,
   parseBaseRuntimeArgs,

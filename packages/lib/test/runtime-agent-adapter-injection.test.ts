@@ -13,7 +13,7 @@ import {
   type RuntimeAgentOptions,
   type RuntimeCapabilities,
   RuntimeConfig,
-} from "@runt/lib";
+} from "@runtimed/agent-core";
 import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 import { makeAdapter } from "npm:@livestore/adapter-node";
 

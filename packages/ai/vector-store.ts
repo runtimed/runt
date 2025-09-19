@@ -2,7 +2,7 @@ import { type Document, Settings, VectorStoreIndex } from "llamaindex";
 import { OpenAI, OpenAIEmbedding } from "@llamaindex/openai";
 import { SimpleDirectoryReader } from "@llamaindex/readers/directory";
 import { TextFileReader } from "@llamaindex/readers/text";
-import { logger, LogLevel } from "@runt/lib";
+import { logger, LogLevel } from "@runtimed/agent-core";
 import { dirname, join } from "@std/path";
 
 // Type definitions for llamaindex objects

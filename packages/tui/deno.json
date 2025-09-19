@@ -23,7 +23,7 @@
   },
   "imports": {
     "@runt/schema": "jsr:@runt/schema@^0.13.0",
-    "@runt/lib": "jsr:@runt/lib@^0.13.0",
+    "@runtimed/agent-core": "jsr:@runtimed/agent-core@^0.2.0",
     "@runt/ai": "jsr:@runt/ai@^0.13.0",
     "@inkjs/ui": "npm:@inkjs/ui@^2.0.0",
     "@livestore/adapter-node": "npm:@livestore/adapter-node@^0.3.1",

@@ -1,7 +1,7 @@
 import { RuntOpenAIClient } from "./openai-client.ts";
 import type { OpenAIConfig } from "./openai-client.ts";
-import type { AiModel } from "@runt/lib";
-import { logger, VERSION } from "@runt/lib";
+import type { AiModel } from "@runtimed/agent-core";
+import { logger } from "@runtimed/agent-core";
 
 export class GroqClient extends RuntOpenAIClient {
   override provider: string = "groq";
@@ -11,7 +11,7 @@ export class GroqClient extends RuntOpenAIClient {
 
   override getConfigMessage(): string {
     const configMessage = `# Groq Configuration Required
-    
+
 Groq API key not found. Please set \`GROQ_API_KEY\` environment variable.`;
     return configMessage;
   }
@@ -71,7 +71,7 @@ export class AnacondaAIClient extends GroqClient {
   override defaultConfig: OpenAIConfig = {
     baseURL: "https://anaconda.com/api/assistant/v3/groq",
     defaultHeaders: {
-      "X-Client-Version": VERSION,
+      "X-Client-Version": "0.2.0",
       "X-Client-Source": "anaconda-runt-dev",
     },
   };
@@ -88,7 +88,7 @@ export class AnacondaAIClient extends GroqClient {
 
   override getConfigMessage(): string {
     const configMessage = `# Anaconda/Runt Configuration Required
-    
+
 RUNT API key not found. Please set \`RUNT_API_KEY\` environment variable.`;
     return configMessage;
   }

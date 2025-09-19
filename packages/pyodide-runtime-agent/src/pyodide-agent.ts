@@ -4,7 +4,7 @@
 // IPython integration, rich display support, and true interruption support
 // via Pyodide's built-in interrupt system.
 
-import { RuntimeAgent } from "@runt/lib";
+import { RuntimeAgent } from "@runtimed/agent-core";
 import {
   createPyodideRuntimeConfig,
   type PyodideRuntimeConfig,
@@ -12,11 +12,10 @@ import {
 import type { Adapter } from "jsr:@runtimed/schema";
 import type {
   ExecutionContext,
-  MediaBundle,
   RuntimeCapabilities,
-} from "@runt/lib";
+} from "@runtimed/agent-core";
 
-import { logger, LogLevel, validateMediaBundle } from "@runt/lib";
+import { logger, LogLevel } from "@runtimed/agent-core";
 import {
   cellReferences$,
   isJsonMimeType,
@@ -40,6 +39,42 @@ import {
   gatherNotebookContext,
   type NotebookTool,
 } from "@runt/ai";
+
+// Temporary definitions until @runtimed/agent-core exports are published
+interface MediaBundle {
+  [mimeType: string]: unknown;
+}
+
+function validateMediaBundle(bundle: MediaBundle): MediaBundle {
+  const result: MediaBundle = {};
+
+  for (const [mimeType, value] of Object.entries(bundle)) {
+    if (value == null) continue;
+
+    if (isTextBasedMimeType(mimeType)) {
+      // Text-based types should be strings
+      result[mimeType] = String(value);
+    } else if (isJsonMimeType(mimeType)) {
+      // JSON types should be objects or properly formatted JSON strings
+      if (typeof value === "object") {
+        result[mimeType] = value;
+      } else if (typeof value === "string") {
+        try {
+          result[mimeType] = JSON.parse(value);
+        } catch {
+          result[mimeType] = value; // Keep as string if not valid JSON
+        }
+      } else {
+        result[mimeType] = value;
+      }
+    } else {
+      // Keep other types as-is
+      result[mimeType] = value;
+    }
+  }
+
+  return result;
+}
 
 /**
  * Configuration options for PyodideRuntimeAgent
@@ -96,7 +131,9 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
   /**
    * Parse log level from environment variable string
    */
-  private parseLogLevel(levelStr: string | undefined): LogLevel {
+  private parseLogLevel(
+    levelStr: string | undefined,
+  ): typeof LogLevel[keyof typeof LogLevel] {
     if (!levelStr) return LogLevel.INFO;
 
     const normalizedLevel = levelStr.toUpperCase();

@@ -1,6 +1,10 @@
 /// <reference lib="deno.ns" />
 import { assertEquals } from "jsr:@std/assert";
-import { DEFAULT_CONFIG, RuntimeAgent, RuntimeConfig } from "@runt/lib";
+import {
+  DEFAULT_CONFIG,
+  RuntimeAgent,
+  RuntimeConfig,
+} from "@runtimed/agent-core";
 import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 
 Deno.test("Library exports are available", () => {
