@@ -7,7 +7,7 @@ import {
   DEFAULT_CONFIG,
   RuntimeConfig,
 } from "@runtimed/agent-core";
-import type { CreateStoreConfig } from "@runtimed/agent-core";
+
 import {
   createBaseRuntimeConfig,
   parseBaseRuntimeArgs,

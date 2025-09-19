@@ -7,10 +7,9 @@ import {
   RuntimeAgent,
   RuntimeConfig,
 } from "@runtimed/agent-core";
-import type { CreateStoreConfig } from "@runtimed/agent-core";
 import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 
-Deno.test("Library exports are available", async () => {
+Deno.test("Library exports are available", () => {
   // Test that main exports are defined
   assertEquals(typeof RuntimeAgent, "function");
   assertEquals(typeof RuntimeConfig, "function");

@@ -181,6 +181,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           canExecuteAi: true,
           availableAiModels: [], // Will be populated during startup
         },
+        store: runtimeOptions.store,
         ...options, // Merge options into config
       });
     } catch (error) {
@@ -206,9 +207,6 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
     if (!runtimeOptions.store) {
       throw new Error("LiveStore instance is required for PyodideRuntimeAgent");
     }
-
-    // Add store to config
-    (config as any).store = runtimeOptions.store;
 
     super(config, config.capabilities, {
       onStartup: async () => {

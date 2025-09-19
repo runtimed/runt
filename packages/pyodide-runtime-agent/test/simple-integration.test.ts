@@ -9,9 +9,15 @@ import {
   assertStringIncludes,
 } from "jsr:@std/assert";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
+import {
+  createRuntimeSyncPayload,
+  createStorePromise,
+} from "@runtimed/agent-core";
+import { crypto } from "jsr:@std/crypto";
 
 Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
-  await t.step("creates agent with valid configuration", () => {
+  await t.step("creates agent with invalid configuration - check", async () => {
     const agentArgs = [
       "--runtime-id",
       "test-runtime",
@@ -21,7 +27,19 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
       "test-token",
     ];
 
-    const agent = new PyodideRuntimeAgent(agentArgs);
+    const adapter = makeInMemoryAdapter({});
+    const syncPayload = createRuntimeSyncPayload({
+      authToken: "test-token",
+      runtimeId: crypto.randomUUID(),
+      sessionId: crypto.randomUUID(),
+      userId: "test-user-id",
+    });
+    const store = await createStorePromise({
+      adapter,
+      notebookId: "test-notebook",
+      syncPayload,
+    });
+    const agent = new PyodideRuntimeAgent(agentArgs, {}, { store });
 
     assertExists(agent);
     assertEquals(agent.config.runtimeType, "python3-pyodide");
@@ -33,7 +51,7 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
     assertEquals(agent.config.capabilities.canExecuteAi, true);
   });
 
-  await t.step("generates unique session IDs", () => {
+  await t.step("creates unique session IDs", async () => {
     const agentArgs = [
       "--runtime-id",
       "test-runtime",
@@ -43,8 +61,30 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
       "test-token",
     ];
 
-    const agent1 = new PyodideRuntimeAgent(agentArgs);
-    const agent2 = new PyodideRuntimeAgent(agentArgs);
+    const adapter1 = makeInMemoryAdapter({});
+    const store1 = await createStorePromise({
+      adapter: adapter1,
+      notebookId: "test-notebook-1",
+      syncPayload: createRuntimeSyncPayload({
+        authToken: "test-token",
+        runtimeId: crypto.randomUUID(),
+        sessionId: crypto.randomUUID(),
+        userId: "test-user-id",
+      }),
+    });
+    const adapter2 = makeInMemoryAdapter({});
+    const store2 = await createStorePromise({
+      adapter: adapter2,
+      notebookId: "test-notebook-2",
+      syncPayload: createRuntimeSyncPayload({
+        authToken: "test-token",
+        runtimeId: crypto.randomUUID(),
+        sessionId: crypto.randomUUID(),
+        userId: "test-user-id",
+      }),
+    });
+    const agent1 = new PyodideRuntimeAgent(agentArgs, {}, { store: store1 });
+    const agent2 = new PyodideRuntimeAgent(agentArgs, {}, { store: store2 });
 
     assertExists(agent1.config.sessionId);
     assertExists(agent2.config.sessionId);
@@ -63,7 +103,18 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
       "test-token",
     ];
 
-    const agent = new PyodideRuntimeAgent(agentArgs);
+    const adapter = makeInMemoryAdapter({});
+    const store = await createStorePromise({
+      adapter,
+      notebookId: "test-notebook",
+      syncPayload: createRuntimeSyncPayload({
+        authToken: "test-token",
+        runtimeId: crypto.randomUUID(),
+        sessionId: crypto.randomUUID(),
+        userId: "test-user-id",
+      }),
+    });
+    const agent = new PyodideRuntimeAgent(agentArgs, {}, { store });
 
     // Should shutdown without starting
     await agent.shutdown();
@@ -84,7 +135,7 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
       };
 
       try {
-        new PyodideRuntimeAgent([]);
+        new PyodideRuntimeAgent([], {}, { store: null! });
       } catch (error) {
         assertEquals(exitCalled, true);
         assertEquals(error instanceof Error, true);
@@ -96,7 +147,7 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
 });
 
 Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
-  await t.step("accepts heartbeat interval", () => {
+  await t.step("accepts heartbeat interval", async () => {
     const agentArgs = [
       "--runtime-id",
       "config-test-runtime",
@@ -108,10 +159,21 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
       "5000",
     ];
 
-    const _agent = new PyodideRuntimeAgent(agentArgs);
+    const adapter = makeInMemoryAdapter({});
+    const store = await createStorePromise({
+      adapter,
+      notebookId: "test-notebook",
+      syncPayload: createRuntimeSyncPayload({
+        authToken: "test-token",
+        runtimeId: crypto.randomUUID(),
+        sessionId: crypto.randomUUID(),
+        userId: "test-user-id",
+      }),
+    });
+    const _agent = new PyodideRuntimeAgent(agentArgs, {}, { store });
   });
 
-  await t.step("uses default values", () => {
+  await t.step("uses default values", async () => {
     const agentArgs = [
       "--runtime-id",
       "default-test-runtime",
@@ -121,7 +183,18 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
       "default-test-token",
     ];
 
-    const agent = new PyodideRuntimeAgent(agentArgs);
+    const adapter = makeInMemoryAdapter({});
+    const store = await createStorePromise({
+      adapter,
+      notebookId: "test-notebook",
+      syncPayload: createRuntimeSyncPayload({
+        authToken: "test-token",
+        runtimeId: crypto.randomUUID(),
+        sessionId: crypto.randomUUID(),
+        userId: "test-user-id",
+      }),
+    });
+    const agent = new PyodideRuntimeAgent(agentArgs, {}, { store });
 
     assertStringIncludes(agent.config.syncUrl, "app.runt.run");
   });
@@ -132,7 +205,7 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
     Deno.env.set("AUTH_TOKEN", "env-token");
 
     try {
-      const agent = new PyodideRuntimeAgent([]);
+      const agent = new PyodideRuntimeAgent([], {}, { store: null! });
 
       assertEquals(agent.config.runtimeId, "env-runtime");
       assertEquals(agent.config.notebookId, "env-notebook");
@@ -151,7 +224,7 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
     Deno.env.set("RUNT_API_KEY", "api-key-token");
 
     try {
-      const agent = new PyodideRuntimeAgent([]);
+      const agent = new PyodideRuntimeAgent([], {}, { store: null! });
 
       assertEquals(agent.config.runtimeId, "env-runtime");
       assertEquals(agent.config.notebookId, "env-notebook");
@@ -168,7 +241,7 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
 Deno.test("PyodideRuntimeAgent - Methods", async (t) => {
   let agent: PyodideRuntimeAgent;
 
-  await t.step("setup", () => {
+  await t.step("setup", async () => {
     const agentArgs = [
       "--runtime-id",
       "method-test-runtime",
@@ -177,7 +250,18 @@ Deno.test("PyodideRuntimeAgent - Methods", async (t) => {
       "--auth-token",
       "method-test-token",
     ];
-    agent = new PyodideRuntimeAgent(agentArgs);
+    const adapter = makeInMemoryAdapter({});
+    const store = await createStorePromise({
+      adapter,
+      notebookId: "test-notebook",
+      syncPayload: createRuntimeSyncPayload({
+        authToken: "test-token",
+        runtimeId: crypto.randomUUID(),
+        sessionId: crypto.randomUUID(),
+        userId: "test-user-id",
+      }),
+    });
+    agent = new PyodideRuntimeAgent(agentArgs, {}, { store });
   });
 
   await t.step("has required methods", () => {

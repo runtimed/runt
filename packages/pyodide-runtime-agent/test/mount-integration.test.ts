@@ -4,6 +4,12 @@
 
 import { assertEquals } from "jsr:@std/assert";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
+import {
+  createRuntimeSyncPayload,
+  createStorePromise,
+} from "@runtimed/agent-core";
+import { crypto } from "jsr:@std/crypto";
 
 Deno.test({
   name: "Mount integration",
@@ -11,7 +17,7 @@ Deno.test({
 }, async (t) => {
   await t.step(
     "PyodideRuntimeAgent handles mount paths correctly",
-    () => {
+    async () => {
       // Test CLI arguments with mount paths
       const args = [
         "--notebook=test-notebook",
@@ -48,7 +54,19 @@ Deno.test({
       } as typeof Worker;
 
       try {
-        const agent = new PyodideRuntimeAgent(args, {}, {});
+        const adapter = makeInMemoryAdapter({});
+        const syncPayload = createRuntimeSyncPayload({
+          authToken: "test-token",
+          runtimeId: crypto.randomUUID(),
+          sessionId: crypto.randomUUID(),
+          userId: "test-user-id",
+        });
+        const store = await createStorePromise({
+          adapter,
+          notebookId: "test-notebook",
+          syncPayload,
+        });
+        const agent = new PyodideRuntimeAgent(args, {}, { store });
 
         // Don't actually start the agent (since we're mocking the worker)
         // Just verify that the mount paths are properly configured
@@ -151,7 +169,7 @@ Deno.test({
   name: "Configuration validation",
   ignore: true,
 }, async (t) => {
-  await t.step("should validate mount paths are strings", () => {
+  await t.step("should validate mount paths are strings", async () => {
     const args = [
       "--notebook=test-notebook",
       "--auth-token=test-token",
@@ -159,7 +177,19 @@ Deno.test({
     ];
 
     // This should not throw
-    const agent = new PyodideRuntimeAgent(args, {}, {});
+    const adapter2 = makeInMemoryAdapter({});
+    const syncPayload2 = createRuntimeSyncPayload({
+      authToken: "test-token",
+      runtimeId: crypto.randomUUID(),
+      sessionId: crypto.randomUUID(),
+      userId: "test-user-id",
+    });
+    const store2 = await createStorePromise({
+      adapter: adapter2,
+      notebookId: "test-notebook-2",
+      syncPayload: syncPayload2,
+    });
+    const agent = new PyodideRuntimeAgent(args, {}, { store: store2 });
     assertEquals(Array.isArray(agent["pyodideOptions"].mountPaths), true);
     assertEquals(agent["pyodideOptions"].mountPaths?.length, 1);
     assertEquals(agent["pyodideOptions"].mountPaths?.[0], "/valid/path");
@@ -167,13 +197,25 @@ Deno.test({
     console.log("✅ Mount path validation works correctly");
   });
 
-  await t.step("should handle empty mount paths gracefully", () => {
+  await t.step("Should handle empty mount paths", async () => {
     const args = [
       "--notebook=test-notebook",
       "--auth-token=test-token",
     ];
 
-    const agent = new PyodideRuntimeAgent(args, {}, {});
+    const adapter3 = makeInMemoryAdapter({});
+    const syncPayload3 = createRuntimeSyncPayload({
+      authToken: "test-token",
+      runtimeId: crypto.randomUUID(),
+      sessionId: crypto.randomUUID(),
+      userId: "test-user-id",
+    });
+    const store3 = await createStorePromise({
+      adapter: adapter3,
+      notebookId: "test-notebook-3",
+      syncPayload: syncPayload3,
+    });
+    const agent = new PyodideRuntimeAgent(args, {}, { store: store3 });
     assertEquals(agent["pyodideOptions"].mountPaths, []);
 
     console.log("✅ Empty mount paths handled correctly");

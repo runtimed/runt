@@ -10,12 +10,18 @@ import {
   isFirstRun as _isFirstRun,
 } from "./src/cache-utils.ts";
 import { withQuietConsole } from "../lib/test/test-config.ts";
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
+import {
+  createRuntimeSyncPayload,
+  createStorePromise,
+} from "@runtimed/agent-core";
+import { crypto } from "jsr:@std/crypto";
 
 // Configure test environment for quiet logging
 Deno.env.set("RUNT_LOG_LEVEL", "ERROR");
 Deno.env.set("RUNT_DISABLE_CONSOLE_LOGS", "true");
 
-Deno.test("PyodideRuntimeAgent exports", () => {
+Deno.test("PyodideRuntimeAgent valid args", () => {
   // Test that main exports are available
   assertEquals(typeof PyodideRuntimeAgent, "function");
   assertEquals(typeof getCacheConfig, "function");
@@ -107,7 +113,9 @@ Deno.test("PyodideRuntimeAgent configuration", async (t) => {
       try {
         // Wrap configuration error in quiet console to suppress verbose output
         withQuietConsole(() => {
-          new PyodideRuntimeAgent([]);
+          // Create minimal store to satisfy constructor, but use empty args to trigger config error
+          const _adapter = makeInMemoryAdapter({});
+          new PyodideRuntimeAgent([], {}, { store: null! });
         });
       } catch (error) {
         // Should throw due to our mocked exit
@@ -125,7 +133,7 @@ Deno.test("PyodideRuntimeAgent configuration", async (t) => {
     }
   });
 
-  await t.step("should create agent with valid configuration", () => {
+  await t.step("should create agent with valid configuration", async () => {
     const validArgs = [
       "--runtime-id",
       "test-runtime",
@@ -137,7 +145,19 @@ Deno.test("PyodideRuntimeAgent configuration", async (t) => {
       "ws://localhost:8787",
     ];
 
-    const agent = new PyodideRuntimeAgent(validArgs);
+    const adapter = makeInMemoryAdapter({});
+    const syncPayload = createRuntimeSyncPayload({
+      authToken: "test-token",
+      runtimeId: crypto.randomUUID(),
+      sessionId: crypto.randomUUID(),
+      userId: "test-user-id",
+    });
+    const store = await createStorePromise({
+      adapter,
+      notebookId: "test-notebook",
+      syncPayload,
+    });
+    const agent = new PyodideRuntimeAgent(validArgs, {}, { store });
     assertExists(agent);
     assertEquals(typeof agent.start, "function");
     assertEquals(typeof agent.shutdown, "function");
@@ -148,22 +168,37 @@ Deno.test("PyodideRuntimeAgent configuration", async (t) => {
     assertEquals(agent.config.capabilities.canExecuteAi, true);
   });
 
-  await t.step("should have correct runtime type and capabilities", () => {
-    const validArgs = [
-      "--runtime-id",
-      "test-runtime",
-      "--notebook",
-      "test-notebook",
-      "--auth-token",
-      "test-token",
-    ];
+  await t.step(
+    "should have correct runtime type and capabilities",
+    async () => {
+      const validArgs = [
+        "--runtime-id",
+        "test-runtime",
+        "--notebook",
+        "test-notebook",
+        "--auth-token",
+        "test-token",
+      ];
 
-    const agent = new PyodideRuntimeAgent(validArgs);
-    assertEquals(agent.config.runtimeType, "python3-pyodide");
-    assertEquals(agent.config.capabilities.canExecuteCode, true);
-    assertEquals(agent.config.capabilities.canExecuteSql, false);
-    assertEquals(agent.config.capabilities.canExecuteAi, true);
-  });
+      const adapter2 = makeInMemoryAdapter({});
+      const syncPayload2 = createRuntimeSyncPayload({
+        authToken: "test-token",
+        runtimeId: crypto.randomUUID(),
+        sessionId: crypto.randomUUID(),
+        userId: "test-user-id",
+      });
+      const store2 = await createStorePromise({
+        adapter: adapter2,
+        notebookId: "test-notebook-2",
+        syncPayload: syncPayload2,
+      });
+      const agent = new PyodideRuntimeAgent(validArgs, {}, { store: store2 });
+      assertEquals(agent.config.runtimeType, "python3-pyodide");
+      assertEquals(agent.config.capabilities.canExecuteCode, true);
+      assertEquals(agent.config.capabilities.canExecuteSql, false);
+      assertEquals(agent.config.capabilities.canExecuteAi, true);
+    },
+  );
 });
 
 Deno.test("PyodideRuntimeAgent lifecycle", async (t) => {
@@ -180,8 +215,20 @@ Deno.test("PyodideRuntimeAgent lifecycle", async (t) => {
     "ws://localhost:8787",
   ];
 
-  await t.step("should create agent", () => {
-    agent = new PyodideRuntimeAgent(validArgs);
+  await t.step("should create agent", async () => {
+    const adapter3 = makeInMemoryAdapter({});
+    const syncPayload3 = createRuntimeSyncPayload({
+      authToken: "test-token",
+      runtimeId: crypto.randomUUID(),
+      sessionId: crypto.randomUUID(),
+      userId: "test-user-id",
+    });
+    const store3 = await createStorePromise({
+      adapter: adapter3,
+      notebookId: "test-notebook-3",
+      syncPayload: syncPayload3,
+    });
+    agent = new PyodideRuntimeAgent(validArgs, {}, { store: store3 });
     assertExists(agent);
   });
 

@@ -1,6 +1,12 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
-import { makeAdapter } from "npm:@livestore/adapter-node";
+
+import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
+import {
+  createRuntimeSyncPayload,
+  createStorePromise,
+} from "@runtimed/agent-core";
+import { crypto } from "jsr:@std/crypto";
 import {
   cellReferences$,
   createCellBetween,
@@ -22,9 +28,7 @@ Deno.test({
     await t.step("setup AI cancellation test environment", async () => {
       await withQuietConsole(async () => {
         // Create explicit in-memory adapter for true isolation
-        const adapter = makeAdapter({
-          storage: { type: "in-memory" },
-        });
+        const adapter = makeInMemoryAdapter({});
 
         const agentArgs = [
           "--runtime-id",
@@ -37,8 +41,21 @@ Deno.test({
           "ws://localhost:8787", // Not used with explicit adapter
         ];
 
-        agent = new PyodideRuntimeAgent(agentArgs, {}, {
+        const syncPayload = createRuntimeSyncPayload({
+          authToken: "ai-cancel-test-token",
+          runtimeId: "ai-cancel-test-runtime",
+          sessionId: crypto.randomUUID(),
+          userId: "test-user-id",
+        });
+
+        const store = await createStorePromise({
           adapter,
+          notebookId: "ai-cancel-test-notebook",
+          syncPayload,
+        });
+
+        agent = new PyodideRuntimeAgent(agentArgs, {}, {
+          store,
         });
         assertExists(agent);
         assertEquals(agent.config.capabilities.canExecuteAi, true);

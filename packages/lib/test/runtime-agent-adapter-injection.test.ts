@@ -16,7 +16,7 @@ import {
   type RuntimeCapabilities,
   RuntimeConfig,
 } from "@runtimed/agent-core";
-import type { CreateStoreConfig } from "@runtimed/agent-core";
+
 import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 import { makeAdapter } from "npm:@livestore/adapter-node";
 
