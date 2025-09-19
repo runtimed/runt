@@ -15,6 +15,7 @@
   },
   "imports": {
     "@runt/schema": "jsr:@runt/schema@^0.13.0",
+    "@runtimed/agent-core": "jsr:@runtimed/agent-core@^0.2.0",
     "@std/cli": "jsr:@std/cli@^1.0.0",
     "@std/assert": "jsr:@std/assert@^1.0.0",
     "@std/crypto": "jsr:@std/crypto@^1.0.0",
