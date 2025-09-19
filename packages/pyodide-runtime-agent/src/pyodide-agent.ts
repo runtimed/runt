@@ -9,7 +9,7 @@ import {
   createPyodideRuntimeConfig,
   type PyodideRuntimeConfig,
 } from "./pyodide-config.ts";
-import type { Adapter } from "jsr:@runtimed/schema";
+import type { Adapter, Store } from "jsr:@runtimed/schema";
 import type {
   ExecutionContext,
   RuntimeCapabilities,
@@ -95,6 +95,7 @@ interface PyodideAgentOptions {
 interface PyodideRuntimeOptions {
   adapter?: Adapter;
   userId?: string;
+  store: Store;
 }
 
 /**
@@ -169,7 +170,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
   constructor(
     args: string[] = Deno.args,
     options: PyodideAgentOptions = {},
-    runtimeOptions: PyodideRuntimeOptions = {},
+    runtimeOptions: PyodideRuntimeOptions,
   ) {
     let config: PyodideRuntimeConfig;
     try {
@@ -181,9 +182,6 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           availableAiModels: [], // Will be populated during startup
         },
         ...options, // Merge options into config
-        ...(runtimeOptions.adapter && { adapter: runtimeOptions.adapter }),
-
-        ...(runtimeOptions.userId && { userId: runtimeOptions.userId }),
       });
     } catch (error) {
       // Configuration errors should still go to console for CLI usability
@@ -203,6 +201,14 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       console.error("  pyorunt --notebook my-notebook --auth-token your-token");
       Deno.exit(1);
     }
+
+    // Store is required and should be passed in
+    if (!runtimeOptions.store) {
+      throw new Error("LiveStore instance is required for PyodideRuntimeAgent");
+    }
+
+    // Add store to config
+    (config as any).store = runtimeOptions.store;
 
     super(config, config.capabilities, {
       onStartup: async () => {
