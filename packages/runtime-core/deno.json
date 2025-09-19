@@ -5,7 +5,7 @@
   "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
-    "url": "https://github.com/runtimed/runt.git"
+    "url": "https://github.com/runtimed/anode.git"
   },
   "exports": {
     ".": "./mod.ts"
