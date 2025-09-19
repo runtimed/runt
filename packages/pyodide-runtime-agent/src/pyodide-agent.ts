@@ -40,7 +40,7 @@ import {
   type NotebookTool,
 } from "@runt/ai";
 
-// Temporary definitions until @runtimed/agent-core exports are published
+// Temporary definitions until @runtimed/schema exports are published
 interface MediaBundle {
   [mimeType: string]: unknown;
 }
