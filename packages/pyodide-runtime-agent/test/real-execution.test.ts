@@ -17,7 +17,7 @@ import type {
   ExecutionContext,
   ExecutionResult,
   RawOutputData,
-} from "@runt/lib/types";
+} from "@runtimed/agent-core";
 
 // Create test agent with minimal packages for speed
 async function createTestAgent(

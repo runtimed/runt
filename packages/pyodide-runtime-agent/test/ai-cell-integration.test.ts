@@ -13,7 +13,7 @@ import {
   tables,
 } from "@runt/schema";
 
-import { withQuietConsole } from "../../lib/test/test-config.ts";
+import { withQuietConsole } from "./utils/test-helpers.ts";
 
 // Configure test environment for quiet logging
 Deno.env.set("RUNT_LOG_LEVEL", "ERROR");

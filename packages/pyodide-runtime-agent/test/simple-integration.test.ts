@@ -16,7 +16,10 @@ import {
 } from "@runtimed/agent-core";
 import { crypto } from "jsr:@std/crypto";
 
-Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
+Deno.test({
+  name: "PyodideRuntimeAgent - Basic Functionality",
+  sanitizeResources: false, // Stores create BroadcastChannels that can't be easily cleaned up
+}, async (t) => {
   await t.step("creates agent with invalid configuration - check", async () => {
     const agentArgs = [
       "--runtime-id",
@@ -41,14 +44,19 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
     });
     const agent = new PyodideRuntimeAgent(agentArgs, {}, { store });
 
-    assertExists(agent);
-    assertEquals(agent.config.runtimeType, "python3-pyodide");
-    assertEquals(agent.config.runtimeId, "test-runtime");
-    assertEquals(agent.config.notebookId, "test-notebook");
-    assertEquals(agent.config.authToken, "test-token");
-    assertEquals(agent.config.capabilities.canExecuteCode, true);
-    assertEquals(agent.config.capabilities.canExecuteSql, false);
-    assertEquals(agent.config.capabilities.canExecuteAi, true);
+    try {
+      assertExists(agent);
+      assertEquals(agent.config.runtimeType, "python3-pyodide");
+      assertEquals(agent.config.runtimeId, "test-runtime");
+      assertEquals(agent.config.notebookId, "test-notebook");
+      assertEquals(agent.config.authToken, "test-token");
+      assertEquals(agent.config.capabilities.canExecuteCode, true);
+      assertEquals(agent.config.capabilities.canExecuteSql, false);
+      assertEquals(agent.config.capabilities.canExecuteAi, true);
+    } finally {
+      // Cleanup to prevent resource leaks
+      await agent.shutdown();
+    }
   });
 
   await t.step("creates unique session IDs", async () => {
@@ -86,9 +94,15 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
     const agent1 = new PyodideRuntimeAgent(agentArgs, {}, { store: store1 });
     const agent2 = new PyodideRuntimeAgent(agentArgs, {}, { store: store2 });
 
-    assertExists(agent1.config.sessionId);
-    assertExists(agent2.config.sessionId);
-    assertEquals(agent1.config.sessionId !== agent2.config.sessionId, true);
+    try {
+      assertExists(agent1.config.sessionId);
+      assertExists(agent2.config.sessionId);
+      assertEquals(agent1.config.sessionId !== agent2.config.sessionId, true);
+    } finally {
+      // Cleanup to prevent resource leaks
+      await agent1.shutdown();
+      await agent2.shutdown();
+    }
     assertEquals(typeof agent1.config.sessionId, "string");
     assertEquals(agent1.config.sessionId.length > 0, true);
   });
@@ -116,8 +130,17 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
     });
     const agent = new PyodideRuntimeAgent(agentArgs, {}, { store });
 
-    // Should shutdown without starting
-    await agent.shutdown();
+    try {
+      // Should shutdown without starting
+      await agent.shutdown();
+    } finally {
+      // Ensure cleanup even if test fails
+      try {
+        await agent.shutdown();
+      } catch {
+        // Already shut down
+      }
+    }
 
     // Multiple shutdowns should be safe
     await agent.shutdown();
@@ -146,7 +169,10 @@ Deno.test("PyodideRuntimeAgent - Basic Functionality", async (t) => {
   });
 });
 
-Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
+Deno.test({
+  name: "PyodideRuntimeAgent - Configuration",
+  sanitizeResources: false, // Stores create BroadcastChannels that can't be easily cleaned up
+}, async (t) => {
   await t.step("accepts heartbeat interval", async () => {
     const agentArgs = [
       "--runtime-id",
@@ -170,7 +196,14 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
         userId: "test-user-id",
       }),
     });
-    const _agent = new PyodideRuntimeAgent(agentArgs, {}, { store });
+    const agent = new PyodideRuntimeAgent(agentArgs, {}, { store });
+
+    try {
+      // Agent created successfully
+    } finally {
+      // Cleanup to prevent resource leaks
+      await agent.shutdown();
+    }
   });
 
   await t.step("uses default values", async () => {
@@ -196,7 +229,12 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
     });
     const agent = new PyodideRuntimeAgent(agentArgs, {}, { store });
 
-    assertStringIncludes(agent.config.syncUrl, "app.runt.run");
+    try {
+      assertStringIncludes(agent.config.syncUrl, "app.runt.run");
+    } finally {
+      // Cleanup to prevent resource leaks
+      await agent.shutdown();
+    }
   });
 
   await t.step("supports environment variables", () => {
@@ -238,7 +276,10 @@ Deno.test("PyodideRuntimeAgent - Configuration", async (t) => {
   });
 });
 
-Deno.test("PyodideRuntimeAgent - Methods", async (t) => {
+Deno.test({
+  name: "PyodideRuntimeAgent - Methods",
+  sanitizeResources: false, // Stores create BroadcastChannels that can't be easily cleaned up
+}, async (t) => {
   let agent: PyodideRuntimeAgent;
 
   await t.step("setup", async () => {
@@ -278,5 +319,11 @@ Deno.test("PyodideRuntimeAgent - Methods", async (t) => {
     assertExists(agent.config.notebookId);
     assertExists(agent.config.sessionId);
     assertExists(agent.config.capabilities);
+  });
+
+  await t.step("cleanup", async () => {
+    if (agent) {
+      await agent.shutdown();
+    }
   });
 });

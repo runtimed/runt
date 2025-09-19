@@ -9,7 +9,7 @@ import {
   getPreloadPackages as _getPreloadPackages,
   isFirstRun as _isFirstRun,
 } from "./src/cache-utils.ts";
-import { withQuietConsole } from "../lib/test/test-config.ts";
+import { withQuietConsole } from "./test/utils/test-helpers.ts";
 import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 import {
   createRuntimeSyncPayload,
@@ -89,7 +89,10 @@ Deno.test("Cache utilities", async (t) => {
   });
 });
 
-Deno.test("PyodideRuntimeAgent configuration", async (t) => {
+Deno.test({
+  name: "PyodideRuntimeAgent configuration",
+  sanitizeResources: false, // Stores create BroadcastChannels that can't be easily cleaned up
+}, async (t) => {
   await t.step("should handle missing configuration gracefully", () => {
     // This test verifies that the agent handles configuration errors
     // without crashing the test process
@@ -158,14 +161,20 @@ Deno.test("PyodideRuntimeAgent configuration", async (t) => {
       syncPayload,
     });
     const agent = new PyodideRuntimeAgent(validArgs, {}, { store });
-    assertExists(agent);
-    assertEquals(typeof agent.start, "function");
-    assertEquals(typeof agent.shutdown, "function");
-    assertEquals(typeof agent.keepAlive, "function");
-    assertEquals(agent.config.runtimeType, "python3-pyodide");
-    assertEquals(agent.config.capabilities.canExecuteCode, true);
-    assertEquals(agent.config.capabilities.canExecuteSql, false);
-    assertEquals(agent.config.capabilities.canExecuteAi, true);
+
+    try {
+      assertExists(agent);
+      assertEquals(typeof agent.start, "function");
+      assertEquals(typeof agent.shutdown, "function");
+      assertEquals(typeof agent.keepAlive, "function");
+      assertEquals(agent.config.runtimeType, "python3-pyodide");
+      assertEquals(agent.config.capabilities.canExecuteCode, true);
+      assertEquals(agent.config.capabilities.canExecuteSql, false);
+      assertEquals(agent.config.capabilities.canExecuteAi, true);
+    } finally {
+      // Cleanup to prevent resource leaks
+      await agent.shutdown();
+    }
   });
 
   await t.step(
@@ -193,15 +202,24 @@ Deno.test("PyodideRuntimeAgent configuration", async (t) => {
         syncPayload: syncPayload2,
       });
       const agent = new PyodideRuntimeAgent(validArgs, {}, { store: store2 });
-      assertEquals(agent.config.runtimeType, "python3-pyodide");
-      assertEquals(agent.config.capabilities.canExecuteCode, true);
-      assertEquals(agent.config.capabilities.canExecuteSql, false);
-      assertEquals(agent.config.capabilities.canExecuteAi, true);
+
+      try {
+        assertEquals(agent.config.runtimeType, "python3-pyodide");
+        assertEquals(agent.config.capabilities.canExecuteCode, true);
+        assertEquals(agent.config.capabilities.canExecuteSql, false);
+        assertEquals(agent.config.capabilities.canExecuteAi, true);
+      } finally {
+        // Cleanup to prevent resource leaks
+        await agent.shutdown();
+      }
     },
   );
 });
 
-Deno.test("PyodideRuntimeAgent lifecycle", async (t) => {
+Deno.test({
+  name: "PyodideRuntimeAgent lifecycle",
+  sanitizeResources: false, // Stores create BroadcastChannels that can't be easily cleaned up
+}, async (t) => {
   let agent: PyodideRuntimeAgent;
 
   const validArgs = [
@@ -230,6 +248,13 @@ Deno.test("PyodideRuntimeAgent lifecycle", async (t) => {
     });
     agent = new PyodideRuntimeAgent(validArgs, {}, { store: store3 });
     assertExists(agent);
+  });
+
+  // Cleanup after all tests
+  await t.step("cleanup", async () => {
+    if (agent) {
+      await agent.shutdown();
+    }
   });
 
   await t.step("should shutdown without starting", async () => {

@@ -1,6 +1,6 @@
 // Import removed - no assertions needed for this test
 import { PyodideRuntimeAgent } from "../src/pyodide-agent.ts";
-import { type ExecutionContext } from "../../lib/src/types.ts";
+import { type ExecutionContext } from "@runtimed/agent-core";
 import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 import {
   createRuntimeSyncPayload,
