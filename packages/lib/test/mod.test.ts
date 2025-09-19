@@ -1,13 +1,16 @@
 /// <reference lib="deno.ns" />
 import { assertEquals } from "jsr:@std/assert";
 import {
+  createRuntimeSyncPayload,
+  createStorePromise,
   DEFAULT_CONFIG,
   RuntimeAgent,
   RuntimeConfig,
 } from "@runtimed/agent-core";
+import type { CreateStoreConfig } from "@runtimed/agent-core";
 import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 
-Deno.test("Library exports are available", () => {
+Deno.test("Library exports are available", async () => {
   // Test that main exports are defined
   assertEquals(typeof RuntimeAgent, "function");
   assertEquals(typeof RuntimeConfig, "function");
@@ -22,7 +25,7 @@ Deno.test("DEFAULT_CONFIG has expected values", () => {
   );
 });
 
-Deno.test("RuntimeConfig validation works", () => {
+Deno.test("RuntimeConfig validation works", async () => {
   // Should throw for missing required fields
   try {
     const config = new RuntimeConfig({
@@ -33,7 +36,16 @@ Deno.test("RuntimeConfig validation works", () => {
       notebookId: "", // Missing
 
       userId: "test-user-id",
-      adapter: makeInMemoryAdapter({}),
+      store: await createStorePromise({
+        adapter: makeInMemoryAdapter({}),
+        notebookId: "test-notebook",
+        syncPayload: createRuntimeSyncPayload({
+          authToken: "test-token",
+          runtimeId: "test-runtime",
+          sessionId: "test-session",
+          userId: "test-user-id",
+        }),
+      }),
       capabilities: {
         canExecuteCode: true,
         canExecuteSql: false,
@@ -58,7 +70,16 @@ Deno.test("RuntimeConfig validation works", () => {
     notebookId: "test-notebook",
 
     userId: "test-user-id",
-    adapter: makeInMemoryAdapter({}),
+    store: await createStorePromise({
+      adapter: makeInMemoryAdapter({}),
+      notebookId: "test-notebook",
+      syncPayload: createRuntimeSyncPayload({
+        authToken: "test-token",
+        runtimeId: "test-runtime",
+        sessionId: "test-session",
+        userId: "test-user-id",
+      }),
+    }),
     capabilities: {
       canExecuteCode: true,
       canExecuteSql: false,

@@ -1,7 +1,13 @@
 /// <reference lib="deno.ns" />
 import { assertEquals, assertThrows } from "jsr:@std/assert";
 import { stub } from "jsr:@std/testing/mock";
-import { DEFAULT_CONFIG, RuntimeConfig } from "@runtimed/agent-core";
+import {
+  createRuntimeSyncPayload,
+  createStorePromise,
+  DEFAULT_CONFIG,
+  RuntimeConfig,
+} from "@runtimed/agent-core";
+import type { CreateStoreConfig } from "@runtimed/agent-core";
 import {
   createBaseRuntimeConfig,
   parseBaseRuntimeArgs,
@@ -14,21 +20,43 @@ function addRequiredParams(args: string[]): string[] {
   return [...REQUIRED_PARAMS, ...args];
 }
 
-function makeBaseConfig(overrides: Partial<Record<string, unknown>> = {}) {
-  return {
+async function makeBaseConfig(
+  overrides: Partial<Record<string, unknown>> = {},
+) {
+  const baseConfig = {
     runtimeId: "test-runtime-id",
     runtimeType: "test-runtime",
     syncUrl: "wss://test.example.com",
     authToken: "test-token",
     notebookId: "test-nb",
     userId: "test-user-id",
-    adapter: makeInMemoryAdapter({}),
     capabilities: {
       canExecuteCode: true,
       canExecuteSql: false,
       canExecuteAi: false,
     },
     ...overrides,
+  };
+
+  // Create sync payload with fallback valid values for testing
+  // (the actual validation happens in RuntimeConfig.validate())
+  const syncPayload = createRuntimeSyncPayload({
+    authToken: baseConfig.authToken || "fallback-token",
+    runtimeId: baseConfig.runtimeId || "fallback-runtime-id",
+    sessionId: crypto.randomUUID(),
+    userId: baseConfig.userId || "fallback-user-id",
+  });
+
+  // Create store with fallback valid notebookId for testing
+  const store = await createStorePromise({
+    adapter: makeInMemoryAdapter({}),
+    notebookId: baseConfig.notebookId || "fallback-notebook",
+    syncPayload,
+  });
+
+  return {
+    ...baseConfig,
+    store,
   };
 }
 
@@ -169,63 +197,67 @@ Deno.test("createBaseRuntimeConfig: merges with provided defaults", () => {
   assertEquals(config.capabilities.canExecuteAi, true);
 });
 
-Deno.test("RuntimeConfig.validate: passes with valid config", () => {
-  const config = new RuntimeConfig(makeBaseConfig());
+Deno.test("RuntimeConfig.validate: passes with valid config", async () => {
+  const config = new RuntimeConfig(await makeBaseConfig());
   config.validate(); // Should not throw
 });
 
-Deno.test("RuntimeConfig.validate: throws for missing authToken", () => {
+Deno.test("RuntimeConfig.validate: throws for missing authToken", async () => {
+  const config = new RuntimeConfig(await makeBaseConfig({ authToken: "" }));
   assertThrows(
-    () => new RuntimeConfig(makeBaseConfig({ authToken: "" })).validate(),
+    () => config.validate(),
     Error,
     "Missing required configuration",
   );
 });
 
-Deno.test("RuntimeConfig.validate: throws for missing notebookId", () => {
+Deno.test("RuntimeConfig.validate: throws for missing notebookId", async () => {
+  const config = new RuntimeConfig(await makeBaseConfig({ notebookId: "" }));
   assertThrows(
-    () => new RuntimeConfig(makeBaseConfig({ notebookId: "" })).validate(),
+    () => config.validate(),
     Error,
     "Missing required configuration",
   );
 });
 
-Deno.test("RuntimeConfig.validate: throws for missing runtimeId", () => {
+Deno.test("RuntimeConfig.validate: throws for missing runtimeId", async () => {
+  const config = new RuntimeConfig(await makeBaseConfig({ runtimeId: "" }));
   assertThrows(
-    () => new RuntimeConfig(makeBaseConfig({ runtimeId: "" })).validate(),
+    () => config.validate(),
     Error,
     "Missing required configuration",
   );
 });
 
-Deno.test("RuntimeConfig.validate: throws for missing runtimeType", () => {
+Deno.test("RuntimeConfig.validate: throws for missing runtimeType", async () => {
+  const config = new RuntimeConfig(await makeBaseConfig({ runtimeType: "" }));
   assertThrows(
-    () => new RuntimeConfig(makeBaseConfig({ runtimeType: "" })).validate(),
+    () => config.validate(),
     Error,
     "Missing required configuration",
   );
 });
 
-Deno.test("RuntimeConfig: generates unique session IDs", () => {
-  const config1 = new RuntimeConfig(makeBaseConfig());
-  const config2 = new RuntimeConfig(makeBaseConfig());
+Deno.test("RuntimeConfig: generates unique session IDs", async () => {
+  const config1 = new RuntimeConfig(await makeBaseConfig());
+  const config2 = new RuntimeConfig(await makeBaseConfig());
 
   assertEquals(config1.sessionId !== config2.sessionId, true);
   assertEquals(config1.sessionId.includes(config1.runtimeType), true);
   assertEquals(config1.sessionId.includes(config1.runtimeId), true);
 });
 
-Deno.test("RuntimeConfig: sets default image artifact threshold", () => {
-  const config = new RuntimeConfig(makeBaseConfig());
+Deno.test("RuntimeConfig: sets default image artifact threshold", async () => {
+  const config = new RuntimeConfig(await makeBaseConfig());
   assertEquals(
     config.imageArtifactThresholdBytes,
     DEFAULT_CONFIG.imageArtifactThresholdBytes,
   );
 });
 
-Deno.test("RuntimeConfig: uses provided image artifact threshold", () => {
+Deno.test("RuntimeConfig: can override image artifact threshold", async () => {
   const config = new RuntimeConfig(
-    makeBaseConfig({ imageArtifactThresholdBytes: 10240 }),
+    await makeBaseConfig({ imageArtifactThresholdBytes: 10240 }),
   );
   assertEquals(config.imageArtifactThresholdBytes, 10240);
 });

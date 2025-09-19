@@ -9,21 +9,39 @@ import { assertEquals, assertExists } from "jsr:@std/assert";
 import { crypto } from "jsr:@std/crypto";
 
 import {
+  createRuntimeSyncPayload,
+  createStorePromise,
   RuntimeAgent,
   type RuntimeAgentOptions,
   type RuntimeCapabilities,
   RuntimeConfig,
 } from "@runtimed/agent-core";
+import type { CreateStoreConfig } from "@runtimed/agent-core";
 import { makeInMemoryAdapter } from "npm:@livestore/adapter-web";
 import { makeAdapter } from "npm:@livestore/adapter-node";
 
-// Helper function for creating test configs since createBaseRuntimeConfig moved to pyodide package
-function createTestRuntimeConfig(
+// Helper function for creating test configs with store
+async function createTestRuntimeConfig(
   _args: string[],
   defaults: Partial<RuntimeAgentOptions> = {},
-): RuntimeConfig {
+): Promise<RuntimeConfig> {
   // Create default in-memory adapter for testing
   const defaultAdapter = makeInMemoryAdapter({});
+
+  // Create sync payload
+  const syncPayload = createRuntimeSyncPayload({
+    authToken: "test-token",
+    runtimeId: "test-runtime-id",
+    sessionId: crypto.randomUUID(),
+    userId: "test-user-id",
+  });
+
+  // Create store
+  const store = await createStorePromise({
+    adapter: defaultAdapter,
+    notebookId: "test-notebook",
+    syncPayload,
+  });
 
   const config: RuntimeAgentOptions = {
     runtimeId: "test-runtime-id",
@@ -32,7 +50,7 @@ function createTestRuntimeConfig(
     authToken: "test-token",
     notebookId: "test-notebook",
     userId: "test-user-id",
-    adapter: defaultAdapter,
+    store,
     capabilities: {
       canExecuteCode: true,
       canExecuteSql: false,
@@ -47,8 +65,8 @@ function createTestRuntimeConfig(
 Deno.test("RuntimeAgent adapter injection", async (t) => {
   await t.step(
     "should work with default adapter (backward compatibility)",
-    () => {
-      const config = createTestRuntimeConfig([], {
+    async () => {
+      const config = await createTestRuntimeConfig([], {
         userId: "test-user-id",
         notebookId: "test-notebook",
         syncUrl: "ws://fake-url:9999", // Will fail but that's expected
@@ -74,12 +92,37 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       // No sync backend needed for pure in-memory testing
     });
 
-    const config = createTestRuntimeConfig([], {
-      adapter,
+    // Create sync payload
+    const syncPayload = createRuntimeSyncPayload({
+      authToken: "test-token",
+      runtimeId: "test-runtime-id",
+      sessionId: crypto.randomUUID(),
       userId: "test-user-id",
-      notebookId: "adapter-test",
-      syncUrl: "ws://fake-url:9999",
     });
+
+    // Create store with custom adapter
+    const store = await createStorePromise({
+      adapter,
+      notebookId: "adapter-test",
+      syncPayload,
+    });
+
+    const config: RuntimeAgentOptions = {
+      runtimeId: "test-runtime-id",
+      runtimeType: "test-runtime",
+      syncUrl: "ws://fake-url:9999",
+      authToken: "test-token",
+      notebookId: "adapter-test",
+      userId: "test-user-id",
+      store,
+      capabilities: {
+        canExecuteCode: true,
+        canExecuteSql: false,
+        canExecuteAi: false,
+      },
+    };
+
+    const runtimeConfig = new RuntimeConfig(config);
 
     const capabilities: RuntimeCapabilities = {
       canExecuteCode: true,
@@ -87,7 +130,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       canExecuteAi: false,
     };
 
-    const agent = new RuntimeAgent(config, capabilities);
+    const agent = new RuntimeAgent(runtimeConfig, capabilities);
 
     assertExists(agent);
     assertEquals(agent.config.notebookId, "adapter-test");
@@ -107,13 +150,37 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       // Create custom in-memory adapter
       const adapter = makeInMemoryAdapter({});
 
-      const config = createTestRuntimeConfig([], {
-        adapter,
-        userId: "test-user-id",
-        notebookId: "adapter-test-2",
+      // Create sync payload
+      const syncPayload = createRuntimeSyncPayload({
         authToken: "test-token",
-        syncUrl: "ws://fake-url:9999",
+        runtimeId: "test-runtime-id",
+        sessionId: crypto.randomUUID(),
+        userId: "test-user-id",
       });
+
+      // Create store with custom adapter
+      const store = await createStorePromise({
+        adapter,
+        notebookId: "adapter-test-2",
+        syncPayload,
+      });
+
+      const config: RuntimeAgentOptions = {
+        runtimeId: "test-runtime-id",
+        runtimeType: "test-runtime",
+        syncUrl: "ws://fake-url:9999",
+        authToken: "test-token",
+        notebookId: "adapter-test-2",
+        userId: "test-user-id",
+        store,
+        capabilities: {
+          canExecuteCode: true,
+          canExecuteSql: false,
+          canExecuteAi: false,
+        },
+      };
+
+      const runtimeConfig = new RuntimeConfig(config);
 
       const capabilities: RuntimeCapabilities = {
         canExecuteCode: true,
@@ -121,7 +188,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
         canExecuteAi: false,
       };
 
-      const agent = new RuntimeAgent(config, capabilities);
+      const agent = new RuntimeAgent(runtimeConfig, capabilities);
 
       await agent.start();
 
@@ -136,21 +203,67 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
     // Create shared adapter
     const adapter = makeInMemoryAdapter({});
 
-    // Create two agents using the same adapter
-    const config1 = createTestRuntimeConfig([], {
-      adapter,
-      notebookId: "shared-adapter-1",
-      runtimeId: "agent-1",
+    // Create sync payloads for each agent
+    const syncPayload1 = createRuntimeSyncPayload({
       authToken: "token1",
+      runtimeId: "agent-1",
+      sessionId: crypto.randomUUID(),
+      userId: "test-user-id",
     });
 
-    const config2 = createTestRuntimeConfig([], {
+    const syncPayload2 = createRuntimeSyncPayload({
+      authToken: "token2",
+      runtimeId: "agent-2",
+      sessionId: crypto.randomUUID(),
+      userId: "test-user-id",
+    });
+
+    // Create stores with shared adapter
+    const store1 = await createStorePromise({
+      adapter,
+      notebookId: "shared-adapter-1",
+      syncPayload: syncPayload1,
+    });
+
+    const store2 = await createStorePromise({
       adapter,
       notebookId: "shared-adapter-2",
-      runtimeId: "agent-2",
-      authToken: "token2",
-      syncUrl: "ws://fake-url:9999",
+      syncPayload: syncPayload2,
     });
+
+    // Create configs with stores
+    const config1: RuntimeAgentOptions = {
+      runtimeId: "agent-1",
+      runtimeType: "test-runtime",
+      syncUrl: "ws://fake-url:9999",
+      authToken: "token1",
+      notebookId: "shared-adapter-1",
+      userId: "test-user-id",
+      store: store1,
+      capabilities: {
+        canExecuteCode: true,
+        canExecuteSql: false,
+        canExecuteAi: false,
+      },
+    };
+
+    const config2: RuntimeAgentOptions = {
+      runtimeId: "agent-2",
+      runtimeType: "test-runtime",
+      syncUrl: "ws://fake-url:9999",
+      authToken: "token2",
+      notebookId: "shared-adapter-2",
+      userId: "test-user-id",
+      store: store2,
+      capabilities: {
+        canExecuteCode: true,
+        canExecuteSql: false,
+        canExecuteAi: false,
+      },
+    };
+
+    const runtimeConfig1 = new RuntimeConfig(config1);
+    const runtimeConfig2 = new RuntimeConfig(config2);
 
     const capabilities: RuntimeCapabilities = {
       canExecuteCode: true,
@@ -158,8 +271,8 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       canExecuteAi: false,
     };
 
-    const agent1 = new RuntimeAgent(config1, capabilities);
-    const agent2 = new RuntimeAgent(config2, capabilities);
+    const agent1 = new RuntimeAgent(runtimeConfig1, capabilities);
+    const agent2 = new RuntimeAgent(runtimeConfig2, capabilities);
 
     await agent1.start();
     await agent2.start();
@@ -183,12 +296,37 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       },
     });
 
-    const config = createTestRuntimeConfig([], {
+    // Create sync payload
+    const syncPayload = createRuntimeSyncPayload({
+      authToken: "test-token",
+      runtimeId: "test-runtime-id",
+      sessionId: crypto.randomUUID(),
+      userId: "test-user-id",
+    });
+
+    // Create store with file system adapter
+    const store = await createStorePromise({
       adapter: fsAdapter,
       notebookId: "fs-test",
-      authToken: "test-token",
-      syncUrl: "ws://fake-url:9999",
+      syncPayload,
     });
+
+    const config: RuntimeAgentOptions = {
+      runtimeId: "test-runtime-id",
+      runtimeType: "test-runtime",
+      syncUrl: "ws://fake-url:9999",
+      authToken: "test-token",
+      notebookId: "fs-test",
+      userId: "test-user-id",
+      store,
+      capabilities: {
+        canExecuteCode: true,
+        canExecuteSql: false,
+        canExecuteAi: false,
+      },
+    };
+
+    const runtimeConfig = new RuntimeConfig(config);
 
     const capabilities: RuntimeCapabilities = {
       canExecuteCode: true,
@@ -196,7 +334,7 @@ Deno.test("RuntimeAgent adapter injection", async (t) => {
       canExecuteAi: false,
     };
 
-    const agent = new RuntimeAgent(config, capabilities);
+    const agent = new RuntimeAgent(runtimeConfig, capabilities);
 
     await agent.start();
 
