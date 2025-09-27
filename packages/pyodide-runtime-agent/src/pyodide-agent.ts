@@ -556,7 +556,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         let userSystemPrompt = this.store.query(
           tables.notebookMetadata
             .select()
-            .where({ key: "systemPrompt" })
+            .where({ key: "user_system_prompt" })
             .first({ fallback: () => "" }),
         );
 
