@@ -22,6 +22,7 @@ import {
   isTextBasedMimeType,
   KNOWN_MIME_TYPES,
   type KnownMimeType,
+  tables,
 } from "@runt/schema";
 import {
   getBootstrapPackages as _getBootstrapPackages,
@@ -551,6 +552,18 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
 
       try {
         const maxIterations = this.config.aiMaxIterations;
+
+        let userSystemPrompt = this.store.query(
+          tables.notebookMetadata
+            .select()
+            .where({ key: "systemPrompt" })
+            .first({ fallback: () => "" }),
+        );
+
+        if (typeof userSystemPrompt !== "string") {
+          userSystemPrompt = userSystemPrompt.value;
+        }
+
         return await executeAI(
           aiContext,
           notebookContext,
@@ -558,6 +571,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           this.config.sessionId,
           notebookTools,
           maxIterations,
+          userSystemPrompt,
         );
       } finally {
         this.currentAIExecution = null;
