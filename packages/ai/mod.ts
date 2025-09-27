@@ -598,7 +598,7 @@ export async function executeAI(
         prompt,
       );
 
-      logger.debug(`123123 Conversation messages for ${provider}`, {
+      logger.debug(`Conversation messages for ${provider}`, {
         cellId: cell.id,
         provider: provider,
         model: model,
