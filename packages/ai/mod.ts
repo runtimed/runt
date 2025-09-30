@@ -136,6 +136,7 @@ function createSystemPrompt(
   currentCellId?: string,
   filepaths?: string[],
   vectorStoreEnabled: boolean = false,
+  userSystemPrompt: string = "",
 ): string {
   let prompt = `You are an AI assistant in a collaborative notebook environment.
 
@@ -149,6 +150,10 @@ Devise metrics by which you can evaluate the quality of your code and the result
 After executing code cells you should review the code and make changes to improve the result.
 
 `;
+
+  if (userSystemPrompt) {
+    prompt += `\n\n${userSystemPrompt}\n`;
+  }
 
   const vectorStoreExtras =
     `IMPORTANT: If you have access to vector store tools (query_documents, find_mounted_file,
@@ -529,6 +534,7 @@ export async function executeAI(
   sessionId: string,
   notebookTools: NotebookTool[] = [],
   maxIterations: number = 10,
+  userSystemPrompt: string = "",
 ): Promise<{ success: boolean; error?: string }> {
   const {
     cell,
@@ -587,6 +593,7 @@ export async function executeAI(
           cell.id,
           extractedFilePaths,
           isVectorStoreIndexingEnabled(),
+          userSystemPrompt,
         ),
         prompt,
       );
