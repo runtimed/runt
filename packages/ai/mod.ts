@@ -136,7 +136,7 @@ function createSystemPrompt(
   currentCellId?: string,
   filepaths?: string[],
   vectorStoreEnabled: boolean = false,
-  userSystemPrompt: string = "",
+  userSavedPrompt: string = "",
 ): string {
   let prompt = `You are an AI assistant in a collaborative notebook environment.
 
@@ -151,8 +151,8 @@ After executing code cells you should review the code and make changes to improv
 
 `;
 
-  if (userSystemPrompt) {
-    prompt += `\n\n${userSystemPrompt}\n`;
+  if (userSavedPrompt) {
+    prompt += `\n\n${userSavedPrompt}\n`;
   }
 
   const vectorStoreExtras =

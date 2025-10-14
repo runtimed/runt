@@ -553,15 +553,15 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
       try {
         const maxIterations = this.config.aiMaxIterations;
 
-        let userSystemPrompt = this.store.query(
+        let userSavedPrompt = this.store.query(
           tables.notebookMetadata
             .select()
-            .where({ key: "user_system_prompt" })
+            .where({ key: "user_saved_prompt" })
             .first({ fallback: () => "" }),
         );
 
-        if (typeof userSystemPrompt !== "string") {
-          userSystemPrompt = userSystemPrompt.value;
+        if (typeof userSavedPrompt !== "string") {
+          userSavedPrompt = userSavedPrompt.value;
         }
 
         return await executeAI(
@@ -571,7 +571,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
           this.config.sessionId,
           notebookTools,
           maxIterations,
-          userSystemPrompt,
+          userSavedPrompt,
         );
       } finally {
         this.currentAIExecution = null;
