@@ -90,6 +90,7 @@ export interface RuntimeCapabilities {
 }
 
 /**
+ * @deprecated Use the AiModel type from @runtimed/agent-core instead
  * Represents an AI model with its capabilities
  */
 export interface AiModel {

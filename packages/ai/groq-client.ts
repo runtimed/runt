@@ -59,6 +59,7 @@ Groq API key not found. Please set \`GROQ_API_KEY\` environment variable.`;
         name: "gemma2-9b-it",
         displayName: "Gemma 2 9B",
         capabilities: ["completion", "tools"],
+        decomissioned: true,
       },
     ];
     return Promise.resolve(groqModels);
