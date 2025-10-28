@@ -14,7 +14,7 @@
     "@llamaindex/openai": "npm:@llamaindex/openai@^0.4.16",
     "@llamaindex/readers": "npm:@llamaindex/readers@^3.1.18",
     "llamaindex": "npm:llamaindex@^0.11.26",
-    "@runtimed/agent-core": "jsr:@runtimed/agent-core@^0.2.0",
+    "@runtimed/agent-core": "jsr:@runtimed/agent-core@^0.3.0",
     "npm:pyodide": "npm:pyodide@^0.27.7",
     "@std/async": "jsr:@std/async@^1.0.0",
     "@std/path": "jsr:@std/path@^1.0.0",
