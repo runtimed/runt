@@ -1106,7 +1106,7 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
   /**
    * Clean up Deno-specific signal handlers
    */
-  protected override cleanupShutdownHandlers(): void {
+  public override cleanupShutdownHandlers(): void {
     // Clean up Deno signal listeners
     for (const [signal, handler] of this.signalHandlers) {
       try {
