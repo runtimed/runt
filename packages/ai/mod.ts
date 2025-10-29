@@ -534,7 +534,7 @@ export async function executeAI(
   sessionId: string,
   notebookTools: NotebookTool[] = [],
   maxIterations: number = 10,
-  userSystemPrompt: string = "",
+  userSavedPrompt: string = "",
 ): Promise<{ success: boolean; error?: string }> {
   const {
     cell,
@@ -593,7 +593,7 @@ export async function executeAI(
           cell.id,
           extractedFilePaths,
           isVectorStoreIndexingEnabled(),
-          userSystemPrompt,
+          userSavedPrompt,
         ),
         prompt,
       );
