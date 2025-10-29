@@ -14,7 +14,7 @@ import {
   getEssentialPackages,
   isFirstRun,
 } from "./cache-utils.ts";
-import type { FileData } from "@runtimed/schema";
+import type { FileData } from "jsr:@runtimed/schema";
 
 declare const self: DedicatedWorkerGlobalScope;
 
