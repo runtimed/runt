@@ -15,7 +15,7 @@
   },
   "imports": {
     "@runt/ai": "jsr:@runt/ai@^0.13.0",
-    "@runtimed/agent-core": "jsr:@runtimed/agent-core@^0.2.0",
+    "@runtimed/agent-core": "jsr:@runtimed/agent-core@^0.3.0",
     "@runt/schema": "jsr:@runt/schema@^0.13.0",
     "npm:pyodide": "npm:pyodide@^0.27.7",
     "@std/async": "jsr:@std/async@^1.0.0",
