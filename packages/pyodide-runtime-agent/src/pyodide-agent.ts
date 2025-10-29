@@ -376,17 +376,16 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
 
       // Send uploaded files to worker
       const files = this.store.query(tables.files.select());
+      // This is a bit of a hack because we don't have access to the artifact client in the worker.
+      // We send the base URL to the worker for now.
+      const artifactBaseUrl = this.config.artifactClient.getArtifactUrl("");
+
       if (files.length > 0) {
-        this.sendWorkerMessage("files", {
-          files,
-          // This is a bit of a hack because we don't have access to the artifact client in the worker.
-          // We send the base URL to the worker for now.
-          artifactBaseUrl: this.config.artifactClient.getArtifactUrl(""),
-        });
+        this.sendWorkerMessage("files", { files, artifactBaseUrl });
       }
 
       this.onFilesUpload((files) => {
-        this.sendWorkerMessage("files", { files });
+        this.sendWorkerMessage("files", { files, artifactBaseUrl });
       });
 
       this.isInitialized = true;
