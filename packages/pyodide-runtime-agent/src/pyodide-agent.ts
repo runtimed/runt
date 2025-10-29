@@ -374,6 +374,21 @@ export class PyodideRuntimeAgent extends RuntimeAgent {
         mountData,
       });
 
+      // Send uploaded files to worker
+      const files = this.store.query(tables.files.select());
+      if (files.length > 0) {
+        this.sendWorkerMessage("files", {
+          files,
+          // This is a bit of a hack because we don't have access to the artifact client in the worker.
+          // We send the base URL to the worker for now.
+          artifactBaseUrl: this.config.artifactClient.getArtifactUrl(""),
+        });
+      }
+
+      this.onFilesUpload((files) => {
+        this.sendWorkerMessage("files", { files });
+      });
+
       this.isInitialized = true;
       logger.info("Pyodide worker initialized successfully");
     } catch (error) {
