@@ -14,6 +14,7 @@ import {
   getEssentialPackages,
   isFirstRun,
 } from "./cache-utils.ts";
+import type { FileData } from "jsr:@runtimed/schema";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -108,6 +109,76 @@ await run_registered_tool("${data.toolName}", kwargs_string)
 
           // Also log to console for debugging
           console.error(`Tool execution failed for ${data.toolName}:`, error);
+        }
+        break;
+      }
+
+      case "files": {
+        if (!pyodide) {
+          throw new Error("Pyodide not initialized");
+        }
+
+        try {
+          // Cast the files to the expected type
+          const files = data.files as readonly FileData[];
+          // Cast the artifact base URL to the expected type
+          const artifactBaseUrl = data.artifactBaseUrl as string;
+
+          if (!artifactBaseUrl) {
+            throw new Error("Artifact base URL is required");
+          }
+
+          const filesInDirectory = pyodide.FS.readdir("./");
+
+          // Write/delete the new files
+          for (const file of files) {
+            if (file.deletedAt) {
+              if (!filesInDirectory.includes(file.fileName)) {
+                continue;
+              }
+              console.log("worker deleting file", { file });
+              // Just in case we couldn't match the file, we want to put a try/catch
+              // to avoid the worker crashing
+              try {
+                pyodide.FS.unlink(`./${file.fileName}`);
+              } catch (error) {
+                // File doesn't exist, nothing to delete
+                console.log("file does not exist, skipping deletion", {
+                  fileName: file.fileName,
+                  error,
+                });
+              }
+            } else {
+              console.log("worker fetching file", { file });
+              console.log("artifactBaseUrl", artifactBaseUrl);
+              const response = await fetch(
+                artifactBaseUrl + file.artifactId,
+              );
+
+              // Handle different file types based on mimeType
+              if (file.mimeType && file.mimeType.startsWith("text/")) {
+                // Text files
+                const content = await response.text();
+                pyodide.FS.writeFile(`./${file.fileName}`, content);
+              } else {
+                // Binary files (images, etc.)
+                const arrayBuffer = await response.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
+                pyodide.FS.writeFile(`./${file.fileName}`, uint8Array);
+              }
+            }
+          }
+
+          console.log("worker wrote files and cleaned up old files", { data });
+
+          self.postMessage({ id, type: "response", data: { success: true } });
+        } catch (error) {
+          console.error("Error in files message handler", error);
+          self.postMessage({
+            id,
+            type: "response",
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
         break;
       }
