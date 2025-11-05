@@ -38,21 +38,21 @@ Groq API key not found. Please set \`GROQ_API_KEY\` environment variable.`;
       },
       {
         provider: "groq",
-        name: "llama3-8b-8192",
-        displayName: "Llama 3.1 8B",
+        name: "qwen/qwen3-32b",
+        displayName: "Qwen 3 32B",
         capabilities: ["completion", "tools", "thinking"],
       },
       {
         provider: "groq",
-        name: "llama3-70b-8192",
-        displayName: "Llama 3.1 70B",
+        name: "llama-3.1-8b-instant",
+        displayName: "Llama 3.1 8B Instant",
         capabilities: ["completion", "tools", "thinking"],
       },
       {
         provider: "groq",
-        name: "mixtral-8x7b-32768",
-        displayName: "Mixtral 8x7B",
-        capabilities: ["completion", "tools"],
+        name: "openai/gpt-oss-120b",
+        displayName: "GPT OSS 120B",
+        capabilities: ["completion", "tools", "thinking"],
       },
       {
         provider: "groq",
@@ -60,6 +60,48 @@ Groq API key not found. Please set \`GROQ_API_KEY\` environment variable.`;
         displayName: "Gemma 2 9B",
         capabilities: ["completion", "tools"],
         decomissioned: true,
+      },
+      {
+        provider: "groq",
+        name: "groq/compound-mini",
+        displayName: "Groq Compound Mini",
+        capabilities: ["completion", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "groq/compound",
+        displayName: "Groq Compound",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "meta-llama/llama-4-scout-17b-16e-instruct",
+        displayName: "Llama 4 Scout 17B",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "meta-llama/llama-4-maverick-17b-128e-instruct",
+        displayName: "Llama 4 Maverick 17B",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "openai/gpt-oss-20b",
+        displayName: "GPT OSS 20B",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "llama-3.3-70b-versatile",
+        displayName: "Llama 3.3 70B Versatile",
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        provider: "groq",
+        name: "allam-2-7b",
+        displayName: "Allam 2 7B",
+        capabilities: ["completion"],
       },
     ];
     return Promise.resolve(groqModels);
