@@ -34,7 +34,7 @@ struct Cli {
     quiet: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 struct WryJupyterMessage {
     // Note: I skipped zmq_identities, thinking we don't need them for this
     header: Header,
@@ -43,10 +43,41 @@ struct WryJupyterMessage {
     content: JupyterMessageContent,
     #[serde(
         serialize_with = "serialize_base64",
-        deserialize_with = "deserialize_base64"
     )]
     buffers: Vec<Bytes>,
     channel: Option<Channel>,
+}
+
+impl <'de> Deserialize<'de> for WryJupyterMessage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct WryJupyterMessageHelper {
+            header: Header,
+            parent_header: Option<Header>,
+            metadata: Value,
+            content: Value,
+            #[serde(
+                deserialize_with = "deserialize_base64"
+            )]
+            buffers: Vec<Bytes>,
+            channel: Option<Channel>,
+        }
+
+        let helper = WryJupyterMessageHelper::deserialize(deserializer)?;
+        let content: JupyterMessageContent = JupyterMessageContent::from_type_and_content(&helper.header.msg_type ,helper.content).map_err(serde::de::Error::custom)?;
+
+        Ok(WryJupyterMessage {
+            header: helper.header,
+            parent_header: helper.parent_header,
+            metadata: helper.metadata,
+            content: content,
+            buffers: helper.buffers,
+            channel: helper.channel,
+        })
+    }
 }
 
 impl From<JupyterMessage> for WryJupyterMessage {
