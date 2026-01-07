@@ -1,6 +1,6 @@
 [package]
 name = "runt-cli"
-version = "0.4.1"
+version = "1.0.0"
 edition = "2021"
 description = "CLI for Jupyter Runtimes"
 repository = "https://github.com/runtimed/runtimed"

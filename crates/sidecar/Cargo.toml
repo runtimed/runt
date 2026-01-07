@@ -1,6 +1,6 @@
 [package]
 name = "sidecar"
-version = "0.9.1"
+version = "1.0.0"
 edition = "2021"
 description = "Sidecar jupyter outputs"
 repository = "https://github.com/runtimed/runtimed"
