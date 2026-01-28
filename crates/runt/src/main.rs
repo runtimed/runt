@@ -25,19 +25,16 @@ enum Commands {
     /// Start a kernel given a name
     Start {
         /// The name of the kernel to launch (e.g., python3, julia)
-        #[arg(short, long)]
         name: String,
     },
     /// Stop a kernel given an ID
     Stop {
         /// The ID of the kernel to stop
-        #[arg(short, long)]
         id: String,
     },
     /// Interrupt a kernel given an ID
     Interrupt {
         /// The ID of the kernel to interrupt
-        #[arg(short, long)]
         id: String,
     },
 }
