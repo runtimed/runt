@@ -119,7 +119,7 @@ async fn start_kernel(name: &str) -> Result<()> {
     fs::create_dir_all(&runtime_dir).await?;
 
     let kernel_id = Uuid::new_v4();
-    let connection_file = runtime_dir.join(format!("kernel-{}.json", kernel_id));
+    let connection_file = runtime_dir.join(format!("runt-kernel-{}.json", kernel_id));
     let content = serde_json::to_string(&connection_info)?;
     fs::write(&connection_file, &content).await?;
 
