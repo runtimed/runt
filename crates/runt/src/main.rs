@@ -1,7 +1,11 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use jupyter_protocol::connection_info::Transport;
-use runtimelib::{runtime_dir, ConnectionInfo};
+use runtimelib::{
+    create_client_control_connection, runtime_dir, ConnectionInfo, InterruptReply,
+    InterruptRequest, JupyterMessage, JupyterMessageContent, ReplyStatus, ShutdownReply,
+    ShutdownRequest,
+};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use tokio::fs;
@@ -21,8 +25,17 @@ enum Commands {
     /// Start a kernel given a name
     Start {
         /// The name of the kernel to launch (e.g., python3, julia)
-        #[arg(short, long)]
         name: String,
+    },
+    /// Stop a kernel given an ID
+    Stop {
+        /// The ID of the kernel to stop
+        id: String,
+    },
+    /// Interrupt a kernel given an ID
+    Interrupt {
+        /// The ID of the kernel to interrupt
+        id: String,
     },
 }
 
@@ -33,6 +46,8 @@ async fn main() -> Result<()> {
     match &cli.command {
         Some(Commands::Ps) => list_kernels().await?,
         Some(Commands::Start { name }) => start_kernel(name).await?,
+        Some(Commands::Stop { id }) => stop_kernel(id).await?,
+        Some(Commands::Interrupt { id }) => interrupt_kernel(id).await?,
         None => println!("No command specified. Use --help for usage information."),
     }
 
@@ -132,6 +147,89 @@ async fn start_kernel(name: &str) -> Result<()> {
 
     println!("Kernel started with ID: {}", kernel_id);
     println!("Connection file: {}", connection_file.display());
+
+    Ok(())
+}
+
+async fn stop_kernel(id: &str) -> Result<()> {
+    let runtime_dir = runtime_dir();
+    let connection_file = runtime_dir.join(format!("runt-kernel-{}.json", id));
+
+    if !connection_file.exists() {
+        return Err(anyhow!("Kernel with ID {} not found", id));
+    }
+
+    let content = fs::read_to_string(&connection_file).await?;
+    let connection_info: ConnectionInfo = serde_json::from_str(&content)?;
+
+    let session_id = Uuid::new_v4().to_string();
+    let mut control_connection =
+        create_client_control_connection(&connection_info, &session_id).await?;
+
+    let shutdown_request = ShutdownRequest { restart: false };
+    let message: JupyterMessage = shutdown_request.into();
+
+    control_connection.send(message).await?;
+
+    let reply = control_connection.read().await?;
+
+    match reply.content {
+        JupyterMessageContent::ShutdownReply(ShutdownReply { status, .. }) => {
+            if status == ReplyStatus::Ok {
+                fs::remove_file(&connection_file).await?;
+                println!("Kernel with ID {} stopped", id);
+            } else {
+                return Err(anyhow!("Kernel shutdown failed with status: {:?}", status));
+            }
+        }
+        _ => {
+            return Err(anyhow!(
+                "Unexpected reply type: {:?}",
+                reply.content.message_type()
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+async fn interrupt_kernel(id: &str) -> Result<()> {
+    let runtime_dir = runtime_dir();
+    let connection_file = runtime_dir.join(format!("runt-kernel-{}.json", id));
+
+    if !connection_file.exists() {
+        return Err(anyhow!("Kernel with ID {} not found", id));
+    }
+
+    let content = fs::read_to_string(&connection_file).await?;
+    let connection_info: ConnectionInfo = serde_json::from_str(&content)?;
+
+    let session_id = Uuid::new_v4().to_string();
+    let mut control_connection =
+        create_client_control_connection(&connection_info, &session_id).await?;
+
+    let interrupt_request = InterruptRequest {};
+    let message: JupyterMessage = interrupt_request.into();
+
+    control_connection.send(message).await?;
+
+    let reply = control_connection.read().await?;
+
+    match reply.content {
+        JupyterMessageContent::InterruptReply(InterruptReply { status, .. }) => {
+            if status == ReplyStatus::Ok {
+                println!("Kernel with ID {} interrupted", id);
+            } else {
+                return Err(anyhow!("Kernel interrupt failed with status: {:?}", status));
+            }
+        }
+        _ => {
+            return Err(anyhow!(
+                "Unexpected reply type: {:?}",
+                reply.content.message_type()
+            ));
+        }
+    }
 
     Ok(())
 }
