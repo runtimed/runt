@@ -124,20 +124,14 @@ async fn start_kernel(name: &str) -> Result<()> {
     fs::write(&connection_file, &content).await?;
 
     let current_dir = std::env::current_dir()?;
-    let mut child = kernelspec
+    kernelspec
         .command(&connection_file, None, None)?
         .current_dir(&current_dir)
-        .kill_on_drop(true)
         .spawn()
         .map_err(|e| anyhow!("Failed to spawn kernel process with argv {:?}: {}", argv, e))?;
 
     println!("Kernel started with ID: {}", kernel_id);
     println!("Connection file: {}", connection_file.display());
-
-    let status = child.wait().await?;
-    if !status.success() {
-        return Err(anyhow!("Kernel process exited with status: {}", status));
-    }
 
     Ok(())
 }
