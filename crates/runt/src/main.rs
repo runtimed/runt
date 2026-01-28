@@ -1,8 +1,11 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
+use jupyter_protocol::connection_info::Transport;
 use runtimelib::{runtime_dir, ConnectionInfo};
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use tokio::fs;
+use uuid::Uuid;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -15,6 +18,12 @@ struct Cli {
 enum Commands {
     /// List currently running kernels
     Ps,
+    /// Start a kernel given a name
+    Start {
+        /// The name of the kernel to launch (e.g., python3, julia)
+        #[arg(short, long)]
+        name: String,
+    },
 }
 
 #[tokio::main]
@@ -23,6 +32,7 @@ async fn main() -> Result<()> {
 
     match &cli.command {
         Some(Commands::Ps) => list_kernels().await?,
+        Some(Commands::Start { name }) => start_kernel(name).await?,
         None => println!("No command specified. Use --help for usage information."),
     }
 
@@ -83,4 +93,45 @@ fn print_kernel_info(path: &PathBuf, info: &ConnectionInfo) {
         info.key,
         info.signature_scheme
     );
+}
+
+async fn start_kernel(name: &str) -> Result<()> {
+    let kernelspec = runtimelib::find_kernelspec(name).await?;
+    let argv = kernelspec.kernelspec.argv.clone();
+
+    let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+    let ports = runtimelib::peek_ports(ip, 5).await?;
+
+    let connection_info = ConnectionInfo {
+        transport: Transport::TCP,
+        ip: ip.to_string(),
+        stdin_port: ports[0],
+        control_port: ports[1],
+        hb_port: ports[2],
+        shell_port: ports[3],
+        iopub_port: ports[4],
+        signature_scheme: "hmac-sha256".to_string(),
+        key: Uuid::new_v4().to_string(),
+        kernel_name: Some(name.to_string()),
+    };
+
+    let runtime_dir = runtime_dir();
+    fs::create_dir_all(&runtime_dir).await?;
+
+    let kernel_id = Uuid::new_v4();
+    let connection_file = runtime_dir.join(format!("runt-kernel-{}.json", kernel_id));
+    let content = serde_json::to_string(&connection_info)?;
+    fs::write(&connection_file, &content).await?;
+
+    let current_dir = std::env::current_dir()?;
+    kernelspec
+        .command(&connection_file, None, None)?
+        .current_dir(&current_dir)
+        .spawn()
+        .map_err(|e| anyhow!("Failed to spawn kernel process with argv {:?}: {}", argv, e))?;
+
+    println!("Kernel started with ID: {}", kernel_id);
+    println!("Connection file: {}", connection_file.display());
+
+    Ok(())
 }
