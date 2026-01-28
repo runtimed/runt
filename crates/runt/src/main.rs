@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
 }
 
 async fn list_kernels() -> Result<()> {
-    let runtime_dir = runtime_dir().await;
+    let runtime_dir = runtime_dir();
     let mut entries = fs::read_dir(runtime_dir).await?;
 
     println!(
@@ -115,7 +115,7 @@ async fn start_kernel(name: &str) -> Result<()> {
         kernel_name: Some(name.to_string()),
     };
 
-    let runtime_dir = runtime_dir().await;
+    let runtime_dir = runtime_dir();
     fs::create_dir_all(&runtime_dir).await?;
 
     let kernel_id = Uuid::new_v4();
