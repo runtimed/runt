@@ -1,13 +1,14 @@
 use std::path::{Path, PathBuf};
 
 use jupyter_protocol::{
-    ConnectionInfo, InterruptRequest, JupyterMessage, JupyterMessageContent, ReplyStatus,
-    ShutdownRequest,
+    ConnectionInfo, ExecuteReply, ExecuteRequest, InterruptRequest, JupyterMessage,
+    JupyterMessageContent, ReplyStatus, ShutdownRequest,
 };
 use uuid::Uuid;
 
 use runtimelib::{
-    create_client_control_connection, peek_ports, runtime_dir, KernelspecDir, Result, RuntimeError,
+    create_client_control_connection, create_client_iopub_connection, create_client_shell_connection,
+    peek_ports, runtime_dir, KernelspecDir, Result, RuntimeError,
 };
 
 pub struct KernelClient {
@@ -138,6 +139,50 @@ impl KernelClient {
         Ok(())
     }
 
+    pub async fn execute<F>(&self, code: &str, mut on_iopub: F) -> Result<ExecuteReply>
+    where
+        F: FnMut(JupyterMessageContent),
+    {
+        let mut shell =
+            create_client_shell_connection(&self.connection_info, &self.session_id).await?;
+        let mut iopub =
+            create_client_iopub_connection(&self.connection_info, "", &self.session_id).await?;
+
+        let message: JupyterMessage = ExecuteRequest::new(code.to_string()).into();
+        let message_id = message.header.msg_id.clone();
+        shell.send(message).await?;
+
+        loop {
+            tokio::select! {
+                shell_msg = shell.read() => {
+                    let msg = shell_msg?;
+                    let is_parent = msg
+                        .parent_header
+                        .as_ref()
+                        .map(|parent| parent.msg_id.as_str())
+                        == Some(message_id.as_str());
+                    if !is_parent {
+                        continue;
+                    }
+                    if let JupyterMessageContent::ExecuteReply(reply) = msg.content {
+                        return Ok(reply);
+                    }
+                }
+                iopub_msg = iopub.read() => {
+                    let msg = iopub_msg?;
+                    let is_parent = msg
+                        .parent_header
+                        .as_ref()
+                        .map(|parent| parent.msg_id.as_str())
+                        == Some(message_id.as_str());
+                    if !is_parent {
+                        continue;
+                    }
+                    on_iopub(msg.content);
+                }
+            }
+        }
+    }
 }
 
 fn extract_kernel_id(path: &Path) -> Option<Uuid> {

@@ -33,6 +33,13 @@ enum Commands {
         /// The ID of the kernel to interrupt
         id: String,
     },
+    /// Execute code in a kernel given an ID
+    Exec {
+        /// The ID of the kernel to execute code in
+        id: String,
+        /// The code to execute (reads from stdin if not provided)
+        code: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -44,6 +51,7 @@ async fn main() -> Result<()> {
         Some(Commands::Start { name }) => start_kernel(name).await?,
         Some(Commands::Stop { id }) => stop_kernel(id).await?,
         Some(Commands::Interrupt { id }) => interrupt_kernel(id).await?,
+        Some(Commands::Exec { id, code }) => execute_code(id, code.as_deref()).await?,
         None => println!("No command specified. Use --help for usage information."),
     }
 
@@ -128,5 +136,58 @@ async fn interrupt_kernel(id: &str) -> Result<()> {
     let mut client = KernelClient::from_connection_file(&connection_file).await?;
     client.interrupt().await?;
     println!("Interrupt sent to kernel {}", id);
+    Ok(())
+}
+
+async fn execute_code(id: &str, code: Option<&str>) -> Result<()> {
+    use jupyter_protocol::{JupyterMessageContent, MediaType, ReplyStatus, Stdio};
+    use std::io::{self, Read, Write};
+
+    let code = match code {
+        Some(c) => c.to_string(),
+        None => {
+            let mut buffer = String::new();
+            io::stdin().read_to_string(&mut buffer)?;
+            buffer
+        }
+    };
+
+    let connection_file = runtime_dir().join(format!("runt-kernel-{}.json", id));
+    let client = KernelClient::from_connection_file(&connection_file).await?;
+
+    let reply = client
+        .execute(&code, |content| match content {
+            JupyterMessageContent::StreamContent(stream) => match stream.name {
+                Stdio::Stdout => {
+                    print!("{}", stream.text);
+                    let _ = io::stdout().flush();
+                }
+                Stdio::Stderr => {
+                    eprint!("{}", stream.text);
+                    let _ = io::stderr().flush();
+                }
+            },
+            JupyterMessageContent::ExecuteResult(result) => {
+                for media_type in &result.data.content {
+                    if let MediaType::Plain(text) = media_type {
+                        println!("{}", text);
+                        break;
+                    }
+                }
+            }
+            JupyterMessageContent::ErrorOutput(error) => {
+                eprintln!("{}: {}", error.ename, error.evalue);
+                for line in &error.traceback {
+                    eprintln!("{}", line);
+                }
+            }
+            _ => {}
+        })
+        .await?;
+
+    if reply.status != ReplyStatus::Ok {
+        std::process::exit(1);
+    }
+
     Ok(())
 }
