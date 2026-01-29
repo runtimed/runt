@@ -1,15 +1,11 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
-use jupyter_protocol::connection_info::Transport;
-use runtimelib::{
-    create_client_control_connection, runtime_dir, ConnectionInfo, InterruptReply,
-    InterruptRequest, JupyterMessage, JupyterMessageContent, ReplyStatus, ShutdownReply,
-    ShutdownRequest,
-};
-use std::net::{IpAddr, Ipv4Addr};
+mod kernel_client;
+
+use crate::kernel_client::KernelClient;
+use runtimelib::{find_kernelspec, runtime_dir, ConnectionInfo};
 use std::path::PathBuf;
 use tokio::fs;
-use uuid::Uuid;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -111,125 +107,26 @@ fn print_kernel_info(path: &PathBuf, info: &ConnectionInfo) {
 }
 
 async fn start_kernel(name: &str) -> Result<()> {
-    let kernelspec = runtimelib::find_kernelspec(name).await?;
-    let argv = kernelspec.kernelspec.argv.clone();
-
-    let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-    let ports = runtimelib::peek_ports(ip, 5).await?;
-
-    let connection_info = ConnectionInfo {
-        transport: Transport::TCP,
-        ip: ip.to_string(),
-        stdin_port: ports[0],
-        control_port: ports[1],
-        hb_port: ports[2],
-        shell_port: ports[3],
-        iopub_port: ports[4],
-        signature_scheme: "hmac-sha256".to_string(),
-        key: Uuid::new_v4().to_string(),
-        kernel_name: Some(name.to_string()),
-    };
-
-    let runtime_dir = runtime_dir();
-    fs::create_dir_all(&runtime_dir).await?;
-
-    let kernel_id = Uuid::new_v4();
-    let connection_file = runtime_dir.join(format!("runt-kernel-{}.json", kernel_id));
-    let content = serde_json::to_string(&connection_info)?;
-    fs::write(&connection_file, &content).await?;
-
-    let current_dir = std::env::current_dir()?;
-    kernelspec
-        .command(&connection_file, None, None)?
-        .current_dir(&current_dir)
-        .spawn()
-        .map_err(|e| anyhow!("Failed to spawn kernel process with argv {:?}: {}", argv, e))?;
-
-    println!("Kernel started with ID: {}", kernel_id);
-    println!("Connection file: {}", connection_file.display());
+    let kernelspec = find_kernelspec(name).await?;
+    let client = KernelClient::start_from_kernelspec(kernelspec).await?;
+    println!("Kernel started with ID: {}", client.kernel_id());
+    println!("Connection file: {}", client.connection_file().display());
 
     Ok(())
 }
 
 async fn stop_kernel(id: &str) -> Result<()> {
-    let runtime_dir = runtime_dir();
-    let connection_file = runtime_dir.join(format!("runt-kernel-{}.json", id));
-
-    if !connection_file.exists() {
-        return Err(anyhow!("Kernel with ID {} not found", id));
-    }
-
-    let content = fs::read_to_string(&connection_file).await?;
-    let connection_info: ConnectionInfo = serde_json::from_str(&content)?;
-
-    let session_id = Uuid::new_v4().to_string();
-    let mut control_connection =
-        create_client_control_connection(&connection_info, &session_id).await?;
-
-    let shutdown_request = ShutdownRequest { restart: false };
-    let message: JupyterMessage = shutdown_request.into();
-
-    control_connection.send(message).await?;
-
-    let reply = control_connection.read().await?;
-
-    match reply.content {
-        JupyterMessageContent::ShutdownReply(ShutdownReply { status, .. }) => {
-            if status == ReplyStatus::Ok {
-                fs::remove_file(&connection_file).await?;
-                println!("Kernel with ID {} stopped", id);
-            } else {
-                return Err(anyhow!("Kernel shutdown failed with status: {:?}", status));
-            }
-        }
-        _ => {
-            return Err(anyhow!(
-                "Unexpected reply type: {:?}",
-                reply.content.message_type()
-            ));
-        }
-    }
-
+    let connection_file = runtime_dir().join(format!("runt-kernel-{}.json", id));
+    let mut client = KernelClient::from_connection_file(&connection_file).await?;
+    client.shutdown(false).await?;
+    println!("Kernel with ID {} stopped", id);
     Ok(())
 }
 
 async fn interrupt_kernel(id: &str) -> Result<()> {
-    let runtime_dir = runtime_dir();
-    let connection_file = runtime_dir.join(format!("runt-kernel-{}.json", id));
-
-    if !connection_file.exists() {
-        return Err(anyhow!("Kernel with ID {} not found", id));
-    }
-
-    let content = fs::read_to_string(&connection_file).await?;
-    let connection_info: ConnectionInfo = serde_json::from_str(&content)?;
-
-    let session_id = Uuid::new_v4().to_string();
-    let mut control_connection =
-        create_client_control_connection(&connection_info, &session_id).await?;
-
-    let interrupt_request = InterruptRequest {};
-    let message: JupyterMessage = interrupt_request.into();
-
-    control_connection.send(message).await?;
-
-    let reply = control_connection.read().await?;
-
-    match reply.content {
-        JupyterMessageContent::InterruptReply(InterruptReply { status, .. }) => {
-            if status == ReplyStatus::Ok {
-                println!("Kernel with ID {} interrupted", id);
-            } else {
-                return Err(anyhow!("Kernel interrupt failed with status: {:?}", status));
-            }
-        }
-        _ => {
-            return Err(anyhow!(
-                "Unexpected reply type: {:?}",
-                reply.content.message_type()
-            ));
-        }
-    }
-
+    let connection_file = runtime_dir().join(format!("runt-kernel-{}.json", id));
+    let mut client = KernelClient::from_connection_file(&connection_file).await?;
+    client.interrupt().await?;
+    println!("Interrupt sent to kernel {}", id);
     Ok(())
 }
