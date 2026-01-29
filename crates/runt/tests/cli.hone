@@ -1,0 +1,22 @@
+#! shell: /bin/bash
+#! timeout: 60s
+
+TEST "no command shows help message"
+RUN runt
+ASSERT exit_code == 0
+ASSERT stdout contains "No command specified. Use --help for usage information."
+
+TEST "help flag displays usage"
+RUN runt --help
+ASSERT exit_code == 0
+ASSERT stdout contains "Usage: runt [COMMAND]"
+
+TEST "version flag displays version"
+RUN runt --version
+ASSERT exit_code == 0
+ASSERT stdout matches /runt-cli \d+\.\d+\.\d+/
+
+TEST "invalid command fails"
+RUN runt invalid_command
+ASSERT exit_code != 0
+ASSERT stderr contains "error: unrecognized subcommand 'invalid_command'"

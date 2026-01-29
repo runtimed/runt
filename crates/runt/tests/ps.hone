@@ -1,0 +1,12 @@
+#! shell: /bin/bash
+#! timeout: 60s
+
+TEST "ps command runs successfully"
+RUN runt ps
+ASSERT exit_code == 0
+ASSERT stdout contains "KERNEL_NAME"
+
+TEST "ps help displays usage information"
+RUN runt ps --help
+ASSERT exit_code == 0
+ASSERT stdout contains "Usage: runt ps"
