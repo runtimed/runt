@@ -14,10 +14,9 @@ ASSERT stderr contains "No such file"
 TEST "interrupt with empty ID shows help"
 RUN runt interrupt
 ASSERT exit_code != 0
-ASSERT stderr contains "required"
+ASSERT stderr contains "Usage: runt interrupt <ID>"
 
 TEST "interrupt help displays usage information"
 RUN runt interrupt --help
 ASSERT exit_code == 0
-ASSERT stdout contains "id"
-ASSERT stdout contains "kernel"
+ASSERT stdout contains "Usage: runt interrupt <ID>"

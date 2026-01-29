@@ -4,17 +4,19 @@
 TEST "stop with non-existent kernel ID fails"
 RUN runt stop 00000000-0000-0000-0000-000000000000
 ASSERT exit_code != 0
+ASSERT stderr contains "No such file"
 
 TEST "stop with invalid UUID format fails"
 RUN runt stop invalid-id-format
 ASSERT exit_code != 0
+ASSERT stderr contains "No such file"
 
 TEST "stop with empty ID shows help"
-RUN runt stop 2>&1
+RUN runt stop
 ASSERT exit_code != 0
+ASSERT stderr contains "Usage: runt stop <ID>"
 
 TEST "stop help displays usage information"
 RUN runt stop --help
 ASSERT exit_code == 0
-ASSERT stdout contains "id"
-ASSERT stdout contains "kernel"
+ASSERT stdout contains "Usage: runt stop <ID>"

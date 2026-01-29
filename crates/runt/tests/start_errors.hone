@@ -4,15 +4,14 @@
 TEST "start with non-existent kernel name fails"
 RUN runt start nonexistent_kernel_xyz
 ASSERT exit_code != 0
-ASSERT stderr contains "not found"
+ASSERT stderr contains "Error: Kernel 'nonexistent_kernel_xyz' not found. Available kernels: ["python3"]"
 
 TEST "start with empty kernel name shows help"
 RUN runt start
 ASSERT exit_code != 0
-ASSERT stderr contains "required"
+ASSERT stderr contains "Usage: runt start <NAME>"
 
 TEST "start help displays usage information"
 RUN runt start --help
 ASSERT exit_code == 0
-ASSERT stdout contains "name"
-ASSERT stdout contains "kernel"
+ASSERT stdout contains "Usage: runt start <NAME>"

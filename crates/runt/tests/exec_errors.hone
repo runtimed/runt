@@ -14,10 +14,9 @@ ASSERT stderr contains "No such file"
 TEST "exec with empty ID shows help"
 RUN runt exec
 ASSERT exit_code != 0
-ASSERT stderr contains "required"
+ASSERT stderr contains "Usage: runt exec <ID> [CODE]"
 
 TEST "exec help displays usage information"
 RUN runt exec --help
 ASSERT exit_code == 0
-ASSERT stdout contains "id"
-ASSERT stdout contains "code"
+ASSERT stdout contains "Usage: runt exec <ID> [CODE]"

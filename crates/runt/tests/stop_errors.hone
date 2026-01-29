@@ -14,10 +14,9 @@ ASSERT stderr contains "No such file"
 TEST "stop with empty ID shows help"
 RUN runt stop
 ASSERT exit_code != 0
-ASSERT stderr contains "required"
+ASSERT stderr contains "Usage: runt stop <ID>"
 
 TEST "stop help displays usage information"
 RUN runt stop --help
 ASSERT exit_code == 0
-ASSERT stdout contains "id"
-ASSERT stdout contains "kernel"
+ASSERT stdout contains "Usage: runt stop <ID>"
