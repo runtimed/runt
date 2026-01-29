@@ -1,0 +1,20 @@
+#! shell: pwsh
+#! timeout: 120s
+
+TEST "interrupt with non-existent kernel ID fails"
+RUN runt interrupt 00000000-0000-0000-0000-000000000000
+ASSERT exit_code != 0
+
+TEST "interrupt with invalid UUID format fails"
+RUN runt interrupt not-a-valid-uuid
+ASSERT exit_code != 0
+
+TEST "interrupt with empty ID shows help"
+RUN runt interrupt 2>&1
+ASSERT exit_code != 0
+
+TEST "interrupt help displays usage information"
+RUN runt interrupt --help
+ASSERT exit_code == 0
+ASSERT stdout contains "id"
+ASSERT stdout contains "kernel"

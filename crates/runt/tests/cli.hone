@@ -1,0 +1,28 @@
+#! shell: /bin/bash
+#! timeout: 60s
+
+TEST "no command shows help message"
+RUN runt
+ASSERT exit_code == 0
+ASSERT stdout contains "No command specified"
+
+TEST "help flag displays usage"
+RUN runt --help
+ASSERT exit_code == 0
+ASSERT stdout contains "Usage"
+ASSERT stdout contains "Commands"
+ASSERT stdout contains "start"
+ASSERT stdout contains "stop"
+ASSERT stdout contains "interrupt"
+ASSERT stdout contains "exec"
+ASSERT stdout contains "ps"
+
+TEST "version flag displays version"
+RUN runt --version
+ASSERT exit_code == 0
+ASSERT stdout contains "runt"
+
+TEST "invalid command fails"
+RUN runt invalid_command
+ASSERT exit_code != 0
+ASSERT stderr contains "error"

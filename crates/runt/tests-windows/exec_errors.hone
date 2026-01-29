@@ -1,0 +1,20 @@
+#! shell: pwsh
+#! timeout: 120s
+
+TEST "exec with non-existent kernel ID fails"
+RUN runt exec 00000000-0000-0000-0000-000000000000 "print('hello')"
+ASSERT exit_code != 0
+
+TEST "exec with invalid UUID format fails"
+RUN runt exec bad-kernel-id "1+1"
+ASSERT exit_code != 0
+
+TEST "exec with empty ID shows help"
+RUN runt exec 2>&1
+ASSERT exit_code != 0
+
+TEST "exec help displays usage information"
+RUN runt exec --help
+ASSERT exit_code == 0
+ASSERT stdout contains "id"
+ASSERT stdout contains "code"

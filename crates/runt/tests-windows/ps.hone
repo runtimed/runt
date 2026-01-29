@@ -1,0 +1,15 @@
+#! shell: pwsh
+#! timeout: 120s
+
+TEST "ps command runs successfully"
+RUN runt ps
+ASSERT exit_code == 0
+ASSERT stdout contains "KERNEL_NAME"
+ASSERT stdout contains "IP"
+ASSERT stdout contains "SHELL"
+ASSERT stdout contains "IOPUB"
+
+TEST "ps help displays usage information"
+RUN runt ps --help
+ASSERT exit_code == 0
+ASSERT stdout contains "running kernels"

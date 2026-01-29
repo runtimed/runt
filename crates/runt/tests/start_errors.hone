@@ -1,0 +1,18 @@
+#! shell: /bin/bash
+#! timeout: 60s
+
+TEST "start with non-existent kernel name fails"
+RUN runt start nonexistent_kernel_xyz
+ASSERT exit_code != 0
+ASSERT stderr contains "not found"
+
+TEST "start with empty kernel name shows help"
+RUN runt start
+ASSERT exit_code != 0
+ASSERT stderr contains "required"
+
+TEST "start help displays usage information"
+RUN runt start --help
+ASSERT exit_code == 0
+ASSERT stdout contains "name"
+ASSERT stdout contains "kernel"
