@@ -24,7 +24,7 @@ ASSERT stderr contains "ValueError"
 TEST "stop kernel successfully"
 RUN KERNEL_ID=$(runt start python3 2>&1 | grep "Kernel started" | sed 's/.*ID: //') && sleep 2 && runt stop "$KERNEL_ID"
 ASSERT exit_code == 0
-ASSERT stdout matches /Kernel with ID [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} stopped/
+ASSERT stdout matches /Kernel with ID [a-z]+-[a-z]+ stopped/
 
 TEST "interrupt kernel successfully"
 RUN KERNEL_ID=$(runt start python3 2>&1 | grep "Kernel started" | sed 's/.*ID: //') && sleep 2 && runt interrupt "$KERNEL_ID"
