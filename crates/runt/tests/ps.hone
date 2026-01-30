@@ -10,3 +10,14 @@ TEST "ps help displays usage information"
 RUN runt ps --help
 ASSERT exit_code == 0
 ASSERT stdout contains "Usage: runt ps"
+
+TEST "ps help shows json flag"
+RUN runt ps --help
+ASSERT exit_code == 0
+ASSERT stdout contains "--json  Output in JSON format"
+
+TEST "ps --json outputs valid JSON array"
+RUN runt ps --json
+ASSERT exit_code == 0
+ASSERT stdout matches /^\[/
+ASSERT stdout matches /\]$/
