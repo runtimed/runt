@@ -4,6 +4,7 @@ use jupyter_protocol::{
     ConnectionInfo, ExecuteReply, ExecuteRequest, InterruptRequest, JupyterMessage,
     JupyterMessageContent, ReplyStatus, ShutdownRequest,
 };
+use petname::petname;
 use uuid::Uuid;
 
 use runtimelib::{
@@ -12,7 +13,7 @@ use runtimelib::{
 };
 
 pub struct KernelClient {
-    kernel_id: Uuid,
+    kernel_id: String,
     session_id: String,
     connection_info: ConnectionInfo,
     connection_file: PathBuf,
@@ -20,7 +21,7 @@ pub struct KernelClient {
 
 impl KernelClient {
     pub async fn start_from_kernelspec(kernelspec: KernelspecDir) -> Result<Self> {
-        let kernel_id = Uuid::new_v4();
+        let kernel_id = petname(2, "-").expect("failed to generate petname");
         let session_id = Uuid::new_v4().to_string();
         let key = Uuid::new_v4().to_string();
 
@@ -84,8 +85,8 @@ impl KernelClient {
         })
     }
 
-    pub fn kernel_id(&self) -> Uuid {
-        self.kernel_id
+    pub fn kernel_id(&self) -> &str {
+        &self.kernel_id
     }
 
     pub fn connection_file(&self) -> &Path {
@@ -185,8 +186,8 @@ impl KernelClient {
     }
 }
 
-fn extract_kernel_id(path: &Path) -> Option<Uuid> {
+fn extract_kernel_id(path: &Path) -> Option<String> {
     let file_stem = path.file_stem()?.to_string_lossy();
     let id_str = file_stem.strip_prefix("runt-kernel-")?;
-    Uuid::parse_str(id_str).ok()
+    Some(id_str.to_string())
 }
