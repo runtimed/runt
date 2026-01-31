@@ -80,10 +80,13 @@ async fn list_kernels(json_output: bool) -> Result<()> {
         let path = entry.path();
         if path.extension().and_then(|s| s.to_str()) == Some("json") {
             if let Ok(info) = read_connection_info(&path).await {
-                let name = path
+                let full_name = path
                     .file_stem()
                     .and_then(|s| s.to_str())
-                    .unwrap_or("unknown")
+                    .unwrap_or("unknown");
+                let name = full_name
+                    .strip_prefix("runt-kernel-")
+                    .unwrap_or(full_name)
                     .to_string();
                 kernels.push(KernelInfo {
                     name,
