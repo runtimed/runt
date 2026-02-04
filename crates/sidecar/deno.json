@@ -1,7 +1,0 @@
-{
-  "lock": false,
-  "compilerOptions": {
-    "checkJs": false,
-    "lib": ["dom", "dom.iterable", "esnext"]
-  }
-}

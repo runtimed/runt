@@ -37,6 +37,8 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@types/react": "^19.2.13",
+    "@types/react-dom": "^19.2.3",
     "typescript": "~5.8.3"
   }
 }

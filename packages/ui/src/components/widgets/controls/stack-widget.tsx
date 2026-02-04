@@ -7,7 +7,7 @@
  * displays only the child at `selected_index`.
  */
 
-import { cn } from "@/lib/utils";
+import { cn } from "@runtimed/ui/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import { parseModelRef, useWidgetModelValue } from "../widget-store-context";
 import { WidgetView } from "../widget-view";

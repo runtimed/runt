@@ -6,7 +6,7 @@
  * Maps to ipywidgets HBoxModel. Arranges children in a horizontal row.
  */
 
-import { cn } from "@/lib/utils";
+import { cn } from "@runtimed/ui/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import { parseModelRef, useWidgetModelValue } from "../widget-store-context";
 import { WidgetView } from "../widget-view";

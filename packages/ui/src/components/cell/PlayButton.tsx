@@ -1,6 +1,6 @@
 import { Loader2, Play, Square } from "lucide-react";
 import type React from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "@runtimed/ui/lib/utils";
 
 interface PlayButtonProps {
   executionState: "idle" | "queued" | "running" | "completed" | "error";

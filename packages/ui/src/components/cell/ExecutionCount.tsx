@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@runtimed/ui/lib/utils";
 
 interface ExecutionCountProps {
   count: number | null;

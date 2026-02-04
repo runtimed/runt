@@ -1,5 +1,5 @@
 import Ansi from "ansi-to-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@runtimed/ui/lib/utils";
 
 interface AnsiOutputProps {
   children: string;

@@ -17,7 +17,7 @@ import {
   useState,
 } from "react";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@runtimed/ui/lib/utils";
 import { defaultExtensions } from "./extensions";
 import { getLanguageExtension, type SupportedLanguage } from "./languages";
 import { darkTheme, isDarkMode, lightTheme, type ThemeMode } from "./themes";

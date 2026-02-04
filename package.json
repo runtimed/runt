@@ -1,0 +1,9 @@
+{
+  "name": "runtimed",
+  "private": true,
+  "packageManager": "pnpm@10.12.1",
+  "scripts": {
+    "build": "pnpm --dir packages/sidecar-ui build",
+    "ui:build": "pnpm --dir packages/sidecar-ui build"
+  }
+}

@@ -1,15 +1,15 @@
 "use client";
 
 import { Bot, ChevronDown, Code, Database, FileText } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@runtimed/ui/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
-import { type CellType, cellTypeStyles } from "@/components/cell/CellTypeButton";
+} from "@runtimed/ui/components/ui/dropdown-menu";
+import { cn } from "@runtimed/ui/lib/utils";
+import { type CellType, cellTypeStyles } from "@runtimed/ui/components/cell/CellTypeButton";
 
 const allCellTypes: CellType[] = ["code", "markdown", "sql", "ai"];
 

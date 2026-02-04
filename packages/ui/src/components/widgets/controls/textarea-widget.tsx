@@ -7,9 +7,9 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+import { Label } from "@runtimed/ui/components/ui/label";
+import { Textarea } from "@runtimed/ui/components/ui/textarea";
+import { cn } from "@runtimed/ui/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import {
   useWidgetModelValue,

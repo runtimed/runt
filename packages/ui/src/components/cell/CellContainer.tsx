@@ -1,5 +1,5 @@
 import { forwardRef, type ReactNode } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "@runtimed/ui/lib/utils";
 
 interface CellContainerProps {
   id: string;
