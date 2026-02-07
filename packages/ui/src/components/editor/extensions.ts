@@ -1,0 +1,107 @@
+import {
+  closeBrackets,
+  closeBracketsKeymap,
+  completionKeymap,
+} from "@codemirror/autocomplete";
+import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import {
+  bracketMatching,
+  defaultHighlightStyle,
+  indentOnInput,
+  syntaxHighlighting,
+} from "@codemirror/language";
+import { lintKeymap } from "@codemirror/lint";
+import { EditorState, type Extension } from "@codemirror/state";
+import {
+  crosshairCursor,
+  drawSelection,
+  dropCursor,
+  EditorView,
+  keymap,
+  rectangularSelection,
+} from "@codemirror/view";
+
+/**
+ * Custom editor styles for notebook contexts
+ */
+export const notebookEditorTheme = EditorView.theme({
+  // Transparent background so editor inherits from container
+  // (overrides theme's background)
+  "&.cm-editor": {
+    backgroundColor: "transparent",
+  },
+  // Remove focus dotted outline
+  "&.cm-focused": {
+    outline: "none",
+  },
+  // Mobile-friendly padding
+  "@media (max-width: 640px)": {
+    ".cm-content": {
+      padding: "0.75rem 0.5rem",
+    },
+  },
+  // Slightly thicker cursor for better visibility
+  ".cm-cursor": {
+    borderLeftWidth: "2px",
+  },
+});
+
+/**
+ * Core editor setup with all standard features
+ * Includes: history, bracket matching, autocomplete, syntax highlighting
+ */
+export const coreSetup: Extension = (() => [
+  history(),
+  drawSelection(),
+  dropCursor(),
+  EditorState.allowMultipleSelections.of(true),
+  indentOnInput(),
+  syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+  bracketMatching(),
+  closeBrackets(),
+  rectangularSelection(),
+  crosshairCursor(),
+  keymap.of([
+    ...closeBracketsKeymap,
+    ...defaultKeymap,
+    ...historyKeymap,
+    ...completionKeymap,
+    ...lintKeymap,
+  ]),
+  notebookEditorTheme,
+])();
+
+/**
+ * Minimal editor setup without autocomplete
+ * Useful for AI prompts or simple text input
+ */
+export const minimalSetup: Extension = (() => [
+  history(),
+  drawSelection(),
+  dropCursor(),
+  EditorState.allowMultipleSelections.of(true),
+  indentOnInput(),
+  syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+  bracketMatching(),
+  closeBrackets(),
+  rectangularSelection(),
+  crosshairCursor(),
+  keymap.of([
+    ...closeBracketsKeymap,
+    ...defaultKeymap,
+    ...historyKeymap,
+    ...lintKeymap,
+  ]),
+  notebookEditorTheme,
+])();
+
+/**
+ * Default extensions bundle for notebook cells
+ * Uses core setup - add your own theme on top
+ */
+export const defaultExtensions: Extension[] = [coreSetup];
+
+/**
+ * Extensions bundle without autocomplete
+ */
+export const minimalExtensions: Extension[] = [minimalSetup];
