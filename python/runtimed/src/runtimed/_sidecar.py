@@ -9,12 +9,44 @@ from typing import Optional, Union
 from runtimed._binary import find_binary
 
 
+class Sidecar:
+    """Handle to a running sidecar viewer process."""
+
+    def __init__(self, process: subprocess.Popen, connection_file: Path) -> None:
+        self._process = process
+        self._connection_file = connection_file
+
+    @property
+    def process(self) -> subprocess.Popen:
+        """The underlying subprocess."""
+        return self._process
+
+    @property
+    def connection_file(self) -> Path:
+        """Path to the kernel connection file."""
+        return self._connection_file
+
+    @property
+    def running(self) -> bool:
+        """Whether the sidecar process is still running."""
+        return self._process.poll() is None
+
+    def close(self) -> None:
+        """Terminate the sidecar process."""
+        self._process.terminate()
+
+    def __repr__(self) -> str:
+        status = "running" if self.running else f"exited ({self._process.returncode})"
+        kernel = self._connection_file.stem
+        return f"Sidecar({kernel}, {status})"
+
+
 def sidecar(
     connection_file: Optional[Union[str, Path]] = None,
     *,
     quiet: bool = True,
     dump: Optional[Union[str, Path]] = None,
-) -> subprocess.Popen:
+) -> Sidecar:
     """Launch the sidecar viewer for a running Jupyter kernel.
 
     When called with no arguments from within a running IPython kernel,
@@ -28,7 +60,7 @@ def sidecar(
         dump: Optional path to dump all Jupyter messages as JSON.
 
     Returns:
-        The subprocess.Popen instance for the sidecar process.
+        A Sidecar handle for the running viewer process.
 
     Raises:
         RuntimeError: If connection_file is None and no running kernel
@@ -40,12 +72,12 @@ def sidecar(
         In a Jupyter console or notebook cell::
 
             import runtimed
-            proc = runtimed.sidecar()
+            s = runtimed.sidecar()
 
         With an explicit connection file::
 
             import runtimed
-            proc = runtimed.sidecar("/path/to/kernel-12345.json")
+            s = runtimed.sidecar("/path/to/kernel-12345.json")
     """
     if connection_file is None:
         connection_file = _get_kernel_connection_file()
@@ -71,7 +103,7 @@ def sidecar(
         stderr=subprocess.PIPE,
     )
 
-    return proc
+    return Sidecar(proc, connection_path)
 
 
 def _get_kernel_connection_file() -> str:

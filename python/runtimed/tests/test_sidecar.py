@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from runtimed._sidecar import sidecar
+from runtimed._sidecar import Sidecar, sidecar
 
 
 def test_sidecar_with_explicit_connection_file(tmp_path):
@@ -13,11 +13,16 @@ def test_sidecar_with_explicit_connection_file(tmp_path):
     conn_file.write_text('{"key": "test"}')
 
     mock_popen = MagicMock()
+    mock_popen.poll.return_value = None
     with patch("runtimed._sidecar.find_binary", return_value="/usr/bin/runt"), \
          patch("subprocess.Popen", return_value=mock_popen) as popen_call:
         result = sidecar(str(conn_file))
 
-        assert result is mock_popen
+        assert isinstance(result, Sidecar)
+        assert result.process is mock_popen
+        assert result.running is True
+        assert "kernel" in repr(result)
+        assert "running" in repr(result)
         popen_call.assert_called_once()
         cmd = popen_call.call_args[0][0]
         assert cmd[0] == "/usr/bin/runt"
@@ -68,3 +73,30 @@ def test_sidecar_auto_detect_no_ipykernel():
     with patch.dict("sys.modules", {"ipykernel": None, "ipykernel.connect": None}):
         with pytest.raises(RuntimeError, match="ipykernel"):
             sidecar()
+
+
+def test_sidecar_close(tmp_path):
+    """Close terminates the sidecar process."""
+    conn_file = tmp_path / "kernel.json"
+    conn_file.write_text('{"key": "test"}')
+
+    mock_popen = MagicMock()
+    with patch("runtimed._sidecar.find_binary", return_value="/usr/bin/runt"), \
+         patch("subprocess.Popen", return_value=mock_popen):
+        s = sidecar(str(conn_file))
+        s.close()
+        mock_popen.terminate.assert_called_once()
+
+
+def test_sidecar_repr_exited(tmp_path):
+    """Repr shows exited status when process has ended."""
+    conn_file = tmp_path / "kernel.json"
+    conn_file.write_text('{"key": "test"}')
+
+    mock_popen = MagicMock()
+    mock_popen.poll.return_value = 0
+    mock_popen.returncode = 0
+    with patch("runtimed._sidecar.find_binary", return_value="/usr/bin/runt"), \
+         patch("subprocess.Popen", return_value=mock_popen):
+        s = sidecar(str(conn_file))
+        assert "exited (0)" in repr(s)
