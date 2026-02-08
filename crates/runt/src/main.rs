@@ -1,10 +1,13 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use serde::Serialize;
+use std::time::Duration;
 mod kernel_client;
 
 use crate::kernel_client::KernelClient;
-use runtimelib::{find_kernelspec, runtime_dir, ConnectionInfo};
+use runtimelib::{
+    create_client_heartbeat_connection, find_kernelspec, runtime_dir, ConnectionInfo,
+};
 use std::path::PathBuf;
 use tokio::fs;
 
@@ -63,6 +66,15 @@ enum Commands {
         #[arg(long)]
         dump: Option<PathBuf>,
     },
+    /// Remove stale kernel connection files for kernels that are no longer running
+    Clean {
+        /// Timeout in seconds for heartbeat check (default: 2)
+        #[arg(long, default_value = "2")]
+        timeout: u64,
+        /// Perform a dry run without actually removing files
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -89,6 +101,7 @@ async fn async_main(command: Option<Commands>) -> Result<()> {
         Some(Commands::Interrupt { id }) => interrupt_kernel(&id).await?,
         Some(Commands::Exec { id, code }) => execute_code(&id, code.as_deref()).await?,
         Some(Commands::Sidecar { .. }) => unreachable!(),
+        Some(Commands::Clean { timeout, dry_run }) => clean_kernels(timeout, dry_run).await?,
         None => println!("No command specified. Use --help for usage information."),
     }
 
@@ -191,6 +204,77 @@ async fn interrupt_kernel(id: &str) -> Result<()> {
     client.interrupt().await?;
     println!("Interrupt sent to kernel {}", id);
     Ok(())
+}
+
+async fn clean_kernels(timeout_secs: u64, dry_run: bool) -> Result<()> {
+    let runtime_dir = runtime_dir();
+    let mut entries = fs::read_dir(&runtime_dir).await?;
+
+    let timeout = Duration::from_secs(timeout_secs);
+    let mut cleaned = 0;
+    let mut alive = 0;
+    let mut errors = 0;
+
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+
+        // Only process kernel-*.json and runt-kernel-*.json files
+        let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        let is_kernel_file =
+            file_name.starts_with("kernel-") || file_name.starts_with("runt-kernel-");
+        if !is_kernel_file || path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+
+        let connection_info = match read_connection_info(&path).await {
+            Ok(info) => info,
+            Err(_) => {
+                errors += 1;
+                continue;
+            }
+        };
+
+        let is_alive = check_kernel_alive(&connection_info, timeout).await;
+
+        if is_alive {
+            alive += 1;
+        } else {
+            if dry_run {
+                println!("Would remove: {}", path.display());
+            } else if let Err(e) = fs::remove_file(&path).await {
+                eprintln!("Failed to remove {}: {}", path.display(), e);
+                errors += 1;
+            } else {
+                println!("Removed: {}", path.display());
+            }
+            cleaned += 1;
+        }
+    }
+
+    println!();
+    if dry_run {
+        println!(
+            "Dry run complete: {} stale, {} alive, {} errors",
+            cleaned, alive, errors
+        );
+    } else {
+        println!(
+            "Cleaned {} stale connection files ({} alive, {} errors)",
+            cleaned, alive, errors
+        );
+    }
+
+    Ok(())
+}
+
+async fn check_kernel_alive(connection_info: &ConnectionInfo, timeout: Duration) -> bool {
+    let heartbeat_result = tokio::time::timeout(timeout, async {
+        let mut hb = create_client_heartbeat_connection(connection_info).await?;
+        hb.single_heartbeat().await
+    })
+    .await;
+
+    matches!(heartbeat_result, Ok(Ok(())))
 }
 
 async fn execute_code(id: &str, code: Option<&str>) -> Result<()> {
