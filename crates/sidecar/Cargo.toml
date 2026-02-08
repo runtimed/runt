@@ -19,15 +19,19 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 jupyter-protocol = { workspace = true }
 runtimelib = { workspace = true, features = [
-    "async-dispatcher-runtime",
+    "tokio-runtime",
     "ring"
 ], default-features = false }
 futures = { workspace = true }
 querystring = "1.1.0"
 tao = "0.31.0"
 wry = "0.47.0"
-smol = "2"
+tokio = { version = "1", features = ["full"] }
 uuid = { workspace = true }
+
+[lib]
+name = "sidecar"
+path = "src/lib.rs"
 
 [[bin]]
 path = "src/main.rs"

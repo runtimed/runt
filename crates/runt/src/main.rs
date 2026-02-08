@@ -55,6 +55,17 @@ enum Commands {
         /// The code to execute (reads from stdin if not provided)
         code: Option<String>,
     },
+    /// Launch the sidecar viewer for a kernel
+    Sidecar {
+        /// Path to a kernel connection file
+        file: PathBuf,
+        /// Suppress output
+        #[arg(short, long)]
+        quiet: bool,
+        /// Dump all messages to a JSON file
+        #[arg(long)]
+        dump: Option<PathBuf>,
+    },
     /// Remove stale kernel connection files for kernels that are no longer running
     Clean {
         /// Timeout in seconds for heartbeat check (default: 2)
@@ -66,17 +77,31 @@ enum Commands {
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    match &cli.command {
-        Some(Commands::Ps { json }) => list_kernels(*json).await?,
-        Some(Commands::Start { name }) => start_kernel(name).await?,
-        Some(Commands::Stop { id }) => stop_kernel(id).await?,
-        Some(Commands::Interrupt { id }) => interrupt_kernel(id).await?,
-        Some(Commands::Exec { id, code }) => execute_code(id, code.as_deref()).await?,
-        Some(Commands::Clean { timeout, dry_run }) => clean_kernels(*timeout, *dry_run).await?,
+    match cli.command {
+        Some(Commands::Sidecar { file, quiet, dump }) => {
+            // Sidecar runs a tao event loop on the main thread (no tokio needed)
+            sidecar::launch(&file, quiet, dump.as_deref())
+        }
+        other => {
+            // All other subcommands use tokio
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async_main(other))
+        }
+    }
+}
+
+async fn async_main(command: Option<Commands>) -> Result<()> {
+    match command {
+        Some(Commands::Ps { json }) => list_kernels(json).await?,
+        Some(Commands::Start { name }) => start_kernel(&name).await?,
+        Some(Commands::Stop { id }) => stop_kernel(&id).await?,
+        Some(Commands::Interrupt { id }) => interrupt_kernel(&id).await?,
+        Some(Commands::Exec { id, code }) => execute_code(&id, code.as_deref()).await?,
+        Some(Commands::Sidecar { .. }) => unreachable!(),
+        Some(Commands::Clean { timeout, dry_run }) => clean_kernels(timeout, dry_run).await?,
         None => println!("No command specified. Use --help for usage information."),
     }
 
