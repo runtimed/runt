@@ -3,6 +3,15 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
+  "exports": {
+    "./lib/*": "./src/lib/*.ts",
+    "./components/ui/*": "./src/components/ui/*.tsx",
+    "./components/outputs/*": "./src/components/outputs/*.tsx",
+    "./components/cell/*": "./src/components/cell/*.tsx",
+    "./components/widgets/controls": "./src/components/widgets/controls/index.ts",
+    "./components/widgets/ipycanvas": "./src/components/widgets/ipycanvas/index.ts",
+    "./components/widgets/*": "./src/components/widgets/*.tsx"
+  },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.0",
     "@codemirror/commands": "^6.10.2",
@@ -15,7 +24,7 @@
     "@codemirror/language": "^6.12.1",
     "@codemirror/lint": "^6.9.3",
     "@codemirror/state": "^6.5.4",
-    "@codemirror/view": "^6.39.12",
+    "@codemirror/view": "^6.39.13",
     "@uiw/codemirror-theme-github": "^4.25.4",
     "@uiw/react-codemirror": "^4.25.4",
     "@uiw/react-json-view": "^2.0.0-alpha.41",

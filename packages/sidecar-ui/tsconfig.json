@@ -24,8 +24,7 @@
     /* Path aliases */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"],
-      "@runtimed/ui/*": ["../ui/src/*"]
+      "@/*": ["./src/*", "../ui/src/*"]
     }
   },
   "include": ["src"]

@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useRef } from "react";
-import { cn } from "@runtimed/ui/lib/utils";
+import { cn } from "@/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import {
   useWidgetModelValue,

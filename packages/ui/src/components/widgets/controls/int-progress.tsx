@@ -6,9 +6,9 @@
  * Maps to ipywidgets IntProgressModel.
  */
 
-import { Label } from "@runtimed/ui/components/ui/label";
-import { Progress } from "@runtimed/ui/components/ui/progress";
-import { cn } from "@runtimed/ui/lib/utils";
+import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import { useWidgetModelValue } from "../widget-store-context";
 

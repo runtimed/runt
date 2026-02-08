@@ -1,5 +1,5 @@
 import type React from "react";
-import { Badge } from "@runtimed/ui/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 
 interface ExecutionStatusProps {
   executionState: string;

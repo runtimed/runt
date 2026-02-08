@@ -9,8 +9,8 @@
  * is inherited from MediaProvider context if present.
  */
 
-import { cn } from "@runtimed/ui/lib/utils";
-import { type JupyterOutput, OutputArea } from "@runtimed/ui/components/cell/OutputArea";
+import { cn } from "@/lib/utils";
+import { type JupyterOutput, OutputArea } from "@/components/cell/OutputArea";
 import type { WidgetComponentProps } from "../widget-registry";
 import { useWidgetModelValue } from "../widget-store-context";
 

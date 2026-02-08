@@ -12,11 +12,11 @@
   },
   "iconLibrary": "lucide",
   "aliases": {
-    "components": "@runtimed/ui/components",
-    "utils": "@runtimed/ui/lib/utils",
-    "ui": "@runtimed/ui/components/ui",
-    "lib": "@runtimed/ui/lib",
-    "hooks": "@runtimed/ui/hooks"
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
   },
   "registries": {
     "@nteract": "https://nteract-elements.vercel.app/r/{name}.json"

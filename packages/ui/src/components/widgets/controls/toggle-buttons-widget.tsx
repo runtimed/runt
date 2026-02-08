@@ -6,9 +6,9 @@
  * Maps to ipywidgets ToggleButtonsModel.
  */
 
-import { Label } from "@runtimed/ui/components/ui/label";
-import { ToggleGroup, ToggleGroupItem } from "@runtimed/ui/components/ui/toggle-group";
-import { cn } from "@runtimed/ui/lib/utils";
+import { Label } from "@/components/ui/label";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import {
   useWidgetModelValue,

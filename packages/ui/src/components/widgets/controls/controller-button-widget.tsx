@@ -6,7 +6,7 @@
  * Maps to ipywidgets ControllerButtonModel.
  */
 
-import { cn } from "@runtimed/ui/lib/utils";
+import { cn } from "@/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import { useWidgetModelValue } from "../widget-store-context";
 

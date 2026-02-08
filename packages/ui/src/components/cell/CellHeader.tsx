@@ -1,6 +1,6 @@
 import type React from "react";
 import type { ReactNode } from "react";
-import { cn } from "@runtimed/ui/lib/utils";
+import { cn } from "@/lib/utils";
 
 interface CellHeaderProps {
   className?: string;

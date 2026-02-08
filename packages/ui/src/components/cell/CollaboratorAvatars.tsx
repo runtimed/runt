@@ -7,12 +7,12 @@ import {
   AvatarGroup,
   AvatarGroupCount,
   AvatarImage,
-} from "@runtimed/ui/components/ui/avatar";
+} from "@/components/ui/avatar";
 import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
-} from "@runtimed/ui/components/ui/hover-card";
+} from "@/components/ui/hover-card";
 
 export interface CollaboratorUser {
   id: string;

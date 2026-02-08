@@ -9,7 +9,7 @@
  * - Unknown widgets → UnsupportedWidget fallback
  */
 
-import { cn } from "@runtimed/ui/lib/utils";
+import { cn } from "@/lib/utils";
 import { AnyWidgetView, isAnyWidget } from "./anywidget-view";
 import { getWidgetComponent } from "./widget-registry";
 import type { WidgetModel } from "./widget-store";
