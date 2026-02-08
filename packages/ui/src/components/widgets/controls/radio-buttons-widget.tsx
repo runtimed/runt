@@ -6,9 +6,9 @@
  * Maps to ipywidgets RadioButtonsModel.
  */
 
-import { Label } from "@runtimed/ui/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@runtimed/ui/components/ui/radio-group";
-import { cn } from "@runtimed/ui/lib/utils";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { cn } from "@/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import {
   useWidgetModelValue,

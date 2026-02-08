@@ -2,12 +2,12 @@
 
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { type ReactNode, useId } from "react";
-import { cn } from "@runtimed/ui/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   AnsiErrorOutput,
   AnsiStreamOutput,
-} from "@runtimed/ui/components/outputs/ansi-output";
-import { MediaRouter } from "@runtimed/ui/components/outputs/media-router";
+} from "@/components/outputs/ansi-output";
+import { MediaRouter } from "@/components/outputs/media-router";
 
 /**
  * Jupyter output types based on the nbformat spec.

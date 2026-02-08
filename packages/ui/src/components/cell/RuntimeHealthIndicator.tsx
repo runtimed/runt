@@ -1,6 +1,6 @@
 import { Circle, Terminal } from "lucide-react";
 import type React from "react";
-import { cn } from "@runtimed/ui/lib/utils";
+import { cn } from "@/lib/utils";
 
 export type RuntimeStatus = "idle" | "busy" | "disconnected" | "connecting";
 

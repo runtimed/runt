@@ -7,9 +7,9 @@
  */
 
 import { useCallback } from "react";
-import { Input } from "@runtimed/ui/components/ui/input";
-import { Label } from "@runtimed/ui/components/ui/label";
-import { cn } from "@runtimed/ui/lib/utils";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import {
   useWidgetModelValue,

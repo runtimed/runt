@@ -6,9 +6,9 @@
  * Maps to ipywidgets FloatSliderModel.
  */
 
-import { Label } from "@runtimed/ui/components/ui/label";
-import { Slider } from "@runtimed/ui/components/ui/slider";
-import { cn } from "@runtimed/ui/lib/utils";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import {
   useWidgetModelValue,

@@ -9,8 +9,8 @@
 
 import { GamepadIcon } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
-import { Label } from "@runtimed/ui/components/ui/label";
-import { cn } from "@runtimed/ui/lib/utils";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import {
   parseModelRef,

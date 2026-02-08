@@ -10,6 +10,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@runtimed/ui": "workspace:*",
     "@jupyter-widgets/html-manager": "^1.0.11",
     "@radix-ui/react-collapsible": "^1.1.11",
     "@radix-ui/react-slot": "^1.2.3",

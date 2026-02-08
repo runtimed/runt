@@ -1,7 +1,7 @@
 import { Bot, Code, Database, FileText, Plus } from "lucide-react";
 import type { ComponentProps } from "react";
-import { Button } from "@runtimed/ui/components/ui/button";
-import { cn } from "@runtimed/ui/lib/utils";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 /** Supported cell types for notebook interfaces */
 export type CellType = "code" | "markdown" | "sql" | "ai";
