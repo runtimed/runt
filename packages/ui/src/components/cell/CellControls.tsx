@@ -12,15 +12,15 @@ import {
   X,
 } from "lucide-react";
 import type React from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@runtimed/ui/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+} from "@runtimed/ui/components/ui/dropdown-menu";
+import { cn } from "@runtimed/ui/lib/utils";
 
 interface CellControlsProps {
   sourceVisible: boolean;

@@ -11,8 +11,8 @@ import {
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "@/components/ui/accordion";
-import { cn } from "@/lib/utils";
+} from "@runtimed/ui/components/ui/accordion";
+import { cn } from "@runtimed/ui/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import {
   parseModelRef,

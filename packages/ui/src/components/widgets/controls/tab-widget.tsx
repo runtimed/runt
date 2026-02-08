@@ -6,8 +6,8 @@
  * Maps to ipywidgets TabModel. Displays children as tabbed panels.
  */
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@runtimed/ui/components/ui/tabs";
+import { cn } from "@runtimed/ui/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import {
   parseModelRef,

@@ -8,7 +8,7 @@
 
 import { CheckIcon, ChevronsUpDownIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@runtimed/ui/components/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -16,14 +16,14 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command";
-import { Label } from "@/components/ui/label";
+} from "@runtimed/ui/components/ui/command";
+import { Label } from "@runtimed/ui/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+} from "@runtimed/ui/components/ui/popover";
+import { cn } from "@runtimed/ui/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import {
   useWidgetModelValue,

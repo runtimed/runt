@@ -11,8 +11,8 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
+} from "@runtimed/ui/components/ui/collapsible";
+import { cn } from "@runtimed/ui/lib/utils";
 
 interface JsonViewerContextType {
   expandedPaths: Set<string>;

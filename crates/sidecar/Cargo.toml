@@ -13,6 +13,8 @@ bytes = { workspace = true }
 clap = { version = "4.5.1", features = ["derive"] }
 env_logger = "0.11.5"
 log = "0.4.22"
+mime_guess = "2.0"
+rust-embed = { version = "8", features = ["compression"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 jupyter-protocol = { workspace = true }

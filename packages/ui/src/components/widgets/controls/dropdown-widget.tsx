@@ -6,15 +6,15 @@
  * Maps to ipywidgets DropdownModel.
  */
 
-import { Label } from "@/components/ui/label";
+import { Label } from "@runtimed/ui/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+} from "@runtimed/ui/components/ui/select";
+import { cn } from "@runtimed/ui/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import {
   useWidgetModelValue,
