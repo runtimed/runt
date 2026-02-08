@@ -14,14 +14,17 @@ dependencies = []
 kernel = ["ipykernel>=6.0"]
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/runtimed"]
+[tool.maturin]
+manifest-path = "../../crates/runt/Cargo.toml"
+python-source = "src"
+bindings = "bin"
 
 [dependency-groups]
 dev = [
+    "maturin>=1.0,<2.0",
     "pytest>=8.0",
     "ipykernel>=6.0",
 ]
