@@ -107,17 +107,18 @@ function AppContent() {
     return kernelInfo?.language_info?.name?.toLowerCase() ?? null;
   }, [kernelInfo]);
   const KernelLogo = useMemo(() => {
+    const impl = kernelInfo?.implementation?.toLowerCase() ?? "";
+    if (impl.includes("deno")) {
+      return IconBrandDeno;
+    }
     if (kernelLanguage === "python") {
       return IconBrandPython;
-    }
-    if (kernelLanguage === "deno") {
-      return IconBrandDeno;
     }
     if (kernelLanguage === "r") {
       return IconLetterR;
     }
     return null;
-  }, [kernelLanguage]);
+  }, [kernelLanguage, kernelInfo]);
   const kernelInfoLines = useMemo(() => {
     if (!kernelInfo) {
       return { primary: "kernel", secondary: null as string | null };
