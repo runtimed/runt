@@ -31,6 +31,27 @@ import {
 } from "./types";
 import { cn } from "@runtimed/ui/lib/utils";
 import { IconBrandDeno, IconBrandPython, IconLetterR } from "@tabler/icons-react";
+import { Settings as SettingsIcon, Terminal as TerminalIcon } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@runtimed/ui/components/ui/collapsible";
+import { useTheme } from "@/hooks/use-theme";
+import { SettingsPanel } from "@/components/settings-panel";
+
+function getStatusColorClass(status: string): string {
+  switch (status) {
+    case "idle":
+      return "text-green-500";
+    case "busy":
+      return "text-amber-500";
+    case "starting":
+      return "text-blue-500";
+    default:
+      return "text-gray-400";
+  }
+}
 
 interface OutputCellProps {
   output: JupyterOutput;
@@ -99,6 +120,8 @@ function AppContent() {
   const lastSeenCountRef = useRef(0);
   const outputsLengthRef = useRef(0);
   const { handleMessage: handleWidgetMessage } = useWidgetStoreRequired();
+  const { theme, setTheme } = useTheme();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const showWidgetDebugger = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     return params.has("debug-widgets");
@@ -117,7 +140,7 @@ function AppContent() {
     if (kernelLanguage === "r") {
       return IconLetterR;
     }
-    return null;
+    return TerminalIcon;
   }, [kernelLanguage, kernelInfo]);
   const kernelInfoLines = useMemo(() => {
     if (!kernelInfo) {
@@ -365,38 +388,51 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
-        <div className="grid h-12 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-4">
-          <h1 className="flex min-w-0 items-center gap-2 justify-self-start">
-            {KernelLogo ? (
-              <KernelLogo className="h-4 w-4 text-muted-foreground" stroke={1.8} />
-            ) : null}
-            <span className="flex flex-col leading-tight text-muted-foreground">
-              <span className="text-[11px]">{kernelInfoLines.primary}</span>
-              {kernelInfoLines.secondary ? (
-                <span className="text-[10px] opacity-90">{kernelInfoLines.secondary}</span>
+      <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
+          <div className="flex h-12 items-center justify-between gap-4 px-4">
+            {/* Left: kernel icon (status-colored) + name + cwd */}
+            <div className="flex min-w-0 items-center gap-2">
+              <KernelLogo
+                className={cn("h-4 w-4 shrink-0", getStatusColorClass(kernelStatus))}
+              />
+              <span className="flex flex-col leading-tight text-muted-foreground">
+                <span className="text-[11px]">{kernelInfoLines.primary}</span>
+                {kernelInfoLines.secondary ? (
+                  <span className="text-[10px] opacity-90">{kernelInfoLines.secondary}</span>
+                ) : null}
+              </span>
+              {kernelCwdText ? (
+                <>
+                  <span className="text-muted-foreground/40 text-xs select-none">/</span>
+                  <span className="truncate text-xs font-mono text-muted-foreground">
+                    {kernelCwdText}
+                  </span>
+                </>
               ) : null}
-            </span>
-          </h1>
-          <div className="max-w-[55vw] truncate text-center text-xs font-mono text-muted-foreground">
-            {kernelCwdText}
+            </div>
+
+            {/* Right: settings gear */}
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                  settingsOpen && "bg-muted text-foreground",
+                )}
+                aria-label="Settings"
+              >
+                <SettingsIcon className="h-4 w-4" />
+              </button>
+            </CollapsibleTrigger>
           </div>
-          <div className="flex items-center gap-2 justify-self-end">
-            <div
-              className={cn(
-                "h-2 w-2 rounded-full",
-                kernelStatus === "idle" && "bg-green-500",
-                kernelStatus === "busy" && "bg-amber-500",
-                kernelStatus === "starting" && "bg-blue-500",
-                kernelStatus === "unknown" && "bg-gray-400",
-              )}
-            />
-            <span className="text-xs text-muted-foreground capitalize">
-              {kernelStatus}
-            </span>
-          </div>
-        </div>
-      </header>
+
+          {/* Collapsible settings panel */}
+          <CollapsibleContent>
+            <SettingsPanel theme={theme} onThemeChange={setTheme} />
+          </CollapsibleContent>
+        </header>
+      </Collapsible>
 
       {/* Output Area */}
       <main ref={outputAreaRef} className="max-w-4xl mx-auto py-4">
