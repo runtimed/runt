@@ -88,6 +88,51 @@ def test_sidecar_close(tmp_path):
         mock_popen.terminate.assert_called_once()
 
 
+def test_sidecar_auto_detect_terminal_ipython():
+    """Error with clear message when called from plain IPython."""
+    mock_shell = MagicMock()
+    type(mock_shell).__name__ = "TerminalInteractiveShell"
+
+    import builtins
+    original = getattr(builtins, "get_ipython", None)
+    builtins.get_ipython = lambda: mock_shell
+    try:
+        with pytest.raises(RuntimeError, match="plain IPython"):
+            sidecar()
+    finally:
+        if original is None:
+            delattr(builtins, "get_ipython")
+        else:
+            builtins.get_ipython = original
+
+
+def test_sidecar_auto_detect_catches_non_runtime_errors():
+    """Catches exceptions like MultipleInstanceError from get_connection_file."""
+    class MultipleInstanceError(Exception):
+        pass
+
+    mock_module = MagicMock()
+    mock_module.get_connection_file = MagicMock(
+        side_effect=MultipleInstanceError("incompatible singleton")
+    )
+
+    # Ensure get_ipython is not defined (skip the terminal check)
+    import builtins
+    original = getattr(builtins, "get_ipython", None)
+    if hasattr(builtins, "get_ipython"):
+        delattr(builtins, "get_ipython")
+    try:
+        with patch.dict("sys.modules", {
+            "ipykernel": MagicMock(),
+            "ipykernel.connect": mock_module,
+        }):
+            with pytest.raises(RuntimeError, match="MultipleInstanceError"):
+                sidecar()
+    finally:
+        if original is not None:
+            builtins.get_ipython = original
+
+
 def test_sidecar_repr_exited(tmp_path):
     """Repr shows exited status when process has ended."""
     conn_file = tmp_path / "kernel.json"

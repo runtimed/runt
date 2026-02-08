@@ -108,6 +108,24 @@ def sidecar(
 
 def _get_kernel_connection_file() -> str:
     """Auto-detect the connection file for the currently running kernel."""
+    # Detect plain IPython (TerminalInteractiveShell) before attempting
+    # ipykernel's get_connection_file(), which raises MultipleInstanceError
+    # in that environment due to a traitlets singleton conflict.
+    try:
+        ip = get_ipython()  # type: ignore[name-defined]  # noqa: F821
+        if type(ip).__name__ == "TerminalInteractiveShell":
+            raise RuntimeError(
+                "Cannot auto-detect kernel connection file: "
+                "you are running in plain IPython, not a Jupyter kernel.\n"
+                "The sidecar requires a running Jupyter kernel.\n"
+                "Options:\n"
+                "  - Use 'jupyter console' instead of 'ipython'\n"
+                "  - Provide connection_file explicitly: "
+                "runtimed.sidecar('/path/to/kernel.json')"
+            )
+    except NameError:
+        pass  # Not in IPython at all; fall through to ipykernel check
+
     try:
         from ipykernel.connect import get_connection_file
     except ImportError:
@@ -121,11 +139,11 @@ def _get_kernel_connection_file() -> str:
 
     try:
         return get_connection_file()
-    except RuntimeError as e:
+    except Exception as e:
         raise RuntimeError(
             "Cannot auto-detect kernel connection file. "
             "Are you running inside a Jupyter kernel?\n"
-            f"Original error: {e}\n"
+            f"Original error: {type(e).__name__}: {e}\n"
             "You can provide connection_file explicitly: "
             "runtimed.sidecar('/path/to/kernel.json')"
         ) from e
