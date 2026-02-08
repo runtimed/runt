@@ -838,10 +838,13 @@ wheels = [
 
 [[package]]
 name = "runtimed"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 
 [package.optional-dependencies]
+bridge = [
+    { name = "pyzmq" },
+]
 kernel = [
     { name = "ipykernel", version = "6.31.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "ipykernel", version = "7.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
@@ -857,8 +860,11 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "ipykernel", marker = "extra == 'kernel'", specifier = ">=6.0" }]
-provides-extras = ["kernel"]
+requires-dist = [
+    { name = "ipykernel", marker = "extra == 'kernel'", specifier = ">=6.0" },
+    { name = "pyzmq", marker = "extra == 'bridge'", specifier = ">=25.0" },
+]
+provides-extras = ["kernel", "bridge"]
 
 [package.metadata.requires-dev]
 dev = [

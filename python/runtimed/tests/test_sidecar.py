@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from runtimed._sidecar import Sidecar, sidecar
+from runtimed._sidecar import BridgedSidecar, Sidecar, sidecar
 
 
 def test_sidecar_with_explicit_connection_file(tmp_path):
@@ -88,8 +88,35 @@ def test_sidecar_close(tmp_path):
         mock_popen.terminate.assert_called_once()
 
 
-def test_sidecar_auto_detect_terminal_ipython():
-    """Error with clear message when called from plain IPython."""
+def test_sidecar_terminal_ipython_launches_bridge():
+    """In terminal IPython, sidecar() launches a BridgedSidecar."""
+    mock_shell = MagicMock()
+    type(mock_shell).__name__ = "TerminalInteractiveShell"
+    mock_shell.display_formatter.format.return_value = ({}, {})
+
+    mock_popen = MagicMock()
+    mock_popen.poll.return_value = None
+
+    import builtins
+    original = getattr(builtins, "get_ipython", None)
+    builtins.get_ipython = lambda: mock_shell
+    try:
+        with patch("runtimed._sidecar.find_binary", return_value="/usr/bin/runt"), \
+             patch("subprocess.Popen", return_value=mock_popen):
+            result = sidecar()
+            assert isinstance(result, BridgedSidecar)
+            assert result.running is True
+            assert "ipython-bridge" in repr(result)
+            result.close()
+    finally:
+        if original is None:
+            delattr(builtins, "get_ipython")
+        else:
+            builtins.get_ipython = original
+
+
+def test_sidecar_terminal_ipython_no_pyzmq():
+    """Error when in terminal IPython but pyzmq is not installed."""
     mock_shell = MagicMock()
     type(mock_shell).__name__ = "TerminalInteractiveShell"
 
@@ -97,8 +124,11 @@ def test_sidecar_auto_detect_terminal_ipython():
     original = getattr(builtins, "get_ipython", None)
     builtins.get_ipython = lambda: mock_shell
     try:
-        with pytest.raises(RuntimeError, match="plain IPython"):
-            sidecar()
+        # Simulate _ipython_bridge failing to import (pyzmq missing)
+        with patch.dict("sys.modules", {"runtimed._ipython_bridge": None}):
+            with patch("runtimed._sidecar.find_binary", return_value="/usr/bin/runt"):
+                with pytest.raises(RuntimeError, match="pyzmq"):
+                    sidecar()
     finally:
         if original is None:
             delattr(builtins, "get_ipython")

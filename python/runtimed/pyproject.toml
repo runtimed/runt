@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 kernel = ["ipykernel>=6.0"]
+bridge = ["pyzmq>=25.0"]
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
