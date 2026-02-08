@@ -28,6 +28,7 @@ import {
   isError,
   isClearOutput,
   isKernelInfoReply,
+  isUpdateDisplayData,
 } from "./types";
 import { cn } from "@runtimed/ui/lib/utils";
 import { IconBrandDeno, IconBrandPython, IconLetterR } from "@tabler/icons-react";
@@ -184,6 +185,7 @@ function AppContent() {
           output_type: "display_data",
           data: message.content.data as MimeBundle,
           metadata: message.content.metadata as MimeMetadata,
+          display_id: message.content.transient?.display_id,
         };
       }
 
@@ -258,6 +260,58 @@ function AppContent() {
       if (isKernelInfoReply(message)) {
         setKernelInfo(message.content);
         setKernelStatus("idle");
+        return;
+      }
+
+      // Handle update_display_data - global update across main area AND widgets
+      if (isUpdateDisplayData(message)) {
+        const displayId = message.content.transient?.display_id;
+        if (!displayId) return;
+
+        const newData = message.content.data as MimeBundle;
+        const newMetadata = message.content.metadata as MimeMetadata;
+
+        // Update main output area
+        setOutputs((prev) => {
+          let changed = false;
+          const updated = prev.map((output) => {
+            if (
+              (output.output_type === "display_data" ||
+                output.output_type === "execute_result") &&
+              output.display_id === displayId
+            ) {
+              changed = true;
+              return { ...output, data: newData, metadata: newMetadata };
+            }
+            return output;
+          });
+          return changed ? updated : prev;
+        });
+
+        // Update outputs inside OutputModel widgets
+        const models = store.getSnapshot();
+        for (const [commId, model] of models) {
+          if (model.modelName === "OutputModel") {
+            const widgetOutputs =
+              (model.state.outputs as JupyterOutput[]) ?? [];
+            let changed = false;
+            const updated = widgetOutputs.map((output) => {
+              if (
+                (output.output_type === "display_data" ||
+                  output.output_type === "execute_result") &&
+                output.display_id === displayId
+              ) {
+                changed = true;
+                return { ...output, data: newData, metadata: newMetadata };
+              }
+              return output;
+            });
+            if (changed) {
+              store.updateModel(commId, { outputs: updated });
+            }
+          }
+        }
+
         return;
       }
 
