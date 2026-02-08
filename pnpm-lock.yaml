@@ -19,6 +19,9 @@ importers:
       '@radix-ui/react-slot':
         specifier: ^1.2.3
         version: 1.2.4(@types/react@19.2.13)(react@19.2.4)
+      '@runtimed/ui':
+        specifier: workspace:*
+        version: link:../ui
       '@tabler/icons-react':
         specifier: ^3.36.1
         version: 3.36.1(react@19.2.4)

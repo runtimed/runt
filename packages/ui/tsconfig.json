@@ -11,7 +11,8 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@runtimed/ui/*": ["src/*"]
     }
   },
   "include": ["src"]
