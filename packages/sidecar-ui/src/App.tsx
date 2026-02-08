@@ -119,7 +119,9 @@ function AppContent() {
   const outputAreaRef = useRef<HTMLDivElement>(null);
   const lastSeenCountRef = useRef(0);
   const outputsLengthRef = useRef(0);
-  const { handleMessage: handleWidgetMessage } = useWidgetStoreRequired();
+  const pendingClearRef = useRef(false);
+  const widgetPendingClearsRef = useRef(new Set<string>());
+  const { handleMessage: handleWidgetMessage, store } = useWidgetStoreRequired();
   const { theme, setTheme } = useTheme();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const showWidgetDebugger = useMemo(() => {
@@ -259,11 +261,53 @@ function AppContent() {
         return;
       }
 
-      // Handle clear_output
+      // Check if this message should be captured by an Output widget.
+      // The Output widget protocol sets msg_id on the widget model to indicate
+      // which parent message's iopub outputs should be captured into the widget.
+      const parentMsgId = (
+        message.parent_header as { msg_id?: string } | null
+      )?.msg_id;
+      if (parentMsgId) {
+        const models = store.getSnapshot();
+        for (const [commId, model] of models) {
+          if (
+            model.modelName === "OutputModel" &&
+            model.state.msg_id === parentMsgId
+          ) {
+            // This message is captured by an Output widget
+            if (isClearOutput(message)) {
+              if (message.content.wait) {
+                widgetPendingClearsRef.current.add(commId);
+              } else {
+                widgetPendingClearsRef.current.delete(commId);
+                store.updateModel(commId, { outputs: [] });
+              }
+            } else {
+              const output = messageToOutput(message);
+              if (output) {
+                const currentOutputs =
+                  (model.state.outputs as JupyterOutput[]) ?? [];
+                if (widgetPendingClearsRef.current.has(commId)) {
+                  widgetPendingClearsRef.current.delete(commId);
+                  store.updateModel(commId, { outputs: [output] });
+                } else {
+                  store.updateModel(commId, {
+                    outputs: [...currentOutputs, output],
+                  });
+                }
+              }
+            }
+            return;
+          }
+        }
+      }
+
+      // Handle clear_output for main output area
       if (isClearOutput(message)) {
         if (message.content.wait) {
-          // TODO: handle wait flag (clear on next output)
+          pendingClearRef.current = true;
         } else {
+          pendingClearRef.current = false;
           setOutputs([]);
         }
         return;
@@ -280,6 +324,12 @@ function AppContent() {
       // Convert to output and append
       const output = messageToOutput(message);
       if (output) {
+        // If a clear_output(wait=true) was pending, replace all outputs
+        if (pendingClearRef.current) {
+          pendingClearRef.current = false;
+          setOutputs([output]);
+          return;
+        }
         setOutputs((prev) => {
           // Merge consecutive stream outputs of the same type
           if (output.output_type === "stream" && prev.length > 0) {
@@ -301,7 +351,7 @@ function AppContent() {
         });
       }
     },
-    [messageToOutput, handleWidgetMessage],
+    [messageToOutput, handleWidgetMessage, store],
   );
 
   // Register global message handler
