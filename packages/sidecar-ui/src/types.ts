@@ -224,6 +224,15 @@ export interface KernelInfoReplyMessage {
   channel?: string;
 }
 
+export interface UpdateDisplayDataMessage {
+  header: Header<"update_display_data">;
+  parent_header: Header | null;
+  metadata: Record<string, unknown>;
+  content: DisplayDataContent;
+  buffers: unknown[];
+  channel?: string;
+}
+
 export type JupyterMessage =
   | DisplayDataMessage
   | ExecuteResultMessage
@@ -235,7 +244,8 @@ export type JupyterMessage =
   | ExecuteInputMessage
   | StatusMessage
   | ClearOutputMessage
-  | KernelInfoReplyMessage;
+  | KernelInfoReplyMessage
+  | UpdateDisplayDataMessage;
 
 // Type guards
 export function isDisplayData(msg: JupyterMessage): msg is DisplayDataMessage {
@@ -288,6 +298,12 @@ export function isKernelInfoReply(
   return msg.header.msg_type === "kernel_info_reply";
 }
 
+export function isUpdateDisplayData(
+  msg: JupyterMessage,
+): msg is UpdateDisplayDataMessage {
+  return msg.header.msg_type === "update_display_data";
+}
+
 export function hasDisplayData(
   msg: JupyterMessage,
 ): msg is DisplayDataMessage | ExecuteResultMessage {
@@ -301,6 +317,7 @@ export type JupyterOutput =
       data: MimeBundle;
       metadata?: MimeMetadata;
       execution_count?: number | null;
+      display_id?: string;
     }
   | {
       output_type: "stream";
