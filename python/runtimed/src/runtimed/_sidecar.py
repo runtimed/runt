@@ -41,6 +41,28 @@ class Sidecar:
         return f"Sidecar({kernel}, {status})"
 
 
+class BridgedSidecar(Sidecar):
+    """Sidecar with an IOPub bridge for plain IPython.
+
+    In addition to the sidecar process, holds a reference to the
+    IPythonBridge that publishes outputs on a synthetic IOPub channel.
+    Closing this also shuts down the bridge and its ZMQ sockets.
+    """
+
+    def __init__(self, process: subprocess.Popen, connection_file: Path, bridge: object) -> None:
+        super().__init__(process, connection_file)
+        self._bridge = bridge
+
+    def close(self) -> None:
+        """Terminate the sidecar process and shut down the IOPub bridge."""
+        super().close()
+        self._bridge.close()  # type: ignore[attr-defined]
+
+    def __repr__(self) -> str:
+        status = "running" if self.running else f"exited ({self._process.returncode})"
+        return f"BridgedSidecar(ipython-bridge, {status})"
+
+
 def sidecar(
     connection_file: Optional[Union[str, Path]] = None,
     *,
@@ -50,26 +72,27 @@ def sidecar(
     """Launch the sidecar viewer for a running Jupyter kernel.
 
     When called with no arguments from within a running IPython kernel,
-    automatically detects the kernel's connection file.
+    automatically detects the kernel's connection file. When called from
+    plain IPython (not a Jupyter kernel), automatically creates an IOPub
+    bridge that forwards outputs to the sidecar.
 
     Args:
         connection_file: Path to a kernel connection JSON file.
-            If None, auto-detects from the running kernel using
-            ipykernel.connect.get_connection_file().
+            If None, auto-detects from the running kernel, or creates
+            an IOPub bridge if in plain IPython.
         quiet: Suppress sidecar log output. Defaults to True.
         dump: Optional path to dump all Jupyter messages as JSON.
 
     Returns:
-        A Sidecar handle for the running viewer process.
+        A Sidecar handle (or BridgedSidecar in plain IPython).
 
     Raises:
-        RuntimeError: If connection_file is None and no running kernel
-            is detected (ipykernel not available or not in a kernel).
+        RuntimeError: If connection_file is None and auto-detection fails.
         FileNotFoundError: If the runt binary cannot be found.
         FileNotFoundError: If the connection file does not exist.
 
     Example:
-        In a Jupyter console or notebook cell::
+        In a Jupyter console, notebook, or plain IPython::
 
             import runtimed
             s = runtimed.sidecar()
@@ -80,7 +103,11 @@ def sidecar(
             s = runtimed.sidecar("/path/to/kernel-12345.json")
     """
     if connection_file is None:
-        connection_file = _get_kernel_connection_file()
+        env = _detect_environment()
+        if env == "terminal":
+            return _launch_bridged_sidecar(quiet=quiet, dump=dump)
+        else:
+            connection_file = _get_kernel_connection_file()
 
     connection_path = Path(connection_file)
     if not connection_path.exists():
@@ -106,26 +133,66 @@ def sidecar(
     return Sidecar(proc, connection_path)
 
 
-def _get_kernel_connection_file() -> str:
-    """Auto-detect the connection file for the currently running kernel."""
-    # Detect plain IPython (TerminalInteractiveShell) before attempting
-    # ipykernel's get_connection_file(), which raises MultipleInstanceError
-    # in that environment due to a traitlets singleton conflict.
+def _detect_environment() -> str:
+    """Detect whether we're in a Jupyter kernel, terminal IPython, or plain Python."""
     try:
         ip = get_ipython()  # type: ignore[name-defined]  # noqa: F821
-        if type(ip).__name__ == "TerminalInteractiveShell":
-            raise RuntimeError(
-                "Cannot auto-detect kernel connection file: "
-                "you are running in plain IPython, not a Jupyter kernel.\n"
-                "The sidecar requires a running Jupyter kernel.\n"
-                "Options:\n"
-                "  - Use 'jupyter console' instead of 'ipython'\n"
-                "  - Provide connection_file explicitly: "
-                "runtimed.sidecar('/path/to/kernel.json')"
-            )
     except NameError:
-        pass  # Not in IPython at all; fall through to ipykernel check
+        return "plain_python"
 
+    shell_class = type(ip).__name__
+    if shell_class == "ZMQInteractiveShell":
+        return "kernel"
+    elif shell_class == "TerminalInteractiveShell":
+        return "terminal"
+    return "unknown"
+
+
+def _launch_bridged_sidecar(
+    *, quiet: bool, dump: Optional[Union[str, Path]]
+) -> BridgedSidecar:
+    """Create an IOPub bridge and launch the sidecar against it."""
+    try:
+        from runtimed._ipython_bridge import install_bridge
+    except ImportError:
+        raise RuntimeError(
+            "IOPub bridge requires pyzmq. "
+            "Install with: pip install runtimed[bridge]\n"
+            "Or use 'jupyter console' instead of 'ipython'."
+        ) from None
+
+    import sys
+
+    ip = get_ipython()  # type: ignore[name-defined]  # noqa: F821
+    bridge = install_bridge(ip)
+
+    runt_bin = find_binary("runt")
+    cmd: list[str] = [runt_bin, "sidecar"]
+    if quiet:
+        cmd.append("--quiet")
+    if dump is not None:
+        cmd.extend(["--dump", str(dump)])
+    cmd.append(str(bridge.connection_file))
+
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    print(
+        "Sidecar running in bridged mode (plain IPython).\n"
+        "Rich output (HTML, images, LaTeX) is supported.\n"
+        "Interactive widgets are not supported in this mode.\n"
+        "For full widget support, use: jupyter console",
+        file=sys.stderr,
+    )
+
+    return BridgedSidecar(proc, bridge.connection_file, bridge)
+
+
+def _get_kernel_connection_file() -> str:
+    """Auto-detect the connection file for the currently running kernel."""
     try:
         from ipykernel.connect import get_connection_file
     except ImportError:
