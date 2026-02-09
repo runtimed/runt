@@ -168,17 +168,29 @@ async fn run(
     )
     .await?;
 
-    let mut shell =
+    let shell =
         runtimelib::create_client_shell_connection(&connection_info, &iopub.session_id).await?;
+    let (mut shell_writer, mut shell_reader) = shell.split();
 
     let event_loop_proxy = event_loop.create_proxy();
 
+    // Send half: forward messages from UI to kernel
     let (tx, mut rx) = futures::channel::mpsc::channel::<JupyterMessage>(100);
     tokio::spawn(async move {
         while let Some(message) = rx.next().await {
-            if let Err(e) = shell.send(message).await {
+            if let Err(e) = shell_writer.send(message).await {
                 error!("Failed to send message: {}", e);
-            } else {
+            }
+        }
+    });
+
+    // Recv half: read shell replies and forward to UI
+    let shell_event_proxy = event_loop_proxy.clone();
+    tokio::spawn(async move {
+        while let Ok(message) = shell_reader.read().await {
+            if let Err(e) = shell_event_proxy.send_event(SidecarEvent::JupyterMessage(message)) {
+                error!("Failed to forward shell reply: {:?}", e);
+                break;
             }
         }
     });
