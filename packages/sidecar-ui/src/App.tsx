@@ -120,11 +120,15 @@ function AppContent() {
   const outputAreaRef = useRef<HTMLDivElement>(null);
   const lastSeenCountRef = useRef(0);
   const outputsLengthRef = useRef(0);
-  const pendingClearRef = useRef(false);
+  const pendingClearRef = useRef<Set<string>>(new Set());
   const widgetPendingClearsRef = useRef(new Set<string>());
   const { handleMessage: handleWidgetMessage, store } = useWidgetStoreRequired();
   const { theme, setTheme } = useTheme();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const handleClearAllOutputs = useCallback(() => {
+    setOutputs([]);
+    pendingClearRef.current.clear();
+  }, []);
   const showWidgetDebugger = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     return params.has("debug-widgets");
@@ -179,13 +183,14 @@ function AppContent() {
 
   // Convert message to output format
   const messageToOutput = useCallback(
-    (message: JupyterMessage): JupyterOutput | null => {
+    (message: JupyterMessage, parentMsgId?: string): JupyterOutput | null => {
       if (isDisplayData(message)) {
         return {
           output_type: "display_data",
           data: message.content.data as MimeBundle,
           metadata: message.content.metadata as MimeMetadata,
           display_id: message.content.transient?.display_id,
+          parentMsgId,
         };
       }
 
@@ -195,6 +200,7 @@ function AppContent() {
           data: message.content.data as MimeBundle,
           metadata: message.content.metadata as MimeMetadata,
           execution_count: message.content.execution_count,
+          parentMsgId,
         };
       }
 
@@ -203,6 +209,7 @@ function AppContent() {
           output_type: "stream",
           name: message.content.name,
           text: message.content.text,
+          parentMsgId,
         };
       }
 
@@ -212,6 +219,7 @@ function AppContent() {
           ename: message.content.ename,
           evalue: message.content.evalue,
           traceback: message.content.traceback,
+          parentMsgId,
         };
       }
 
@@ -262,6 +270,11 @@ function AppContent() {
         setKernelStatus("idle");
         return;
       }
+
+      // Extract parentMsgId once for use by all handlers below
+      const parentMsgId = (
+        message.parent_header as { msg_id?: string } | null
+      )?.msg_id;
 
       // Handle update_display_data - global update across main area AND widgets
       if (isUpdateDisplayData(message)) {
@@ -318,9 +331,6 @@ function AppContent() {
       // Check if this message should be captured by an Output widget.
       // The Output widget protocol sets msg_id on the widget model to indicate
       // which parent message's iopub outputs should be captured into the widget.
-      const parentMsgId = (
-        message.parent_header as { msg_id?: string } | null
-      )?.msg_id;
       if (parentMsgId) {
         const models = store.getSnapshot();
         for (const [commId, model] of models) {
@@ -356,13 +366,22 @@ function AppContent() {
         }
       }
 
-      // Handle clear_output for main output area
+      // Handle clear_output for main output area — scoped to current execution
       if (isClearOutput(message)) {
         if (message.content.wait) {
-          pendingClearRef.current = true;
+          if (parentMsgId) {
+            pendingClearRef.current.add(parentMsgId);
+          }
         } else {
-          pendingClearRef.current = false;
-          setOutputs([]);
+          if (parentMsgId) {
+            pendingClearRef.current.delete(parentMsgId);
+            setOutputs((prev) =>
+              prev.filter((o) => o.parentMsgId !== parentMsgId),
+            );
+          } else {
+            // Fallback: no parent_header (shouldn't happen), clear all
+            setOutputs([]);
+          }
         }
         return;
       }
@@ -376,21 +395,29 @@ function AppContent() {
       }
 
       // Convert to output and append
-      const output = messageToOutput(message);
+      const output = messageToOutput(message, parentMsgId);
       if (output) {
-        // If a clear_output(wait=true) was pending, replace all outputs
-        if (pendingClearRef.current) {
-          pendingClearRef.current = false;
-          setOutputs([output]);
+        // If a clear_output(wait=true) was pending for this execution,
+        // replace only this execution's outputs
+        if (
+          output.parentMsgId &&
+          pendingClearRef.current.has(output.parentMsgId)
+        ) {
+          pendingClearRef.current.delete(output.parentMsgId);
+          setOutputs((prev) => [
+            ...prev.filter((o) => o.parentMsgId !== output.parentMsgId),
+            output,
+          ]);
           return;
         }
         setOutputs((prev) => {
-          // Merge consecutive stream outputs of the same type
+          // Merge consecutive stream outputs of the same type and execution
           if (output.output_type === "stream" && prev.length > 0) {
             const lastOutput = prev[prev.length - 1];
             if (
               lastOutput.output_type === "stream" &&
-              lastOutput.name === output.name
+              lastOutput.name === output.name &&
+              lastOutput.parentMsgId === output.parentMsgId
             ) {
               return [
                 ...prev.slice(0, -1),
@@ -533,7 +560,7 @@ function AppContent() {
 
           {/* Collapsible settings panel */}
           <CollapsibleContent>
-            <SettingsPanel theme={theme} onThemeChange={setTheme} />
+            <SettingsPanel theme={theme} onThemeChange={setTheme} onClearAllOutputs={handleClearAllOutputs} />
           </CollapsibleContent>
         </header>
       </Collapsible>

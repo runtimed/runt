@@ -318,15 +318,18 @@ export type JupyterOutput =
       metadata?: MimeMetadata;
       execution_count?: number | null;
       display_id?: string;
+      parentMsgId?: string;
     }
   | {
       output_type: "stream";
       name: "stdout" | "stderr";
       text: string;
+      parentMsgId?: string;
     }
   | {
       output_type: "error";
       ename: string;
       evalue: string;
       traceback: string[];
+      parentMsgId?: string;
     };
