@@ -1,6 +1,6 @@
 [package]
 name = "runt-cli"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 description = "CLI for Jupyter Runtimes"
 repository = "https://github.com/runtimed/runtimed"
@@ -17,7 +17,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 jupyter-protocol = { workspace = true }
 runtimelib = { workspace = true, features = ["tokio-runtime", "ring"] }
-sidecar = { path = "../sidecar", version = "1.1.0" }
+sidecar = { path = "../sidecar", version = "1.2.0" }
 clap = { version = "4.5.1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 petname = "2"
