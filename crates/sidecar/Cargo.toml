@@ -2,9 +2,10 @@
 name = "sidecar"
 version = "1.2.0"
 edition = "2021"
-description = "Sidecar jupyter outputs"
+description = "Sidecar jupyter outputs — install via GitHub Releases or `pip install runtimed`, not crates.io"
 repository = "https://github.com/runtimed/runtimed"
 license = "BSD-3-Clause"
+publish = false
 
 [dependencies]
 anyhow = { workspace = true }
