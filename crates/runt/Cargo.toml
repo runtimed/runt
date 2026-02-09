@@ -17,7 +17,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 jupyter-protocol = { workspace = true }
 runtimelib = { workspace = true, features = ["tokio-runtime", "ring"] }
-sidecar = { path = "../sidecar" }
+sidecar = { path = "../sidecar", version = "1.0.0" }
 clap = { version = "4.5.1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 petname = "2"
