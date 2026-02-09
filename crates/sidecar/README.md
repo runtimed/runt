@@ -13,8 +13,26 @@ TODO: Include updated demo!
 
 ## Installation
 
+Sidecar is not published to crates.io (it embeds UI assets at compile time that live outside the crate directory). Install via one of:
+
+**Pre-built binaries** from [GitHub Releases](https://github.com/runtimed/runtimed/releases):
+
 ```bash
-cargo install sidecar
+# Download the latest release for your platform
+```
+
+**Python package** (includes `runt` CLI with `runt sidecar` subcommand):
+
+```bash
+pip install runtimed
+```
+
+**From source** (requires building the UI first):
+
+```bash
+cd packages/sidecar-ui && pnpm install && pnpm build
+cd ../..
+cargo build --release -p sidecar
 ```
 
 ## Usage

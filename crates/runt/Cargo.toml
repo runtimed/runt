@@ -2,9 +2,10 @@
 name = "runt-cli"
 version = "1.2.0"
 edition = "2021"
-description = "CLI for Jupyter Runtimes"
+description = "CLI for Jupyter Runtimes — install via GitHub Releases or `pip install runtimed`, not crates.io"
 repository = "https://github.com/runtimed/runtimed"
 license = "BSD-3-Clause"
+publish = false
 
 [[bin]]
 name = "runt"
