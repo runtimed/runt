@@ -317,26 +317,6 @@ async fn console(kernel_name: Option<&str>, cmd: Option<&str>, verbose: bool) ->
     let mut iopub =
         runtimelib::create_client_iopub_connection(connection_info, "", session_id).await?;
 
-    // Shell reply reader
-    let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel::<JupyterMessage>(32);
-    tokio::spawn(async move {
-        while let Ok(msg) = shell_reader.read().await {
-            if reply_tx.send(msg).await.is_err() {
-                break;
-            }
-        }
-    });
-
-    // IOPub reader
-    let (iopub_tx, mut iopub_rx) = tokio::sync::mpsc::channel::<JupyterMessage>(100);
-    tokio::spawn(async move {
-        while let Ok(msg) = iopub.read().await {
-            if iopub_tx.send(msg).await.is_err() {
-                break;
-            }
-        }
-    });
-
     let kernel_name = connection_info
         .kernel_name
         .clone()
@@ -374,7 +354,8 @@ async fn console(kernel_name: Option<&str>, cmd: Option<&str>, verbose: bool) ->
         let mut got_idle = false;
         while !got_idle {
             tokio::select! {
-                Some(msg) = iopub_rx.recv() => {
+                result = iopub.read() => {
+                    let msg = result?;
                     let is_ours = msg
                         .parent_header
                         .as_ref()
@@ -432,7 +413,8 @@ async fn console(kernel_name: Option<&str>, cmd: Option<&str>, verbose: bool) ->
                         _ => {}
                     }
                 }
-                Some(msg) = reply_rx.recv() => {
+                result = shell_reader.read() => {
+                    let msg = result?;
                     if verbose {
                         let is_ours = msg
                             .parent_header
@@ -441,7 +423,6 @@ async fn console(kernel_name: Option<&str>, cmd: Option<&str>, verbose: bool) ->
                             == Some(message_id.as_str());
                         eprintln!("[shell] {} (ours={})", msg.header.msg_type, is_ours);
                     }
-                    // We still drain the shell reader but don't use it for completion
                 }
             }
         }
