@@ -66,6 +66,17 @@ enum Commands {
         #[arg(long)]
         dump: Option<PathBuf>,
     },
+    /// Launch a kernel and open an interactive console
+    Console {
+        /// The kernel to launch (e.g., python3, julia)
+        kernel: Option<String>,
+        /// Custom command to launch the kernel (use {connection_file} as placeholder)
+        #[arg(long)]
+        cmd: Option<String>,
+        /// Print all Jupyter messages for debugging
+        #[arg(short, long)]
+        verbose: bool,
+    },
     /// Remove stale kernel connection files for kernels that are no longer running
     Clean {
         /// Timeout in seconds for heartbeat check (default: 2)
@@ -100,6 +111,7 @@ async fn async_main(command: Option<Commands>) -> Result<()> {
         Some(Commands::Stop { id }) => stop_kernel(&id).await?,
         Some(Commands::Interrupt { id }) => interrupt_kernel(&id).await?,
         Some(Commands::Exec { id, code }) => execute_code(&id, code.as_deref()).await?,
+        Some(Commands::Console { kernel, cmd, verbose }) => console(kernel.as_deref(), cmd.as_deref(), verbose).await?,
         Some(Commands::Sidecar { .. }) => unreachable!(),
         Some(Commands::Clean { timeout, dry_run }) => clean_kernels(timeout, dry_run).await?,
         None => println!("No command specified. Use --help for usage information."),
@@ -275,6 +287,173 @@ async fn check_kernel_alive(connection_info: &ConnectionInfo, timeout: Duration)
     .await;
 
     matches!(heartbeat_result, Ok(Ok(())))
+}
+
+async fn console(kernel_name: Option<&str>, cmd: Option<&str>, verbose: bool) -> Result<()> {
+    use jupyter_protocol::{
+        ExecuteRequest, ExecutionState, JupyterMessage, JupyterMessageContent, MediaType, Status,
+        Stdio,
+    };
+    use std::io::{self, BufRead, Write};
+
+    let mut client = match (kernel_name, cmd) {
+        (_, Some(cmd)) => KernelClient::start_from_command(cmd).await?,
+        (Some(name), None) => {
+            let kernelspec = find_kernelspec(name).await?;
+            KernelClient::start_from_kernelspec(kernelspec).await?
+        }
+        (None, None) => anyhow::bail!("Provide a kernel name or --cmd"),
+    };
+
+    // Give the kernel a moment to bind its sockets
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let connection_info = client.connection_info();
+    let session_id = client.session_id();
+
+    let shell = runtimelib::create_client_shell_connection(connection_info, session_id).await?;
+    let (mut shell_writer, mut shell_reader) = shell.split();
+
+    let mut iopub =
+        runtimelib::create_client_iopub_connection(connection_info, "", session_id).await?;
+
+    // Shell reply reader
+    let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel::<JupyterMessage>(32);
+    tokio::spawn(async move {
+        while let Ok(msg) = shell_reader.read().await {
+            if reply_tx.send(msg).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // IOPub reader
+    let (iopub_tx, mut iopub_rx) = tokio::sync::mpsc::channel::<JupyterMessage>(100);
+    tokio::spawn(async move {
+        while let Ok(msg) = iopub.read().await {
+            if iopub_tx.send(msg).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let kernel_name = connection_info
+        .kernel_name
+        .clone()
+        .unwrap_or_else(|| "kernel".to_string());
+    println!("{} console", kernel_name);
+    println!("Use Ctrl+D to exit.\n");
+
+    let stdin = io::stdin();
+    let mut lines = stdin.lock().lines();
+    let mut execution_count: u32 = 0;
+
+    loop {
+        execution_count += 1;
+        print!("In [{}]: ", execution_count);
+        io::stdout().flush()?;
+
+        let line = match lines.next() {
+            Some(Ok(line)) => line,
+            _ => break, // EOF or error
+        };
+
+        let code = line.trim();
+        if code.is_empty() {
+            execution_count -= 1;
+            continue;
+        }
+
+        let message: JupyterMessage = ExecuteRequest::new(code.to_string()).into();
+        let message_id = message.header.msg_id.clone();
+        shell_writer.send(message).await?;
+
+        // Wait for idle status on iopub (signals all output is done).
+        // Some kernels send ExecuteReply before streaming output, so we
+        // can't use the reply alone as the completion signal.
+        let mut got_idle = false;
+        while !got_idle {
+            tokio::select! {
+                Some(msg) = iopub_rx.recv() => {
+                    let is_ours = msg
+                        .parent_header
+                        .as_ref()
+                        .map(|h| h.msg_id.as_str())
+                        == Some(message_id.as_str());
+                    if verbose {
+                        eprintln!("[iopub] {} (ours={})", msg.header.msg_type, is_ours);
+                    }
+                    if !is_ours {
+                        continue;
+                    }
+                    match &msg.content {
+                        JupyterMessageContent::StreamContent(stream) => {
+                            match stream.name {
+                                Stdio::Stdout => print!("{}", stream.text),
+                                Stdio::Stderr => eprint!("{}", stream.text),
+                            }
+                            let _ = io::stdout().flush();
+                        }
+                        JupyterMessageContent::ExecuteResult(result) => {
+                            for media in &result.data.content {
+                                if let MediaType::Plain(text) = media {
+                                    println!("Out[{}]: {}", execution_count, text);
+                                    break;
+                                }
+                            }
+                        }
+                        JupyterMessageContent::DisplayData(data) => {
+                            for media in &data.data.content {
+                                if let MediaType::Plain(text) = media {
+                                    println!("{}", text);
+                                    break;
+                                }
+                            }
+                        }
+                        JupyterMessageContent::ErrorOutput(error) => {
+                            eprintln!("{}: {}", error.ename, error.evalue);
+                            for line in &error.traceback {
+                                eprintln!("{}", line);
+                            }
+                        }
+                        JupyterMessageContent::Status(Status { execution_state }) => {
+                            if *execution_state == ExecutionState::Idle {
+                                got_idle = true;
+                            }
+                        }
+                        JupyterMessageContent::UpdateDisplayData(data) => {
+                            for media in &data.data.content {
+                                if let MediaType::Plain(text) = media {
+                                    println!("{}", text);
+                                    break;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Some(msg) = reply_rx.recv() => {
+                    if verbose {
+                        let is_ours = msg
+                            .parent_header
+                            .as_ref()
+                            .map(|h| h.msg_id.as_str())
+                            == Some(message_id.as_str());
+                        eprintln!("[shell] {} (ours={})", msg.header.msg_type, is_ours);
+                    }
+                    // We still drain the shell reader but don't use it for completion
+                }
+            }
+        }
+        // Blank line between output and the next prompt
+        println!();
+    }
+
+    println!("\nShutting down kernel...");
+    client.shutdown(false).await?;
+    println!("Done.");
+
+    Ok(())
 }
 
 async fn execute_code(id: &str, code: Option<&str>) -> Result<()> {
