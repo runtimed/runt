@@ -291,10 +291,10 @@ async fn check_kernel_alive(connection_info: &ConnectionInfo, timeout: Duration)
 
 async fn console(kernel_name: Option<&str>, cmd: Option<&str>, verbose: bool) -> Result<()> {
     use jupyter_protocol::{
-        ExecuteRequest, ExecutionState, JupyterMessage, JupyterMessageContent, MediaType, Status,
-        Stdio,
+        ExecuteRequest, ExecutionState, InputReply, JupyterMessage, JupyterMessageContent,
+        MediaType, ReplyStatus, Status, Stdio,
     };
-    use std::io::{self, BufRead, Write};
+    use std::io::{self, Write};
 
     let mut client = match (kernel_name, cmd) {
         (_, Some(cmd)) => KernelClient::start_from_command(cmd).await?,
@@ -311,7 +311,11 @@ async fn console(kernel_name: Option<&str>, cmd: Option<&str>, verbose: bool) ->
     let connection_info = client.connection_info();
     let session_id = client.session_id();
 
-    let shell = runtimelib::create_client_shell_connection(connection_info, session_id).await?;
+    let identity = runtimelib::peer_identity_for_session(session_id)?;
+    let shell =
+        runtimelib::create_client_shell_connection_with_identity(connection_info, session_id, identity.clone()).await?;
+    let mut stdin_conn =
+        runtimelib::create_client_stdin_connection_with_identity(connection_info, session_id, identity).await?;
     let (mut shell_writer, mut shell_reader) = shell.split();
 
     let mut iopub =
@@ -324,8 +328,6 @@ async fn console(kernel_name: Option<&str>, cmd: Option<&str>, verbose: bool) ->
     println!("{} console", kernel_name);
     println!("Use Ctrl+D to exit.\n");
 
-    let stdin = io::stdin();
-    let mut lines = stdin.lock().lines();
     let mut execution_count: u32 = 0;
 
     loop {
@@ -333,10 +335,12 @@ async fn console(kernel_name: Option<&str>, cmd: Option<&str>, verbose: bool) ->
         print!("In [{}]: ", execution_count);
         io::stdout().flush()?;
 
-        let line = match lines.next() {
-            Some(Ok(line)) => line,
-            _ => break, // EOF or error
-        };
+        // Read one line without holding a persistent StdinLock, so that
+        // the kernel stdin handler can also read from terminal stdin.
+        let mut line = String::new();
+        if io::stdin().read_line(&mut line)? == 0 {
+            break; // EOF
+        }
 
         let code = line.trim();
         if code.is_empty() {
@@ -344,7 +348,9 @@ async fn console(kernel_name: Option<&str>, cmd: Option<&str>, verbose: bool) ->
             continue;
         }
 
-        let message: JupyterMessage = ExecuteRequest::new(code.to_string()).into();
+        let mut execute_request = ExecuteRequest::new(code.to_string());
+        execute_request.allow_stdin = true;
+        let message: JupyterMessage = execute_request.into();
         let message_id = message.header.msg_id.clone();
         shell_writer.send(message).await?;
 
@@ -422,6 +428,31 @@ async fn console(kernel_name: Option<&str>, cmd: Option<&str>, verbose: bool) ->
                             .map(|h| h.msg_id.as_str())
                             == Some(message_id.as_str());
                         eprintln!("[shell] {} (ours={})", msg.header.msg_type, is_ours);
+                    }
+                }
+                result = stdin_conn.read() => {
+                    let msg = result?;
+                    if verbose {
+                        eprintln!("[stdin] {}", msg.header.msg_type);
+                    }
+                    if let JupyterMessageContent::InputRequest(ref request) = msg.content {
+                        let value = if request.password {
+                            eprint!("{}", request.prompt);
+                            let _ = io::stderr().flush();
+                            rpassword::read_password().unwrap_or_default()
+                        } else {
+                            eprint!("{}", request.prompt);
+                            let _ = io::stderr().flush();
+                            let mut input = String::new();
+                            io::stdin().read_line(&mut input)?;
+                            input.trim_end_matches('\n').to_string()
+                        };
+                        let reply = InputReply {
+                            value,
+                            status: ReplyStatus::Ok,
+                            error: None,
+                        };
+                        stdin_conn.send(reply.as_child_of(&msg)).await?;
                     }
                 }
             }
