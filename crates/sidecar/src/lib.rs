@@ -67,7 +67,7 @@ impl<'de> Deserialize<'de> for WryJupyterMessage {
         #[derive(Deserialize)]
         struct WryJupyterMessageHelper {
             header: Header,
-            #[serde(default)]
+            #[serde(default, deserialize_with = "jupyter_protocol::deserialize_parent_header")]
             parent_header: Option<Header>,
             #[serde(default)]
             metadata: Value,
@@ -656,5 +656,58 @@ fn get_response(request: Request<Vec<u8>>) -> Result<Response<Vec<u8>>> {
                 .body("Not Found".as_bytes().to_vec())
                 .unwrap())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wry_jupyter_message_empty_parent_header() {
+        let msg = r#"
+        {
+            "header": {
+                "date": "2025-05-14T14:32:23.490Z",
+                "msg_id": "44bd6b44-78a1-4892-87df-c0861a005d56",
+                "msg_type": "kernel_info_request",
+                "session": "b75bddaa-6d69-4340-ba13-81516192370e",
+                "username": "",
+                "version": "5.2"
+            },
+            "parent_header": {},
+            "metadata": {},
+            "content": {},
+            "buffers": [],
+            "channel": "shell"
+        }
+        "#;
+
+        let message: WryJupyterMessage = serde_json::from_str(msg).unwrap();
+        assert!(message.parent_header.is_none());
+    }
+
+    #[test]
+    fn test_wry_jupyter_message_null_parent_header() {
+        let msg = r#"
+        {
+            "header": {
+                "date": "2025-05-14T14:32:23.490Z",
+                "msg_id": "44bd6b44-78a1-4892-87df-c0861a005d56",
+                "msg_type": "kernel_info_request",
+                "session": "b75bddaa-6d69-4340-ba13-81516192370e",
+                "username": "",
+                "version": "5.2"
+            },
+            "parent_header": null,
+            "metadata": {},
+            "content": {},
+            "buffers": [],
+            "channel": "shell"
+        }
+        "#;
+
+        let message: WryJupyterMessage = serde_json::from_str(msg).unwrap();
+        assert!(message.parent_header.is_none());
     }
 }
