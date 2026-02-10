@@ -1,15 +1,18 @@
 use std::path::{Path, PathBuf};
 
+use std::future::Future;
+
 use jupyter_protocol::{
-    ConnectionInfo, ExecuteReply, ExecuteRequest, InterruptRequest, JupyterMessage,
-    JupyterMessageContent, ReplyStatus, ShutdownRequest,
+    ConnectionInfo, ExecuteReply, ExecuteRequest, InputReply, InputRequest, InterruptRequest,
+    JupyterMessage, JupyterMessageContent, ReplyStatus, ShutdownRequest,
 };
 use petname::petname;
 use uuid::Uuid;
 
 use runtimelib::{
-    create_client_control_connection, create_client_iopub_connection, create_client_shell_connection,
-    peek_ports, runtime_dir, KernelspecDir, Result, RuntimeError,
+    create_client_control_connection, create_client_iopub_connection,
+    create_client_shell_connection_with_identity, create_client_stdin_connection_with_identity,
+    peek_ports, peer_identity_for_session, runtime_dir, KernelspecDir, Result, RuntimeError,
 };
 
 pub struct KernelClient {
@@ -227,8 +230,9 @@ impl KernelClient {
     where
         F: FnMut(JupyterMessageContent),
     {
+        let identity = peer_identity_for_session(&self.session_id)?;
         let mut shell =
-            create_client_shell_connection(&self.connection_info, &self.session_id).await?;
+            create_client_shell_connection_with_identity(&self.connection_info, &self.session_id, identity).await?;
         let mut iopub =
             create_client_iopub_connection(&self.connection_info, "", &self.session_id).await?;
 
@@ -263,6 +267,78 @@ impl KernelClient {
                         continue;
                     }
                     on_iopub(msg.content);
+                }
+            }
+        }
+    }
+    /// Execute code with stdin support, allowing the kernel to request user input.
+    ///
+    /// Creates shell and stdin connections that share a ZMQ identity (required
+    /// by the Jupyter protocol for stdin routing). When the kernel sends an
+    /// `input_request`, the `on_stdin` callback is invoked to get the user's response.
+    pub async fn execute_with_stdin<F, G, Fut>(
+        &self,
+        code: &str,
+        mut on_iopub: F,
+        mut on_stdin: G,
+    ) -> Result<ExecuteReply>
+    where
+        F: FnMut(JupyterMessageContent),
+        G: FnMut(InputRequest) -> Fut,
+        Fut: Future<Output = InputReply>,
+    {
+        let identity = peer_identity_for_session(&self.session_id)?;
+        let shell =
+            create_client_shell_connection_with_identity(&self.connection_info, &self.session_id, identity.clone())
+                .await?;
+        let mut stdin =
+            create_client_stdin_connection_with_identity(&self.connection_info, &self.session_id, identity)
+                .await?;
+        let (mut shell_send, mut shell_recv) = shell.split();
+        let mut iopub =
+            create_client_iopub_connection(&self.connection_info, "", &self.session_id).await?;
+
+        let mut execute_request = ExecuteRequest::new(code.to_string());
+        execute_request.allow_stdin = true;
+        let message: JupyterMessage = execute_request.into();
+        let message_id = message.header.msg_id.clone();
+        shell_send.send(message).await?;
+
+        loop {
+            tokio::select! {
+                shell_msg = shell_recv.read() => {
+                    let msg = shell_msg?;
+                    let is_parent = msg
+                        .parent_header
+                        .as_ref()
+                        .map(|parent| parent.msg_id.as_str())
+                        == Some(message_id.as_str());
+                    if !is_parent {
+                        continue;
+                    }
+                    if let JupyterMessageContent::ExecuteReply(reply) = msg.content {
+                        return Ok(reply);
+                    }
+                }
+                iopub_msg = iopub.read() => {
+                    let msg = iopub_msg?;
+                    let is_parent = msg
+                        .parent_header
+                        .as_ref()
+                        .map(|parent| parent.msg_id.as_str())
+                        == Some(message_id.as_str());
+                    if !is_parent {
+                        continue;
+                    }
+                    on_iopub(msg.content);
+                }
+                stdin_msg = stdin.read() => {
+                    let msg = stdin_msg?;
+                    if let JupyterMessageContent::InputRequest(ref request) = msg.content {
+                        let reply = on_stdin(request.clone()).await;
+                        let reply_message = reply.as_child_of(&msg);
+                        stdin.send(reply_message).await?;
+                    }
                 }
             }
         }
