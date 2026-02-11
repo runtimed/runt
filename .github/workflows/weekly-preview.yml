@@ -1,0 +1,196 @@
+name: Weekly Preview Release
+
+on:
+  schedule:
+    # Every Monday at 9am UTC
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build Linux Executables
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Set up Rust
+        uses: dsherret/rust-toolchain-file@v1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "linux-release"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install JS dependencies
+        run: pnpm install
+
+      - name: Build sidecar UI
+        run: pnpm build
+
+      - name: Set version
+        id: version
+        run: |
+          CURRENT_VERSION=$(grep '^version' crates/runt/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          COMMIT_SHA=${GITHUB_SHA::7}
+          VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
+          echo "Setting version to: ${VERSION}"
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+
+          # Update version in Cargo.toml
+          sed -i "s/^version = .*/version = \"${VERSION}\"/" crates/runt/Cargo.toml
+
+      - name: Build for Linux x64
+        run: cargo build --release --target x86_64-unknown-linux-gnu -p runt-cli
+
+      - name: Rename binaries
+        run: |
+          cp target/x86_64-unknown-linux-gnu/release/runt runt-linux-x64
+          chmod +x runt-linux-x64
+
+      - name: Upload Linux executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: runt-linux-executables
+          path: |
+            runt-linux-x64
+
+  build-macos:
+    name: Build macOS Executables
+    runs-on: macos-latest
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dsherret/rust-toolchain-file@v1
+
+      - name: Install cross-compilation targets
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "macos-release"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install JS dependencies
+        run: pnpm install
+
+      - name: Build sidecar UI
+        run: pnpm build
+
+      - name: Set version in Cargo.toml
+        id: version
+        run: |
+          CURRENT_VERSION=$(grep '^version' crates/runt/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          COMMIT_SHA=${GITHUB_SHA::7}
+          VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
+          echo "Setting version to: ${VERSION}"
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          sed -i '' "s/^version = .*/version = \"${VERSION}\"/" crates/runt/Cargo.toml
+
+      - name: Build for macOS x64
+        run: cargo build --release --target x86_64-apple-darwin -p runt-cli
+
+      - name: Build for macOS ARM64
+        run: cargo build --release --target aarch64-apple-darwin -p runt-cli
+
+      - name: Rename binaries
+        run: |
+          cp target/x86_64-apple-darwin/release/runt runt-darwin-x64
+          cp target/aarch64-apple-darwin/release/runt runt-darwin-arm64
+          chmod +x runt-darwin-x64 runt-darwin-arm64
+
+      - name: Upload macOS executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: runt-macos-executables
+          path: |
+            runt-darwin-x64
+            runt-darwin-arm64
+
+  prerelease:
+    name: Prerelease
+    runs-on: ubuntu-latest
+    needs: [build-linux, build-macos]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Linux executables
+        uses: actions/download-artifact@v4
+        with:
+          name: runt-linux-executables
+          path: ./executables
+
+      - name: Download macOS executables
+        uses: actions/download-artifact@v4
+        with:
+          name: runt-macos-executables
+          path: ./executables
+
+      - name: Create GitHub Preview Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ needs.build-linux.outputs.version }}
+          name: runt-cli v${{ needs.build-linux.outputs.version }}
+          body: |
+            ## Weekly Preview Release
+
+            This is an automated weekly preview release from the `main` branch.
+
+            **Commit:** ${{ github.sha }}
+
+            ## Installation
+
+            ```bash
+            curl https://i.safia.sh/runtimed/runt | sh
+            ```
+
+            ## Manual Downloads
+
+            | Platform | Architecture | Download |
+            |----------|--------------|----------|
+            | Linux | x64 | `runt-linux-x64` |
+            | macOS | x64 | `runt-darwin-x64` |
+            | macOS | ARM64 | `runt-darwin-arm64` |
+          draft: false
+          prerelease: true
+          files: |
+            ./executables/runt-linux-x64
+            ./executables/runt-darwin-x64
+            ./executables/runt-darwin-arm64

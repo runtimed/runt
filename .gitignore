@@ -1,0 +1,40 @@
+# Rust
+debug/
+target/
+**/*.rs.bk
+*.pdb
+
+# Cargo.lock checked in for binaries
+# Cargo.lock
+
+# iPython
+.ipynb_checkpoints
+Untitled*.ipynb
+
+# Local sqlite db files
+*.db
+*.db-wal
+*.db-shm
+
+# Local environment
+.env
+
+# Hone directory
+.hone
+
+# Node/JS artifacts
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+*.tsbuildinfo
+
+# Python artifacts
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+**/*.egg-info/
+.venv/
+**/.venv/
