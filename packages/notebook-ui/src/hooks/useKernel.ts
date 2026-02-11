@@ -1,0 +1,191 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import type { JupyterMessage, JupyterOutput, KernelspecInfo } from "../types";
+
+interface UseKernelOptions {
+  onOutput: (cellId: string, output: JupyterOutput) => void;
+  onExecutionCount: (cellId: string, count: number) => void;
+  onExecutionDone: (cellId: string) => void;
+  onCommMessage?: (msg: JupyterMessage) => void;
+}
+
+/**
+ * Decode base64-encoded buffer strings into ArrayBuffers.
+ * The Rust side serializes Vec<Bytes> as base64 strings.
+ */
+function decodeBuffers(buffers?: unknown[]): ArrayBuffer[] {
+  if (!buffers || buffers.length === 0) return [];
+  return buffers.map((b) => {
+    if (typeof b === "string") {
+      const binary = atob(b);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
+    return new ArrayBuffer(0);
+  });
+}
+
+export function useKernel({
+  onOutput,
+  onExecutionCount,
+  onExecutionDone,
+  onCommMessage,
+}: UseKernelOptions) {
+  const [kernelStatus, setKernelStatus] = useState<string>("not started");
+  // Track whether we're in the process of auto-starting to avoid double starts
+  const startingRef = useRef(false);
+
+  useEffect(() => {
+    const unlisten = listen<JupyterMessage>("kernel:iopub", (event) => {
+      const msg = event.payload;
+      const msgType = msg.header.msg_type;
+      const cellId = msg.cell_id;
+
+      // Route comm messages to the widget store
+      if (
+        msgType === "comm_open" ||
+        msgType === "comm_msg" ||
+        msgType === "comm_close"
+      ) {
+        if (onCommMessage) {
+          // Decode base64 buffers before passing to widget store
+          const decoded = {
+            ...msg,
+            buffers: decodeBuffers(msg.buffers),
+          };
+          onCommMessage(decoded as JupyterMessage);
+        }
+        return;
+      }
+
+      if (msgType === "status") {
+        const state = (msg.content as { execution_state: string })
+          .execution_state;
+        setKernelStatus(state);
+        if (state === "idle" && cellId) {
+          onExecutionDone(cellId);
+        }
+        return;
+      }
+
+      if (!cellId) return;
+
+      if (msgType === "execute_input") {
+        const content = msg.content as { execution_count: number };
+        onExecutionCount(cellId, content.execution_count);
+        return;
+      }
+
+      if (msgType === "stream") {
+        const content = msg.content as { name: string; text: string };
+        onOutput(cellId, {
+          output_type: "stream",
+          name: content.name as "stdout" | "stderr",
+          text: content.text,
+        });
+      } else if (msgType === "display_data") {
+        const content = msg.content as {
+          data: Record<string, unknown>;
+          metadata: Record<string, unknown>;
+        };
+        onOutput(cellId, {
+          output_type: "display_data",
+          data: content.data,
+          metadata: content.metadata,
+        });
+      } else if (msgType === "execute_result") {
+        const content = msg.content as {
+          data: Record<string, unknown>;
+          metadata: Record<string, unknown>;
+          execution_count: number;
+        };
+        onOutput(cellId, {
+          output_type: "execute_result",
+          data: content.data,
+          metadata: content.metadata,
+          execution_count: content.execution_count,
+        });
+        onExecutionCount(cellId, content.execution_count);
+      } else if (msgType === "error") {
+        const content = msg.content as {
+          ename: string;
+          evalue: string;
+          traceback: string[];
+        };
+        onOutput(cellId, {
+          output_type: "error",
+          ename: content.ename,
+          evalue: content.evalue,
+          traceback: content.traceback,
+        });
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [onOutput, onExecutionCount, onExecutionDone, onCommMessage]);
+
+  const startKernel = useCallback(async (name: string) => {
+    setKernelStatus("starting");
+    try {
+      console.log("[kernel] starting kernel:", name);
+      await invoke("start_kernel", { kernelspecName: name });
+      console.log("[kernel] start_kernel succeeded, setting status to idle");
+      // The Rust side confirmed the kernel is alive (got kernel_info_reply)
+      setKernelStatus("idle");
+    } catch (e) {
+      console.error("start_kernel failed:", e);
+      setKernelStatus("error");
+    }
+  }, []);
+
+  const interruptKernel = useCallback(async () => {
+    try {
+      await invoke("interrupt_kernel");
+    } catch (e) {
+      console.error("interrupt_kernel failed:", e);
+    }
+  }, []);
+
+  const listKernelspecs = useCallback(async (): Promise<KernelspecInfo[]> => {
+    try {
+      return await invoke<KernelspecInfo[]>("list_kernelspecs");
+    } catch (e) {
+      console.error("list_kernelspecs failed:", e);
+      return [];
+    }
+  }, []);
+
+  const ensureKernelStarted = useCallback(async () => {
+    if (startingRef.current) return;
+    startingRef.current = true;
+    try {
+      // Try the notebook's preferred kernelspec first
+      const preferred = await invoke<string | null>("get_preferred_kernelspec");
+      if (preferred) {
+        await startKernel(preferred);
+        return;
+      }
+      // Fall back to first available kernelspec
+      const specs = await listKernelspecs();
+      if (specs.length > 0) {
+        await startKernel(specs[0].name);
+      }
+    } finally {
+      startingRef.current = false;
+    }
+  }, [startKernel, listKernelspecs]);
+
+  return {
+    kernelStatus,
+    startKernel,
+    ensureKernelStarted,
+    interruptKernel,
+    listKernelspecs,
+  };
+}

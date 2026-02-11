@@ -2,6 +2,7 @@
 members = [
     "crates/sidecar",
     "crates/runt",
+    "crates/notebook",
 ]
 resolver = "2"
 
