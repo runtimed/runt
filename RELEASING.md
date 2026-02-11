@@ -38,12 +38,8 @@ The `python-package.yml` workflow triggers on `python-v*` tags and will:
 ### Building from source
 
 ```bash
-# Build UIs first
 pnpm install
-pnpm --dir packages/ui build
 pnpm --dir packages/sidecar-ui build
-
-# Build Rust
 cargo build --release
 ```
 

@@ -41,13 +41,44 @@ runt sidecar <connection-file>
 ## Building from source
 
 ```bash
-# Build UIs first
 pnpm install
-pnpm --dir packages/ui build
 pnpm --dir packages/sidecar-ui build
-
-# Build Rust
 cargo build --release
+```
+
+## Development
+
+### Prerequisites
+
+| Tool | Version | Install |
+|------|---------|---------|
+| Node.js | 20+ | https://nodejs.org |
+| pnpm | 10.12+ | `corepack enable` |
+| Rust | 1.90.0 | https://rustup.rs (version managed by `rust-toolchain.toml`) |
+
+**Linux only:** Install GTK/WebKit dev libraries:
+```bash
+sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+```
+
+### Build order
+
+The sidecar UI must be built before the Rust build because `crates/sidecar` embeds the UI assets from `packages/sidecar-ui/dist/` at compile time via [rust-embed](https://crates.io/crates/rust-embed).
+
+### Common commands
+
+```bash
+# Run tests
+cargo test
+
+# Lint Rust
+cargo clippy --all-targets -- -D warnings
+
+# Format Rust
+cargo fmt
+
+# UI dev server (for UI development)
+pnpm --dir packages/sidecar-ui dev
 ```
 
 ## Library crates
