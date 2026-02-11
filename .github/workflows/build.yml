@@ -35,7 +35,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Enable corepack
         run: corepack enable
@@ -44,9 +44,7 @@ jobs:
         run: pnpm install
 
       - name: Build UIs
-        run: |
-          pnpm --dir packages/ui build
-          pnpm --dir packages/sidecar-ui build
+        run: pnpm --dir packages/sidecar-ui build
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
