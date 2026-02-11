@@ -1,10 +1,10 @@
 [package]
 name = "sidecar"
 version = "1.2.0"
-edition = "2021"
+edition.workspace = true
 description = "Sidecar jupyter outputs — install via GitHub Releases or `pip install runtimed`, not crates.io"
-repository = "https://github.com/runtimed/runtimed"
-license = "BSD-3-Clause"
+repository.workspace = true
+license.workspace = true
 publish = false
 
 [dependencies]
@@ -22,7 +22,7 @@ jupyter-protocol = { workspace = true }
 runtimelib = { workspace = true, features = [
     "tokio-runtime",
     "ring"
-], default-features = false }
+] }
 futures = { workspace = true }
 querystring = "1.1.0"
 tao = "0.31.0"

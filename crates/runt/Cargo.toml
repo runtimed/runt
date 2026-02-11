@@ -1,10 +1,10 @@
 [package]
 name = "runt-cli"
 version = "1.2.0"
-edition = "2021"
+edition.workspace = true
 description = "CLI for Jupyter Runtimes — install via GitHub Releases or `pip install runtimed`, not crates.io"
-repository = "https://github.com/runtimed/runtimed"
-license = "BSD-3-Clause"
+repository.workspace = true
+license.workspace = true
 publish = false
 
 [[bin]]
@@ -18,7 +18,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 jupyter-protocol = { workspace = true }
 runtimelib = { workspace = true, features = ["tokio-runtime", "ring"] }
-sidecar = { path = "../sidecar", version = "1.2.0" }
+sidecar = { path = "../sidecar" }
 clap = { version = "4.5.1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 petname = "2"

@@ -1,0 +1,30 @@
+[workspace]
+members = [
+    "crates/sidecar",
+    "crates/runt",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "BSD-3-Clause"
+repository = "https://github.com/runtimed/runt"
+
+[workspace.dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["serde", "v4", "v5"] }
+futures = "0.3"
+bytes = "1"
+base64 = "0.22"
+tokio = { version = "1.36.0", features = ["full"] }
+runtimelib = { version = "1.1.0", default-features = false }
+jupyter-protocol = "1.1.1"
+
+[profile.release]
+opt-level = 'z'
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
