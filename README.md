@@ -20,6 +20,7 @@ pip install runtimed
 |---------|-------------|
 | `runt` | CLI for managing and interacting with Jupyter kernels |
 | `sidecar` | Desktop viewer for Jupyter kernel outputs |
+| `notebook` | Desktop notebook editor (Tauri + React) |
 | `runtimed` (PyPI) | Python package bundling the `runt` binary |
 
 ## Usage
@@ -36,6 +37,9 @@ runt console
 
 # Launch sidecar output viewer
 runt sidecar <connection-file>
+
+# Launch notebook editor
+cargo run -p notebook
 ```
 
 ## Building from source
@@ -43,6 +47,7 @@ runt sidecar <connection-file>
 ```bash
 pnpm install
 pnpm --dir packages/sidecar-ui build
+pnpm --dir packages/notebook-ui build
 cargo build --release
 ```
 
@@ -63,7 +68,9 @@ sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
 
 ### Build order
 
-The sidecar UI must be built before the Rust build because `crates/sidecar` embeds the UI assets from `packages/sidecar-ui/dist/` at compile time via [rust-embed](https://crates.io/crates/rust-embed).
+The UI packages must be built before the Rust build because:
+- `crates/sidecar` embeds UI assets from `packages/sidecar-ui/dist/` at compile time via [rust-embed](https://crates.io/crates/rust-embed)
+- `crates/notebook` embeds UI assets from `packages/notebook-ui/dist/` at compile time via Tauri
 
 ### Common commands
 
@@ -77,8 +84,11 @@ cargo clippy --all-targets -- -D warnings
 # Format Rust
 cargo fmt
 
-# UI dev server (for UI development)
+# UI dev server (for sidecar UI development)
 pnpm --dir packages/sidecar-ui dev
+
+# UI dev server (for notebook UI development)
+pnpm --dir packages/notebook-ui dev
 ```
 
 ## Library crates
