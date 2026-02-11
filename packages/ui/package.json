@@ -23,7 +23,7 @@
     "@codemirror/lang-python": "^6.2.1",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/language": "^6.12.1",
-    "@codemirror/lint": "^6.9.3",
+    "@codemirror/lint": "^6.9.4",
     "@codemirror/state": "^6.5.4",
     "@codemirror/view": "^6.39.13",
     "@uiw/codemirror-theme-github": "^4.25.4",
