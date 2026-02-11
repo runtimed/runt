@@ -57,6 +57,14 @@ struct WryJupyterMessage {
 enum SidecarEvent {
     JupyterMessage(JupyterMessage),
     KernelCwd { cwd: String },
+    KernelStatus { status: KernelConnectionStatus },
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum KernelConnectionStatus {
+    Connected,
+    Disconnected,
 }
 
 impl<'de> Deserialize<'de> for WryJupyterMessage {
@@ -160,6 +168,14 @@ async fn run(
 ) -> anyhow::Result<()> {
     let content = fs::read_to_string(&connection_file_path).await?;
     let connection_info = serde_json::from_str::<ConnectionInfo>(&content)?;
+
+    // Check if kernel is alive before trying to connect
+    // This prevents hanging on dead kernels since ZeroMQ connections don't fail-fast
+    if !check_kernel_heartbeat(&connection_info, Duration::from_secs(2)).await {
+        anyhow::bail!(
+            "Kernel is not responding (heartbeat failed). The kernel may have exited or the connection file may be stale."
+        );
+    }
 
     let mut iopub = runtimelib::create_client_iopub_connection(
         &connection_info,
@@ -296,6 +312,11 @@ async fn run(
     let kernel_info_pending = pending_kernel_info.clone();
     let kernel_cwd_pending = pending_kernel_cwd.clone();
     tokio::spawn(async move {
+        // Kernel was confirmed alive at startup via heartbeat check
+        let _ = kernel_info_proxy.send_event(SidecarEvent::KernelStatus {
+            status: KernelConnectionStatus::Connected,
+        });
+
         for attempt in 0..3 {
             if let Some(message) = request_kernel_info(
                 &kernel_info_connection,
@@ -338,7 +359,16 @@ async fn run(
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
-        debug!("kernel_info_reply not received after retries");
+
+        // All kernel_info retries failed - check if kernel died
+        if !check_kernel_heartbeat(&kernel_info_connection, Duration::from_secs(2)).await {
+            debug!("Kernel appears to be disconnected");
+            let _ = kernel_info_proxy.send_event(SidecarEvent::KernelStatus {
+                status: KernelConnectionStatus::Disconnected,
+            });
+        } else {
+            debug!("Heartbeat succeeded but kernel_info failed - kernel may be busy");
+        }
     });
 
     tokio::spawn(async move {
@@ -446,6 +476,20 @@ async fn run(
                     let payload = serde_json::json!({
                         "type": "kernel_cwd",
                         "cwd": cwd,
+                    });
+                    if let Ok(serialized_payload) = serde_json::to_string(&payload) {
+                        webview
+                            .evaluate_script(&format!(
+                                r#"globalThis.onSidecarInfo({})"#,
+                                serialized_payload
+                            ))
+                            .unwrap_or_else(|e| error!("Failed to evaluate script: {:?}", e));
+                    }
+                }
+                SidecarEvent::KernelStatus { status } => {
+                    let payload = serde_json::json!({
+                        "type": "kernel_status",
+                        "status": status,
                     });
                     if let Ok(serialized_payload) = serde_json::to_string(&payload) {
                         webview
@@ -569,6 +613,19 @@ async fn request_python_cwd(
         }
         Either::Right((_timeout, _)) => None,
     }
+}
+
+/// Check if a kernel is alive by sending a heartbeat ping.
+///
+/// Returns true if the kernel responds within the timeout, false otherwise.
+async fn check_kernel_heartbeat(connection_info: &ConnectionInfo, timeout: Duration) -> bool {
+    let heartbeat_result = tokio::time::timeout(timeout, async {
+        let mut hb = runtimelib::create_client_heartbeat_connection(connection_info).await?;
+        hb.single_heartbeat().await
+    })
+    .await;
+
+    matches!(heartbeat_result, Ok(Ok(())))
 }
 
 /// Launch the sidecar viewer for a Jupyter kernel.

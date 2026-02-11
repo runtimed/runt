@@ -15,6 +15,7 @@ class Sidecar:
     def __init__(self, process: subprocess.Popen, connection_file: Path) -> None:
         self._process = process
         self._connection_file = connection_file
+        self._stderr_cache: Optional[str] = None
 
     @property
     def process(self) -> subprocess.Popen:
@@ -31,12 +32,42 @@ class Sidecar:
         """Whether the sidecar process is still running."""
         return self._process.poll() is None
 
+    @property
+    def error(self) -> Optional[str]:
+        """Error message if the process has exited with an error, None otherwise.
+
+        This reads stderr from the process, so it should only be called after
+        the process has exited (when running is False).
+        """
+        if self.running:
+            return None
+        if self._process.returncode == 0:
+            return None
+        if self._stderr_cache is None:
+            _, stderr = self._process.communicate()
+            self._stderr_cache = stderr.decode().strip() if stderr else None
+        return self._stderr_cache
+
     def close(self) -> None:
         """Terminate the sidecar process."""
         self._process.terminate()
 
     def __repr__(self) -> str:
-        status = "running" if self.running else f"exited ({self._process.returncode})"
+        if self.running:
+            status = "running"
+        elif self._process.returncode == 0:
+            status = "exited (0)"
+        else:
+            # Include error message in repr for failed processes
+            err = self.error
+            if err:
+                # Take first line of error for brevity
+                first_line = err.split('\n')[0]
+                if len(first_line) > 60:
+                    first_line = first_line[:57] + "..."
+                status = f"failed: {first_line}"
+            else:
+                status = f"exited ({self._process.returncode})"
         kernel = self._connection_file.stem
         return f"Sidecar({kernel}, {status})"
 
