@@ -5,6 +5,10 @@ use bytes::Bytes;
 use futures::future::{select, Either};
 use futures::StreamExt;
 use log::{debug, error, info};
+use muda::{
+    accelerator::{Accelerator, Code, Modifiers},
+    Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
+};
 use rust_embed::Embed;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -29,7 +33,7 @@ use tao::{
     event::{ElementState, Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop, EventLoopBuilder},
     keyboard::{Key, ModifiersState},
-    window::{Window, WindowBuilder},
+    window::{Icon, Window, WindowBuilder},
 };
 use tokio::fs;
 use wry::{
@@ -40,6 +44,18 @@ use wry::{
 #[derive(Embed)]
 #[folder = "../../packages/sidecar-ui/dist"]
 struct Asset;
+
+// Menu item IDs
+const MENU_QUIT_ID: &str = "quit";
+const MENU_CLOSE_ID: &str = "close";
+
+/// Load the app icon from embedded PNG data
+fn load_icon() -> Option<Icon> {
+    let icon_bytes = include_bytes!("../icons/icon.png");
+    let img = image::load_from_memory(icon_bytes).ok()?.into_rgba8();
+    let (width, height) = img.dimensions();
+    Icon::from_rgba(img.into_raw(), width, height).ok()
+}
 
 #[derive(Serialize)]
 struct WryJupyterMessage {
@@ -422,6 +438,21 @@ async fn run(
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
+        // Check for menu events
+        if let Ok(menu_event) = MenuEvent::receiver().try_recv() {
+            match menu_event.id().0.as_str() {
+                MENU_QUIT_ID => {
+                    *control_flow = ControlFlow::Exit;
+                    return;
+                }
+                MENU_CLOSE_ID => {
+                    *control_flow = ControlFlow::Exit;
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         match event {
             Event::WindowEvent {
                 event: WindowEvent::ModifiersChanged(new_modifiers),
@@ -680,11 +711,57 @@ pub fn launch(file: &Path, quiet: bool, dump: Option<&Path>) -> Result<()> {
 
     let event_loop: EventLoop<SidecarEvent> = EventLoopBuilder::with_user_event().build();
 
-    let window = WindowBuilder::new()
+    // Create window with icon
+    let mut window_builder = WindowBuilder::new()
         .with_title("kernel sidecar")
-        .with_inner_size(Size::Logical((width, height).into()))
-        .build(&event_loop)
-        .unwrap();
+        .with_inner_size(Size::Logical((width, height).into()));
+
+    if let Some(icon) = load_icon() {
+        window_builder = window_builder.with_window_icon(Some(icon));
+    }
+
+    let window = window_builder.build(&event_loop).unwrap();
+
+    // Create menu bar
+    let menu_bar = Menu::new();
+
+    // App menu (macOS) with Quit
+    let app_menu = Submenu::new("Sidecar", true);
+    let quit_item = MenuItem::with_id(
+        MENU_QUIT_ID,
+        "Quit Sidecar",
+        true,
+        Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyQ)),
+    );
+    app_menu.append(&PredefinedMenuItem::about(None, None)).ok();
+    app_menu.append(&PredefinedMenuItem::separator()).ok();
+    app_menu.append(&quit_item).ok();
+    menu_bar.append(&app_menu).ok();
+
+    // Window menu with Close
+    let window_menu = Submenu::new("Window", true);
+    let close_item = MenuItem::with_id(
+        MENU_CLOSE_ID,
+        "Close Window",
+        true,
+        Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyW)),
+    );
+    window_menu.append(&PredefinedMenuItem::minimize(None)).ok();
+    window_menu.append(&close_item).ok();
+    menu_bar.append(&window_menu).ok();
+
+    // Initialize the menu bar on the window
+    #[cfg(target_os = "macos")]
+    {
+        use tao::platform::macos::WindowExtMacOS;
+        menu_bar.init_for_nsapp();
+        window.set_is_document_edited(false);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        use muda::MenuId;
+        menu_bar.init_for_hwnd(window.hwnd() as _).ok();
+    }
 
     let dump_file = dump.map(|path| {
         let file = OpenOptions::new()

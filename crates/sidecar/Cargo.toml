@@ -27,6 +27,9 @@ futures = { workspace = true }
 querystring = "1.1.0"
 tao = "0.31.0"
 wry = "0.47.0"
+muda = "0.15"
+crossbeam-channel = "0.5"
+image = { version = "0.25", default-features = false, features = ["png"] }
 tokio = { version = "1", features = ["full"] }
 uuid = { workspace = true }
 
