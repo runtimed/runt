@@ -44,7 +44,9 @@ jobs:
         run: pnpm install
 
       - name: Build UIs
-        run: pnpm --dir packages/sidecar-ui build
+        run: |
+          pnpm --dir packages/sidecar-ui build
+          pnpm --dir packages/notebook-ui build
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
