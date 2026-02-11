@@ -1,7 +1,7 @@
 use anyhow::Result;
 use base64::prelude::*;
 use bytes::Bytes;
-use env_logger;
+
 use futures::future::{select, Either};
 use futures::StreamExt;
 use log::{debug, error, info};
@@ -55,7 +55,7 @@ struct WryJupyterMessage {
 
 #[derive(Debug, Clone)]
 enum SidecarEvent {
-    JupyterMessage(JupyterMessage),
+    JupyterMessage(Box<JupyterMessage>),
     KernelCwd { cwd: String },
     KernelStatus { status: KernelConnectionStatus },
 }
@@ -98,7 +98,7 @@ impl<'de> Deserialize<'de> for WryJupyterMessage {
             header: helper.header,
             parent_header: helper.parent_header,
             metadata: helper.metadata,
-            content: content,
+            content,
             buffers: helper.buffers,
             channel: helper.channel,
         })
@@ -212,7 +212,9 @@ async fn run(
     let shell_event_proxy = event_loop_proxy.clone();
     tokio::spawn(async move {
         while let Ok(message) = shell_reader.read().await {
-            if let Err(e) = shell_event_proxy.send_event(SidecarEvent::JupyterMessage(message)) {
+            if let Err(e) =
+                shell_event_proxy.send_event(SidecarEvent::JupyterMessage(Box::new(message)))
+            {
                 error!("Failed to forward shell reply: {:?}", e);
                 break;
             }
@@ -272,7 +274,8 @@ async fn run(
                 ui_ready_handler.store(true, Ordering::SeqCst);
                 if let Ok(mut pending) = pending_kernel_info_handler.lock() {
                     if let Some(message) = pending.take() {
-                        let _ = kernel_info_proxy.send_event(SidecarEvent::JupyterMessage(message));
+                        let _ = kernel_info_proxy
+                            .send_event(SidecarEvent::JupyterMessage(Box::new(message)));
                     }
                 }
                 if let Ok(mut pending) = pending_kernel_cwd_handler.lock() {
@@ -337,8 +340,8 @@ async fn run(
                     _ => None,
                 };
                 if kernel_info_ready.load(Ordering::SeqCst) {
-                    let _ =
-                        kernel_info_proxy.send_event(SidecarEvent::JupyterMessage(message.clone()));
+                    let _ = kernel_info_proxy
+                        .send_event(SidecarEvent::JupyterMessage(Box::new(message.clone())));
                 } else if let Ok(mut pending) = kernel_info_pending.lock() {
                     *pending = Some(message.clone());
                 }
@@ -401,7 +404,7 @@ async fn run(
                 }
             }
 
-            match event_loop_proxy.send_event(SidecarEvent::JupyterMessage(message)) {
+            match event_loop_proxy.send_event(SidecarEvent::JupyterMessage(Box::new(message))) {
                 Ok(_) => {
                     debug!("Sent message to event loop");
                 }
@@ -439,11 +442,11 @@ async fn run(
                     let is_devtools_shortcut = if cfg!(target_os = "macos") {
                         modifiers.super_key()
                             && modifiers.alt_key()
-                            && key_event.logical_key == Key::Character("i".into())
+                            && key_event.logical_key == Key::Character("i")
                     } else {
                         modifiers.control_key()
                             && modifiers.shift_key()
-                            && key_event.logical_key == Key::Character("I".into())
+                            && key_event.logical_key == Key::Character("I")
                     };
 
                     #[cfg(debug_assertions)]
@@ -464,7 +467,7 @@ async fn run(
             Event::UserEvent(data) => match data {
                 SidecarEvent::JupyterMessage(message) => {
                     debug!("Received UserEvent message: {}", message.header.msg_type);
-                    let serialized: WryJupyterMessage = message.into();
+                    let serialized: WryJupyterMessage = (*message).into();
                     match serde_json::to_string(&serialized) {
                         Ok(serialized_message) => {
                             webview
@@ -699,7 +702,7 @@ pub fn launch(file: &Path, quiet: bool, dump: Option<&Path>) -> Result<()> {
 }
 
 fn get_response(request: Request<Vec<u8>>) -> Result<Response<Vec<u8>>> {
-    if request.method() != &Method::GET {
+    if request.method() != Method::GET {
         return Ok(Response::builder()
             .status(405)
             .body("Method Not Allowed".as_bytes().to_vec())
