@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicklasxyz/tauri-v2-json-schemas/main/src/tauri.conf.json",
+  "productName": "runt-notebook",
+  "version": "0.1.0",
+  "identifier": "com.runtimed.notebook",
+  "build": {
+    "frontendDist": "../../packages/notebook-ui/dist",
+    "beforeBuildCommand": "pnpm --dir ../../packages/notebook-ui build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Untitled.ipynb",
+        "width": 1100,
+        "height": 750,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}

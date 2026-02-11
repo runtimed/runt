@@ -2,6 +2,7 @@
 module.exports = {
   content: [
     "./packages/sidecar-ui/src/**/*.{ts,tsx}",
+    "./packages/notebook-ui/src/**/*.{ts,tsx}",
     "./packages/ui/src/**/*.{ts,tsx}",
   ],
   theme: {

@@ -8,6 +8,7 @@
     "./components/ui/*": "./src/components/ui/*.tsx",
     "./components/outputs/*": "./src/components/outputs/*.tsx",
     "./components/cell/*": "./src/components/cell/*.tsx",
+    "./components/editor/*": "./src/components/editor/*.tsx",
     "./components/widgets/controls": "./src/components/widgets/controls/index.ts",
     "./components/widgets/ipycanvas": "./src/components/widgets/ipycanvas/index.ts",
     "./components/widgets/*": "./src/components/widgets/*.tsx"
