@@ -8,10 +8,10 @@ Run the following commands from the `packages/ui` directory:
 
 ```bash
 cd packages/ui
-npx shadcn@latest registry add @nteract
-npx shadcn@latest add @nteract/all -yo
-npx shadcn@latest add @nteract/ipycanvas -yo
-npx shadcn@latest add dialog -yo
+pnpm dlx shadcn@latest registry add @nteract
+pnpm dlx shadcn@latest add @nteract/all -yo
+pnpm dlx shadcn@latest add @nteract/ipycanvas -yo
+pnpm dlx shadcn@latest add dialog -yo
 ```
 
 ## Key Points
