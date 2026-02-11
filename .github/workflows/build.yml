@@ -18,7 +18,7 @@ jobs:
           - runner: ubuntu-latest
             setup: |
               sudo apt-get update
-              sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+              sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev
           - runner: macos-latest
             setup: echo "No extra deps needed on macOS"
     steps:
