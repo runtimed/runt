@@ -757,11 +757,12 @@ pub fn launch(file: &Path, quiet: bool, dump: Option<&Path>) -> Result<()> {
         menu_bar.init_for_nsapp();
         window.set_is_document_edited(false);
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        use muda::MenuId;
+        use tao::platform::windows::WindowExtWindows;
         menu_bar.init_for_hwnd(window.hwnd() as _).ok();
     }
+    // Linux: Menu bar initialization skipped - requires GTK integration
 
     let dump_file = dump.map(|path| {
         let file = OpenOptions::new()
