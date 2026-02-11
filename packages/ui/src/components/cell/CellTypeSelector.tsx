@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { type CellType, cellTypeStyles } from "@/components/CellTypeButton";
+import { type CellType, cellTypeStyles } from "@/components/cell/CellTypeButton";
 
 const allCellTypes: CellType[] = ["code", "markdown", "sql", "ai"];
 

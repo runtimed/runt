@@ -365,6 +365,16 @@ export function AnyWidgetView({ modelId, className }: AnyWidgetViewProps) {
   const { store, sendMessage } = useWidgetStoreRequired();
   const [error, setError] = useState<Error | null>(null);
 
+  // Refs for values that need to be fresh but shouldn't trigger effect re-runs
+  const storeRef = useRef(store);
+  const sendMessageRef = useRef(sendMessage);
+
+  // Keep refs up to date without triggering the main effect
+  useEffect(() => {
+    storeRef.current = store;
+    sendMessageRef.current = sendMessage;
+  });
+
   // Use reactive model hook - triggers re-render when model changes
   const model = useWidgetModel(modelId);
 
@@ -373,6 +383,9 @@ export function AnyWidgetView({ modelId, className }: AnyWidgetViewProps) {
   const esm = model?.state._esm as string | undefined;
   const css = model?.state._css as string | undefined;
 
+  // Only changes when widget identity changes, not on state updates
+  const stableModelId = model?.id;
+
   // Track cleanup functions and mount state
   const cleanupRef = useRef<{
     css?: () => void;
@@ -380,16 +393,16 @@ export function AnyWidgetView({ modelId, className }: AnyWidgetViewProps) {
   }>({});
   const hasMountedRef = useRef(false);
 
-  // Get current state for the proxy (needs to be a function to get fresh state)
+  // Get current state for the proxy - use ref to always get fresh store
   const getCurrentState = useCallback(
-    () => store.getModel(modelId)?.state ?? {},
-    [store, modelId],
+    () => storeRef.current.getModel(modelId)?.state ?? {},
+    [modelId],
   );
 
   useEffect(() => {
     // Wait for container, model, and _esm to be ready
     // Note: _esm may arrive in a comm_msg after the initial comm_open
-    if (!containerRef.current || !model || !esm) {
+    if (!containerRef.current || !stableModelId || !esm) {
       // Don't set error - just wait for _esm to arrive via comm_msg
       return;
     }
@@ -424,11 +437,17 @@ export function AnyWidgetView({ modelId, className }: AnyWidgetViewProps) {
         // Check if cancelled after async load
         if (isCancelled) return;
 
-        // Create the AFM model proxy
+        // Create the AFM model proxy using refs for stable references
         const modelProxy = createAFMModelProxy(
-          model!,
-          store,
-          sendMessage,
+          {
+            id: stableModelId,
+            state: {},
+            buffers: [],
+            modelName: "",
+            modelModule: "",
+          } as WidgetModel,
+          storeRef.current,
+          sendMessageRef.current,
           getCurrentState,
         );
 
@@ -489,17 +508,12 @@ export function AnyWidgetView({ modelId, className }: AnyWidgetViewProps) {
       }
       hasMountedRef.current = false;
     };
-    // Dependencies include esm so we re-run when _esm arrives via comm_msg update
-  }, [
-    modelId,
-    model?.id,
-    esm,
-    css,
-    store,
-    sendMessage,
-    getCurrentState,
-    model,
-  ]);
+    // Only values that should trigger a full remount:
+    // - stableModelId: different widget instance
+    // - esm: different widget code
+    // - css: different widget styles
+    // getCurrentState and modelId are stable unless modelId changes (safe to include)
+  }, [stableModelId, esm, css, getCurrentState, modelId]);
 
   // Model not ready yet
   const modelExists = model !== undefined;
