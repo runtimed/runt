@@ -23,7 +23,6 @@ use jupyter_protocol::{
 
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
-use tokio::fs;
 use std::path::PathBuf;
 use tao::{
     dpi::Size,
@@ -32,6 +31,7 @@ use tao::{
     keyboard::{Key, ModifiersState},
     window::{Window, WindowBuilder},
 };
+use tokio::fs;
 use wry::{
     http::{Method, Request, Response},
     WebViewBuilder,
@@ -75,7 +75,10 @@ impl<'de> Deserialize<'de> for WryJupyterMessage {
         #[derive(Deserialize)]
         struct WryJupyterMessageHelper {
             header: Header,
-            #[serde(default, deserialize_with = "jupyter_protocol::deserialize_parent_header")]
+            #[serde(
+                default,
+                deserialize_with = "jupyter_protocol::deserialize_parent_header"
+            )]
             parent_header: Option<Header>,
             #[serde(default)]
             metadata: Value,
@@ -184,8 +187,13 @@ async fn run(
     )
     .await?;
 
-    let shell =
-        runtimelib::create_client_shell_connection(&connection_info, &iopub.session_id).await?;
+    let identity = runtimelib::peer_identity_for_session(&iopub.session_id)?;
+    let shell = runtimelib::create_client_shell_connection_with_identity(
+        &connection_info,
+        &iopub.session_id,
+        identity,
+    )
+    .await?;
     let (mut shell_writer, mut shell_reader) = shell.split();
 
     let event_loop_proxy = event_loop.create_proxy();
@@ -272,8 +280,7 @@ async fn run(
                         let _ = kernel_info_proxy.send_event(SidecarEvent::KernelCwd { cwd });
                     }
                 }
-                responder
-                    .respond(Response::builder().status(204).body(Vec::new()).unwrap());
+                responder.respond(Response::builder().status(204).body(Vec::new()).unwrap());
                 return;
             }
             let response = get_response(req).map_err(|e| {
@@ -301,9 +308,7 @@ async fn run(
     let kernel_query = querystring::stringify(vec![("kernel", kernel_label)]);
     let ui_url = format!("sidecar://localhost/?{}", kernel_query);
 
-    let webview = webview
-        .with_url(&ui_url)
-        .build(&window)?;
+    let webview = webview.with_url(&ui_url).build(&window)?;
 
     let kernel_info_connection = connection_info.clone();
     let kernel_info_session_id = iopub.session_id.clone();
@@ -511,8 +516,19 @@ async fn request_kernel_info(
     session_id: &str,
     timeout: Duration,
 ) -> Option<JupyterMessage> {
-    let mut shell = match runtimelib::create_client_shell_connection(connection_info, session_id)
-        .await
+    let identity = match runtimelib::peer_identity_for_session(session_id) {
+        Ok(id) => id,
+        Err(e) => {
+            error!("Failed to create peer identity for kernel info: {}", e);
+            return None;
+        }
+    };
+    let mut shell = match runtimelib::create_client_shell_connection_with_identity(
+        connection_info,
+        session_id,
+        identity,
+    )
+    .await
     {
         Ok(shell) => shell,
         Err(e) => {
@@ -554,8 +570,19 @@ async fn request_python_cwd(
     session_id: &str,
     timeout: Duration,
 ) -> Option<String> {
-    let mut shell = match runtimelib::create_client_shell_connection(connection_info, session_id)
-        .await
+    let identity = match runtimelib::peer_identity_for_session(session_id) {
+        Ok(id) => id,
+        Err(e) => {
+            error!("Failed to create peer identity for cwd request: {}", e);
+            return None;
+        }
+    };
+    let mut shell = match runtimelib::create_client_shell_connection_with_identity(
+        connection_info,
+        session_id,
+        identity,
+    )
+    .await
     {
         Ok(shell) => shell,
         Err(e) => {

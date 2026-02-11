@@ -51,9 +51,7 @@ impl KernelClient {
 
         let working_dir = std::env::current_dir()?;
 
-        let mut command = kernelspec
-            .clone()
-            .command(&connection_file, None, None)?;
+        let mut command = kernelspec.clone().command(&connection_file, None, None)?;
         command.current_dir(working_dir);
 
         let child = command.spawn()?;
@@ -129,11 +127,10 @@ impl KernelClient {
         let content = tokio::fs::read_to_string(&connection_file).await?;
         let connection_info: ConnectionInfo = serde_json::from_str(&content)?;
 
-        let kernel_id = extract_kernel_id(&connection_file).ok_or_else(|| {
-            RuntimeError::KernelIdMissing {
+        let kernel_id =
+            extract_kernel_id(&connection_file).ok_or_else(|| RuntimeError::KernelIdMissing {
                 path: connection_file.display().to_string(),
-            }
-        })?;
+            })?;
         let session_id = Uuid::new_v4().to_string();
 
         Ok(Self {
@@ -162,8 +159,8 @@ impl KernelClient {
     }
 
     pub async fn interrupt(&mut self) -> Result<()> {
-        let mut control = create_client_control_connection(&self.connection_info, &self.session_id)
-            .await?;
+        let mut control =
+            create_client_control_connection(&self.connection_info, &self.session_id).await?;
         let message: JupyterMessage = InterruptRequest::default().into();
         control.send(message).await?;
         Ok(())
@@ -194,8 +191,8 @@ impl KernelClient {
     }
 
     async fn send_shutdown(&self, restart: bool) -> Result<()> {
-        let mut control = create_client_control_connection(&self.connection_info, &self.session_id)
-            .await?;
+        let mut control =
+            create_client_control_connection(&self.connection_info, &self.session_id).await?;
         let message: JupyterMessage = ShutdownRequest { restart }.into();
         let message_id = message.header.msg_id.clone();
         control.send(message).await?;
@@ -231,8 +228,12 @@ impl KernelClient {
         F: FnMut(JupyterMessageContent),
     {
         let identity = peer_identity_for_session(&self.session_id)?;
-        let mut shell =
-            create_client_shell_connection_with_identity(&self.connection_info, &self.session_id, identity).await?;
+        let mut shell = create_client_shell_connection_with_identity(
+            &self.connection_info,
+            &self.session_id,
+            identity,
+        )
+        .await?;
         let mut iopub =
             create_client_iopub_connection(&self.connection_info, "", &self.session_id).await?;
 
@@ -276,6 +277,7 @@ impl KernelClient {
     /// Creates shell and stdin connections that share a ZMQ identity (required
     /// by the Jupyter protocol for stdin routing). When the kernel sends an
     /// `input_request`, the `on_stdin` callback is invoked to get the user's response.
+    #[allow(dead_code)]
     pub async fn execute_with_stdin<F, G, Fut>(
         &self,
         code: &str,
@@ -288,12 +290,18 @@ impl KernelClient {
         Fut: Future<Output = InputReply>,
     {
         let identity = peer_identity_for_session(&self.session_id)?;
-        let shell =
-            create_client_shell_connection_with_identity(&self.connection_info, &self.session_id, identity.clone())
-                .await?;
-        let mut stdin =
-            create_client_stdin_connection_with_identity(&self.connection_info, &self.session_id, identity)
-                .await?;
+        let shell = create_client_shell_connection_with_identity(
+            &self.connection_info,
+            &self.session_id,
+            identity.clone(),
+        )
+        .await?;
+        let mut stdin = create_client_stdin_connection_with_identity(
+            &self.connection_info,
+            &self.session_id,
+            identity,
+        )
+        .await?;
         let (mut shell_send, mut shell_recv) = shell.split();
         let mut iopub =
             create_client_iopub_connection(&self.connection_info, "", &self.session_id).await?;
