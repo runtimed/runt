@@ -39,8 +39,17 @@ export function useKernel({
   // Track whether we're in the process of auto-starting to avoid double starts
   const startingRef = useRef(false);
 
+  // Store callbacks in refs to avoid effect re-runs causing duplicate listeners
+  const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCommMessage });
+  callbacksRef.current = { onOutput, onExecutionCount, onExecutionDone, onCommMessage };
+
   useEffect(() => {
+    let cancelled = false;
+
     const unlisten = listen<JupyterMessage>("kernel:iopub", (event) => {
+      if (cancelled) return;
+
+      const { onOutput, onExecutionCount, onExecutionDone, onCommMessage } = callbacksRef.current;
       const msg = event.payload;
       const msgType = msg.header.msg_type;
       const cellId = msg.cell_id;
@@ -126,9 +135,10 @@ export function useKernel({
     });
 
     return () => {
+      cancelled = true;
       unlisten.then((fn) => fn());
     };
-  }, [onOutput, onExecutionCount, onExecutionDone, onCommMessage]);
+  }, []); // Empty deps - callbacks accessed via ref
 
   const startKernel = useCallback(async (name: string) => {
     setKernelStatus("starting");

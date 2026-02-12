@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { KeyBinding } from "@codemirror/view";
 import { CellContainer } from "@/components/cell/CellContainer";
 import {
@@ -7,6 +7,8 @@ import {
 } from "@/components/editor/codemirror-editor";
 import { MarkdownOutput } from "@/components/outputs/markdown-output";
 import { Trash2, Pencil } from "lucide-react";
+import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
+import { useEditorRegistry } from "../hooks/useEditorRegistry";
 import type { MarkdownCell as MarkdownCellType } from "../types";
 
 interface MarkdownCellProps {
@@ -15,6 +17,10 @@ interface MarkdownCellProps {
   onFocus: () => void;
   onUpdateSource: (source: string) => void;
   onDelete: () => void;
+  onFocusPrevious?: (cursorPosition: "start" | "end") => void;
+  onFocusNext?: (cursorPosition: "start" | "end") => void;
+  onInsertCellAfter?: () => void;
+  isLastCell?: boolean;
 }
 
 export function MarkdownCell({
@@ -23,9 +29,26 @@ export function MarkdownCell({
   onFocus,
   onUpdateSource,
   onDelete,
+  onFocusPrevious,
+  onFocusNext,
+  onInsertCellAfter,
+  isLastCell = false,
 }: MarkdownCellProps) {
   const [editing, setEditing] = useState(cell.source === "");
   const editorRef = useRef<CodeMirrorEditorRef>(null);
+  const { registerEditor, unregisterEditor } = useEditorRegistry();
+
+  // Register editor with the registry for cross-cell navigation
+  useEffect(() => {
+    if (editing && editorRef.current) {
+      registerEditor(cell.id, {
+        focus: () => editorRef.current?.focus(),
+        setCursorPosition: (position) =>
+          editorRef.current?.setCursorPosition(position),
+      });
+    }
+    return () => unregisterEditor(cell.id);
+  }, [cell.id, editing, registerEditor, unregisterEditor]);
 
   const handleDoubleClick = useCallback(() => {
     setEditing(true);
@@ -37,40 +60,58 @@ export function MarkdownCell({
     }
   }, [cell.source]);
 
-  const keyMap: KeyBinding[] = [
-    {
-      key: "Shift-Enter",
-      run: () => {
-        if (cell.source.trim()) {
-          setEditing(false);
-        }
-        return true;
-      },
+  // Handle focus next, creating a new cell if at the end
+  const handleFocusNextOrCreate = useCallback(
+    (cursorPosition: "start" | "end") => {
+      // For markdown, close edit mode first
+      if (cell.source.trim()) {
+        setEditing(false);
+      }
+      if (isLastCell && onInsertCellAfter) {
+        onInsertCellAfter();
+      } else if (onFocusNext) {
+        onFocusNext(cursorPosition);
+      }
     },
-    {
-      key: "Escape",
-      run: () => {
-        if (cell.source.trim()) {
-          setEditing(false);
-        }
-        return true;
+    [cell.source, isLastCell, onFocusNext, onInsertCellAfter]
+  );
+
+  // Get keyboard navigation bindings
+  const navigationKeyMap = useCellKeyboardNavigation({
+    onFocusPrevious: onFocusPrevious ?? (() => {}),
+    onFocusNext: handleFocusNextOrCreate,
+  });
+
+  // Combine navigation with markdown-specific keys
+  const keyMap: KeyBinding[] = useMemo(
+    () => [
+      ...navigationKeyMap,
+      {
+        key: "Escape",
+        run: () => {
+          if (cell.source.trim()) {
+            setEditing(false);
+          }
+          return true;
+        },
       },
-    },
-  ];
+    ],
+    [navigationKeyMap, cell.source]
+  );
 
   return (
     <CellContainer
       id={cell.id}
+      cellType="markdown"
       isFocused={isFocused}
       onFocus={onFocus}
-      className="rounded-md my-1"
     >
       {editing ? (
         <>
           <div className="flex items-center gap-1 px-2 py-1">
             <span className="text-xs text-muted-foreground font-mono">md</span>
             <div className="flex-1" />
-            {isFocused && (
+            <div className="cell-controls opacity-0 group-hover:opacity-100 transition-opacity">
               <button
                 type="button"
                 onClick={onDelete}
@@ -79,9 +120,9 @@ export function MarkdownCell({
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
-            )}
+            </div>
           </div>
-          <div className="border-t border-border/50 px-1">
+          <div className="px-2">
             <CodeMirrorEditor
               ref={editorRef}
               value={cell.source}
@@ -97,7 +138,7 @@ export function MarkdownCell({
         </>
       ) : (
         <div
-          className="px-4 py-2 prose prose-sm max-w-none cursor-text relative group/md"
+          className="px-2 py-2 prose prose-sm max-w-none cursor-text relative group/md"
           onDoubleClick={handleDoubleClick}
         >
           {cell.source ? (

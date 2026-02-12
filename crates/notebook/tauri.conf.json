@@ -4,8 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.runtimed.notebook",
   "build": {
+    "devUrl": "http://localhost:5174",
     "frontendDist": "../../apps/notebook/dist",
-    "beforeBuildCommand": "pnpm --dir ../../apps/notebook build"
+    "beforeDevCommand": "pnpm --dir apps/notebook dev",
+    "beforeBuildCommand": "pnpm --dir apps/notebook build"
   },
   "app": {
     "windows": [

@@ -1,7 +1,9 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useMemo } from "react";
 import { Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { CodeCell } from "./CodeCell";
 import { MarkdownCell } from "./MarkdownCell";
+import { EditorRegistryProvider, useEditorRegistry } from "../hooks/useEditorRegistry";
 import type { NotebookCell } from "../types";
 
 interface NotebookViewProps {
@@ -24,28 +26,43 @@ function AddCellButtons({
   onAdd: (type: "code" | "markdown", afterCellId?: string | null) => void;
 }) {
   return (
-    <div className="flex items-center justify-center gap-1 py-0.5 opacity-0 hover:opacity-100 focus-within:opacity-100 transition-opacity">
-      <button
-        type="button"
-        onClick={() => onAdd("code", afterCellId)}
-        className="flex items-center gap-0.5 rounded px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        <Plus className="h-2.5 w-2.5" />
-        Code
-      </button>
-      <button
-        type="button"
-        onClick={() => onAdd("markdown", afterCellId)}
-        className="flex items-center gap-0.5 rounded px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        <Plus className="h-2.5 w-2.5" />
-        Markdown
-      </button>
+    <div className="group/betweener flex h-4 w-full items-center">
+      {/* Gutter spacer - matches cell gutter: action area + ribbon */}
+      <div className="flex-shrink-0 flex h-full">
+        <div className="w-6" />
+        <div className="w-1 bg-gray-200" />
+      </div>
+      {/* Content area with centered buttons */}
+      <div className="flex-1 relative flex items-center justify-center">
+        {/* Thin line appears on hover */}
+        <div className="absolute inset-x-0 h-px bg-transparent group-hover/betweener:bg-border transition-colors" />
+        {/* Buttons appear on hover */}
+        <div className="flex items-center gap-1 opacity-0 group-hover/betweener:opacity-100 transition-opacity z-10 bg-background px-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => onAdd("code", afterCellId)}
+          >
+            <Plus className="h-3 w-3" />
+            Code
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => onAdd("markdown", afterCellId)}
+          >
+            <Plus className="h-3 w-3" />
+            Markdown
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
 
-export function NotebookView({
+function NotebookViewContent({
   cells,
   focusedCellId,
   executingCellIds,
@@ -57,11 +74,32 @@ export function NotebookView({
   onAddCell,
 }: NotebookViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const { focusCell } = useEditorRegistry();
+
+  // Memoize cell IDs array
+  const cellIds = useMemo(() => cells.map((c) => c.id), [cells]);
 
   const renderCell = useCallback(
-    (cell: NotebookCell) => {
+    (cell: NotebookCell, index: number) => {
       const isFocused = cell.id === focusedCellId;
       const isExecuting = executingCellIds.has(cell.id);
+
+      // Navigation callbacks
+      const onFocusPrevious = (cursorPosition: "start" | "end") => {
+        if (index > 0) {
+          const prevCellId = cellIds[index - 1];
+          onFocusCell(prevCellId);
+          focusCell(prevCellId, cursorPosition);
+        }
+      };
+
+      const onFocusNext = (cursorPosition: "start" | "end") => {
+        if (index < cellIds.length - 1) {
+          const nextCellId = cellIds[index + 1];
+          onFocusCell(nextCellId);
+          focusCell(nextCellId, cursorPosition);
+        }
+      };
 
       if (cell.cell_type === "code") {
         return (
@@ -75,6 +113,10 @@ export function NotebookView({
             onExecute={() => onExecuteCell(cell.id)}
             onInterrupt={onInterruptKernel}
             onDelete={() => onDeleteCell(cell.id)}
+            onFocusPrevious={onFocusPrevious}
+            onFocusNext={onFocusNext}
+            onInsertCellAfter={() => onAddCell("code", cell.id)}
+            isLastCell={index === cells.length - 1}
           />
         );
       }
@@ -88,6 +130,10 @@ export function NotebookView({
             onFocus={() => onFocusCell(cell.id)}
             onUpdateSource={(source) => onUpdateCellSource(cell.id, source)}
             onDelete={() => onDeleteCell(cell.id)}
+            onFocusPrevious={onFocusPrevious}
+            onFocusNext={onFocusNext}
+            onInsertCellAfter={() => onAddCell("markdown", cell.id)}
+            isLastCell={index === cells.length - 1}
           />
         );
       }
@@ -96,7 +142,7 @@ export function NotebookView({
       return (
         <div
           key={cell.id}
-          className="my-1 rounded border border-border/50 px-4 py-2"
+          className="px-4 py-2"
         >
           <pre className="text-sm text-muted-foreground whitespace-pre-wrap">
             {cell.source}
@@ -107,11 +153,15 @@ export function NotebookView({
     [
       focusedCellId,
       executingCellIds,
+      cellIds,
+      cells.length,
       onFocusCell,
       onUpdateCellSource,
       onExecuteCell,
       onInterruptKernel,
       onDeleteCell,
+      onAddCell,
+      focusCell,
     ]
   );
 
@@ -122,22 +172,24 @@ export function NotebookView({
           <p className="text-sm">Empty notebook</p>
           <p className="text-xs mt-1">Add a cell to get started</p>
           <div className="mt-4 flex gap-2">
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => onAddCell("code")}
-              className="flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-muted"
+              className="gap-1"
             >
               <Plus className="h-3 w-3" />
               Code Cell
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => onAddCell("markdown")}
-              className="flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-muted"
+              className="gap-1"
             >
               <Plus className="h-3 w-3" />
               Markdown Cell
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
@@ -147,12 +199,20 @@ export function NotebookView({
               {index === 0 && (
                 <AddCellButtons afterCellId={null} onAdd={onAddCell} />
               )}
-              {renderCell(cell)}
+              {renderCell(cell, index)}
               <AddCellButtons afterCellId={cell.id} onAdd={onAddCell} />
             </div>
           ))}
         </>
       )}
     </div>
+  );
+}
+
+export function NotebookView(props: NotebookViewProps) {
+  return (
+    <EditorRegistryProvider>
+      <NotebookViewContent {...props} />
+    </EditorRegistryProvider>
   );
 }
