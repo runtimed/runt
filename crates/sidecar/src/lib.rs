@@ -1,4 +1,6 @@
 use anyhow::Result;
+use chrono::Utc;
+use serde::Serialize;
 
 use futures::future::{select, Either};
 use futures::StreamExt;
@@ -56,6 +58,45 @@ fn load_icon() -> Option<Icon> {
 
 /// Type alias for backwards compatibility
 type WryJupyterMessage = WebViewJupyterMessage;
+
+/// Entry in the debug dump file - wraps a message with metadata for analysis
+#[derive(Serialize)]
+struct DumpEntry {
+    /// ISO 8601 timestamp when the message was logged
+    ts: String,
+    /// Direction: "out" = sent to kernel, "in" = received from kernel
+    dir: &'static str,
+    /// Channel: "shell", "iopub", "control", etc.
+    ch: &'static str,
+    /// The actual Jupyter message
+    msg: WryJupyterMessage,
+}
+
+impl DumpEntry {
+    fn new(dir: &'static str, ch: &'static str, message: JupyterMessage) -> Self {
+        Self {
+            ts: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            dir,
+            ch,
+            msg: message.into(),
+        }
+    }
+}
+
+/// Write a dump entry to the file if dump is enabled
+fn write_dump_entry(
+    dump_file: &Option<Arc<Mutex<std::fs::File>>>,
+    entry: DumpEntry,
+) {
+    if let Some(ref file) = dump_file {
+        if let Ok(json) = serde_json::to_string(&entry) {
+            if let Ok(mut f) = file.lock() {
+                let _ = writeln!(f, "{}", json);
+                let _ = f.flush();
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 enum SidecarEvent {
@@ -137,6 +178,7 @@ async fn run(
     let pending_kernel_info_handler = pending_kernel_info.clone();
     let pending_kernel_cwd_handler = pending_kernel_cwd.clone();
     let kernel_info_proxy = event_loop_proxy.clone();
+    let dump_file_for_shell = dump_file.clone();
 
     let webview = WebViewBuilder::new()
         .with_devtools(true)
@@ -153,6 +195,12 @@ async fn run(
                                 JupyterMessageContent::CommMsg(c) => Some(c.comm_id.clone()),
                                 _ => None,
                             }
+                        );
+
+                        // Dump outbound message to file if enabled
+                        write_dump_entry(
+                            &dump_file_for_shell,
+                            DumpEntry::new("out", "shell", message.clone()),
                         );
 
                         let mut tx = tx.clone();
@@ -302,15 +350,10 @@ async fn run(
             );
 
             // Dump message to file if enabled
-            if let Some(ref file) = dump_file {
-                let serialized: WryJupyterMessage = message.clone().into();
-                if let Ok(json) = serde_json::to_string(&serialized) {
-                    if let Ok(mut f) = file.lock() {
-                        let _ = writeln!(f, "{}", json);
-                        let _ = f.flush();
-                    }
-                }
-            }
+            write_dump_entry(
+                &dump_file,
+                DumpEntry::new("in", "iopub", message.clone()),
+            );
 
             match event_loop_proxy.send_event(SidecarEvent::JupyterMessage(Box::new(message))) {
                 Ok(_) => {
