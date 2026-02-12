@@ -3,6 +3,7 @@ members = [
     "crates/sidecar",
     "crates/runt",
     "crates/notebook",
+    "crates/tauri-jupyter",
 ]
 default-members = ["crates/notebook"]
 resolver = "2"
@@ -23,6 +24,7 @@ base64 = "0.22"
 tokio = { version = "1.36.0", features = ["full"] }
 runtimelib = { version = "1.2.0", default-features = false }
 jupyter-protocol = "1.2.0"
+thiserror = "1"
 
 [profile.release]
 opt-level = 'z'

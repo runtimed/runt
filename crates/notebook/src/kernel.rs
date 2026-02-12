@@ -1,12 +1,11 @@
 use anyhow::Result;
-use base64::prelude::*;
 use bytes::Bytes;
 use jupyter_protocol::{
     CompleteRequest, ConnectionInfo, ExecuteRequest, InterruptRequest, JupyterMessage,
     JupyterMessageContent, KernelInfoRequest, ShutdownRequest,
 };
 use log::{debug, error, info};
-use serde::{Deserialize, Serialize, Serializer};
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
@@ -14,6 +13,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex as StdMutex};
 use tauri::{AppHandle, Emitter};
+use tauri_jupyter::{serialize_buffers, RawJupyterMessage};
 use uuid::Uuid;
 
 /// Serializable Jupyter message for sending to the frontend via Tauri events.
@@ -23,75 +23,11 @@ pub struct TauriJupyterMessage {
     pub parent_header: Option<jupyter_protocol::Header>,
     pub metadata: Value,
     pub content: JupyterMessageContent,
-    #[serde(serialize_with = "serialize_base64")]
+    #[serde(serialize_with = "serialize_buffers")]
     pub buffers: Vec<Bytes>,
     pub channel: Option<jupyter_protocol::Channel>,
     /// The cell_id this message belongs to (resolved from parent_header.msg_id)
     pub cell_id: Option<String>,
-}
-
-fn serialize_base64<S>(data: &[Bytes], serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    data.iter()
-        .map(|bytes| BASE64_STANDARD.encode(bytes))
-        .collect::<Vec<_>>()
-        .serialize(serializer)
-}
-
-/// Deserialize base64-encoded buffer strings into Bytes.
-fn deserialize_base64_opt<'de, D>(deserializer: D) -> std::result::Result<Vec<Bytes>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let encoded: Option<Vec<String>> = Option::deserialize(deserializer)?;
-    match encoded {
-        Some(vec) => vec
-            .iter()
-            .map(|s| {
-                BASE64_STANDARD
-                    .decode(s)
-                    .map(Bytes::from)
-                    .map_err(serde::de::Error::custom)
-            })
-            .collect(),
-        None => Ok(Vec::new()),
-    }
-}
-
-/// Helper for deserializing incoming messages from the frontend.
-/// Content is deserialized as raw Value, then converted via msg_type.
-#[derive(Deserialize)]
-struct IncomingMessage {
-    header: jupyter_protocol::Header,
-    #[serde(default, deserialize_with = "jupyter_protocol::deserialize_parent_header")]
-    parent_header: Option<jupyter_protocol::Header>,
-    #[serde(default)]
-    metadata: Value,
-    content: Value,
-    #[serde(default, deserialize_with = "deserialize_base64_opt")]
-    buffers: Vec<Bytes>,
-    #[serde(default)]
-    channel: Option<jupyter_protocol::Channel>,
-}
-
-impl TryFrom<IncomingMessage> for JupyterMessage {
-    type Error = anyhow::Error;
-
-    fn try_from(msg: IncomingMessage) -> Result<Self> {
-        let content =
-            JupyterMessageContent::from_type_and_content(&msg.header.msg_type, msg.content)?;
-        Ok(JupyterMessage {
-            zmq_identities: Vec::new(),
-            header: msg.header,
-            parent_header: msg.parent_header,
-            metadata: msg.metadata,
-            content,
-            buffers: msg.buffers,
-            channel: msg.channel,
-        })
-    }
 }
 
 /// Shared mapping from msg_id → cell_id, used by iopub listener to tag messages.
@@ -420,7 +356,7 @@ impl NotebookKernel {
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("No kernel running"))?;
 
-        let incoming: IncomingMessage = serde_json::from_value(raw)?;
+        let incoming: RawJupyterMessage = serde_json::from_value(raw)?;
         let message: JupyterMessage = incoming.try_into()?;
 
         info!(
