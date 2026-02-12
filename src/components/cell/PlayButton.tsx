@@ -41,7 +41,7 @@ export const PlayButton: React.FC<PlayButtonProps> = ({
           ? "text-destructive hover:text-destructive animate-pulse"
           : isFocused
             ? focusedClass
-            : "text-muted-foreground/50 hover:text-foreground group-hover:text-muted-foreground",
+            : "text-transparent group-hover:text-muted-foreground hover:text-foreground",
         isAutoLaunching && "cursor-wait opacity-75",
         className,
       )}

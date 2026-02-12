@@ -26,30 +26,37 @@ function AddCellButtons({
   onAdd: (type: "code" | "markdown", afterCellId?: string | null) => void;
 }) {
   return (
-    <div className="group/betweener relative flex h-6 w-full items-center justify-center">
-      {/* Thin line appears on hover */}
-      <div className="absolute inset-x-0 h-px bg-transparent group-hover/betweener:bg-border transition-colors" />
-
-      {/* Buttons appear on hover */}
-      <div className="flex items-center gap-1 opacity-0 group-hover/betweener:opacity-100 transition-opacity">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
-          onClick={() => onAdd("code", afterCellId)}
-        >
-          <Plus className="h-3 w-3" />
-          Code
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
-          onClick={() => onAdd("markdown", afterCellId)}
-        >
-          <Plus className="h-3 w-3" />
-          Markdown
-        </Button>
+    <div className="group/betweener flex h-4 w-full items-center">
+      {/* Gutter spacer - matches cell gutter: action area + ribbon */}
+      <div className="flex-shrink-0 flex h-full">
+        <div className="w-6" />
+        <div className="w-1 bg-gray-200" />
+      </div>
+      {/* Content area with centered buttons */}
+      <div className="flex-1 relative flex items-center justify-center">
+        {/* Thin line appears on hover */}
+        <div className="absolute inset-x-0 h-px bg-transparent group-hover/betweener:bg-border transition-colors" />
+        {/* Buttons appear on hover */}
+        <div className="flex items-center gap-1 opacity-0 group-hover/betweener:opacity-100 transition-opacity z-10 bg-background px-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => onAdd("code", afterCellId)}
+          >
+            <Plus className="h-3 w-3" />
+            Code
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => onAdd("markdown", afterCellId)}
+          >
+            <Plus className="h-3 w-3" />
+            Markdown
+          </Button>
+        </div>
       </div>
     </div>
   );

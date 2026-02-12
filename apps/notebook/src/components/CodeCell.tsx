@@ -93,28 +93,28 @@ export function CodeCell({
     onExecute();
   }, [onExecute]);
 
+  const playButton = (
+    <PlayButton
+      executionState={isExecuting ? "running" : "idle"}
+      cellType="code"
+      isFocused={isFocused}
+      onExecute={handleExecute}
+      onInterrupt={onInterrupt}
+      className="h-4 w-4"
+      focusedClass="text-gray-700"
+    />
+  );
+
   return (
     <CellContainer
       id={cell.id}
       cellType="code"
       isFocused={isFocused}
       onFocus={onFocus}
+      gutterContent={playButton}
     >
-      {/* Gutter play button - breaks left border */}
-      <div className="absolute left-0 top-3 z-20 -translate-x-1/2">
-        <PlayButton
-          executionState={isExecuting ? "running" : "idle"}
-          cellType="code"
-          isFocused={isFocused}
-          onExecute={handleExecute}
-          onInterrupt={onInterrupt}
-          className="h-5 w-5 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.06)] border border-gray-200/80 hover:shadow-md hover:border-gray-300 transition-all"
-          focusedClass="text-gray-700"
-        />
-      </div>
-
-      {/* Cell header: execution count */}
-      <div className="flex items-center gap-1 px-2 py-1 pl-4">
+      {/* Cell header: execution count + controls */}
+      <div className="flex items-center gap-1 px-2 py-1">
         <ExecutionCount
           count={cell.execution_count}
           isExecuting={isExecuting}
@@ -134,7 +134,7 @@ export function CodeCell({
       </div>
 
       {/* Editor */}
-      <div className="pl-4 pr-1">
+      <div className="px-2">
         <CodeMirrorEditor
           ref={editorRef}
           value={cell.source}
@@ -148,24 +148,9 @@ export function CodeCell({
         />
       </div>
 
-      {/* Execution summary */}
-      {(cell.execution_count !== null || cell.outputs.length > 0) && (
-        <div className="flex h-7 items-center justify-between pl-4 pr-2 text-xs text-muted-foreground">
-          {cell.execution_count !== null && (
-            <span className="animate-in fade-in duration-300">Executed</span>
-          )}
-          <div className="flex-1" />
-          {cell.outputs.length > 0 && (
-            <span>
-              {cell.outputs.length} output{cell.outputs.length > 1 ? "s" : ""}
-            </span>
-          )}
-        </div>
-      )}
-
       {/* Outputs */}
       {cell.outputs.length > 0 && (
-        <div className="pl-4 pr-2 py-1">
+        <div className="px-2 py-2">
           <OutputArea outputs={cell.outputs} />
         </div>
       )}
