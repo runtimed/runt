@@ -17,6 +17,7 @@ import {
 } from "../widget-store-context";
 
 export function TextWidget({ modelId, className }: WidgetComponentProps) {
+  // sendUpdate and sendCustom are now stable (useCommRouter uses refs internally)
   const { sendUpdate, sendCustom } = useWidgetStoreRequired();
 
   // Subscribe to individual state keys

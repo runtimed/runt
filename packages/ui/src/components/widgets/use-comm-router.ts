@@ -13,7 +13,7 @@
  * @see https://jupyter-client.readthedocs.io/en/latest/messaging.html
  */
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { applyBufferPaths } from "./buffer-utils";
 import type { WidgetStore } from "./widget-store";
 
@@ -247,63 +247,74 @@ export function useCommRouter({
   store,
   username = "frontend",
 }: UseCommRouterOptions): UseCommRouterReturn {
+  // Refs for values that need to be fresh but shouldn't cause function identity changes.
+  // This ensures sendUpdate, sendCustom, etc. are stable across renders, preventing
+  // unnecessary effect re-runs in consumer widgets (see PR #137 pattern).
+  const sendMessageRef = useRef(sendMessage);
+  const storeRef = useRef(store);
+  const usernameRef = useRef(username);
+
+  // Keep refs up-to-date without changing function identities
+  useEffect(() => {
+    sendMessageRef.current = sendMessage;
+    storeRef.current = store;
+    usernameRef.current = username;
+  });
+
   /**
    * Handle incoming Jupyter comm messages.
    * Routes to appropriate store methods based on message type.
    */
-  const handleMessage = useCallback(
-    (msg: JupyterCommMessage) => {
-      const msgType = msg.header.msg_type;
-      const commId = msg.content.comm_id;
+  const handleMessage = useCallback((msg: JupyterCommMessage) => {
+    const msgType = msg.header.msg_type;
+    const commId = msg.content.comm_id;
 
-      if (!commId) return;
+    if (!commId) return;
 
-      switch (msgType) {
-        case "comm_open": {
-          // Get state and apply buffer paths if present
-          let state = msg.content.data?.state || {};
-          const bufferPaths = msg.content.data?.buffer_paths;
+    switch (msgType) {
+      case "comm_open": {
+        // Get state and apply buffer paths if present
+        let state = msg.content.data?.state || {};
+        const bufferPaths = msg.content.data?.buffer_paths;
+
+        if (bufferPaths && msg.buffers?.length) {
+          state = { ...state };
+          applyBufferPaths(state, bufferPaths, msg.buffers);
+        }
+
+        storeRef.current.createModel(commId, state, msg.buffers);
+        break;
+      }
+
+      case "comm_msg": {
+        const data = msg.content.data;
+        const method = data?.method;
+
+        if (method === "update" && data?.state) {
+          // Apply buffer paths to state update
+          let state = data.state;
+          const bufferPaths = data.buffer_paths;
 
           if (bufferPaths && msg.buffers?.length) {
             state = { ...state };
             applyBufferPaths(state, bufferPaths, msg.buffers);
           }
 
-          store.createModel(commId, state, msg.buffers);
-          break;
+          storeRef.current.updateModel(commId, state, msg.buffers);
+        } else if (method === "custom") {
+          // Dispatch custom message to widget handlers
+          const content = (data?.content as Record<string, unknown>) || {};
+          storeRef.current.emitCustomMessage(commId, content, msg.buffers);
         }
-
-        case "comm_msg": {
-          const data = msg.content.data;
-          const method = data?.method;
-
-          if (method === "update" && data?.state) {
-            // Apply buffer paths to state update
-            let state = data.state;
-            const bufferPaths = data.buffer_paths;
-
-            if (bufferPaths && msg.buffers?.length) {
-              state = { ...state };
-              applyBufferPaths(state, bufferPaths, msg.buffers);
-            }
-
-            store.updateModel(commId, state, msg.buffers);
-          } else if (method === "custom") {
-            // Dispatch custom message to widget handlers
-            const content = (data?.content as Record<string, unknown>) || {};
-            store.emitCustomMessage(commId, content, msg.buffers);
-          }
-          break;
-        }
-
-        case "comm_close": {
-          store.deleteModel(commId);
-          break;
-        }
+        break;
       }
-    },
-    [store],
-  );
+
+      case "comm_close": {
+        storeRef.current.deleteModel(commId);
+        break;
+      }
+    }
+  }, []);
 
   /**
    * Send a state update to the kernel.
@@ -316,11 +327,13 @@ export function useCommRouter({
       buffers?: ArrayBuffer[],
     ) => {
       // Optimistic update: apply locally first for responsive UI
-      store.updateModel(commId, state, buffers);
+      storeRef.current.updateModel(commId, state, buffers);
       // Then send to kernel
-      sendMessage(createUpdateMessage(commId, state, buffers, username));
+      sendMessageRef.current(
+        createUpdateMessage(commId, state, buffers, usernameRef.current),
+      );
     },
-    [sendMessage, store, username],
+    [],
   );
 
   /**
@@ -332,22 +345,21 @@ export function useCommRouter({
       content: Record<string, unknown>,
       buffers?: ArrayBuffer[],
     ) => {
-      sendMessage(createCustomMessage(commId, content, buffers, username));
+      sendMessageRef.current(
+        createCustomMessage(commId, content, buffers, usernameRef.current),
+      );
     },
-    [sendMessage, username],
+    [],
   );
 
   /**
    * Close a comm channel.
    * Sends comm_close to kernel and removes model from store.
    */
-  const closeComm = useCallback(
-    (commId: string) => {
-      sendMessage(createCloseMessage(commId, username));
-      store.deleteModel(commId);
-    },
-    [sendMessage, store, username],
-  );
+  const closeComm = useCallback((commId: string) => {
+    sendMessageRef.current(createCloseMessage(commId, usernameRef.current));
+    storeRef.current.deleteModel(commId);
+  }, []);
 
   return {
     handleMessage,

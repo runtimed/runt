@@ -20,6 +20,7 @@ import {
 import { WidgetView } from "../widget-view";
 
 export function ControllerWidget({ modelId, className }: WidgetComponentProps) {
+  // sendUpdate is now stable (useCommRouter uses refs internally)
   const { sendUpdate } = useWidgetStoreRequired();
   const animationRef = useRef<number | null>(null);
   const lastStateRef = useRef<{
@@ -35,10 +36,20 @@ export function ControllerWidget({ modelId, className }: WidgetComponentProps) {
   const buttons = useWidgetModelValue<string[]>(modelId, "buttons") ?? [];
   const axes = useWidgetModelValue<string[]>(modelId, "axes") ?? [];
 
-  // Poll gamepad state
+  // Ref for polling state values - these change during polling and shouldn't restart the rAF loop.
+  // sendUpdate is stable so it doesn't need a ref.
+  const stateRef = useRef({ connected, buttons, axes });
+
+  // Keep state ref up-to-date without triggering the polling effect
+  useEffect(() => {
+    stateRef.current = { connected, buttons, axes };
+  });
+
+  // Poll gamepad state - only depends on index, modelId, sendUpdate to avoid loop restarts
   const pollGamepad = useCallback(() => {
     const gamepads = navigator.getGamepads();
     const gamepad = gamepads[index];
+    const { connected, buttons, axes } = stateRef.current;
 
     if (gamepad) {
       // Check if we need to update connection state
@@ -113,7 +124,7 @@ export function ControllerWidget({ modelId, className }: WidgetComponentProps) {
     }
 
     animationRef.current = requestAnimationFrame(pollGamepad);
-  }, [index, connected, buttons, axes, modelId, sendUpdate]);
+  }, [index, modelId, sendUpdate]);
 
   // Start/stop polling based on component lifecycle
   useEffect(() => {

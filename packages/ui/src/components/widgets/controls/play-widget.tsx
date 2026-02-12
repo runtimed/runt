@@ -23,6 +23,7 @@ import {
 } from "../widget-store-context";
 
 export function PlayWidget({ modelId, className }: WidgetComponentProps) {
+  // sendUpdate is now stable (useCommRouter uses refs internally)
   const { sendUpdate } = useWidgetStoreRequired();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -37,13 +38,26 @@ export function PlayWidget({ modelId, className }: WidgetComponentProps) {
   const description = useWidgetModelValue<string>(modelId, "description");
   const disabled = useWidgetModelValue<boolean>(modelId, "disabled") ?? false;
 
-  // Handle animation interval
+  // Ref for animation state values - these change frequently and shouldn't restart the interval.
+  // sendUpdate is stable so it doesn't need a ref.
+  const valuesRef = useRef({ value, min, max, step, repeat });
+
+  // Keep values ref up-to-date without triggering the main effect
+  useEffect(() => {
+    valuesRef.current = { value, min, max, step, repeat };
+  });
+
+  // Handle animation interval - only restart when play state or interval timing changes
   useEffect(() => {
     if (playing && !disabled) {
       intervalRef.current = setInterval(() => {
+        const { value, min, max, step, repeat } = valuesRef.current;
+        const nextValue =
+          value + step > max ? (repeat ? min : max) : value + step;
+        const shouldStop = value + step > max && !repeat;
         sendUpdate(modelId, {
-          value: value + step > max ? (repeat ? min : max) : value + step,
-          _playing: !(value + step > max && !repeat),
+          value: nextValue,
+          _playing: !shouldStop,
         });
       }, interval);
     } else {
@@ -58,32 +72,23 @@ export function PlayWidget({ modelId, className }: WidgetComponentProps) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [
-    playing,
-    disabled,
-    value,
-    min,
-    max,
-    step,
-    interval,
-    repeat,
-    modelId,
-    sendUpdate,
-  ]);
+  }, [playing, disabled, interval, modelId, sendUpdate]);
 
   const handlePlayPause = useCallback(() => {
     sendUpdate(modelId, { _playing: !playing });
   }, [modelId, playing, sendUpdate]);
 
   const handleStepBack = useCallback(() => {
+    const { min, step, value } = valuesRef.current;
     const newValue = Math.max(min, value - step);
     sendUpdate(modelId, { value: newValue, _playing: false });
-  }, [modelId, value, min, step, sendUpdate]);
+  }, [modelId, sendUpdate]);
 
   const handleStepForward = useCallback(() => {
+    const { max, step, value } = valuesRef.current;
     const newValue = Math.min(max, value + step);
     sendUpdate(modelId, { value: newValue, _playing: false });
-  }, [modelId, value, max, step, sendUpdate]);
+  }, [modelId, sendUpdate]);
 
   return (
     <div
