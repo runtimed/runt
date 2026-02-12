@@ -16,8 +16,8 @@ pip install runtimed
 
 ## What's in here
 
-| Package | Description |
-|---------|-------------|
+|  App  | Description |
+|-----------|-------------|
 | `runt` | CLI for managing and interacting with Jupyter kernels |
 | `sidecar` | Desktop viewer for Jupyter kernel outputs |
 | `notebook` | Desktop notebook editor (Tauri + React) |
@@ -39,16 +39,31 @@ runt console
 runt sidecar <connection-file>
 
 # Launch notebook editor
-cargo run -p notebook
+runt notebook
 ```
 
-## Building from source
+## Project structure
 
-```bash
-pnpm install
-pnpm --dir packages/sidecar-ui build
-pnpm --dir packages/notebook-ui build
-cargo build --release
+```
+sun-valley/
+├── src/                    # Shared UI code (React components, hooks, utilities)
+│   ├── components/
+│   │   ├── ui/            # shadcn primitives (button, dialog, etc.)
+│   │   ├── cell/          # Notebook cell components
+│   │   ├── outputs/       # Output renderers (stream, error, display data)
+│   │   ├── editor/        # CodeMirror editor
+│   │   └── widgets/       # ipywidgets controls
+│   └── lib/
+│       └── utils.ts       # cn() and other utilities
+├── apps/                   # App entry points
+│   ├── notebook/          # Notebook Tauri frontend
+│   └── sidecar/           # Sidecar WebView frontend
+├── crates/                 # Rust code
+│   ├── runt/              # Main CLI binary
+│   ├── notebook/          # Notebook Tauri app
+│   ├── sidecar/           # Sidecar wry/tao app
+│   └── tauri-jupyter/     # Shared Tauri/Jupyter utilities
+└── components.json         # shadcn config (run commands from repo root)
 ```
 
 ## Development
@@ -63,32 +78,66 @@ cargo build --release
 
 **Linux only:** Install GTK/WebKit dev libraries:
 ```bash
-sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev
 ```
+
+### Quick start
+
+```bash
+# Install dependencies
+pnpm install
+
+# Build everything
+pnpm build
+cargo build --release
+```
+
+### UI development
+
+Both apps share components from `src/`. Changes there are reflected in both.
+
+```bash
+# Notebook UI with hot reload (runs Vite dev server + Tauri)
+cd crates/notebook && cargo tauri dev
+
+# Sidecar UI dev server (for styling/component work)
+pnpm --dir apps/sidecar dev
+```
+
+### Adding shadcn components
+
+Run from the repo root:
+
+```bash
+npx shadcn@latest add <component>
+```
+
+Components are added to `src/components/ui/`.
 
 ### Build order
 
-The UI packages must be built before the Rust build because:
-- `crates/sidecar` embeds UI assets from `packages/sidecar-ui/dist/` at compile time via [rust-embed](https://crates.io/crates/rust-embed)
-- `crates/notebook` embeds UI assets from `packages/notebook-ui/dist/` at compile time via Tauri
+The UI must be built before Rust because:
+- `crates/sidecar` embeds assets from `apps/sidecar/dist/` at compile time via [rust-embed](https://crates.io/crates/rust-embed)
+- `crates/notebook` embeds assets from `apps/notebook/dist/` via Tauri
 
 ### Common commands
 
 ```bash
+# Build all UIs
+pnpm build
+
+# Build specific app
+pnpm --dir apps/notebook build
+pnpm --dir apps/sidecar build
+
 # Run tests
 cargo test
 
-# Lint Rust
+# Lint
 cargo clippy --all-targets -- -D warnings
 
-# Format Rust
+# Format
 cargo fmt
-
-# UI dev server (for sidecar UI development)
-pnpm --dir packages/sidecar-ui dev
-
-# UI dev server (for notebook UI development)
-pnpm --dir packages/notebook-ui dev
 ```
 
 ## Library crates
