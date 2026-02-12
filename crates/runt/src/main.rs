@@ -86,6 +86,23 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Debug message passing between sidecar and kernel
+    Debug {
+        /// The kernel to launch (e.g., python3, julia)
+        kernel: Option<String>,
+        /// Custom command to launch the kernel (use {connection_file} as placeholder)
+        #[arg(long)]
+        cmd: Option<String>,
+        /// Code to execute after kernel starts
+        #[arg(long)]
+        exec: Option<String>,
+        /// Path to dump all messages (defaults to temp file)
+        #[arg(long)]
+        dump: Option<PathBuf>,
+        /// Keep running after execution for manual interaction (Ctrl+C to exit)
+        #[arg(long, short)]
+        wait: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -114,6 +131,9 @@ async fn async_main(command: Option<Commands>) -> Result<()> {
         Some(Commands::Console { kernel, cmd, verbose }) => console(kernel.as_deref(), cmd.as_deref(), verbose).await?,
         Some(Commands::Sidecar { .. }) => unreachable!(),
         Some(Commands::Clean { timeout, dry_run }) => clean_kernels(timeout, dry_run).await?,
+        Some(Commands::Debug { kernel, cmd, exec, dump, wait }) => {
+            debug_session(kernel.as_deref(), cmd.as_deref(), exec.as_deref(), dump, wait).await?
+        }
         None => println!("No command specified. Use --help for usage information."),
     }
 
@@ -517,6 +537,166 @@ async fn execute_code(id: &str, code: Option<&str>) -> Result<()> {
     if reply.status != ReplyStatus::Ok {
         std::process::exit(1);
     }
+
+    Ok(())
+}
+
+async fn debug_session(
+    kernel_name: Option<&str>,
+    cmd: Option<&str>,
+    exec: Option<&str>,
+    dump: Option<PathBuf>,
+    wait: bool,
+) -> Result<()> {
+    use jupyter_protocol::{
+        ExecuteRequest, ExecutionState, JupyterMessage, JupyterMessageContent, MediaType, Status,
+        Stdio,
+    };
+    use std::io::{self, Write};
+    use std::process::{Child, Command, Stdio as ProcessStdio};
+
+    // Determine dump file path
+    let dump_path = dump.unwrap_or_else(|| {
+        let temp_dir = std::env::temp_dir();
+        temp_dir.join(format!("runt-debug-{}.jsonl", uuid::Uuid::new_v4()))
+    });
+
+    // Start kernel
+    let mut client = match (kernel_name, cmd) {
+        (_, Some(cmd)) => KernelClient::start_from_command(cmd).await?,
+        (Some(name), None) => {
+            let kernelspec = find_kernelspec(name).await?;
+            KernelClient::start_from_kernelspec(kernelspec).await?
+        }
+        (None, None) => anyhow::bail!("Provide a kernel name or --cmd"),
+    };
+
+    let connection_file = client.connection_file().to_path_buf();
+    let kernel_id = client.kernel_id().to_string();
+
+    println!("Kernel started: {}", kernel_id);
+    println!("Connection file: {}", connection_file.display());
+    println!("Dump file: {}", dump_path.display());
+
+    // Find sidecar binary (same directory as current executable)
+    let current_exe = std::env::current_exe()?;
+    let exe_dir = current_exe.parent().unwrap();
+    let sidecar_path = exe_dir.join(if cfg!(windows) { "sidecar.exe" } else { "sidecar" });
+
+    if !sidecar_path.exists() {
+        anyhow::bail!(
+            "Sidecar binary not found at {}. Build with: cargo build -p sidecar",
+            sidecar_path.display()
+        );
+    }
+
+    // Spawn sidecar as subprocess
+    let mut sidecar_child: Child = Command::new(&sidecar_path)
+        .arg(&connection_file)
+        .arg("--dump")
+        .arg(&dump_path)
+        .stdout(ProcessStdio::null())
+        .stderr(ProcessStdio::piped())
+        .spawn()?;
+
+    println!("Sidecar started (PID: {})", sidecar_child.id());
+
+    // Give sidecar time to initialize
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Execute code if provided
+    if let Some(code) = exec {
+        println!("\nExecuting: {}", &code[..code.len().min(80)]);
+
+        let connection_info = client.connection_info();
+        let session_id = client.session_id();
+        let identity = runtimelib::peer_identity_for_session(session_id)?;
+        let shell = runtimelib::create_client_shell_connection_with_identity(
+            connection_info,
+            session_id,
+            identity,
+        )
+        .await?;
+        let (mut shell_writer, mut shell_reader) = shell.split();
+
+        let mut iopub =
+            runtimelib::create_client_iopub_connection(connection_info, "", session_id).await?;
+
+        let execute_request = ExecuteRequest::new(code.to_string());
+        let message: JupyterMessage = execute_request.into();
+        let message_id = message.header.msg_id.clone();
+        shell_writer.send(message).await?;
+
+        // Wait for idle status
+        let mut got_idle = false;
+        while !got_idle {
+            tokio::select! {
+                result = iopub.read() => {
+                    let msg = result?;
+                    let is_ours = msg
+                        .parent_header
+                        .as_ref()
+                        .map(|h| h.msg_id.as_str())
+                        == Some(message_id.as_str());
+                    if !is_ours {
+                        continue;
+                    }
+                    match &msg.content {
+                        JupyterMessageContent::StreamContent(stream) => {
+                            match stream.name {
+                                Stdio::Stdout => print!("{}", stream.text),
+                                Stdio::Stderr => eprint!("{}", stream.text),
+                            }
+                            let _ = io::stdout().flush();
+                        }
+                        JupyterMessageContent::ExecuteResult(result) => {
+                            for media in &result.data.content {
+                                if let MediaType::Plain(text) = media {
+                                    println!("Out: {}", text);
+                                    break;
+                                }
+                            }
+                        }
+                        JupyterMessageContent::ErrorOutput(error) => {
+                            eprintln!("{}: {}", error.ename, error.evalue);
+                            for line in &error.traceback {
+                                eprintln!("{}", line);
+                            }
+                        }
+                        JupyterMessageContent::Status(Status { execution_state }) => {
+                            if *execution_state == ExecutionState::Idle {
+                                got_idle = true;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                result = shell_reader.read() => {
+                    let _ = result?; // Just drain shell replies
+                }
+            }
+        }
+        println!("\nExecution complete.");
+    }
+
+    // Wait for user interaction if requested
+    if wait {
+        println!("\nSidecar running. Interact with widgets, then press Ctrl+C to exit.");
+        tokio::signal::ctrl_c().await?;
+        println!("\nReceived Ctrl+C, shutting down...");
+    }
+
+    // Cleanup
+    let _ = sidecar_child.kill();
+    let _ = sidecar_child.wait();
+
+    println!("\nShutting down kernel...");
+    client.shutdown(false).await?;
+
+    println!("\nDebug session complete.");
+    println!("Dump file: {}", dump_path.display());
+    println!("\nTo analyze:");
+    println!("  cat {} | jq -c '{{ts: .ts, dir: .dir, ch: .ch, type: .msg.header.msg_type}}'", dump_path.display());
 
     Ok(())
 }
