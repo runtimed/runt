@@ -2260,7 +2260,6 @@ name = "notebook"
 version = "1.0.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
  "bytes",
  "env_logger",
  "futures",
@@ -2273,6 +2272,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
+ "tauri-jupyter",
  "tokio",
  "uuid",
 ]
@@ -3836,8 +3836,6 @@ name = "sidecar"
 version = "1.2.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
- "bytes",
  "clap",
  "crossbeam-channel",
  "env_logger",
@@ -3853,6 +3851,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tao 0.31.1",
+ "tauri-jupyter",
  "tokio",
  "uuid",
  "wry 0.47.2",
@@ -4251,6 +4250,19 @@ dependencies = [
  "url",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "tauri-jupyter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bytes",
+ "jupyter-protocol",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

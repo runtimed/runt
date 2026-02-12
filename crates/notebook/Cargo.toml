@@ -24,9 +24,9 @@ tokio = { workspace = true }
 anyhow = { workspace = true }
 futures = { workspace = true }
 bytes = { workspace = true }
-base64 = { workspace = true }
 jupyter-protocol = { workspace = true }
 runtimelib = { workspace = true, features = ["tokio-runtime", "ring"] }
+tauri-jupyter = { path = "../tauri-jupyter" }
 nbformat = "1.0.0"
 petname = "2"
 log = "0.4"

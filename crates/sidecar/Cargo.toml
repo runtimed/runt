@@ -9,8 +9,7 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
-base64 = { workspace = true }
-bytes = { workspace = true }
+tauri-jupyter = { path = "../tauri-jupyter" }
 clap = { version = "4.5.1", features = ["derive"] }
 env_logger = "0.11.5"
 log = "0.4.22"

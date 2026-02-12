@@ -1,6 +1,4 @@
 use anyhow::Result;
-use base64::prelude::*;
-use bytes::Bytes;
 
 use futures::future::{select, Either};
 use futures::StreamExt;
@@ -21,12 +19,11 @@ use std::sync::{
 use std::time::Duration;
 
 use jupyter_protocol::{
-    media::MediaType, Channel, ConnectionInfo, ExecuteRequest, ExpressionResult, Header,
+    media::MediaType, ConnectionInfo, ExecuteRequest, ExpressionResult,
     JupyterMessage, JupyterMessageContent, KernelInfoRequest,
 };
+use tauri_jupyter::WebViewJupyterMessage;
 
-use serde::{Deserialize, Serialize, Serializer};
-use serde_json::Value;
 use std::path::PathBuf;
 use tao::{
     dpi::Size,
@@ -57,17 +54,8 @@ fn load_icon() -> Option<Icon> {
     Icon::from_rgba(img.into_raw(), width, height).ok()
 }
 
-#[derive(Serialize)]
-struct WryJupyterMessage {
-    // Note: I skipped zmq_identities, thinking we don't need them for this
-    header: Header,
-    parent_header: Option<Header>,
-    metadata: Value,
-    content: JupyterMessageContent,
-    #[serde(serialize_with = "serialize_base64")]
-    buffers: Vec<Bytes>,
-    channel: Option<Channel>,
-}
+/// Type alias for backwards compatibility
+type WryJupyterMessage = WebViewJupyterMessage;
 
 #[derive(Debug, Clone)]
 enum SidecarEvent {
@@ -81,102 +69,6 @@ enum SidecarEvent {
 enum KernelConnectionStatus {
     Connected,
     Disconnected,
-}
-
-impl<'de> Deserialize<'de> for WryJupyterMessage {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct WryJupyterMessageHelper {
-            header: Header,
-            #[serde(
-                default,
-                deserialize_with = "jupyter_protocol::deserialize_parent_header"
-            )]
-            parent_header: Option<Header>,
-            #[serde(default)]
-            metadata: Value,
-            content: Value,
-            #[serde(default, deserialize_with = "deserialize_base64_opt")]
-            buffers: Vec<Bytes>,
-            #[serde(default)]
-            channel: Option<Channel>,
-        }
-
-        let helper = WryJupyterMessageHelper::deserialize(deserializer)?;
-        let content: JupyterMessageContent =
-            JupyterMessageContent::from_type_and_content(&helper.header.msg_type, helper.content)
-                .map_err(serde::de::Error::custom)?;
-
-        Ok(WryJupyterMessage {
-            header: helper.header,
-            parent_header: helper.parent_header,
-            metadata: helper.metadata,
-            content,
-            buffers: helper.buffers,
-            channel: helper.channel,
-        })
-    }
-}
-
-impl From<JupyterMessage> for WryJupyterMessage {
-    fn from(msg: JupyterMessage) -> Self {
-        WryJupyterMessage {
-            header: msg.header,
-            parent_header: msg.parent_header,
-            metadata: msg.metadata,
-            content: msg.content,
-            buffers: msg.buffers,
-            channel: msg.channel,
-        }
-    }
-}
-
-impl From<WryJupyterMessage> for JupyterMessage {
-    fn from(msg: WryJupyterMessage) -> Self {
-        JupyterMessage {
-            // todo!(): figure out if we need to set this
-            zmq_identities: Vec::new(),
-            header: msg.header,
-            parent_header: msg.parent_header,
-            metadata: msg.metadata,
-            content: msg.content,
-            buffers: msg.buffers,
-            channel: msg.channel,
-        }
-    }
-}
-
-// Custom serializer for Base64 encoding for buffers
-fn serialize_base64<S>(data: &[Bytes], serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    data.iter()
-        .map(|bytes| BASE64_STANDARD.encode(bytes))
-        .collect::<Vec<_>>()
-        .serialize(serializer)
-}
-
-fn deserialize_base64_opt<'de, D>(deserializer: D) -> Result<Vec<Bytes>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let encoded: Option<Vec<String>> = Option::deserialize(deserializer)?;
-    match encoded {
-        Some(vec) => vec
-            .iter()
-            .map(|s| {
-                BASE64_STANDARD
-                    .decode(s)
-                    .map(Bytes::from)
-                    .map_err(serde::de::Error::custom)
-            })
-            .collect(),
-        None => Ok(Vec::new()),
-    }
 }
 
 async fn run(
