@@ -7,6 +7,7 @@ interface DependencyHeaderProps {
   uvAvailable: boolean | null;
   loading: boolean;
   syncedWhileRunning: boolean;
+  needsKernelRestart: boolean;
   onAdd: (pkg: string) => Promise<void>;
   onRemove: (pkg: string) => Promise<void>;
 }
@@ -17,6 +18,7 @@ export function DependencyHeader({
   uvAvailable,
   loading,
   syncedWhileRunning,
+  needsKernelRestart,
   onAdd,
   onRemove,
 }: DependencyHeaderProps) {
@@ -49,6 +51,17 @@ export function DependencyHeader({
               <span>
                 Dependencies synced to environment. New packages can be imported
                 now. Restart kernel if you updated existing packages.
+              </span>
+            </div>
+          )}
+
+          {/* Kernel restart needed notice */}
+          {needsKernelRestart && (
+            <div className="mb-3 flex items-start gap-2 rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700">
+              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                Restart kernel to use these dependencies. The current kernel
+                wasn&apos;t started with dependency management.
               </span>
             </div>
           )}
