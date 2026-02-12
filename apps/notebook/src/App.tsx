@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { NotebookToolbar } from "./components/NotebookToolbar";
 import { NotebookView } from "./components/NotebookView";
+import { DependencyHeader } from "./components/DependencyHeader";
 import { useNotebook } from "./hooks/useNotebook";
 import { useKernel } from "./hooks/useKernel";
+import { useDependencies } from "./hooks/useDependencies";
 import { WidgetStoreProvider, useWidgetStoreRequired } from "@/components/widgets/widget-store-context";
 import { MediaProvider } from "@/components/outputs/media-provider";
 import { WidgetView } from "@/components/widgets/widget-view";
@@ -39,6 +41,18 @@ function AppContent() {
   const [executingCellIds, setExecutingCellIds] = useState<Set<string>>(
     new Set()
   );
+  const [dependencyHeaderOpen, setDependencyHeaderOpen] = useState(false);
+
+  // Dependency management
+  const {
+    dependencies,
+    uvAvailable,
+    hasDependencies,
+    loading: depsLoading,
+    syncedWhileRunning,
+    addDependency,
+    removeDependency,
+  } = useDependencies();
 
   // Get widget store handler for routing comm messages
   const { handleMessage: handleWidgetMessage } = useWidgetStoreRequired();
@@ -124,12 +138,25 @@ function AppContent() {
       <NotebookToolbar
         kernelStatus={kernelStatus}
         dirty={dirty}
+        hasDependencies={hasDependencies}
         onSave={save}
         onStartKernel={startKernel}
         onInterruptKernel={interruptKernel}
         onAddCell={handleAddCell}
+        onToggleDependencies={() => setDependencyHeaderOpen((prev) => !prev)}
         listKernelspecs={listKernelspecs}
       />
+      {dependencyHeaderOpen && (
+        <DependencyHeader
+          dependencies={dependencies?.dependencies ?? []}
+          requiresPython={dependencies?.requires_python ?? null}
+          uvAvailable={uvAvailable}
+          loading={depsLoading}
+          syncedWhileRunning={syncedWhileRunning}
+          onAdd={addDependency}
+          onRemove={removeDependency}
+        />
+      )}
       <NotebookView
         cells={cells}
         focusedCellId={focusedCellId}

@@ -1,3 +1,4 @@
+use crate::uv_env::{NotebookDependencies, UvEnvironment};
 use anyhow::Result;
 use bytes::Bytes;
 use jupyter_protocol::{
@@ -54,6 +55,8 @@ pub struct NotebookKernel {
     _process: Option<tokio::process::Child>,
     cell_id_map: CellIdMap,
     pending_completions: PendingCompletions,
+    /// UV-managed environment (if using inline dependencies)
+    uv_environment: Option<UvEnvironment>,
 }
 
 impl Default for NotebookKernel {
@@ -68,6 +71,7 @@ impl Default for NotebookKernel {
             _process: None,
             cell_id_map: Arc::new(StdMutex::new(HashMap::new())),
             pending_completions: Arc::new(StdMutex::new(HashMap::new())),
+            uv_environment: None,
         }
     }
 }
@@ -249,6 +253,196 @@ impl NotebookKernel {
         Ok(())
     }
 
+    /// Start a kernel with uv-managed dependencies.
+    ///
+    /// Creates an ephemeral virtual environment using uv with the specified
+    /// dependencies, installs ipykernel, and launches the kernel from that environment.
+    pub async fn start_with_uv(
+        &mut self,
+        app: AppHandle,
+        deps: &NotebookDependencies,
+    ) -> Result<()> {
+        // Shutdown existing kernel if any
+        self.shutdown().await.ok();
+
+        info!("Preparing uv environment with deps: {:?}", deps.dependencies);
+
+        // Prepare the uv environment
+        let env = crate::uv_env::prepare_environment(deps).await?;
+
+        // Reserve ports
+        let ip = std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+        let ports = runtimelib::peek_ports(ip, 5).await?;
+
+        let connection_info = ConnectionInfo {
+            transport: jupyter_protocol::connection_info::Transport::TCP,
+            ip: ip.to_string(),
+            stdin_port: ports[0],
+            control_port: ports[1],
+            hb_port: ports[2],
+            shell_port: ports[3],
+            iopub_port: ports[4],
+            signature_scheme: "hmac-sha256".to_string(),
+            key: Uuid::new_v4().to_string(),
+            kernel_name: Some("python3".to_string()),
+        };
+
+        let runtime_dir = runtimelib::dirs::runtime_dir();
+        tokio::fs::create_dir_all(&runtime_dir).await?;
+
+        let kernel_id: String =
+            petname::petname(2, "-").unwrap_or_else(|| Uuid::new_v4().to_string());
+        let connection_file_path = runtime_dir.join(format!("runt-kernel-{}.json", kernel_id));
+
+        tokio::fs::write(
+            &connection_file_path,
+            serde_json::to_string_pretty(&connection_info)?,
+        )
+        .await?;
+
+        info!(
+            "Starting uv-managed kernel at {:?} with python {:?}",
+            connection_file_path, env.python_path
+        );
+
+        // Spawn kernel using python from the uv environment
+        let process = tokio::process::Command::new(&env.python_path)
+            .args(["-m", "ipykernel_launcher", "-f"])
+            .arg(&connection_file_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()?;
+
+        // Small delay to let the kernel start
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        self.session_id = Uuid::new_v4().to_string();
+
+        // Create iopub connection and spawn listener
+        let mut iopub = runtimelib::create_client_iopub_connection(
+            &connection_info,
+            "",
+            &self.session_id,
+        )
+        .await?;
+
+        let app_handle = app.clone();
+        let cell_id_map = self.cell_id_map.clone();
+        let iopub_task = tokio::spawn(async move {
+            loop {
+                match iopub.read().await {
+                    Ok(message) => {
+                        debug!(
+                            "iopub: type={} parent_msg_id={:?}",
+                            message.header.msg_type,
+                            message.parent_header.as_ref().map(|h| &h.msg_id)
+                        );
+
+                        // Look up cell_id from the msg_id → cell_id map
+                        let cell_id = message
+                            .parent_header
+                            .as_ref()
+                            .and_then(|h| cell_id_map.lock().ok()?.get(&h.msg_id).cloned());
+
+                        let tauri_msg = TauriJupyterMessage {
+                            header: message.header,
+                            parent_header: message.parent_header,
+                            metadata: message.metadata,
+                            content: message.content,
+                            buffers: message.buffers,
+                            channel: message.channel,
+                            cell_id,
+                        };
+
+                        if let Err(e) = app_handle.emit("kernel:iopub", &tauri_msg) {
+                            error!("Failed to emit kernel:iopub: {}", e);
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!("iopub read error: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Create persistent shell connection
+        let identity = runtimelib::peer_identity_for_session(&self.session_id)?;
+        let mut shell = runtimelib::create_client_shell_connection_with_identity(
+            &connection_info,
+            &self.session_id,
+            identity,
+        )
+        .await?;
+
+        // Verify kernel is alive with kernel_info handshake
+        let request: JupyterMessage = KernelInfoRequest::default().into();
+        shell.send(request).await?;
+
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(30), shell.read()).await;
+        match reply {
+            Ok(Ok(msg)) => {
+                info!("Kernel alive: got {} reply", msg.header.msg_type);
+            }
+            Ok(Err(e)) => {
+                error!("Error reading kernel_info_reply: {}", e);
+                return Err(anyhow::anyhow!("Kernel did not respond: {}", e));
+            }
+            Err(_) => {
+                error!("Timeout waiting for kernel_info_reply");
+                return Err(anyhow::anyhow!("Kernel did not respond within 30s"));
+            }
+        }
+
+        // Split shell into persistent writer + reader
+        let (shell_writer, mut shell_reader) = shell.split();
+
+        let pending = self.pending_completions.clone();
+        let shell_reader_task = tokio::spawn(async move {
+            loop {
+                match shell_reader.read().await {
+                    Ok(msg) => {
+                        let parent_msg_id = msg.parent_header.as_ref().map(|h| h.msg_id.clone());
+
+                        match msg.content {
+                            JupyterMessageContent::CompleteReply(reply) => {
+                                if let Some(ref msg_id) = parent_msg_id {
+                                    if let Some(sender) = pending.lock().unwrap().remove(msg_id) {
+                                        let _ = sender.send(CompletionResult {
+                                            matches: reply.matches,
+                                            cursor_start: reply.cursor_start,
+                                            cursor_end: reply.cursor_end,
+                                        });
+                                    }
+                                }
+                            }
+                            _ => {
+                                debug!("shell reply: type={}", msg.header.msg_type);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("shell read error: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        self.connection_info = Some(connection_info);
+        self.connection_file = Some(connection_file_path);
+        self.iopub_task = Some(iopub_task);
+        self.shell_reader_task = Some(shell_reader_task);
+        self.shell_writer = Some(shell_writer);
+        self._process = Some(process);
+        self.uv_environment = Some(env);
+
+        info!("UV-managed kernel started: {}", kernel_id);
+        Ok(())
+    }
+
     /// Execute code and return the msg_id. Registers the cell_id mapping
     /// before sending so the iopub listener can tag responses.
     pub async fn execute(&mut self, code: &str, cell_id: &str) -> Result<String> {
@@ -311,9 +505,15 @@ impl NotebookKernel {
             tokio::fs::remove_file(path).await.ok();
         }
 
+        // Clean up uv environment (currently just releases the reference)
+        if let Some(ref env) = self.uv_environment {
+            crate::uv_env::cleanup_environment(env).await.ok();
+        }
+
         self.connection_info = None;
         self.connection_file = None;
         self._process = None;
+        self.uv_environment = None;
 
         Ok(())
     }
@@ -371,5 +571,15 @@ impl NotebookKernel {
 
     pub fn is_running(&self) -> bool {
         self.connection_info.is_some()
+    }
+
+    /// Check if this kernel is running with a uv-managed environment.
+    pub fn has_uv_environment(&self) -> bool {
+        self.uv_environment.is_some()
+    }
+
+    /// Get a reference to the uv environment, if this kernel was started with uv.
+    pub fn uv_environment(&self) -> Option<&UvEnvironment> {
+        self.uv_environment.as_ref()
     }
 }

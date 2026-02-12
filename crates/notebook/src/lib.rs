@@ -1,10 +1,11 @@
 pub mod kernel;
 pub mod notebook_state;
+pub mod uv_env;
 
 use notebook_state::{FrontendCell, NotebookState};
 use kernel::{CompletionResult, NotebookKernel};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use log::info;
@@ -176,6 +177,203 @@ async fn list_kernelspecs() -> Result<Vec<KernelspecInfo>, String> {
         .collect())
 }
 
+// ============================================================================
+// UV Dependency Management Commands
+// ============================================================================
+
+/// Serializable notebook dependencies for the frontend.
+#[derive(Serialize, Deserialize, Clone)]
+struct NotebookDependenciesJson {
+    dependencies: Vec<String>,
+    requires_python: Option<String>,
+}
+
+/// Check if uv is available on the system.
+#[tauri::command]
+async fn check_uv_available() -> bool {
+    uv_env::check_uv_available().await
+}
+
+/// Get dependencies from notebook metadata.
+#[tauri::command]
+async fn get_notebook_dependencies(
+    state: tauri::State<'_, Mutex<NotebookState>>,
+) -> Result<Option<NotebookDependenciesJson>, String> {
+    let state = state.lock().map_err(|e| e.to_string())?;
+    let deps = uv_env::extract_dependencies(&state.notebook.metadata);
+    Ok(deps.map(|d| NotebookDependenciesJson {
+        dependencies: d.dependencies,
+        requires_python: d.requires_python,
+    }))
+}
+
+/// Set dependencies in notebook metadata.
+#[tauri::command]
+async fn set_notebook_dependencies(
+    dependencies: Vec<String>,
+    requires_python: Option<String>,
+    state: tauri::State<'_, Mutex<NotebookState>>,
+) -> Result<(), String> {
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+
+    let uv_value = serde_json::json!({
+        "dependencies": dependencies,
+        "requires-python": requires_python,
+    });
+    state
+        .notebook
+        .metadata
+        .additional
+        .insert("uv".to_string(), uv_value);
+    state.dirty = true;
+
+    Ok(())
+}
+
+/// Add a single dependency to the notebook.
+#[tauri::command]
+async fn add_dependency(
+    package: String,
+    state: tauri::State<'_, Mutex<NotebookState>>,
+) -> Result<(), String> {
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+
+    // Get existing deps or create new
+    let mut deps = uv_env::extract_dependencies(&state.notebook.metadata)
+        .map(|d| d.dependencies)
+        .unwrap_or_default();
+
+    // Check if already exists (by package name, ignoring version specifiers)
+    let pkg_name = package.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(&package);
+    let already_exists = deps.iter().any(|d| {
+        let existing_name = d.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(d);
+        existing_name.eq_ignore_ascii_case(pkg_name)
+    });
+
+    if !already_exists {
+        deps.push(package);
+
+        let requires_python = uv_env::extract_dependencies(&state.notebook.metadata)
+            .and_then(|d| d.requires_python);
+
+        let uv_value = serde_json::json!({
+            "dependencies": deps,
+            "requires-python": requires_python,
+        });
+        state
+            .notebook
+            .metadata
+            .additional
+            .insert("uv".to_string(), uv_value);
+        state.dirty = true;
+    }
+
+    Ok(())
+}
+
+/// Remove a dependency from the notebook.
+#[tauri::command]
+async fn remove_dependency(
+    package: String,
+    state: tauri::State<'_, Mutex<NotebookState>>,
+) -> Result<(), String> {
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+
+    let existing = uv_env::extract_dependencies(&state.notebook.metadata);
+    if let Some(existing) = existing {
+        // Remove by package name (ignoring version specifiers)
+        let pkg_name = package.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(&package);
+        let deps: Vec<String> = existing
+            .dependencies
+            .into_iter()
+            .filter(|d| {
+                let existing_name = d.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(d);
+                !existing_name.eq_ignore_ascii_case(pkg_name)
+            })
+            .collect();
+
+        let uv_value = serde_json::json!({
+            "dependencies": deps,
+            "requires-python": existing.requires_python,
+        });
+        state
+            .notebook
+            .metadata
+            .additional
+            .insert("uv".to_string(), uv_value);
+        state.dirty = true;
+    }
+
+    Ok(())
+}
+
+/// Start kernel with uv-managed environment.
+#[tauri::command]
+async fn start_kernel_with_uv(
+    app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
+    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+) -> Result<(), String> {
+    let deps = {
+        let state = notebook_state.lock().map_err(|e| e.to_string())?;
+        uv_env::extract_dependencies(&state.notebook.metadata)
+    };
+
+    let deps = deps.ok_or_else(|| "No dependencies in notebook metadata".to_string())?;
+
+    info!(
+        "Starting uv-managed kernel with {} dependencies",
+        deps.dependencies.len()
+    );
+
+    let mut kernel = kernel_state.lock().await;
+    kernel
+        .start_with_uv(app, &deps)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Check if the running kernel has a uv-managed environment.
+#[tauri::command]
+async fn kernel_has_uv_env(
+    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+) -> Result<bool, String> {
+    let kernel = kernel_state.lock().await;
+    Ok(kernel.has_uv_environment())
+}
+
+/// Sync dependencies to the running kernel's uv environment.
+///
+/// Installs any new/changed dependencies into the existing venv.
+/// Returns true if sync was performed, false if no uv environment exists.
+#[tauri::command]
+async fn sync_kernel_dependencies(
+    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
+    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+) -> Result<bool, String> {
+    let deps = {
+        let state = notebook_state.lock().map_err(|e| e.to_string())?;
+        uv_env::extract_dependencies(&state.notebook.metadata)
+    };
+
+    let Some(deps) = deps else {
+        return Ok(false);
+    };
+
+    let kernel = kernel_state.lock().await;
+    let Some(env) = kernel.uv_environment() else {
+        return Ok(false);
+    };
+
+    info!("Syncing {} dependencies to kernel environment", deps.dependencies.len());
+
+    uv_env::sync_dependencies(env, &deps.dependencies)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(true)
+}
+
 /// Run the notebook Tauri app.
 ///
 /// If `notebook_path` is Some, opens that file. If None, creates a new empty notebook.
@@ -225,6 +423,15 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             complete,
             get_preferred_kernelspec,
             list_kernelspecs,
+            // UV dependency management
+            check_uv_available,
+            get_notebook_dependencies,
+            set_notebook_dependencies,
+            add_dependency,
+            remove_dependency,
+            start_kernel_with_uv,
+            kernel_has_uv_env,
+            sync_kernel_dependencies,
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {

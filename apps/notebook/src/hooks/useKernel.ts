@@ -161,29 +161,66 @@ export function useKernel({
     }
   }, []);
 
-  const ensureKernelStarted = useCallback(async () => {
-    if (startingRef.current) return;
-    startingRef.current = true;
+  const startKernelWithUv = useCallback(async () => {
+    setKernelStatus("starting");
     try {
-      // Try the notebook's preferred kernelspec first
-      const preferred = await invoke<string | null>("get_preferred_kernelspec");
-      if (preferred) {
-        await startKernel(preferred);
-        return;
-      }
-      // Fall back to first available kernelspec
-      const specs = await listKernelspecs();
-      if (specs.length > 0) {
-        await startKernel(specs[0].name);
-      }
-    } finally {
-      startingRef.current = false;
+      console.log("[kernel] starting uv-managed kernel");
+      await invoke("start_kernel_with_uv");
+      console.log("[kernel] start_kernel_with_uv succeeded");
+      setKernelStatus("idle");
+    } catch (e) {
+      console.error("start_kernel_with_uv failed:", e);
+      setKernelStatus("error");
     }
-  }, [startKernel, listKernelspecs]);
+  }, []);
+
+  const ensureKernelStarted = useCallback(
+    async (opts?: { useUv?: boolean }) => {
+      if (startingRef.current) return;
+      startingRef.current = true;
+      try {
+        // If useUv is explicitly requested, use uv-managed kernel
+        if (opts?.useUv) {
+          await startKernelWithUv();
+          return;
+        }
+
+        // Check if notebook has uv dependencies
+        const deps = await invoke<{ dependencies: string[] } | null>(
+          "get_notebook_dependencies"
+        );
+        const uvAvailable = await invoke<boolean>("check_uv_available");
+
+        if (deps && deps.dependencies.length > 0 && uvAvailable) {
+          // Use uv-managed kernel for notebooks with dependencies
+          await startKernelWithUv();
+          return;
+        }
+
+        // Fall back to system kernelspec
+        const preferred = await invoke<string | null>(
+          "get_preferred_kernelspec"
+        );
+        if (preferred) {
+          await startKernel(preferred);
+          return;
+        }
+        // Fall back to first available kernelspec
+        const specs = await listKernelspecs();
+        if (specs.length > 0) {
+          await startKernel(specs[0].name);
+        }
+      } finally {
+        startingRef.current = false;
+      }
+    },
+    [startKernel, startKernelWithUv, listKernelspecs]
+  );
 
   return {
     kernelStatus,
     startKernel,
+    startKernelWithUv,
     ensureKernelStarted,
     interruptKernel,
     listKernelspecs,

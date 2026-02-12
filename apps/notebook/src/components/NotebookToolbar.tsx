@@ -1,25 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
-import { Save, Play, Square, Plus } from "lucide-react";
+import { Save, Play, Square, Plus, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { KernelspecInfo } from "../types";
 
 interface NotebookToolbarProps {
   kernelStatus: string;
   dirty: boolean;
+  hasDependencies: boolean;
   onSave: () => void;
   onStartKernel: (name: string) => void;
   onInterruptKernel: () => void;
   onAddCell: (type: "code" | "markdown") => void;
+  onToggleDependencies: () => void;
   listKernelspecs: () => Promise<KernelspecInfo[]>;
 }
 
 export function NotebookToolbar({
   kernelStatus,
   dirty,
+  hasDependencies,
   onSave,
   onStartKernel,
   onInterruptKernel,
   onAddCell,
+  onToggleDependencies,
   listKernelspecs,
 }: NotebookToolbarProps) {
   const [kernelspecs, setKernelspecs] = useState<KernelspecInfo[]>([]);
@@ -83,6 +87,22 @@ export function NotebookToolbar({
         >
           <Plus className="h-3 w-3" />
           Markdown
+        </button>
+
+        <div className="h-4 w-px bg-border" />
+
+        {/* Dependencies */}
+        <button
+          type="button"
+          onClick={onToggleDependencies}
+          className={cn(
+            "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors hover:bg-muted",
+            hasDependencies ? "text-foreground" : "text-muted-foreground"
+          )}
+          title="Manage dependencies"
+        >
+          <Package className="h-3.5 w-3.5" />
+          Deps
         </button>
 
         <div className="flex-1" />
