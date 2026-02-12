@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 
 interface CellContainerProps {
   id: string;
+  cellType?: "code" | "markdown";
   isFocused?: boolean;
   onFocus?: () => void;
   children: ReactNode;
@@ -10,14 +11,31 @@ interface CellContainerProps {
   onDragOver?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
   className?: string;
-  focusBgColor?: string;
-  focusBorderColor?: string;
 }
+
+const getCellStyling = (cellType?: "code" | "markdown") => {
+  switch (cellType) {
+    case "markdown":
+      return {
+        focusBgColor: "bg-amber-50",
+        focusBorderColor: "border-l-amber-400",
+        hoverBorderColor: "hover:border-l-amber-300",
+      };
+    case "code":
+    default:
+      return {
+        focusBgColor: "bg-gray-50",
+        focusBorderColor: "border-l-gray-900",
+        hoverBorderColor: "hover:border-l-gray-400",
+      };
+  }
+};
 
 export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
   (
     {
       id,
+      cellType,
       isFocused = false,
       onFocus,
       children,
@@ -25,11 +43,11 @@ export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
       onDragOver,
       onDrop,
       className,
-      focusBgColor = "",
-      focusBorderColor = "border-l-primary",
     },
     ref,
   ) => {
+    const { focusBgColor, focusBorderColor, hoverBorderColor } = getCellStyling(cellType);
+
     return (
       <div
         ref={ref}
@@ -39,7 +57,7 @@ export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
           "cell-container group relative border-l-2 transition-all duration-200",
           isFocused
             ? [focusBgColor, focusBorderColor]
-            : "border-l-transparent",
+            : ["border-l-transparent", hoverBorderColor],
           className,
         )}
         onMouseDown={onFocus}
