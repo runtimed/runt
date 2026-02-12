@@ -63,7 +63,7 @@ export function MarkdownCell({
       id={cell.id}
       isFocused={isFocused}
       onFocus={onFocus}
-      className="rounded-md my-1"
+      className=""
     >
       {editing ? (
         <>
@@ -81,7 +81,7 @@ export function MarkdownCell({
               </button>
             )}
           </div>
-          <div className="border-t border-border/50 px-1">
+          <div className="px-1">
             <CodeMirrorEditor
               ref={editorRef}
               value={cell.source}

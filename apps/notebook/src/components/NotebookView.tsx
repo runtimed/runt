@@ -96,7 +96,7 @@ export function NotebookView({
       return (
         <div
           key={cell.id}
-          className="my-1 rounded border border-border/50 px-4 py-2"
+          className="px-4 py-2"
         >
           <pre className="text-sm text-muted-foreground whitespace-pre-wrap">
             {cell.source}

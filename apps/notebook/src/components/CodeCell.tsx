@@ -54,7 +54,7 @@ export function CodeCell({
       id={cell.id}
       isFocused={isFocused}
       onFocus={onFocus}
-      className="rounded-md my-1"
+      className=""
     >
       {/* Cell header: execution count + play button */}
       <div className="flex items-center gap-1 px-2 py-1">
@@ -85,7 +85,7 @@ export function CodeCell({
       </div>
 
       {/* Editor */}
-      <div className="border-t border-border/50 px-1">
+      <div className="px-1">
         <CodeMirrorEditor
           ref={editorRef}
           value={cell.source}
@@ -101,7 +101,7 @@ export function CodeCell({
 
       {/* Outputs */}
       {cell.outputs.length > 0 && (
-        <div className="border-t border-border/50 px-2 py-1">
+        <div className="px-2 py-1">
           <OutputArea outputs={cell.outputs} />
         </div>
       )}

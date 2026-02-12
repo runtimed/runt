@@ -25,8 +25,8 @@ export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
       onDragOver,
       onDrop,
       className,
-      focusBgColor = "bg-primary/5",
-      focusBorderColor = "border-primary/60",
+      focusBgColor = "",
+      focusBorderColor = "border-l-primary",
     },
     ref,
   ) => {
@@ -36,10 +36,10 @@ export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
         data-slot="cell-container"
         data-cell-id={id}
         className={cn(
-          "cell-container group relative border-2 transition-all duration-200",
+          "cell-container group relative border-l-2 transition-all duration-200",
           isFocused
             ? [focusBgColor, focusBorderColor]
-            : "border-transparent hover:bg-muted/10",
+            : "border-l-transparent",
           className,
         )}
         onMouseDown={onFocus}
