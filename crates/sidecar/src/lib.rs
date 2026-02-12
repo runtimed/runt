@@ -129,16 +129,42 @@ async fn run(
         );
     }
 
+    let session_id = format!("sidecar-{}", uuid::Uuid::new_v4());
+
     let mut iopub = runtimelib::create_client_iopub_connection(
         &connection_info,
         "",
-        &format!("sidecar-{}", uuid::Uuid::new_v4()),
+        &session_id,
     )
     .await?;
 
-    // TODO: Investigate why _with_identity breaks custom comm messages
-    #[allow(deprecated)]
-    let shell = runtimelib::create_client_shell_connection(&connection_info, &iopub.session_id).await?;
+    // Create a single shell connection with explicit identity for stdin support
+    let identity = runtimelib::peer_identity_for_session(&session_id)?;
+    let mut shell = runtimelib::create_client_shell_connection_with_identity(
+        &connection_info,
+        &session_id,
+        identity,
+    )
+    .await?;
+
+    // Do kernel_info and cwd requests BEFORE splitting the shell connection
+    // This ensures we only have one shell connection to the kernel
+    let kernel_info_result = request_kernel_info_on_shell(&mut shell, Duration::from_secs(2)).await;
+    let kernel_cwd_result = if kernel_info_result
+        .as_ref()
+        .and_then(|msg| match &msg.content {
+            JupyterMessageContent::KernelInfoReply(reply) => Some(&reply.language_info.name),
+            _ => None,
+        })
+        .map(|name| name == "python")
+        .unwrap_or(false)
+    {
+        request_python_cwd_on_shell(&mut shell, Duration::from_secs(2)).await
+    } else {
+        None
+    };
+
+    // Now split the shell for async message passing
     let (mut shell_writer, mut shell_reader) = shell.split();
 
     let event_loop_proxy = event_loop.create_proxy();
@@ -265,71 +291,22 @@ async fn run(
 
     let webview = webview.with_url(&ui_url).build(&window)?;
 
-    let kernel_info_connection = connection_info.clone();
-    let kernel_info_session_id = iopub.session_id.clone();
-    let kernel_info_proxy = event_loop_proxy.clone();
-    let kernel_info_ready = ui_ready.clone();
-    let kernel_info_pending = pending_kernel_info.clone();
-    let kernel_cwd_pending = pending_kernel_cwd.clone();
-    tokio::spawn(async move {
-        // Kernel was confirmed alive at startup via heartbeat check
-        let _ = kernel_info_proxy.send_event(SidecarEvent::KernelStatus {
-            status: KernelConnectionStatus::Connected,
-        });
-
-        for attempt in 0..3 {
-            if let Some(message) = request_kernel_info(
-                &kernel_info_connection,
-                &kernel_info_session_id,
-                Duration::from_secs(2),
-            )
-            .await
-            {
-                let kernel_language = match &message.content {
-                    JupyterMessageContent::KernelInfoReply(reply) => {
-                        Some(reply.language_info.name.clone())
-                    }
-                    _ => None,
-                };
-                if kernel_info_ready.load(Ordering::SeqCst) {
-                    let _ = kernel_info_proxy
-                        .send_event(SidecarEvent::JupyterMessage(Box::new(message.clone())));
-                } else if let Ok(mut pending) = kernel_info_pending.lock() {
-                    *pending = Some(message.clone());
-                }
-
-                if kernel_language.as_deref() == Some("python") {
-                    if let Some(cwd) = request_python_cwd(
-                        &kernel_info_connection,
-                        &kernel_info_session_id,
-                        Duration::from_secs(2),
-                    )
-                    .await
-                    {
-                        if kernel_info_ready.load(Ordering::SeqCst) {
-                            let _ = kernel_info_proxy.send_event(SidecarEvent::KernelCwd { cwd });
-                        } else if let Ok(mut pending) = kernel_cwd_pending.lock() {
-                            *pending = Some(cwd);
-                        }
-                    }
-                }
-                return;
-            }
-            if attempt < 2 {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-            }
-        }
-
-        // All kernel_info retries failed - check if kernel died
-        if !check_kernel_heartbeat(&kernel_info_connection, Duration::from_secs(2)).await {
-            debug!("Kernel appears to be disconnected");
-            let _ = kernel_info_proxy.send_event(SidecarEvent::KernelStatus {
-                status: KernelConnectionStatus::Disconnected,
-            });
-        } else {
-            debug!("Heartbeat succeeded but kernel_info failed - kernel may be busy");
-        }
+    // Kernel was confirmed alive at startup via heartbeat check
+    let _ = event_loop_proxy.send_event(SidecarEvent::KernelStatus {
+        status: KernelConnectionStatus::Connected,
     });
+
+    // Store pre-fetched kernel info in pending slots (will be sent when UI is ready)
+    if let Some(message) = kernel_info_result {
+        if let Ok(mut pending) = pending_kernel_info.lock() {
+            *pending = Some(message);
+        }
+    }
+    if let Some(cwd) = kernel_cwd_result {
+        if let Ok(mut pending) = pending_kernel_cwd.lock() {
+            *pending = Some(cwd);
+        }
+    }
 
     tokio::spawn(async move {
         while let Ok(message) = iopub.read().await {
@@ -476,32 +453,11 @@ async fn run(
     });
 }
 
-async fn request_kernel_info(
-    connection_info: &ConnectionInfo,
-    session_id: &str,
+/// Request kernel info using an existing shell connection (before splitting)
+async fn request_kernel_info_on_shell(
+    shell: &mut runtimelib::ClientShellConnection,
     timeout: Duration,
 ) -> Option<JupyterMessage> {
-    let identity = match runtimelib::peer_identity_for_session(session_id) {
-        Ok(id) => id,
-        Err(e) => {
-            error!("Failed to create peer identity for kernel info: {}", e);
-            return None;
-        }
-    };
-    let mut shell = match runtimelib::create_client_shell_connection_with_identity(
-        connection_info,
-        session_id,
-        identity,
-    )
-    .await
-    {
-        Ok(shell) => shell,
-        Err(e) => {
-            error!("Failed to create kernel info shell connection: {}", e);
-            return None;
-        }
-    };
-
     let request: JupyterMessage = KernelInfoRequest::default().into();
     if let Err(e) = shell.send(request).await {
         error!("Failed to send kernel_info_request: {}", e);
@@ -530,32 +486,11 @@ async fn request_kernel_info(
     }
 }
 
-async fn request_python_cwd(
-    connection_info: &ConnectionInfo,
-    session_id: &str,
+/// Request Python cwd using an existing shell connection (before splitting)
+async fn request_python_cwd_on_shell(
+    shell: &mut runtimelib::ClientShellConnection,
     timeout: Duration,
 ) -> Option<String> {
-    let identity = match runtimelib::peer_identity_for_session(session_id) {
-        Ok(id) => id,
-        Err(e) => {
-            error!("Failed to create peer identity for cwd request: {}", e);
-            return None;
-        }
-    };
-    let mut shell = match runtimelib::create_client_shell_connection_with_identity(
-        connection_info,
-        session_id,
-        identity,
-    )
-    .await
-    {
-        Ok(shell) => shell,
-        Err(e) => {
-            error!("Failed to create cwd shell connection: {}", e);
-            return None;
-        }
-    };
-
     let mut user_expressions = HashMap::new();
     user_expressions.insert("cwd".to_string(), "__import__('os').getcwd()".to_string());
     let request = ExecuteRequest {
