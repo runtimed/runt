@@ -65,7 +65,7 @@ where
 #[derive(Deserialize)]
 struct IncomingMessage {
     header: jupyter_protocol::Header,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "jupyter_protocol::deserialize_parent_header")]
     parent_header: Option<jupyter_protocol::Header>,
     #[serde(default)]
     metadata: Value,
