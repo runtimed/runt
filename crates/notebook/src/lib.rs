@@ -229,7 +229,6 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title(&window_title);
-                window.open_devtools();
             }
             Ok(())
         })
