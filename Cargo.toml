@@ -4,6 +4,7 @@ members = [
     "crates/runt",
     "crates/notebook",
 ]
+default-members = ["crates/notebook"]
 resolver = "2"
 
 [workspace.package]
