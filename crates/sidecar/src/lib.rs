@@ -41,7 +41,7 @@ use wry::{
 };
 
 #[derive(Embed)]
-#[folder = "../../packages/sidecar-ui/dist"]
+#[folder = "../../apps/sidecar/dist"]
 struct Asset;
 
 // Menu item IDs

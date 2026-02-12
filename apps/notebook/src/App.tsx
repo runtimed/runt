@@ -4,9 +4,9 @@ import { NotebookToolbar } from "./components/NotebookToolbar";
 import { NotebookView } from "./components/NotebookView";
 import { useNotebook } from "./hooks/useNotebook";
 import { useKernel } from "./hooks/useKernel";
-import { WidgetStoreProvider, useWidgetStoreRequired } from "@runtimed/ui/components/widgets/widget-store-context";
-import { MediaProvider } from "@runtimed/ui/components/outputs/media-provider";
-import { WidgetView } from "@runtimed/ui/components/widgets/widget-view";
+import { WidgetStoreProvider, useWidgetStoreRequired } from "@/components/widgets/widget-store-context";
+import { MediaProvider } from "@/components/outputs/media-provider";
+import { WidgetView } from "@/components/widgets/widget-view";
 import type { JupyterOutput, JupyterMessage } from "./types";
 
 /**

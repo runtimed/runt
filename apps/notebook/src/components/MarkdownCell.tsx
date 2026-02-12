@@ -1,11 +1,11 @@
 import { useState, useCallback, useRef } from "react";
 import type { KeyBinding } from "@codemirror/view";
-import { CellContainer } from "@runtimed/ui/components/cell/CellContainer";
+import { CellContainer } from "@/components/cell/CellContainer";
 import {
   CodeMirrorEditor,
   type CodeMirrorEditorRef,
-} from "@runtimed/ui/components/editor/codemirror-editor";
-import { MarkdownOutput } from "@runtimed/ui/components/outputs/markdown-output";
+} from "@/components/editor/codemirror-editor";
+import { MarkdownOutput } from "@/components/outputs/markdown-output";
 import { Trash2, Pencil } from "lucide-react";
 import type { MarkdownCell as MarkdownCellType } from "../types";
 

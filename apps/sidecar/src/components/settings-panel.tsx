@@ -1,6 +1,6 @@
 import { Sun, Moon, Monitor, Trash2 } from "lucide-react";
-import type { ThemeMode } from "@/hooks/use-theme";
-import { cn } from "@runtimed/ui/lib/utils";
+import type { ThemeMode } from "~/hooks/use-theme";
+import { cn } from "@/lib/utils";
 
 interface SettingsPanelProps {
   theme: ThemeMode;

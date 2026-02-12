@@ -1,13 +1,13 @@
 import { useCallback, useRef } from "react";
 import type { KeyBinding } from "@codemirror/view";
-import { CellContainer } from "@runtimed/ui/components/cell/CellContainer";
-import { PlayButton } from "@runtimed/ui/components/cell/PlayButton";
-import { ExecutionCount } from "@runtimed/ui/components/cell/ExecutionCount";
-import { OutputArea } from "@runtimed/ui/components/cell/OutputArea";
+import { CellContainer } from "@/components/cell/CellContainer";
+import { PlayButton } from "@/components/cell/PlayButton";
+import { ExecutionCount } from "@/components/cell/ExecutionCount";
+import { OutputArea } from "@/components/cell/OutputArea";
 import {
   CodeMirrorEditor,
   type CodeMirrorEditorRef,
-} from "@runtimed/ui/components/editor/codemirror-editor";
+} from "@/components/editor/codemirror-editor";
 import { Trash2 } from "lucide-react";
 import { kernelCompletionExtension } from "../lib/kernel-completion";
 import type { CodeCell as CodeCellType } from "../types";
