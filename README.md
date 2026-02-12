@@ -98,7 +98,7 @@ Both apps share components from `src/`. Changes there are reflected in both.
 
 ```bash
 # Notebook UI with hot reload (runs Vite dev server + Tauri)
-cd crates/notebook && cargo tauri dev
+cargo tauri dev -- -p notebook
 
 # Sidecar UI dev server (for styling/component work)
 pnpm --dir apps/sidecar dev
