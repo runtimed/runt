@@ -1,19 +1,19 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { MediaRouter } from "@runtimed/ui/components/outputs/media-router";
-import { MediaProvider } from "@runtimed/ui/components/outputs/media-provider";
+import { MediaRouter } from "@/components/outputs/media-router";
+import { MediaProvider } from "@/components/outputs/media-provider";
 // Register built-in ipywidgets (IntSlider, etc.)
-import "@runtimed/ui/components/widgets/controls";
-import "@runtimed/ui/components/widgets/ipycanvas";
+import "@/components/widgets/controls";
+import "@/components/widgets/ipycanvas";
 import {
   AnsiStreamOutput,
   AnsiErrorOutput,
-} from "@runtimed/ui/components/outputs/ansi-output";
-import { WidgetDebugger } from "@/components/widget-debugger";
+} from "@/components/outputs/ansi-output";
+import { WidgetDebugger } from "~/components/widget-debugger";
 import {
   WidgetStoreProvider,
   useWidgetStoreRequired,
-} from "@runtimed/ui/components/widgets/widget-store-context";
-import { WidgetView } from "@runtimed/ui/components/widgets/widget-view";
+} from "@/components/widgets/widget-store-context";
+import { WidgetView } from "@/components/widgets/widget-view";
 import type {
   JupyterMessage,
   JupyterOutput,
@@ -30,16 +30,16 @@ import {
   isKernelInfoReply,
   isUpdateDisplayData,
 } from "./types";
-import { cn } from "@runtimed/ui/lib/utils";
+import { cn } from "@/lib/utils";
 import { IconBrandDeno, IconBrandPython, IconLetterR } from "@tabler/icons-react";
 import { Settings as SettingsIcon, Terminal as TerminalIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@runtimed/ui/components/ui/collapsible";
-import { useTheme } from "@/hooks/use-theme";
-import { SettingsPanel } from "@/components/settings-panel";
+} from "@/components/ui/collapsible";
+import { useTheme } from "~/hooks/use-theme";
+import { SettingsPanel } from "~/components/settings-panel";
 
 function getStatusColorClass(status: string): string {
   switch (status) {

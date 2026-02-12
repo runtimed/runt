@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.runtimed.notebook",
   "build": {
-    "frontendDist": "../../packages/notebook-ui/dist",
-    "beforeBuildCommand": "pnpm --dir ../../packages/notebook-ui build"
+    "frontendDist": "../../apps/notebook/dist",
+    "beforeBuildCommand": "pnpm --dir ../../apps/notebook build"
   },
   "app": {
     "windows": [

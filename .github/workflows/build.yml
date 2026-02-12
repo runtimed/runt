@@ -45,8 +45,8 @@ jobs:
 
       - name: Build UIs
         run: |
-          pnpm --dir packages/sidecar-ui build
-          pnpm --dir packages/notebook-ui build
+          pnpm --dir apps/sidecar build
+          pnpm --dir apps/notebook build
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings

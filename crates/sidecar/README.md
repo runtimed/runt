@@ -30,8 +30,7 @@ pip install runtimed
 **From source** (requires building the UI first):
 
 ```bash
-cd packages/sidecar-ui && pnpm install && pnpm build
-cd ../..
+pnpm install && pnpm --dir apps/sidecar build
 cargo build --release -p sidecar
 ```
 

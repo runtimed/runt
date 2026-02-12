@@ -1,9 +1,8 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
-    "./packages/sidecar-ui/src/**/*.{ts,tsx}",
-    "./packages/notebook-ui/src/**/*.{ts,tsx}",
-    "./packages/ui/src/**/*.{ts,tsx}",
+    "./src/**/*.{ts,tsx}",
+    "./apps/*/src/**/*.{ts,tsx}",
   ],
   theme: {
     extend: {},
