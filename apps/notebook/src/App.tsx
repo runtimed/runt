@@ -50,6 +50,7 @@ function AppContent() {
     hasDependencies,
     loading: depsLoading,
     syncedWhileRunning,
+    needsKernelRestart,
     addDependency,
     removeDependency,
   } = useDependencies();
@@ -153,6 +154,7 @@ function AppContent() {
           uvAvailable={uvAvailable}
           loading={depsLoading}
           syncedWhileRunning={syncedWhileRunning}
+          needsKernelRestart={needsKernelRestart}
           onAdd={addDependency}
           onRemove={removeDependency}
         />

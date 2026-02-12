@@ -333,6 +333,15 @@ async fn start_kernel_with_uv(
         .map_err(|e| e.to_string())
 }
 
+/// Check if a kernel is currently running.
+#[tauri::command]
+async fn is_kernel_running(
+    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+) -> Result<bool, String> {
+    let kernel = kernel_state.lock().await;
+    Ok(kernel.is_running())
+}
+
 /// Check if the running kernel has a uv-managed environment.
 #[tauri::command]
 async fn kernel_has_uv_env(
@@ -430,6 +439,7 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             add_dependency,
             remove_dependency,
             start_kernel_with_uv,
+            is_kernel_running,
             kernel_has_uv_env,
             sync_kernel_dependencies,
         ])

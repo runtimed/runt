@@ -191,6 +191,7 @@ export function useKernel({
       try {
         // If useUv is explicitly requested, use uv-managed kernel
         if (opts?.useUv) {
+          console.log("[kernel] useUv explicitly requested");
           await startKernelWithUv();
           return;
         }
@@ -201,23 +202,29 @@ export function useKernel({
         );
         const uvAvailable = await invoke<boolean>("check_uv_available");
 
+        console.log("[kernel] deps check:", { deps, uvAvailable });
+
         if (deps && deps.dependencies.length > 0 && uvAvailable) {
           // Use uv-managed kernel for notebooks with dependencies
+          console.log("[kernel] starting uv-managed kernel with deps:", deps.dependencies);
           await startKernelWithUv();
           return;
         }
 
         // Fall back to system kernelspec
+        console.log("[kernel] falling back to system kernelspec");
         const preferred = await invoke<string | null>(
           "get_preferred_kernelspec"
         );
         if (preferred) {
+          console.log("[kernel] using preferred kernelspec:", preferred);
           await startKernel(preferred);
           return;
         }
         // Fall back to first available kernelspec
         const specs = await listKernelspecs();
         if (specs.length > 0) {
+          console.log("[kernel] using first available kernelspec:", specs[0].name);
           await startKernel(specs[0].name);
         }
       } finally {
