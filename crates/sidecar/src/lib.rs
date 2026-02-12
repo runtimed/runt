@@ -136,13 +136,9 @@ async fn run(
     )
     .await?;
 
-    let identity = runtimelib::peer_identity_for_session(&iopub.session_id)?;
-    let shell = runtimelib::create_client_shell_connection_with_identity(
-        &connection_info,
-        &iopub.session_id,
-        identity,
-    )
-    .await?;
+    // TODO: Investigate why _with_identity breaks custom comm messages
+    #[allow(deprecated)]
+    let shell = runtimelib::create_client_shell_connection(&connection_info, &iopub.session_id).await?;
     let (mut shell_writer, mut shell_reader) = shell.split();
 
     let event_loop_proxy = event_loop.create_proxy();
