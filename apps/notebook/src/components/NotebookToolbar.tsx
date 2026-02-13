@@ -8,12 +8,14 @@ import {
 } from "@/components/ui/collapsible";
 import type { ThemeMode } from "@/hooks/useTheme";
 import type { KernelspecInfo } from "../types";
+import type { EnvProgressState } from "../hooks/useEnvProgress";
 
 interface NotebookToolbarProps {
   kernelStatus: string;
   dirty: boolean;
   hasDependencies: boolean;
   theme: ThemeMode;
+  envProgress: EnvProgressState | null;
   onThemeChange: (theme: ThemeMode) => void;
   onSave: () => void;
   onStartKernel: (name: string) => void;
@@ -35,6 +37,7 @@ export function NotebookToolbar({
   dirty,
   hasDependencies,
   theme,
+  envProgress,
   onThemeChange,
   onSave,
   onStartKernel,
@@ -172,8 +175,10 @@ export function NotebookToolbar({
                 kernelStatus === "error" && "bg-red-500"
               )}
             />
-            <span className="text-xs text-muted-foreground capitalize">
-              {kernelStatus}
+            <span className="text-xs text-muted-foreground">
+              {envProgress ? envProgress.statusText : (
+                <span className="capitalize">{kernelStatus}</span>
+              )}
             </span>
           </div>
 

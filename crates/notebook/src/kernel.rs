@@ -520,8 +520,8 @@ impl NotebookKernel {
 
         info!("Preparing conda environment with deps: {:?}", deps.dependencies);
 
-        // Prepare the conda environment
-        let env = crate::conda_env::prepare_environment(deps).await?;
+        // Prepare the conda environment with progress events
+        let env = crate::conda_env::prepare_environment(deps, Some(&app)).await?;
 
         // Reserve ports
         let ip = std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
