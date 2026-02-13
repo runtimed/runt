@@ -5,17 +5,20 @@ import { CodeCell } from "./CodeCell";
 import { MarkdownCell } from "./MarkdownCell";
 import { EditorRegistryProvider, useEditorRegistry } from "../hooks/useEditorRegistry";
 import type { NotebookCell } from "../types";
+import type { CellPagePayload } from "../App";
 
 interface NotebookViewProps {
   cells: NotebookCell[];
   focusedCellId: string | null;
   executingCellIds: Set<string>;
+  pagePayloads: Map<string, CellPagePayload>;
   onFocusCell: (cellId: string) => void;
   onUpdateCellSource: (cellId: string, source: string) => void;
   onExecuteCell: (cellId: string) => void;
   onInterruptKernel: () => void;
   onDeleteCell: (cellId: string) => void;
   onAddCell: (type: "code" | "markdown", afterCellId?: string | null) => void;
+  onClearPagePayload: (cellId: string) => void;
 }
 
 function AddCellButtons({
@@ -66,12 +69,14 @@ function NotebookViewContent({
   cells,
   focusedCellId,
   executingCellIds,
+  pagePayloads,
   onFocusCell,
   onUpdateCellSource,
   onExecuteCell,
   onInterruptKernel,
   onDeleteCell,
   onAddCell,
+  onClearPagePayload,
 }: NotebookViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { focusCell } = useEditorRegistry();
@@ -102,12 +107,14 @@ function NotebookViewContent({
       };
 
       if (cell.cell_type === "code") {
+        const pagePayload = pagePayloads.get(cell.id) ?? null;
         return (
           <CodeCell
             key={cell.id}
             cell={cell}
             isFocused={isFocused}
             isExecuting={isExecuting}
+            pagePayload={pagePayload}
             onFocus={() => onFocusCell(cell.id)}
             onUpdateSource={(source) => onUpdateCellSource(cell.id, source)}
             onExecute={() => onExecuteCell(cell.id)}
@@ -116,6 +123,7 @@ function NotebookViewContent({
             onFocusPrevious={onFocusPrevious}
             onFocusNext={onFocusNext}
             onInsertCellAfter={() => onAddCell("code", cell.id)}
+            onClearPagePayload={() => onClearPagePayload(cell.id)}
             isLastCell={index === cells.length - 1}
           />
         );
@@ -153,6 +161,7 @@ function NotebookViewContent({
     [
       focusedCellId,
       executingCellIds,
+      pagePayloads,
       cellIds,
       cells.length,
       onFocusCell,
@@ -161,6 +170,7 @@ function NotebookViewContent({
       onInterruptKernel,
       onDeleteCell,
       onAddCell,
+      onClearPagePayload,
       focusCell,
     ]
   );

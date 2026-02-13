@@ -3,8 +3,8 @@ use crate::uv_env::{NotebookDependencies, UvEnvironment};
 use anyhow::Result;
 use bytes::Bytes;
 use jupyter_protocol::{
-    CompleteRequest, ConnectionInfo, ExecuteRequest, InterruptRequest, JupyterMessage,
-    JupyterMessageContent, KernelInfoRequest, ShutdownRequest,
+    media::Media, CompleteRequest, ConnectionInfo, ExecuteRequest, InterruptRequest,
+    JupyterMessage, JupyterMessageContent, KernelInfoRequest, Payload, ShutdownRequest,
 };
 use log::{debug, error, info};
 use serde::Serialize;
@@ -44,6 +44,14 @@ pub struct CompletionResult {
     pub matches: Vec<String>,
     pub cursor_start: usize,
     pub cursor_end: usize,
+}
+
+/// Event payload for page payloads (triggered by `?` or `??` in IPython).
+#[derive(Serialize, Clone)]
+pub struct PagePayloadEvent {
+    pub cell_id: String,
+    pub data: Media,
+    pub start: usize,
 }
 
 pub struct NotebookKernel {
@@ -210,6 +218,8 @@ impl NotebookKernel {
         let (shell_writer, mut shell_reader) = shell.split();
 
         let pending = self.pending_completions.clone();
+        let shell_app = app.clone();
+        let shell_cell_id_map = self.cell_id_map.clone();
         let shell_reader_task = tokio::spawn(async move {
             loop {
                 match shell_reader.read().await {
@@ -230,6 +240,30 @@ impl NotebookKernel {
                                             cursor_start: reply.cursor_start,
                                             cursor_end: reply.cursor_end,
                                         });
+                                    }
+                                }
+                            }
+                            JupyterMessageContent::ExecuteReply(ref reply) => {
+                                // Handle page payloads from introspection (? and ??)
+                                for payload in &reply.payload {
+                                    if let Payload::Page { data, start } = payload {
+                                        // Look up cell_id from msg_id
+                                        let cell_id = parent_msg_id.as_ref().and_then(|msg_id| {
+                                            shell_cell_id_map.lock().ok()?.get(msg_id).cloned()
+                                        });
+
+                                        if let Some(cell_id) = cell_id {
+                                            let event = PagePayloadEvent {
+                                                cell_id,
+                                                data: data.clone(),
+                                                start: *start,
+                                            };
+                                            if let Err(e) =
+                                                shell_app.emit("kernel:page_payload", &event)
+                                            {
+                                                error!("Failed to emit page_payload: {}", e);
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -404,6 +438,8 @@ impl NotebookKernel {
         let (shell_writer, mut shell_reader) = shell.split();
 
         let pending = self.pending_completions.clone();
+        let shell_app = app.clone();
+        let shell_cell_id_map = self.cell_id_map.clone();
         let shell_reader_task = tokio::spawn(async move {
             loop {
                 match shell_reader.read().await {
@@ -419,6 +455,29 @@ impl NotebookKernel {
                                             cursor_start: reply.cursor_start,
                                             cursor_end: reply.cursor_end,
                                         });
+                                    }
+                                }
+                            }
+                            JupyterMessageContent::ExecuteReply(ref reply) => {
+                                // Handle page payloads from introspection (? and ??)
+                                for payload in &reply.payload {
+                                    if let Payload::Page { data, start } = payload {
+                                        let cell_id = parent_msg_id.as_ref().and_then(|msg_id| {
+                                            shell_cell_id_map.lock().ok()?.get(msg_id).cloned()
+                                        });
+
+                                        if let Some(cell_id) = cell_id {
+                                            let event = PagePayloadEvent {
+                                                cell_id,
+                                                data: data.clone(),
+                                                start: *start,
+                                            };
+                                            if let Err(e) =
+                                                shell_app.emit("kernel:page_payload", &event)
+                                            {
+                                                error!("Failed to emit page_payload: {}", e);
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -594,6 +653,8 @@ impl NotebookKernel {
         let (shell_writer, mut shell_reader) = shell.split();
 
         let pending = self.pending_completions.clone();
+        let shell_app = app.clone();
+        let shell_cell_id_map = self.cell_id_map.clone();
         let shell_reader_task = tokio::spawn(async move {
             loop {
                 match shell_reader.read().await {
@@ -609,6 +670,29 @@ impl NotebookKernel {
                                             cursor_start: reply.cursor_start,
                                             cursor_end: reply.cursor_end,
                                         });
+                                    }
+                                }
+                            }
+                            JupyterMessageContent::ExecuteReply(ref reply) => {
+                                // Handle page payloads from introspection (? and ??)
+                                for payload in &reply.payload {
+                                    if let Payload::Page { data, start } = payload {
+                                        let cell_id = parent_msg_id.as_ref().and_then(|msg_id| {
+                                            shell_cell_id_map.lock().ok()?.get(msg_id).cloned()
+                                        });
+
+                                        if let Some(cell_id) = cell_id {
+                                            let event = PagePayloadEvent {
+                                                cell_id,
+                                                data: data.clone(),
+                                                start: *start,
+                                            };
+                                            if let Err(e) =
+                                                shell_app.emit("kernel:page_payload", &event)
+                                            {
+                                                error!("Failed to emit page_payload: {}", e);
+                                            }
+                                        }
                                     }
                                 }
                             }

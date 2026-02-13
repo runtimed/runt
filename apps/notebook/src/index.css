@@ -114,6 +114,104 @@ code {
   font-family: "SF Mono", Consolas, Monaco, "Andale Mono", monospace;
 }
 
+/* Page Payload Widget - Zed REPL / Light Table style */
+.cm-page-payload {
+  display: flex;
+  margin: 0.25rem 0;
+  background: var(--muted);
+  border-radius: 0.25rem;
+  max-height: 300px;
+  overflow: hidden;
+}
+
+.cm-page-payload-gutter {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 0.5rem;
+  padding-left: 0.25rem;
+  padding-right: 0.5rem;
+}
+
+.cm-page-payload-dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  border-radius: 0.125rem;
+  font-size: 0.875rem;
+  line-height: 1;
+  opacity: 0.6;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.cm-page-payload-dismiss:hover {
+  opacity: 1;
+  color: var(--foreground);
+}
+
+.cm-page-payload-content {
+  flex: 1;
+  padding: 0.5rem 0 0.5rem 0.75rem;
+  overflow-y: auto;
+  max-height: 300px;
+}
+
+.cm-page-payload-text {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--foreground);
+}
+
+/* Style for HTML content from rich docstrings */
+.cm-page-payload-content h1,
+.cm-page-payload-content h2,
+.cm-page-payload-content h3 {
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.cm-page-payload-content h1:first-child,
+.cm-page-payload-content h2:first-child,
+.cm-page-payload-content h3:first-child {
+  margin-top: 0;
+}
+
+.cm-page-payload-content p {
+  margin: 0.5rem 0;
+}
+
+.cm-page-payload-content code {
+  background: var(--secondary);
+  padding: 0.125rem 0.25rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+}
+
+.cm-page-payload-content pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.cm-page-payload-content a {
+  color: oklch(0.546 0.245 262.881);
+  text-decoration: underline;
+}
+
+.dark .cm-page-payload-content a {
+  color: oklch(0.707 0.165 254.624);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
