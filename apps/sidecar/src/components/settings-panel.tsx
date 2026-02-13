@@ -1,5 +1,5 @@
 import { Sun, Moon, Monitor, Trash2 } from "lucide-react";
-import type { ThemeMode } from "~/hooks/use-theme";
+import type { ThemeMode } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
 
 interface SettingsPanelProps {

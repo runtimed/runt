@@ -30,7 +30,7 @@ function AddCellButtons({
       {/* Gutter spacer - matches cell gutter: action area + ribbon */}
       <div className="flex-shrink-0 flex h-full">
         <div className="w-6" />
-        <div className="w-1 bg-gray-200" />
+        <div className="w-1 bg-gray-200 dark:bg-gray-700" />
       </div>
       {/* Content area with centered buttons */}
       <div className="flex-1 relative flex items-center justify-center">

@@ -2,11 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 
 export type ThemeMode = "light" | "dark" | "system";
 
-const STORAGE_KEY = "sidecar-theme";
-
-function getStoredTheme(): ThemeMode {
+function getStoredTheme(storageKey: string): ThemeMode {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(storageKey);
     if (stored === "light" || stored === "dark" || stored === "system") {
       return stored;
     }
@@ -34,20 +32,25 @@ function applyThemeToDOM(resolved: "light" | "dark") {
   }
 }
 
-export function useTheme() {
-  const [theme, setThemeState] = useState<ThemeMode>(getStoredTheme);
+export function useTheme(storageKey = "theme") {
+  const [theme, setThemeState] = useState<ThemeMode>(() =>
+    getStoredTheme(storageKey),
+  );
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(() =>
-    resolveTheme(getStoredTheme()),
+    resolveTheme(getStoredTheme(storageKey)),
   );
 
-  const setTheme = useCallback((newTheme: ThemeMode) => {
-    setThemeState(newTheme);
-    try {
-      localStorage.setItem(STORAGE_KEY, newTheme);
-    } catch {
-      // ignore
-    }
-  }, []);
+  const setTheme = useCallback(
+    (newTheme: ThemeMode) => {
+      setThemeState(newTheme);
+      try {
+        localStorage.setItem(storageKey, newTheme);
+      } catch {
+        // ignore
+      }
+    },
+    [storageKey],
+  );
 
   useEffect(() => {
     const resolved = resolveTheme(theme);

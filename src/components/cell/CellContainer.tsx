@@ -18,20 +18,24 @@ interface CellContainerProps {
 const getGutterColor = (cellType?: "code" | "markdown", isFocused?: boolean) => {
   switch (cellType) {
     case "markdown":
-      return isFocused ? "bg-amber-400" : "bg-amber-200";
+      return isFocused
+        ? "bg-amber-400 dark:bg-amber-500"
+        : "bg-amber-200 dark:bg-amber-700";
     case "code":
     default:
-      return isFocused ? "bg-gray-400" : "bg-gray-200";
+      return isFocused
+        ? "bg-gray-400 dark:bg-gray-500"
+        : "bg-gray-200 dark:bg-gray-700";
   }
 };
 
 const getFocusBgColor = (cellType?: "code" | "markdown") => {
   switch (cellType) {
     case "markdown":
-      return "bg-amber-50/50";
+      return "bg-amber-50/50 dark:bg-amber-900/20";
     case "code":
     default:
-      return "bg-gray-50/50";
+      return "bg-gray-50/50 dark:bg-gray-800/30";
   }
 };
 

@@ -87,7 +87,7 @@ export function CondaDependencyHeader({
 
         {/* Sync notice */}
         {syncedWhileRunning && (
-          <div className="mb-3 flex items-start gap-2 rounded bg-blue-500/10 px-2 py-1.5 text-xs text-blue-700">
+          <div className="mb-3 flex items-start gap-2 rounded bg-blue-500/10 px-2 py-1.5 text-xs text-blue-700 dark:text-blue-400">
             <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <span>
               Dependencies synced to environment. New packages can be imported
@@ -98,7 +98,7 @@ export function CondaDependencyHeader({
 
         {/* Kernel restart needed notice */}
         {needsKernelRestart && (
-          <div className="mb-3 flex items-start gap-2 rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700">
+          <div className="mb-3 flex items-start gap-2 rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
             <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <span>
               Restart kernel to use these dependencies. Conda environments

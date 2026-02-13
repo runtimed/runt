@@ -101,7 +101,7 @@ export function CodeCell({
       onExecute={handleExecute}
       onInterrupt={onInterrupt}
       className="h-4 w-4"
-      focusedClass="text-gray-700"
+      focusedClass="text-gray-700 dark:text-gray-300"
     />
   );
 

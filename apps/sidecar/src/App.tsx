@@ -38,7 +38,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { useTheme } from "~/hooks/use-theme";
+import { useTheme } from "@/hooks/useTheme";
 import { SettingsPanel } from "~/components/settings-panel";
 
 function getStatusColorClass(status: string): string {
@@ -123,7 +123,7 @@ function AppContent() {
   const pendingClearRef = useRef<Set<string>>(new Set());
   const widgetPendingClearsRef = useRef(new Set<string>());
   const { handleMessage: handleWidgetMessage, store } = useWidgetStoreRequired();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme } = useTheme("sidecar-theme");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const handleClearAllOutputs = useCallback(() => {
     setOutputs([]);

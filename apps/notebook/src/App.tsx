@@ -8,6 +8,7 @@ import { useNotebook } from "./hooks/useNotebook";
 import { useKernel } from "./hooks/useKernel";
 import { useDependencies } from "./hooks/useDependencies";
 import { useCondaDependencies } from "./hooks/useCondaDependencies";
+import { useTheme } from "@/hooks/useTheme";
 import { WidgetStoreProvider, useWidgetStoreRequired } from "@/components/widgets/widget-store-context";
 import { MediaProvider } from "@/components/outputs/media-provider";
 import { WidgetView } from "@/components/widgets/widget-view";
@@ -39,6 +40,8 @@ function AppContent() {
     appendOutput,
     setExecutionCount,
   } = useNotebook();
+
+  const { theme, setTheme } = useTheme("notebook-theme");
 
   const [executingCellIds, setExecutingCellIds] = useState<Set<string>>(
     new Set()
@@ -174,6 +177,8 @@ function AppContent() {
         kernelStatus={kernelStatus}
         dirty={dirty}
         hasDependencies={hasDependencies}
+        theme={theme}
+        onThemeChange={setTheme}
         onSave={save}
         onStartKernel={handleStartKernel}
         onInterruptKernel={interruptKernel}
