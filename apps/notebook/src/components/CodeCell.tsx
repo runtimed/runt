@@ -30,16 +30,6 @@ function PagePayloadDisplay({
 
   return (
     <div className="cm-page-payload">
-      <div className="cm-page-payload-gutter">
-        <button
-          type="button"
-          className="cm-page-payload-dismiss"
-          onClick={onDismiss}
-          title="Dismiss (Escape)"
-        >
-          <X className="h-3 w-3" />
-        </button>
-      </div>
       <div className="cm-page-payload-content">
         {typeof htmlContent === "string" ? (
           <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
@@ -50,6 +40,16 @@ function PagePayloadDisplay({
             {JSON.stringify(data, null, 2)}
           </pre>
         )}
+      </div>
+      <div className="cm-page-payload-gutter">
+        <button
+          type="button"
+          className="cm-page-payload-dismiss"
+          onClick={onDismiss}
+          title="Dismiss (Escape)"
+        >
+          <X className="h-3 w-3" />
+        </button>
       </div>
     </div>
   );

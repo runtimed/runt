@@ -130,7 +130,7 @@ code {
   align-items: flex-start;
   padding-top: 0.5rem;
   padding-left: 0.25rem;
-  padding-right: 0.25rem;
+  padding-right: 0.5rem;
 }
 
 .cm-page-payload-dismiss {
@@ -157,7 +157,7 @@ code {
 
 .cm-page-payload-content {
   flex: 1;
-  padding: 0.5rem 0.75rem 0.5rem 0;
+  padding: 0.5rem 0 0.5rem 0.75rem;
   overflow-y: auto;
   max-height: 300px;
 }
