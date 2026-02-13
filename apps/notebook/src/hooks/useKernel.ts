@@ -184,15 +184,47 @@ export function useKernel({
     }
   }, []);
 
+  const startKernelWithConda = useCallback(async () => {
+    setKernelStatus("starting");
+    try {
+      console.log("[kernel] starting conda-managed kernel");
+      await invoke("start_kernel_with_conda");
+      console.log("[kernel] start_kernel_with_conda succeeded");
+      setKernelStatus("idle");
+    } catch (e) {
+      console.error("start_kernel_with_conda failed:", e);
+      setKernelStatus("error");
+    }
+  }, []);
+
   const ensureKernelStarted = useCallback(
-    async (opts?: { useUv?: boolean }) => {
+    async (opts?: { useUv?: boolean; useConda?: boolean }) => {
       if (startingRef.current) return;
       startingRef.current = true;
       try {
+        // If useConda is explicitly requested, use conda-managed kernel
+        if (opts?.useConda) {
+          console.log("[kernel] useConda explicitly requested");
+          await startKernelWithConda();
+          return;
+        }
+
         // If useUv is explicitly requested, use uv-managed kernel
         if (opts?.useUv) {
           console.log("[kernel] useUv explicitly requested");
           await startKernelWithUv();
+          return;
+        }
+
+        // Check if notebook has conda dependencies (priority over uv)
+        const condaDeps = await invoke<{ dependencies: string[] } | null>(
+          "get_conda_dependencies"
+        );
+
+        if (condaDeps && condaDeps.dependencies.length > 0) {
+          // Use conda-managed kernel for notebooks with conda dependencies
+          console.log("[kernel] starting conda-managed kernel with deps:", condaDeps.dependencies);
+          await startKernelWithConda();
           return;
         }
 
@@ -231,13 +263,14 @@ export function useKernel({
         startingRef.current = false;
       }
     },
-    [startKernel, startKernelWithUv, listKernelspecs]
+    [startKernel, startKernelWithUv, startKernelWithConda, listKernelspecs]
   );
 
   return {
     kernelStatus,
     startKernel,
     startKernelWithUv,
+    startKernelWithConda,
     ensureKernelStarted,
     interruptKernel,
     listKernelspecs,
