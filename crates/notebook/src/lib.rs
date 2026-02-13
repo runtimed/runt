@@ -1,5 +1,6 @@
 pub mod conda_env;
 pub mod kernel;
+pub mod menu;
 pub mod notebook_state;
 pub mod uv_env;
 
@@ -10,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use log::info;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[derive(Serialize)]
 struct KernelspecInfo {
@@ -27,6 +28,24 @@ async fn load_notebook(
     Ok(state.cells_for_frontend())
 }
 
+/// Check if the notebook has a file path set
+#[tauri::command]
+async fn has_notebook_path(
+    state: tauri::State<'_, Mutex<NotebookState>>,
+) -> Result<bool, String> {
+    let state = state.lock().map_err(|e| e.to_string())?;
+    Ok(state.path.is_some())
+}
+
+/// Get the current notebook file path
+#[tauri::command]
+async fn get_notebook_path(
+    state: tauri::State<'_, Mutex<NotebookState>>,
+) -> Result<Option<String>, String> {
+    let state = state.lock().map_err(|e| e.to_string())?;
+    Ok(state.path.as_ref().map(|p| p.to_string_lossy().to_string()))
+}
+
 #[tauri::command]
 async fn save_notebook(
     state: tauri::State<'_, Mutex<NotebookState>>,
@@ -35,9 +54,32 @@ async fn save_notebook(
     let path = state
         .path
         .clone()
-        .ok_or_else(|| "No file path set".to_string())?;
+        .ok_or_else(|| "No file path set - use save_notebook_as".to_string())?;
     let content = state.serialize()?;
     std::fs::write(&path, &content).map_err(|e| e.to_string())?;
+    state.dirty = false;
+    Ok(())
+}
+
+/// Save notebook to a specific path (Save As)
+#[tauri::command]
+async fn save_notebook_as(
+    path: String,
+    window: tauri::Window,
+    state: tauri::State<'_, Mutex<NotebookState>>,
+) -> Result<(), String> {
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+    let path = PathBuf::from(&path);
+    let content = state.serialize()?;
+    std::fs::write(&path, &content).map_err(|e| e.to_string())?;
+
+    // Update the stored path and window title
+    let filename = path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("Untitled.ipynb");
+    let _ = window.set_title(filename);
+
+    state.path = Some(path);
     state.dirty = false;
     Ok(())
 }
@@ -125,6 +167,14 @@ async fn interrupt_kernel(
 ) -> Result<(), String> {
     let kernel = kernel_state.lock().await;
     kernel.interrupt().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn shutdown_kernel(
+    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+) -> Result<(), String> {
+    let mut kernel = kernel_state.lock().await;
+    kernel.shutdown().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -520,16 +570,113 @@ async fn start_kernel_with_conda(
     kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
 ) -> Result<(), String> {
     let deps = {
-        let state = notebook_state.lock().map_err(|e| e.to_string())?;
-        conda_env::extract_dependencies(&state.notebook.metadata)
+        let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
+        let mut deps = conda_env::extract_dependencies(&state.notebook.metadata)
+            .ok_or_else(|| "No conda dependencies in notebook metadata".to_string())?;
+
+        // Get or create env_id for isolation
+        let env_id = state
+            .notebook
+            .metadata
+            .additional
+            .get("runt")
+            .and_then(|v| v.get("env_id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        if let Some(id) = env_id {
+            deps.env_id = Some(id);
+        } else {
+            // Generate and store a new env_id
+            let new_id = uuid::Uuid::new_v4().to_string();
+            let runt_value = serde_json::json!({
+                "env_id": new_id,
+            });
+            state
+                .notebook
+                .metadata
+                .additional
+                .insert("runt".to_string(), runt_value);
+            state.dirty = true;
+            deps.env_id = Some(new_id);
+        }
+
+        deps
     };
 
-    let deps = deps.ok_or_else(|| "No conda dependencies in notebook metadata".to_string())?;
-
     info!(
-        "Starting conda-managed kernel with {} dependencies",
-        deps.dependencies.len()
+        "Starting conda-managed kernel with {} dependencies (env_id: {:?})",
+        deps.dependencies.len(),
+        deps.env_id
     );
+
+    let mut kernel = kernel_state.lock().await;
+    kernel
+        .start_with_conda(app, &deps)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Start a default conda kernel with just Python (no extra deps).
+/// Used as fallback when no environment is configured.
+/// Each notebook gets its own isolated environment via a unique env_id.
+#[tauri::command]
+async fn start_default_conda_kernel(
+    app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
+    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+) -> Result<(), String> {
+    // Get the env_id for this notebook (should be set at notebook creation)
+    // Fall back to creating one for legacy notebooks
+    let env_id = {
+        let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
+
+        // Check if there's already an env_id in the runt metadata
+        let existing_id = state
+            .notebook
+            .metadata
+            .additional
+            .get("runt")
+            .and_then(|v| v.get("env_id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        match existing_id {
+            Some(id) => id,
+            None => {
+                // Legacy notebook without env_id - generate one and set conda metadata
+                let new_id = uuid::Uuid::new_v4().to_string();
+
+                state.notebook.metadata.additional.insert(
+                    "runt".to_string(),
+                    serde_json::json!({ "env_id": new_id }),
+                );
+
+                if !state.notebook.metadata.additional.contains_key("conda") {
+                    state.notebook.metadata.additional.insert(
+                        "conda".to_string(),
+                        serde_json::json!({
+                            "dependencies": Vec::<String>::new(),
+                            "channels": ["conda-forge"],
+                        }),
+                    );
+                }
+
+                state.dirty = true;
+                new_id
+            }
+        }
+    };
+
+    // Create minimal deps with just ipykernel and the unique env_id
+    let deps = conda_env::CondaDependencies {
+        dependencies: vec!["ipykernel".to_string()],
+        channels: vec!["conda-forge".to_string()],
+        python: None,
+        env_id: Some(env_id.clone()),
+    };
+
+    info!("Starting default conda kernel with ipykernel (env_id: {})", env_id);
 
     let mut kernel = kernel_state.lock().await;
     kernel
@@ -614,17 +761,22 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
         .to_string();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(initial_state))
         .manage(tokio::sync::Mutex::new(NotebookKernel::default()))
         .invoke_handler(tauri::generate_handler![
             load_notebook,
+            has_notebook_path,
+            get_notebook_path,
             save_notebook,
+            save_notebook_as,
             update_cell_source,
             add_cell,
             delete_cell,
             execute_cell,
             start_kernel,
             interrupt_kernel,
+            shutdown_kernel,
             send_shell_message,
             complete,
             get_preferred_kernelspec,
@@ -645,6 +797,7 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             add_conda_dependency,
             remove_conda_dependency,
             start_kernel_with_conda,
+            start_default_conda_kernel,
             kernel_has_conda_env,
             sync_conda_dependencies,
         ])
@@ -652,7 +805,27 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title(&window_title);
             }
+            // Set up native menu bar
+            let menu = crate::menu::create_menu(app.handle())?;
+            app.set_menu(menu)?;
             Ok(())
+        })
+        .on_menu_event(|app, event| {
+            match event.id().as_ref() {
+                crate::menu::MENU_NEW_NOTEBOOK => {
+                    // Spawn new process with no file argument
+                    if let Ok(exe) = std::env::current_exe() {
+                        let _ = std::process::Command::new(exe).spawn();
+                    }
+                }
+                crate::menu::MENU_SAVE => {
+                    // Emit event to frontend to trigger save
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("menu:save", ());
+                    }
+                }
+                _ => {}
+            }
         })
         .run(tauri::generate_context!())
         .map_err(|e| anyhow::anyhow!("Tauri error: {}", e))

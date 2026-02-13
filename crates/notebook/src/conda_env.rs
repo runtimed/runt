@@ -27,6 +27,11 @@ pub struct CondaDependencies {
     #[serde(default)]
     pub channels: Vec<String>,
     pub python: Option<String>,
+    /// Unique environment ID for per-notebook isolation.
+    /// If set, this ID is included in the environment hash to ensure
+    /// each notebook gets its own isolated environment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env_id: Option<String>,
 }
 
 /// Result of environment preparation.
@@ -70,6 +75,12 @@ fn compute_env_hash(deps: &CondaDependencies) -> String {
     if let Some(ref py) = deps.python {
         hasher.update(b"python:");
         hasher.update(py.as_bytes());
+    }
+
+    // Include env_id for per-notebook isolation
+    if let Some(ref env_id) = deps.env_id {
+        hasher.update(b"env_id:");
+        hasher.update(env_id.as_bytes());
     }
 
     let hash = hasher.finalize();

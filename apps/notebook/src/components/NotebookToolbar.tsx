@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Save, Play, Square, Plus, Package, Settings, Sun, Moon, Monitor } from "lucide-react";
+import { Save, Play, Square, Plus, Package, Settings, Sun, Moon, Monitor, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Collapsible,
@@ -18,6 +18,7 @@ interface NotebookToolbarProps {
   onSave: () => void;
   onStartKernel: (name: string) => void;
   onInterruptKernel: () => void;
+  onRestartKernel: () => void;
   onAddCell: (type: "code" | "markdown") => void;
   onToggleDependencies: () => void;
   listKernelspecs: () => Promise<KernelspecInfo[]>;
@@ -38,6 +39,7 @@ export function NotebookToolbar({
   onSave,
   onStartKernel,
   onInterruptKernel,
+  onRestartKernel,
   onAddCell,
   onToggleDependencies,
   listKernelspecs,
@@ -136,15 +138,26 @@ export function NotebookToolbar({
               Start Kernel
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={onInterruptKernel}
-              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              title="Interrupt kernel"
-            >
-              <Square className="h-3 w-3" />
-              Interrupt
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={onInterruptKernel}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                title="Interrupt kernel"
+              >
+                <Square className="h-3 w-3" />
+                Interrupt
+              </button>
+              <button
+                type="button"
+                onClick={onRestartKernel}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                title="Restart kernel"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Restart
+              </button>
+            </>
           )}
 
           {/* Kernel status */}

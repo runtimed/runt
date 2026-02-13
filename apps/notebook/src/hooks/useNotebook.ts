@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { NotebookCell, JupyterOutput } from "../types";
 
 export function useNotebook() {
@@ -82,7 +83,28 @@ export function useNotebook() {
 
   const save = useCallback(async () => {
     try {
-      await invoke("save_notebook");
+      // Check if we have a file path
+      const hasPath = await invoke<boolean>("has_notebook_path");
+
+      if (hasPath) {
+        // Save to existing path
+        await invoke("save_notebook");
+      } else {
+        // Show Save As dialog
+        const filePath = await saveDialog({
+          filters: [{ name: "Jupyter Notebook", extensions: ["ipynb"] }],
+          defaultPath: "Untitled.ipynb",
+        });
+
+        if (!filePath) {
+          // User cancelled
+          return;
+        }
+
+        // Save to the selected path
+        await invoke("save_notebook_as", { path: filePath });
+      }
+
       setDirty(false);
     } catch (e) {
       console.error("save_notebook failed:", e);
