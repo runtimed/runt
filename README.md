@@ -104,6 +104,22 @@ cargo tauri dev -- -p notebook
 pnpm --dir apps/sidecar dev
 ```
 
+### Running without the dev server
+
+When working with multiple worktrees or when you don't need Vite hot reload, build the frontend and run a debug Tauri build:
+
+```bash
+pnpm notebook:build && cargo tauri build --debug && ./target/debug/notebook
+```
+
+This avoids port conflicts since `cargo tauri dev` binds to a fixed port (5174) for the Vite dev server. The debug build uses the pre-built assets from `apps/notebook/dist/` instead of connecting to a dev server.
+
+To open a specific notebook:
+
+```bash
+./target/debug/notebook path/to/notebook.ipynb
+```
+
 ### Adding shadcn components
 
 Run from the repo root:
