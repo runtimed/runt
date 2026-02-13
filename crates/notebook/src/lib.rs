@@ -20,6 +20,38 @@ struct KernelspecInfo {
     language: String,
 }
 
+/// Git information for debug banner display.
+#[derive(Serialize)]
+struct GitInfo {
+    branch: String,
+    commit: String,
+    description: Option<String>,
+}
+
+/// Get git information for the debug banner.
+/// Returns None in release builds.
+#[tauri::command]
+async fn get_git_info() -> Option<GitInfo> {
+    #[cfg(debug_assertions)]
+    {
+        // Try to read workspace description from .context/workspace-description
+        let description = std::fs::read_to_string(".context/workspace-description")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        Some(GitInfo {
+            branch: env!("GIT_BRANCH").to_string(),
+            commit: env!("GIT_COMMIT").to_string(),
+            description,
+        })
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
+    }
+}
+
 #[tauri::command]
 async fn load_notebook(
     state: tauri::State<'_, Mutex<NotebookState>>,
@@ -800,6 +832,8 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             start_default_conda_kernel,
             kernel_has_conda_env,
             sync_conda_dependencies,
+            // Debug info
+            get_git_info,
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {

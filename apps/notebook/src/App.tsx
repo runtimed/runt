@@ -5,10 +5,12 @@ import { NotebookToolbar } from "./components/NotebookToolbar";
 import { NotebookView } from "./components/NotebookView";
 import { DependencyHeader } from "./components/DependencyHeader";
 import { CondaDependencyHeader } from "./components/CondaDependencyHeader";
+import { DebugBanner } from "./components/DebugBanner";
 import { useNotebook } from "./hooks/useNotebook";
 import { useKernel } from "./hooks/useKernel";
 import { useDependencies } from "./hooks/useDependencies";
 import { useCondaDependencies } from "./hooks/useCondaDependencies";
+import { useGitInfo } from "./hooks/useGitInfo";
 import { useTheme } from "@/hooks/useTheme";
 import { WidgetStoreProvider, useWidgetStoreRequired } from "@/components/widgets/widget-store-context";
 import { MediaProvider } from "@/components/outputs/media-provider";
@@ -28,6 +30,8 @@ async function sendMessage(message: unknown): Promise<void> {
 }
 
 function AppContent() {
+  const gitInfo = useGitInfo();
+
   const {
     cells,
     focusedCellId,
@@ -188,6 +192,13 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-background">
+      {gitInfo && (
+        <DebugBanner
+          branch={gitInfo.branch}
+          commit={gitInfo.commit}
+          description={gitInfo.description}
+        />
+      )}
       <NotebookToolbar
         kernelStatus={kernelStatus}
         dirty={dirty}
