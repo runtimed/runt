@@ -80,13 +80,12 @@ impl NotebookState {
         // Generate unique environment ID for this notebook
         let env_id = Uuid::new_v4().to_string();
 
-        // Set up default conda metadata
+        // Set up default uv metadata (faster startup than conda/rattler)
         let mut additional = HashMap::new();
         additional.insert(
-            "conda".to_string(),
+            "uv".to_string(),
             serde_json::json!({
                 "dependencies": Vec::<String>::new(),
-                "channels": ["conda-forge"],
             }),
         );
         additional.insert(

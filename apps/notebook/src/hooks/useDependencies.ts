@@ -136,10 +136,14 @@ export function useDependencies() {
   const hasDependencies =
     dependencies !== null && dependencies.dependencies.length > 0;
 
+  // True if uv metadata exists (even with empty deps)
+  const isUvConfigured = dependencies !== null;
+
   return {
     dependencies,
     uvAvailable,
     hasDependencies,
+    isUvConfigured,
     loading,
     syncedWhileRunning,
     needsKernelRestart,
