@@ -7,8 +7,10 @@ use anyhow::{anyhow, Result};
 use log::info;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
+
+use crate::pyproject::PyProjectConfig;
 
 /// Dependencies extracted from notebook metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -231,6 +233,172 @@ pub async fn clear_cache() -> Result<()> {
         tokio::fs::remove_dir_all(&cache_dir).await?;
     }
     Ok(())
+}
+
+/// Compute a cache key that includes the pyproject.toml path.
+///
+/// This ensures different projects don't share environments even if
+/// they have the same dependencies listed.
+fn compute_env_hash_with_pyproject(
+    deps: &[String],
+    requires_python: Option<&str>,
+    pyproject_path: &Path,
+) -> String {
+    let mut hasher = Sha256::new();
+
+    // Include pyproject path to differentiate between projects
+    hasher.update(b"pyproject:");
+    hasher.update(pyproject_path.to_string_lossy().as_bytes());
+    hasher.update(b"\n");
+
+    // Sort dependencies for consistent hashing
+    let mut sorted_deps = deps.to_vec();
+    sorted_deps.sort();
+
+    for dep in &sorted_deps {
+        hasher.update(dep.as_bytes());
+        hasher.update(b"\n");
+    }
+
+    if let Some(py) = requires_python {
+        hasher.update(b"requires-python:");
+        hasher.update(py.as_bytes());
+    }
+
+    let hash = hasher.finalize();
+    format!("{:x}", hash)[..16].to_string()
+}
+
+/// Prepare a virtual environment using pyproject.toml configuration.
+///
+/// Merges dependencies from pyproject.toml with any additional notebook-level
+/// dependencies. Uses the pyproject path in the hash to ensure project isolation.
+pub async fn prepare_environment_from_pyproject(
+    pyproject: &PyProjectConfig,
+    notebook_deps: Option<&NotebookDependencies>,
+) -> Result<UvEnvironment> {
+    // Merge all dependencies: pyproject main + dev + notebook extras
+    let mut all_deps = pyproject.dependencies.clone();
+    all_deps.extend(pyproject.dev_dependencies.clone());
+    if let Some(nb_deps) = notebook_deps {
+        all_deps.extend(nb_deps.dependencies.clone());
+    }
+
+    // Use pyproject's requires-python if set, otherwise fall back to notebook
+    let requires_python = pyproject
+        .requires_python
+        .as_deref()
+        .or_else(|| notebook_deps.and_then(|d| d.requires_python.as_deref()));
+
+    let hash = compute_env_hash_with_pyproject(&all_deps, requires_python, &pyproject.path);
+    let cache_dir = get_cache_dir();
+    let venv_path = cache_dir.join(&hash);
+
+    // Determine python path based on platform
+    #[cfg(target_os = "windows")]
+    let python_path = venv_path.join("Scripts").join("python.exe");
+    #[cfg(not(target_os = "windows"))]
+    let python_path = venv_path.join("bin").join("python");
+
+    // Check if cached environment exists and is valid
+    if venv_path.exists() && python_path.exists() {
+        info!(
+            "Using cached pyproject environment at {:?} for {:?}",
+            venv_path, pyproject.path
+        );
+        return Ok(UvEnvironment {
+            venv_path,
+            python_path,
+        });
+    }
+
+    info!(
+        "Creating new pyproject environment at {:?} from {:?}",
+        venv_path, pyproject.path
+    );
+
+    // Ensure cache directory exists
+    tokio::fs::create_dir_all(&cache_dir).await?;
+
+    // Remove partial/invalid environment if it exists
+    if venv_path.exists() {
+        tokio::fs::remove_dir_all(&venv_path).await?;
+    }
+
+    // Create virtual environment with uv
+    let mut venv_cmd = tokio::process::Command::new("uv");
+    venv_cmd.arg("venv").arg(&venv_path);
+
+    // Add python version constraint if specified
+    if let Some(py_version) = requires_python {
+        let version = py_version
+            .trim_start_matches(|c: char| !c.is_ascii_digit())
+            .to_string();
+        if !version.is_empty() {
+            venv_cmd.arg("--python").arg(&version);
+        }
+    }
+
+    let venv_status = venv_cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .status()
+        .await?;
+
+    if !venv_status.success() {
+        return Err(anyhow!("Failed to create virtual environment"));
+    }
+
+    // Build install command
+    let mut install_args = vec![
+        "pip".to_string(),
+        "install".to_string(),
+        "--python".to_string(),
+        python_path.to_string_lossy().to_string(),
+    ];
+
+    // Add custom index URL if specified in [tool.uv]
+    if let Some(ref index_url) = pyproject.index_url {
+        install_args.push("--index-url".to_string());
+        install_args.push(index_url.clone());
+    }
+
+    // Add extra index URLs if specified
+    for extra_url in &pyproject.extra_index_urls {
+        install_args.push("--extra-index-url".to_string());
+        install_args.push(extra_url.clone());
+    }
+
+    // Always install ipykernel
+    install_args.push("ipykernel".to_string());
+
+    // Add all dependencies
+    for dep in &all_deps {
+        install_args.push(dep.clone());
+    }
+
+    let output = tokio::process::Command::new("uv")
+        .args(&install_args)
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        // Clean up failed environment
+        tokio::fs::remove_dir_all(&venv_path).await.ok();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("Failed to install dependencies: {}", stderr));
+    }
+
+    info!(
+        "Pyproject environment ready at {:?} with {} dependencies",
+        venv_path,
+        all_deps.len()
+    );
+
+    Ok(UvEnvironment {
+        venv_path,
+        python_path,
+    })
 }
 
 #[cfg(test)]

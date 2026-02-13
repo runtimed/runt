@@ -6,6 +6,28 @@ export interface NotebookDependencies {
   requires_python: string | null;
 }
 
+/** Full pyproject.toml dependencies for display */
+export interface PyProjectDeps {
+  path: string;
+  relative_path: string;
+  project_name: string | null;
+  dependencies: string[];
+  dev_dependencies: string[];
+  requires_python: string | null;
+  index_url: string | null;
+}
+
+/** Info about a detected pyproject.toml */
+export interface PyProjectInfo {
+  path: string;
+  relative_path: string;
+  project_name: string | null;
+  has_dependencies: boolean;
+  dependency_count: number;
+  has_dev_dependencies: boolean;
+  requires_python: string | null;
+}
+
 export function useDependencies() {
   const [dependencies, setDependencies] =
     useState<NotebookDependencies | null>(null);
@@ -16,9 +38,14 @@ export function useDependencies() {
   // Track if user added deps but kernel isn't uv-managed (needs restart)
   const [needsKernelRestart, setNeedsKernelRestart] = useState(false);
 
-  // Check if uv is available on mount
+  // pyproject.toml state
+  const [pyprojectInfo, setPyprojectInfo] = useState<PyProjectInfo | null>(null);
+  const [pyprojectDeps, setPyprojectDeps] = useState<PyProjectDeps | null>(null);
+
+  // Check if uv is available and detect pyproject on mount
   useEffect(() => {
     invoke<boolean>("check_uv_available").then(setUvAvailable);
+    invoke<PyProjectInfo | null>("detect_pyproject").then(setPyprojectInfo);
   }, []);
 
   const loadDependencies = useCallback(async () => {
@@ -139,6 +166,48 @@ export function useDependencies() {
   // True if uv metadata exists (even with empty deps)
   const isUvConfigured = dependencies !== null;
 
+  // Load full pyproject dependencies
+  const loadPyprojectDeps = useCallback(async () => {
+    try {
+      const deps = await invoke<PyProjectDeps | null>("get_pyproject_dependencies");
+      setPyprojectDeps(deps);
+    } catch (e) {
+      console.error("Failed to load pyproject dependencies:", e);
+    }
+  }, []);
+
+  // Load pyproject deps when we detect a pyproject.toml
+  useEffect(() => {
+    if (pyprojectInfo?.has_dependencies) {
+      loadPyprojectDeps();
+    }
+  }, [pyprojectInfo, loadPyprojectDeps]);
+
+  // Import dependencies from pyproject.toml into notebook metadata
+  const importFromPyproject = useCallback(async () => {
+    setLoading(true);
+    try {
+      await invoke("import_pyproject_dependencies");
+      await loadDependencies();
+      console.log("[deps] Imported dependencies from pyproject.toml");
+    } catch (e) {
+      console.error("Failed to import from pyproject.toml:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [loadDependencies]);
+
+  // Refresh pyproject detection
+  const refreshPyproject = useCallback(async () => {
+    const info = await invoke<PyProjectInfo | null>("detect_pyproject");
+    setPyprojectInfo(info);
+    if (info?.has_dependencies) {
+      await loadPyprojectDeps();
+    } else {
+      setPyprojectDeps(null);
+    }
+  }, [loadPyprojectDeps]);
+
   return {
     dependencies,
     uvAvailable,
@@ -152,5 +221,10 @@ export function useDependencies() {
     removeDependency,
     setRequiresPython,
     clearSyncNotice,
+    // pyproject.toml support
+    pyprojectInfo,
+    pyprojectDeps,
+    importFromPyproject,
+    refreshPyproject,
   };
 }
