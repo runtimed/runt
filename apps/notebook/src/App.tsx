@@ -3,9 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { NotebookToolbar } from "./components/NotebookToolbar";
 import { NotebookView } from "./components/NotebookView";
 import { DependencyHeader } from "./components/DependencyHeader";
+import { CondaDependencyHeader } from "./components/CondaDependencyHeader";
 import { useNotebook } from "./hooks/useNotebook";
 import { useKernel } from "./hooks/useKernel";
 import { useDependencies } from "./hooks/useDependencies";
+import { useCondaDependencies } from "./hooks/useCondaDependencies";
 import { WidgetStoreProvider, useWidgetStoreRequired } from "@/components/widgets/widget-store-context";
 import { MediaProvider } from "@/components/outputs/media-provider";
 import { WidgetView } from "@/components/widgets/widget-view";
@@ -43,17 +45,41 @@ function AppContent() {
   );
   const [dependencyHeaderOpen, setDependencyHeaderOpen] = useState(false);
 
-  // Dependency management
+  // UV Dependency management
   const {
     dependencies,
     uvAvailable,
-    hasDependencies,
+    hasDependencies: hasUvDependencies,
     loading: depsLoading,
     syncedWhileRunning,
     needsKernelRestart,
     addDependency,
     removeDependency,
   } = useDependencies();
+
+  // Conda Dependency management
+  const {
+    dependencies: condaDependencies,
+    hasDependencies: hasCondaDependencies,
+    loading: condaDepsLoading,
+    syncedWhileRunning: condaSyncedWhileRunning,
+    needsKernelRestart: condaNeedsKernelRestart,
+    addDependency: addCondaDependency,
+    removeDependency: removeCondaDependency,
+    setChannels: setCondaChannels,
+    setPython: setCondaPython,
+  } = useCondaDependencies();
+
+  // Auto-detect environment type based on what's configured
+  // Conda takes priority if it has dependencies
+  const envType = hasCondaDependencies
+    ? "conda"
+    : hasUvDependencies
+      ? "uv"
+      : null;
+
+  // Combine hasDependencies for toolbar badge
+  const hasDependencies = hasUvDependencies || hasCondaDependencies;
 
   // Get widget store handler for routing comm messages
   const { handleMessage: handleWidgetMessage } = useWidgetStoreRequired();
@@ -93,7 +119,6 @@ function AppContent() {
 
   const {
     kernelStatus,
-    startKernel,
     ensureKernelStarted,
     interruptKernel,
     listKernelspecs,
@@ -122,6 +147,15 @@ function AppContent() {
     [addCell]
   );
 
+  // Wrapper for toolbar's start kernel - uses ensureKernelStarted to check deps first
+  const handleStartKernel = useCallback(
+    async (_name: string) => {
+      // ensureKernelStarted checks for conda/uv deps and uses the right kernel type
+      await ensureKernelStarted();
+    },
+    [ensureKernelStarted]
+  );
+
   // Cmd+S to save
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -141,13 +175,27 @@ function AppContent() {
         dirty={dirty}
         hasDependencies={hasDependencies}
         onSave={save}
-        onStartKernel={startKernel}
+        onStartKernel={handleStartKernel}
         onInterruptKernel={interruptKernel}
         onAddCell={handleAddCell}
         onToggleDependencies={() => setDependencyHeaderOpen((prev) => !prev)}
         listKernelspecs={listKernelspecs}
       />
-      {dependencyHeaderOpen && (
+      {dependencyHeaderOpen && envType === "conda" && (
+        <CondaDependencyHeader
+          dependencies={condaDependencies?.dependencies ?? []}
+          channels={condaDependencies?.channels ?? []}
+          python={condaDependencies?.python ?? null}
+          loading={condaDepsLoading}
+          syncedWhileRunning={condaSyncedWhileRunning}
+          needsKernelRestart={condaNeedsKernelRestart}
+          onAdd={addCondaDependency}
+          onRemove={removeCondaDependency}
+          onSetChannels={setCondaChannels}
+          onSetPython={setCondaPython}
+        />
+      )}
+      {dependencyHeaderOpen && envType !== "conda" && (
         <DependencyHeader
           dependencies={dependencies?.dependencies ?? []}
           requiresPython={dependencies?.requires_python ?? null}

@@ -1,3 +1,4 @@
+pub mod conda_env;
 pub mod kernel;
 pub mod notebook_state;
 pub mod uv_env;
@@ -383,6 +384,202 @@ async fn sync_kernel_dependencies(
     Ok(true)
 }
 
+// ============================================================================
+// Conda Dependency Management Commands
+// ============================================================================
+
+/// Serializable conda notebook dependencies for the frontend.
+#[derive(Serialize, Deserialize, Clone)]
+struct CondaDependenciesJson {
+    dependencies: Vec<String>,
+    channels: Vec<String>,
+    python: Option<String>,
+}
+
+/// Get conda dependencies from notebook metadata.
+#[tauri::command]
+async fn get_conda_dependencies(
+    state: tauri::State<'_, Mutex<NotebookState>>,
+) -> Result<Option<CondaDependenciesJson>, String> {
+    let state = state.lock().map_err(|e| e.to_string())?;
+    let deps = conda_env::extract_dependencies(&state.notebook.metadata);
+    Ok(deps.map(|d| CondaDependenciesJson {
+        dependencies: d.dependencies,
+        channels: d.channels,
+        python: d.python,
+    }))
+}
+
+/// Set conda dependencies in notebook metadata.
+#[tauri::command]
+async fn set_conda_dependencies(
+    dependencies: Vec<String>,
+    channels: Vec<String>,
+    python: Option<String>,
+    state: tauri::State<'_, Mutex<NotebookState>>,
+) -> Result<(), String> {
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+
+    let conda_value = serde_json::json!({
+        "dependencies": dependencies,
+        "channels": channels,
+        "python": python,
+    });
+    state
+        .notebook
+        .metadata
+        .additional
+        .insert("conda".to_string(), conda_value);
+    state.dirty = true;
+
+    Ok(())
+}
+
+/// Add a single conda dependency to the notebook.
+#[tauri::command]
+async fn add_conda_dependency(
+    package: String,
+    state: tauri::State<'_, Mutex<NotebookState>>,
+) -> Result<(), String> {
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+
+    // Get existing deps or create new
+    let existing = conda_env::extract_dependencies(&state.notebook.metadata);
+    let mut deps = existing.as_ref().map(|d| d.dependencies.clone()).unwrap_or_default();
+    let channels = existing.as_ref().map(|d| d.channels.clone()).unwrap_or_default();
+    let python = existing.as_ref().and_then(|d| d.python.clone());
+
+    // Check if already exists (by package name, ignoring version specifiers)
+    let pkg_name = package.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(&package);
+    let already_exists = deps.iter().any(|d| {
+        let existing_name = d.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(d);
+        existing_name.eq_ignore_ascii_case(pkg_name)
+    });
+
+    if !already_exists {
+        deps.push(package);
+
+        let conda_value = serde_json::json!({
+            "dependencies": deps,
+            "channels": channels,
+            "python": python,
+        });
+        state
+            .notebook
+            .metadata
+            .additional
+            .insert("conda".to_string(), conda_value);
+        state.dirty = true;
+    }
+
+    Ok(())
+}
+
+/// Remove a conda dependency from the notebook.
+#[tauri::command]
+async fn remove_conda_dependency(
+    package: String,
+    state: tauri::State<'_, Mutex<NotebookState>>,
+) -> Result<(), String> {
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+
+    let existing = conda_env::extract_dependencies(&state.notebook.metadata);
+    if let Some(existing) = existing {
+        // Remove by package name (ignoring version specifiers)
+        let pkg_name = package.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(&package);
+        let deps: Vec<String> = existing
+            .dependencies
+            .into_iter()
+            .filter(|d| {
+                let existing_name = d.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(d);
+                !existing_name.eq_ignore_ascii_case(pkg_name)
+            })
+            .collect();
+
+        let conda_value = serde_json::json!({
+            "dependencies": deps,
+            "channels": existing.channels,
+            "python": existing.python,
+        });
+        state
+            .notebook
+            .metadata
+            .additional
+            .insert("conda".to_string(), conda_value);
+        state.dirty = true;
+    }
+
+    Ok(())
+}
+
+/// Start kernel with conda-managed environment.
+#[tauri::command]
+async fn start_kernel_with_conda(
+    app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
+    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+) -> Result<(), String> {
+    let deps = {
+        let state = notebook_state.lock().map_err(|e| e.to_string())?;
+        conda_env::extract_dependencies(&state.notebook.metadata)
+    };
+
+    let deps = deps.ok_or_else(|| "No conda dependencies in notebook metadata".to_string())?;
+
+    info!(
+        "Starting conda-managed kernel with {} dependencies",
+        deps.dependencies.len()
+    );
+
+    let mut kernel = kernel_state.lock().await;
+    kernel
+        .start_with_conda(app, &deps)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Check if the running kernel has a conda-managed environment.
+#[tauri::command]
+async fn kernel_has_conda_env(
+    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+) -> Result<bool, String> {
+    let kernel = kernel_state.lock().await;
+    Ok(kernel.has_conda_environment())
+}
+
+/// Sync dependencies to the running kernel's conda environment.
+///
+/// Note: For conda environments, this currently requires a kernel restart.
+/// Returns true if sync was performed, false if no conda environment exists.
+#[tauri::command]
+async fn sync_conda_dependencies(
+    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
+    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+) -> Result<bool, String> {
+    let deps = {
+        let state = notebook_state.lock().map_err(|e| e.to_string())?;
+        conda_env::extract_dependencies(&state.notebook.metadata)
+    };
+
+    let Some(deps) = deps else {
+        return Ok(false);
+    };
+
+    let kernel = kernel_state.lock().await;
+    let Some(env) = kernel.conda_environment() else {
+        return Ok(false);
+    };
+
+    info!("Syncing {} conda dependencies to kernel environment", deps.dependencies.len());
+
+    // Note: This will return an error for now since conda sync requires restart
+    conda_env::sync_dependencies(env, &deps)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(true)
+}
+
 /// Run the notebook Tauri app.
 ///
 /// If `notebook_path` is Some, opens that file. If None, creates a new empty notebook.
@@ -442,6 +639,14 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             is_kernel_running,
             kernel_has_uv_env,
             sync_kernel_dependencies,
+            // Conda dependency management
+            get_conda_dependencies,
+            set_conda_dependencies,
+            add_conda_dependency,
+            remove_conda_dependency,
+            start_kernel_with_conda,
+            kernel_has_conda_env,
+            sync_conda_dependencies,
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
