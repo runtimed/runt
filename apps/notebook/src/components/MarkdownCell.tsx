@@ -80,6 +80,7 @@ export function MarkdownCell({
   const navigationKeyMap = useCellKeyboardNavigation({
     onFocusPrevious: onFocusPrevious ?? (() => {}),
     onFocusNext: handleFocusNextOrCreate,
+    onExecute: () => {}, // No-op for markdown, enables Shift+Enter navigation
   });
 
   // Combine navigation with markdown-specific keys
