@@ -383,6 +383,7 @@ mod tests {
             dependencies: vec!["pandas".to_string(), "numpy".to_string()],
             channels: vec!["conda-forge".to_string()],
             python: Some("3.11".to_string()),
+            env_id: Some("test-env-id".to_string()),
         };
 
         let hash1 = compute_env_hash(&deps);
@@ -397,12 +398,14 @@ mod tests {
             dependencies: vec!["pandas".to_string(), "numpy".to_string()],
             channels: vec![],
             python: None,
+            env_id: Some("test-env-1".to_string()),
         };
 
         let deps2 = CondaDependencies {
             dependencies: vec!["numpy".to_string(), "pandas".to_string()],
             channels: vec![],
             python: None,
+            env_id: Some("test-env-1".to_string()),
         };
 
         assert_eq!(compute_env_hash(&deps1), compute_env_hash(&deps2));
@@ -414,12 +417,14 @@ mod tests {
             dependencies: vec!["pandas".to_string()],
             channels: vec![],
             python: None,
+            env_id: Some("test-env-1".to_string()),
         };
 
         let deps2 = CondaDependencies {
             dependencies: vec!["numpy".to_string()],
             channels: vec![],
             python: None,
+            env_id: Some("test-env-1".to_string()),
         };
 
         assert_ne!(compute_env_hash(&deps1), compute_env_hash(&deps2));
@@ -431,14 +436,36 @@ mod tests {
             dependencies: vec!["numpy".to_string()],
             channels: vec!["conda-forge".to_string()],
             python: None,
+            env_id: Some("test-env-1".to_string()),
         };
 
         let deps2 = CondaDependencies {
             dependencies: vec!["numpy".to_string()],
             channels: vec!["defaults".to_string()],
             python: None,
+            env_id: Some("test-env-1".to_string()),
         };
 
+        assert_ne!(compute_env_hash(&deps1), compute_env_hash(&deps2));
+    }
+
+    #[test]
+    fn test_compute_env_hash_different_env_id() {
+        let deps1 = CondaDependencies {
+            dependencies: vec!["numpy".to_string()],
+            channels: vec!["conda-forge".to_string()],
+            python: None,
+            env_id: Some("notebook-1".to_string()),
+        };
+
+        let deps2 = CondaDependencies {
+            dependencies: vec!["numpy".to_string()],
+            channels: vec!["conda-forge".to_string()],
+            python: None,
+            env_id: Some("notebook-2".to_string()),
+        };
+
+        // Different env_ids should produce different hashes (isolated environments)
         assert_ne!(compute_env_hash(&deps1), compute_env_hash(&deps2));
     }
 }
