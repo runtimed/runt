@@ -3,12 +3,24 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { JupyterMessage, JupyterOutput, KernelspecInfo } from "../types";
 
+/** MIME bundle type for page payloads */
+export type MimeBundle = Record<string, unknown>;
+
+/** Page payload event from kernel introspection (? or ??) */
+export interface PagePayloadEvent {
+  cell_id: string;
+  data: MimeBundle;
+  start: number;
+}
+
 interface UseKernelOptions {
   onOutput: (cellId: string, output: JupyterOutput) => void;
   onExecutionCount: (cellId: string, count: number) => void;
   onExecutionDone: (cellId: string) => void;
   onCommMessage?: (msg: JupyterMessage) => void;
-  onKernelStarted?: () => void;
+onKernelStarted?: () => void;
+  /** Called when a page payload is received (triggered by ? or ?? in IPython) */
+  onPagePayload?: (cellId: string, data: MimeBundle, start: number) => void;
 }
 
 /**
@@ -35,18 +47,29 @@ export function useKernel({
   onExecutionCount,
   onExecutionDone,
   onCommMessage,
-  onKernelStarted,
+onKernelStarted,
+  onPagePayload,
 }: UseKernelOptions) {
   const [kernelStatus, setKernelStatus] = useState<string>("not started");
   // Track whether we're in the process of auto-starting to avoid double starts
   const startingRef = useRef(false);
 
   // Store callbacks in refs to avoid effect re-runs causing duplicate listeners
-  const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCommMessage, onKernelStarted });
-  callbacksRef.current = { onOutput, onExecutionCount, onExecutionDone, onCommMessage, onKernelStarted };
+const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCommMessage, onKernelStarted, onPagePayload });
+  callbacksRef.current = { onOutput, onExecutionCount, onExecutionDone, onCommMessage, onKernelStarted, onPagePayload };
 
   useEffect(() => {
     let cancelled = false;
+
+    // Listen for page payloads from introspection (? and ??)
+    const pageUnlisten = listen<PagePayloadEvent>("kernel:page_payload", (event) => {
+      if (cancelled) return;
+      const { onPagePayload } = callbacksRef.current;
+      if (onPagePayload) {
+        const { cell_id, data, start } = event.payload;
+        onPagePayload(cell_id, data, start);
+      }
+    });
 
     const unlisten = listen<JupyterMessage>("kernel:iopub", (event) => {
       if (cancelled) return;
@@ -139,6 +162,7 @@ export function useKernel({
     return () => {
       cancelled = true;
       unlisten.then((fn) => fn());
+      pageUnlisten.then((fn) => fn());
     };
   }, []); // Empty deps - callbacks accessed via ref
 

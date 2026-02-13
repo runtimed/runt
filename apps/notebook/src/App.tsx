@@ -6,7 +6,7 @@ import { NotebookView } from "./components/NotebookView";
 import { DependencyHeader } from "./components/DependencyHeader";
 import { CondaDependencyHeader } from "./components/CondaDependencyHeader";
 import { useNotebook } from "./hooks/useNotebook";
-import { useKernel } from "./hooks/useKernel";
+import { useKernel, type MimeBundle } from "./hooks/useKernel";
 import { useDependencies } from "./hooks/useDependencies";
 import { useCondaDependencies } from "./hooks/useCondaDependencies";
 import { useTheme } from "@/hooks/useTheme";
@@ -14,6 +14,12 @@ import { WidgetStoreProvider, useWidgetStoreRequired } from "@/components/widget
 import { MediaProvider } from "@/components/outputs/media-provider";
 import { WidgetView } from "@/components/widgets/widget-view";
 import type { JupyterOutput, JupyterMessage } from "./types";
+
+/** Page payload data for a cell */
+export interface CellPagePayload {
+  data: MimeBundle;
+  start: number;
+}
 
 /**
  * Send a message to the kernel's shell channel via Tauri.
@@ -48,6 +54,11 @@ function AppContent() {
     new Set()
   );
   const [dependencyHeaderOpen, setDependencyHeaderOpen] = useState(false);
+
+  // Page payload state: maps cell_id -> payload (transient, not saved)
+  const [pagePayloads, setPagePayloads] = useState<Map<string, CellPagePayload>>(
+    new Map()
+  );
 
   // UV Dependency management
   const {
@@ -123,6 +134,26 @@ function AppContent() {
     [handleWidgetMessage]
   );
 
+  const handlePagePayload = useCallback(
+    (cellId: string, data: MimeBundle, start: number) => {
+      setPagePayloads((prev) => {
+        const next = new Map(prev);
+        next.set(cellId, { data, start });
+        return next;
+      });
+    },
+    []
+  );
+
+  // Clear page payload for a cell (e.g., when dismissed or re-executed)
+  const clearPagePayload = useCallback((cellId: string) => {
+    setPagePayloads((prev) => {
+      const next = new Map(prev);
+      next.delete(cellId);
+      return next;
+    });
+  }, []);
+
   const {
     kernelStatus,
     ensureKernelStarted,
@@ -134,7 +165,8 @@ function AppContent() {
     onExecutionCount: handleExecutionCount,
     onExecutionDone: handleExecutionDone,
     onCommMessage: handleCommMessage,
-    onKernelStarted: loadCondaDependencies,
+onKernelStarted: loadCondaDependencies,
+    onPagePayload: handlePagePayload,
   });
 
   const handleExecuteCell = useCallback(
@@ -232,12 +264,14 @@ function AppContent() {
         cells={cells}
         focusedCellId={focusedCellId}
         executingCellIds={executingCellIds}
+        pagePayloads={pagePayloads}
         onFocusCell={setFocusedCellId}
         onUpdateCellSource={updateCellSource}
         onExecuteCell={handleExecuteCell}
         onInterruptKernel={interruptKernel}
         onDeleteCell={deleteCell}
         onAddCell={handleAddCell}
+        onClearPagePayload={clearPagePayload}
       />
     </div>
   );
