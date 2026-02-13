@@ -32,9 +32,9 @@ function PagePayloadDisplay({
     <div className="cm-page-payload">
       <div className="cm-page-payload-content">
         {typeof htmlContent === "string" ? (
-          <div dangerouslySetInnerHTML={{ __html: htmlContent.trim() }} />
+          <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
         ) : typeof textContent === "string" ? (
-          <AnsiOutput className="cm-page-payload-text">{textContent.trim()}</AnsiOutput>
+          <AnsiOutput className="cm-page-payload-text">{textContent}</AnsiOutput>
         ) : (
           <pre className="cm-page-payload-text">
             {JSON.stringify(data, null, 2)}
