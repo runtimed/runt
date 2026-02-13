@@ -4,6 +4,7 @@ import { CellContainer } from "@/components/cell/CellContainer";
 import { PlayButton } from "@/components/cell/PlayButton";
 import { ExecutionCount } from "@/components/cell/ExecutionCount";
 import { OutputArea } from "@/components/cell/OutputArea";
+import { AnsiOutput } from "@/components/outputs/ansi-output";
 import {
   CodeMirrorEditor,
   type CodeMirrorEditorRef,
@@ -15,12 +16,6 @@ import { useEditorRegistry } from "../hooks/useEditorRegistry";
 import type { CodeCell as CodeCellType } from "../types";
 import type { CellPagePayload } from "../App";
 import type { MimeBundle } from "../hooks/useKernel";
-
-/** Strip ANSI escape codes from text */
-function stripAnsi(text: string): string {
-  // eslint-disable-next-line no-control-regex
-  return text.replace(/\x1b\[[0-9;]*m/g, "");
-}
 
 /** Page payload display component - Zed REPL style */
 function PagePayloadDisplay({
@@ -49,7 +44,7 @@ function PagePayloadDisplay({
         {typeof htmlContent === "string" ? (
           <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
         ) : typeof textContent === "string" ? (
-          <pre className="cm-page-payload-text">{stripAnsi(textContent)}</pre>
+          <AnsiOutput className="cm-page-payload-text">{textContent}</AnsiOutput>
         ) : (
           <pre className="cm-page-payload-text">
             {JSON.stringify(data, null, 2)}
