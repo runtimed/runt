@@ -19,6 +19,56 @@ use rattler_solve::{resolvo, SolverImpl, SolverTask};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
+use std::time::Instant;
+use tauri::{AppHandle, Emitter};
+
+/// Progress phases during environment preparation.
+/// Emitted as Tauri events for frontend progress display.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "phase", rename_all = "snake_case")]
+pub enum EnvProgressPhase {
+    /// Starting environment preparation
+    Starting { env_hash: String },
+    /// Using a cached environment (fast path)
+    CacheHit { env_path: String },
+    /// Fetching package metadata from channels
+    FetchingRepodata { channels: Vec<String> },
+    /// Repodata fetch complete
+    RepodataComplete { record_count: usize, elapsed_ms: u64 },
+    /// Solving dependency graph
+    Solving { spec_count: usize },
+    /// Solve complete
+    SolveComplete { package_count: usize, elapsed_ms: u64 },
+    /// Installing packages
+    Installing { total: usize },
+    /// Installation complete
+    InstallComplete { elapsed_ms: u64 },
+    /// Environment is ready
+    Ready { env_path: String, python_path: String },
+    /// An error occurred
+    Error { message: String },
+}
+
+/// Full progress event payload sent to frontend.
+#[derive(Debug, Clone, Serialize)]
+pub struct EnvProgressEvent {
+    pub env_type: String,
+    #[serde(flatten)]
+    pub phase: EnvProgressPhase,
+}
+
+/// Emit a progress event to the frontend.
+fn emit_progress(app: Option<&AppHandle>, phase: EnvProgressPhase) {
+    if let Some(app) = app {
+        let event = EnvProgressEvent {
+            env_type: "conda".to_string(),
+            phase,
+        };
+        if let Err(e) = app.emit("env:progress", &event) {
+            log::warn!("Failed to emit env:progress event: {}", e);
+        }
+    }
+}
 
 /// Dependencies extracted from notebook metadata (conda format).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,10 +149,17 @@ fn get_cache_dir() -> PathBuf {
 ///
 /// Uses cached environments when possible (keyed by dependency hash).
 /// If the cache doesn't exist or is invalid, creates a new environment using rattler.
-pub async fn prepare_environment(deps: &CondaDependencies) -> Result<CondaEnvironment> {
+///
+/// If `app` is provided, progress events will be emitted to the frontend.
+pub async fn prepare_environment(
+    deps: &CondaDependencies,
+    app: Option<&AppHandle>,
+) -> Result<CondaEnvironment> {
     let hash = compute_env_hash(deps);
     let cache_dir = get_cache_dir();
     let env_path = cache_dir.join(&hash);
+
+    emit_progress(app, EnvProgressPhase::Starting { env_hash: hash.clone() });
 
     // Determine python path based on platform
     #[cfg(target_os = "windows")]
@@ -113,6 +170,13 @@ pub async fn prepare_environment(deps: &CondaDependencies) -> Result<CondaEnviro
     // Check if cached environment exists and is valid
     if env_path.exists() && python_path.exists() {
         info!("Using cached conda environment at {:?}", env_path);
+        emit_progress(app, EnvProgressPhase::CacheHit {
+            env_path: env_path.to_string_lossy().to_string(),
+        });
+        emit_progress(app, EnvProgressPhase::Ready {
+            env_path: env_path.to_string_lossy().to_string(),
+            python_path: python_path.to_string_lossy().to_string(),
+        });
         return Ok(CondaEnvironment {
             env_path,
             python_path,
@@ -142,6 +206,8 @@ pub async fn prepare_environment(deps: &CondaDependencies) -> Result<CondaEnviro
             .collect::<Result<Vec<_>, _>>()?
     };
 
+    let channel_names: Vec<String> = channels.iter().map(|c| c.name().to_string()).collect();
+
     // Build specs: python + ipykernel + user dependencies
     let match_spec_options = ParseMatchSpecOptions::strict();
     let mut specs: Vec<MatchSpec> = Vec::new();
@@ -170,10 +236,7 @@ pub async fn prepare_environment(deps: &CondaDependencies) -> Result<CondaEnviro
         .map_err(|e| anyhow!("could not create rattler cache directory: {}", e))?;
 
     // Create HTTP client for downloading
-    let download_client = reqwest::Client::builder()
-        .no_gzip()
-        .build()?;
-
+    let download_client = reqwest::Client::builder().build()?;
     let download_client = reqwest_middleware::ClientBuilder::new(download_client).build();
 
     // Create gateway for fetching repodata
@@ -191,15 +254,36 @@ pub async fn prepare_environment(deps: &CondaDependencies) -> Result<CondaEnviro
 
     // Query repodata from channels
     info!("Fetching repodata from channels: {:?}", channels);
-    let repo_data = gateway
+    emit_progress(app, EnvProgressPhase::FetchingRepodata { channels: channel_names });
+
+    let repodata_start = Instant::now();
+    let repo_data = match gateway
         .query(channels, platforms.clone(), specs.clone())
         .recursive(true)
-        .await?;
+        .await
+    {
+        Ok(data) => data,
+        Err(e) => {
+            let error_msg = format!("Failed to fetch package metadata: {}", e);
+            emit_progress(app, EnvProgressPhase::Error { message: error_msg.clone() });
+            return Err(anyhow!(error_msg));
+        }
+    };
 
     let total_records: usize = repo_data.iter().map(|r| r.len()).sum();
-    info!("Loaded {} package records", total_records);
+    let repodata_elapsed = repodata_start.elapsed();
+    info!(
+        "Loaded {} package records in {:?}",
+        total_records,
+        repodata_elapsed
+    );
+    emit_progress(app, EnvProgressPhase::RepodataComplete {
+        record_count: total_records,
+        elapsed_ms: repodata_elapsed.as_millis() as u64,
+    });
 
     // Detect virtual packages (system capabilities like __glibc, __cuda, etc.)
+    let virt_start = Instant::now();
     let virtual_packages = rattler_virtual_packages::VirtualPackage::detect(
         &rattler_virtual_packages::VirtualPackageOverrides::default(),
     )?
@@ -207,30 +291,76 @@ pub async fn prepare_environment(deps: &CondaDependencies) -> Result<CondaEnviro
     .map(|vpkg| GenericVirtualPackage::from(vpkg.clone()))
     .collect::<Vec<_>>();
 
-    info!("Detected {} virtual packages", virtual_packages.len());
+    info!(
+        "Detected {} virtual packages in {:?}",
+        virtual_packages.len(),
+        virt_start.elapsed()
+    );
 
     // Solve dependencies
     info!("Solving dependencies...");
+    emit_progress(app, EnvProgressPhase::Solving { spec_count: specs.len() });
+
+    let solve_start = Instant::now();
     let solver_task = SolverTask {
         virtual_packages,
         specs,
         ..SolverTask::from_iter(&repo_data)
     };
 
-    let solver_result = resolvo::Solver.solve(solver_task)?;
+    let solver_result = match resolvo::Solver.solve(solver_task) {
+        Ok(result) => result,
+        Err(e) => {
+            let error_msg = format!("Failed to solve dependencies: {}", e);
+            emit_progress(app, EnvProgressPhase::Error { message: error_msg.clone() });
+            return Err(anyhow!(error_msg));
+        }
+    };
     let required_packages = solver_result.records;
+    let solve_elapsed = solve_start.elapsed();
 
-    info!("Solved: {} packages to install", required_packages.len());
+    info!(
+        "Solved: {} packages to install in {:?}",
+        required_packages.len(),
+        solve_elapsed
+    );
+    emit_progress(app, EnvProgressPhase::SolveComplete {
+        package_count: required_packages.len(),
+        elapsed_ms: solve_elapsed.as_millis() as u64,
+    });
 
     // Install packages to the environment prefix
     info!("Installing packages to {:?}", env_path);
-    let _result = Installer::new()
+    emit_progress(app, EnvProgressPhase::Installing { total: required_packages.len() });
+
+    let install_start = Instant::now();
+    let _result = match Installer::new()
         .with_download_client(download_client)
         .with_target_platform(install_platform)
         .install(&env_path, required_packages)
-        .await?;
+        .await
+    {
+        Ok(result) => result,
+        Err(e) => {
+            let error_msg = format!("Failed to install packages: {}", e);
+            emit_progress(app, EnvProgressPhase::Error { message: error_msg.clone() });
+            return Err(anyhow!(error_msg));
+        }
+    };
 
-    info!("Conda environment ready at {:?}", env_path);
+    let install_elapsed = install_start.elapsed();
+    info!(
+        "Conda environment ready at {:?} (install took {:?})",
+        env_path,
+        install_elapsed
+    );
+    emit_progress(app, EnvProgressPhase::InstallComplete {
+        elapsed_ms: install_elapsed.as_millis() as u64,
+    });
+    emit_progress(app, EnvProgressPhase::Ready {
+        env_path: env_path.to_string_lossy().to_string(),
+        python_path: python_path.to_string_lossy().to_string(),
+    });
 
     Ok(CondaEnvironment {
         env_path,
@@ -301,7 +431,7 @@ pub async fn sync_dependencies(env: &CondaEnvironment, deps: &CondaDependencies)
         .map_err(|e| anyhow!("could not determine rattler cache directory: {}", e))?;
 
     // Create HTTP client
-    let download_client = reqwest::Client::builder().no_gzip().build()?;
+    let download_client = reqwest::Client::builder().build()?;
     let download_client = reqwest_middleware::ClientBuilder::new(download_client).build();
 
     // Create gateway for fetching repodata

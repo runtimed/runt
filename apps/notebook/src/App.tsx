@@ -11,6 +11,7 @@ import { useKernel, type MimeBundle } from "./hooks/useKernel";
 import { useDependencies } from "./hooks/useDependencies";
 import { useCondaDependencies } from "./hooks/useCondaDependencies";
 import { useGitInfo } from "./hooks/useGitInfo";
+import { useEnvProgress } from "./hooks/useEnvProgress";
 import { useTheme } from "@/hooks/useTheme";
 import { WidgetStoreProvider, useWidgetStoreRequired } from "@/components/widgets/widget-store-context";
 import { MediaProvider } from "@/components/outputs/media-provider";
@@ -174,6 +175,9 @@ onKernelStarted: loadCondaDependencies,
     onPagePayload: handlePagePayload,
   });
 
+  // Environment preparation progress
+  const envProgress = useEnvProgress();
+
   const handleExecuteCell = useCallback(
     async (cellId: string) => {
       setExecutingCellIds((prev) => new Set(prev).add(cellId));
@@ -237,6 +241,7 @@ onKernelStarted: loadCondaDependencies,
         dirty={dirty}
         hasDependencies={hasDependencies}
         theme={theme}
+        envProgress={envProgress.isActive ? envProgress : null}
         onThemeChange={setTheme}
         onSave={save}
         onStartKernel={handleStartKernel}
