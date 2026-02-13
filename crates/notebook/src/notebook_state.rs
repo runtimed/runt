@@ -77,13 +77,32 @@ pub struct NotebookState {
 
 impl NotebookState {
     pub fn new_empty() -> Self {
+        // Generate unique environment ID for this notebook
+        let env_id = Uuid::new_v4().to_string();
+
+        // Set up default conda metadata
+        let mut additional = HashMap::new();
+        additional.insert(
+            "conda".to_string(),
+            serde_json::json!({
+                "dependencies": Vec::<String>::new(),
+                "channels": ["conda-forge"],
+            }),
+        );
+        additional.insert(
+            "runt".to_string(),
+            serde_json::json!({
+                "env_id": env_id,
+            }),
+        );
+
         NotebookState {
             notebook: Notebook {
                 metadata: nbformat::v4::Metadata {
                     kernelspec: None,
                     language_info: None,
                     authors: None,
-                    additional: HashMap::new(),
+                    additional,
                 },
                 nbformat: 4,
                 nbformat_minor: 5,

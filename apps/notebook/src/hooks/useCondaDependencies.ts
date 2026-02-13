@@ -161,9 +161,13 @@ export function useCondaDependencies() {
   const hasDependencies =
     dependencies !== null && dependencies.dependencies.length > 0;
 
+  // True if conda metadata exists (even with empty deps)
+  const isCondaConfigured = dependencies !== null;
+
   return {
     dependencies,
     hasDependencies,
+    isCondaConfigured,
     loading,
     syncedWhileRunning,
     needsKernelRestart,

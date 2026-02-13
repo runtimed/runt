@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { NotebookToolbar } from "./components/NotebookToolbar";
 import { NotebookView } from "./components/NotebookView";
 import { DependencyHeader } from "./components/DependencyHeader";
@@ -64,9 +65,11 @@ function AppContent() {
   const {
     dependencies: condaDependencies,
     hasDependencies: hasCondaDependencies,
+    isCondaConfigured,
     loading: condaDepsLoading,
     syncedWhileRunning: condaSyncedWhileRunning,
     needsKernelRestart: condaNeedsKernelRestart,
+    loadDependencies: loadCondaDependencies,
     addDependency: addCondaDependency,
     removeDependency: removeCondaDependency,
     setChannels: setCondaChannels,
@@ -74,8 +77,8 @@ function AppContent() {
   } = useCondaDependencies();
 
   // Auto-detect environment type based on what's configured
-  // Conda takes priority if it has dependencies
-  const envType = hasCondaDependencies
+  // Conda takes priority if metadata exists (even with empty deps)
+  const envType = isCondaConfigured
     ? "conda"
     : hasUvDependencies
       ? "uv"
@@ -124,12 +127,14 @@ function AppContent() {
     kernelStatus,
     ensureKernelStarted,
     interruptKernel,
+    restartKernel,
     listKernelspecs,
   } = useKernel({
     onOutput: handleOutput,
     onExecutionCount: handleExecutionCount,
     onExecutionDone: handleExecutionDone,
     onCommMessage: handleCommMessage,
+    onKernelStarted: loadCondaDependencies,
   });
 
   const handleExecuteCell = useCallback(
@@ -159,8 +164,14 @@ function AppContent() {
     [ensureKernelStarted]
   );
 
-  // Cmd+S to save
+  // Cmd+S to save (keyboard and native menu)
   useEffect(() => {
+    // Listen for native menu save event
+    const unlistenPromise = listen("menu:save", () => {
+      save();
+    });
+
+    // Keep keyboard shortcut as fallback
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
@@ -168,7 +179,11 @@ function AppContent() {
       }
     };
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      unlistenPromise.then((unlisten) => unlisten());
+    };
   }, [save]);
 
   return (
@@ -182,6 +197,7 @@ function AppContent() {
         onSave={save}
         onStartKernel={handleStartKernel}
         onInterruptKernel={interruptKernel}
+        onRestartKernel={restartKernel}
         onAddCell={handleAddCell}
         onToggleDependencies={() => setDependencyHeaderOpen((prev) => !prev)}
         listKernelspecs={listKernelspecs}

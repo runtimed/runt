@@ -8,6 +8,7 @@ interface UseKernelOptions {
   onExecutionCount: (cellId: string, count: number) => void;
   onExecutionDone: (cellId: string) => void;
   onCommMessage?: (msg: JupyterMessage) => void;
+  onKernelStarted?: () => void;
 }
 
 /**
@@ -34,14 +35,15 @@ export function useKernel({
   onExecutionCount,
   onExecutionDone,
   onCommMessage,
+  onKernelStarted,
 }: UseKernelOptions) {
   const [kernelStatus, setKernelStatus] = useState<string>("not started");
   // Track whether we're in the process of auto-starting to avoid double starts
   const startingRef = useRef(false);
 
   // Store callbacks in refs to avoid effect re-runs causing duplicate listeners
-  const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCommMessage });
-  callbacksRef.current = { onOutput, onExecutionCount, onExecutionDone, onCommMessage };
+  const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCommMessage, onKernelStarted });
+  callbacksRef.current = { onOutput, onExecutionCount, onExecutionDone, onCommMessage, onKernelStarted };
 
   useEffect(() => {
     let cancelled = false;
@@ -191,8 +193,25 @@ export function useKernel({
       await invoke("start_kernel_with_conda");
       console.log("[kernel] start_kernel_with_conda succeeded");
       setKernelStatus("idle");
+      // Notify that kernel started
+      callbacksRef.current.onKernelStarted?.();
     } catch (e) {
       console.error("start_kernel_with_conda failed:", e);
+      setKernelStatus("error");
+    }
+  }, []);
+
+  const startDefaultCondaKernel = useCallback(async () => {
+    setKernelStatus("starting");
+    try {
+      console.log("[kernel] starting default conda kernel");
+      await invoke("start_default_conda_kernel");
+      console.log("[kernel] start_default_conda_kernel succeeded");
+      setKernelStatus("idle");
+      // Notify that kernel started (backend may have updated metadata)
+      callbacksRef.current.onKernelStarted?.();
+    } catch (e) {
+      console.error("start_default_conda_kernel failed:", e);
       setKernelStatus("error");
     }
   }, []);
@@ -243,28 +262,34 @@ export function useKernel({
           return;
         }
 
-        // Fall back to system kernelspec
-        console.log("[kernel] falling back to system kernelspec");
-        const preferred = await invoke<string | null>(
-          "get_preferred_kernelspec"
-        );
-        if (preferred) {
-          console.log("[kernel] using preferred kernelspec:", preferred);
-          await startKernel(preferred);
-          return;
-        }
-        // Fall back to first available kernelspec
-        const specs = await listKernelspecs();
-        if (specs.length > 0) {
-          console.log("[kernel] using first available kernelspec:", specs[0].name);
-          await startKernel(specs[0].name);
-        }
+        // Fall back to default conda/rattler kernel (bundled, reliable)
+        console.log("[kernel] falling back to default conda/rattler kernel");
+        await startDefaultCondaKernel();
       } finally {
         startingRef.current = false;
       }
     },
-    [startKernel, startKernelWithUv, startKernelWithConda, listKernelspecs]
+    [startKernelWithUv, startKernelWithConda, startDefaultCondaKernel]
   );
+
+  const shutdownKernel = useCallback(async () => {
+    try {
+      console.log("[kernel] shutting down kernel");
+      await invoke("shutdown_kernel");
+      setKernelStatus("not started");
+      console.log("[kernel] shutdown complete");
+    } catch (e) {
+      console.error("shutdown_kernel failed:", e);
+    }
+  }, []);
+
+  const restartKernel = useCallback(async () => {
+    console.log("[kernel] restarting kernel");
+    await shutdownKernel();
+    // Small delay to ensure cleanup
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await ensureKernelStarted();
+  }, [shutdownKernel, ensureKernelStarted]);
 
   return {
     kernelStatus,
@@ -273,6 +298,8 @@ export function useKernel({
     startKernelWithConda,
     ensureKernelStarted,
     interruptKernel,
+    shutdownKernel,
+    restartKernel,
     listKernelspecs,
   };
 }
