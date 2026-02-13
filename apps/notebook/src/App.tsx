@@ -69,6 +69,7 @@ function AppContent() {
     dependencies,
     uvAvailable,
     hasDependencies: hasUvDependencies,
+    isUvConfigured,
     loading: depsLoading,
     syncedWhileRunning,
     needsKernelRestart,
@@ -92,11 +93,11 @@ function AppContent() {
   } = useCondaDependencies();
 
   // Auto-detect environment type based on what's configured
-  // Conda takes priority if metadata exists (even with empty deps)
-  const envType = isCondaConfigured
-    ? "conda"
-    : hasUvDependencies
-      ? "uv"
+  // uv takes priority if metadata exists (even with empty deps)
+  const envType = isUvConfigured
+    ? "uv"
+    : isCondaConfigured
+      ? "conda"
       : null;
 
   // Combine hasDependencies for toolbar badge

@@ -240,6 +240,21 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
     }
   }, []);
 
+  const startDefaultUvKernel = useCallback(async () => {
+    setKernelStatus("starting");
+    try {
+      console.log("[kernel] starting default uv kernel");
+      await invoke("start_default_uv_kernel");
+      console.log("[kernel] start_default_uv_kernel succeeded");
+      setKernelStatus("idle");
+      // Notify that kernel started (backend may have updated metadata)
+      callbacksRef.current.onKernelStarted?.();
+    } catch (e) {
+      console.error("start_default_uv_kernel failed:", e);
+      setKernelStatus("error");
+    }
+  }, []);
+
   const ensureKernelStarted = useCallback(
     async (opts?: { useUv?: boolean; useConda?: boolean }) => {
       if (startingRef.current) return;
@@ -286,14 +301,14 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
           return;
         }
 
-        // Fall back to default conda/rattler kernel (bundled, reliable)
-        console.log("[kernel] falling back to default conda/rattler kernel");
-        await startDefaultCondaKernel();
+        // Fall back to default uv kernel (faster startup)
+        console.log("[kernel] falling back to default uv kernel");
+        await startDefaultUvKernel();
       } finally {
         startingRef.current = false;
       }
     },
-    [startKernelWithUv, startKernelWithConda, startDefaultCondaKernel]
+    [startKernelWithUv, startKernelWithConda, startDefaultUvKernel]
   );
 
   const shutdownKernel = useCallback(async () => {
@@ -320,6 +335,8 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
     startKernel,
     startKernelWithUv,
     startKernelWithConda,
+    startDefaultUvKernel,
+    startDefaultCondaKernel,
     ensureKernelStarted,
     interruptKernel,
     shutdownKernel,

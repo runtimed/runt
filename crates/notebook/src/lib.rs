@@ -649,6 +649,44 @@ async fn start_kernel_with_conda(
         .map_err(|e| e.to_string())
 }
 
+/// Start a default uv kernel with just Python (no extra deps).
+/// Used as the default when no environment is configured.
+#[tauri::command]
+async fn start_default_uv_kernel(
+    app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
+    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+) -> Result<(), String> {
+    // Ensure uv metadata exists in the notebook (for legacy notebooks)
+    {
+        let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
+
+        if !state.notebook.metadata.additional.contains_key("uv") {
+            state.notebook.metadata.additional.insert(
+                "uv".to_string(),
+                serde_json::json!({
+                    "dependencies": Vec::<String>::new(),
+                }),
+            );
+            state.dirty = true;
+        }
+    }
+
+    // Create minimal deps with just ipykernel
+    let deps = uv_env::NotebookDependencies {
+        dependencies: vec![],
+        requires_python: None,
+    };
+
+    info!("Starting default uv kernel with ipykernel");
+
+    let mut kernel = kernel_state.lock().await;
+    kernel
+        .start_with_uv(app, &deps)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Start a default conda kernel with just Python (no extra deps).
 /// Used as fallback when no environment is configured.
 /// Each notebook gets its own isolated environment via a unique env_id.
@@ -820,6 +858,7 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             add_dependency,
             remove_dependency,
             start_kernel_with_uv,
+            start_default_uv_kernel,
             is_kernel_running,
             kernel_has_uv_env,
             sync_kernel_dependencies,
