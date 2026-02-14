@@ -12,6 +12,7 @@ import { useDependencies } from "./hooks/useDependencies";
 import { useCondaDependencies } from "./hooks/useCondaDependencies";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useEnvProgress } from "./hooks/useEnvProgress";
+import { useExecutionQueue } from "./hooks/useExecutionQueue";
 import { useTheme } from "@/hooks/useTheme";
 import { WidgetStoreProvider, useWidgetStoreRequired } from "@/components/widgets/widget-store-context";
 import { MediaProvider } from "@/components/outputs/media-provider";
@@ -44,7 +45,6 @@ function AppContent() {
     focusedCellId,
     setFocusedCellId,
     updateCellSource,
-    executeCell,
     addCell,
     deleteCell,
     save,
@@ -56,9 +56,9 @@ function AppContent() {
 
   const { theme, setTheme } = useTheme("notebook-theme");
 
-  const [executingCellIds, setExecutingCellIds] = useState<Set<string>>(
-    new Set()
-  );
+  // Execution queue - cells are queued and executed in FIFO order by the backend
+  const { queueCell, queuedCellIds: executingCellIds } = useExecutionQueue();
+
   const [dependencyHeaderOpen, setDependencyHeaderOpen] = useState(false);
 
   // Page payload state: maps cell_id -> payload (transient, not saved)
@@ -125,16 +125,11 @@ function AppContent() {
     [setExecutionCount]
   );
 
-  const handleExecutionDone = useCallback(
-    (cellId: string) => {
-      setExecutingCellIds((prev) => {
-        const next = new Set(prev);
-        next.delete(cellId);
-        return next;
-      });
-    },
-    []
-  );
+  // Execution completion is handled by the queue via queue:state events
+  // This callback is still called by useKernel but is now a no-op
+  const handleExecutionDone = useCallback((_cellId: string) => {
+    // Queue handles execution tracking via backend events
+  }, []);
 
   const handleCommMessage = useCallback(
     (msg: JupyterMessage) => {
@@ -183,14 +178,15 @@ onKernelStarted: loadCondaDependencies,
   const envProgress = useEnvProgress();
 
   const handleExecuteCell = useCallback(
-    async (cellId: string) => {
-      setExecutingCellIds((prev) => new Set(prev).add(cellId));
+    (cellId: string) => {
+      // Queue FIRST to preserve order - don't await so rapid executions queue in order
+      queueCell(cellId);
+      // Then ensure kernel is started (queue processor will wait for it)
       if (kernelStatus === "not started") {
-        await ensureKernelStarted();
+        ensureKernelStarted();
       }
-      await executeCell(cellId);
     },
-    [executeCell, kernelStatus, ensureKernelStarted]
+    [queueCell, kernelStatus, ensureKernelStarted]
   );
 
   const handleAddCell = useCallback(

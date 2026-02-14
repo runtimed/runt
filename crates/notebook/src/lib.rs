@@ -1,18 +1,21 @@
 pub mod conda_env;
+pub mod execution_queue;
 pub mod kernel;
 pub mod menu;
 pub mod notebook_state;
 pub mod pyproject;
 pub mod uv_env;
 
-use notebook_state::{FrontendCell, NotebookState};
+use execution_queue::{ExecutionQueue, ExecutionQueueState, QueueCommand, SharedExecutionQueue};
 use kernel::{CompletionResult, NotebookKernel};
+use notebook_state::{FrontendCell, NotebookState};
 
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Mutex;
-use log::info;
+use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
+use tokio::sync::mpsc;
 
 #[derive(Serialize)]
 struct KernelspecInfo {
@@ -55,7 +58,7 @@ async fn get_git_info() -> Option<GitInfo> {
 
 #[tauri::command]
 async fn load_notebook(
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<Vec<FrontendCell>, String> {
     let state = state.lock().map_err(|e| e.to_string())?;
     Ok(state.cells_for_frontend())
@@ -64,7 +67,7 @@ async fn load_notebook(
 /// Check if the notebook has a file path set
 #[tauri::command]
 async fn has_notebook_path(
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<bool, String> {
     let state = state.lock().map_err(|e| e.to_string())?;
     Ok(state.path.is_some())
@@ -73,7 +76,7 @@ async fn has_notebook_path(
 /// Get the current notebook file path
 #[tauri::command]
 async fn get_notebook_path(
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<Option<String>, String> {
     let state = state.lock().map_err(|e| e.to_string())?;
     Ok(state.path.as_ref().map(|p| p.to_string_lossy().to_string()))
@@ -81,7 +84,7 @@ async fn get_notebook_path(
 
 #[tauri::command]
 async fn save_notebook(
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
     let path = state
@@ -99,7 +102,7 @@ async fn save_notebook(
 async fn save_notebook_as(
     path: String,
     window: tauri::Window,
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
     let path = PathBuf::from(&path);
@@ -132,7 +135,7 @@ async fn open_notebook_in_new_window(path: String) -> Result<(), String> {
 async fn update_cell_source(
     cell_id: String,
     source: String,
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
     state.update_cell_source(&cell_id, &source);
@@ -143,7 +146,7 @@ async fn update_cell_source(
 async fn add_cell(
     cell_type: String,
     after_cell_id: Option<String>,
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<FrontendCell, String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
     state
@@ -154,7 +157,7 @@ async fn add_cell(
 #[tauri::command]
 async fn delete_cell(
     cell_id: String,
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
     if state.delete_cell(&cell_id) {
@@ -167,8 +170,8 @@ async fn delete_cell(
 #[tauri::command]
 async fn execute_cell(
     cell_id: String,
-    state: tauri::State<'_, Mutex<NotebookState>>,
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<String, String> {
     let code = {
         let mut nb = state.lock().map_err(|e| e.to_string())?;
@@ -192,11 +195,45 @@ async fn execute_cell(
     result
 }
 
+/// Queue a cell for execution. The queue processor will execute cells in FIFO order.
+#[tauri::command]
+async fn queue_execute_cell(
+    cell_id: String,
+    queue_tx: tauri::State<'_, mpsc::Sender<QueueCommand>>,
+) -> Result<(), String> {
+    info!("queue_execute_cell: {}", cell_id);
+    queue_tx
+        .send(QueueCommand::Enqueue { cell_id })
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Clear all pending cells from the execution queue (keeps currently executing cell)
+#[tauri::command]
+async fn clear_execution_queue(
+    queue_tx: tauri::State<'_, mpsc::Sender<QueueCommand>>,
+) -> Result<(), String> {
+    info!("clear_execution_queue");
+    queue_tx
+        .send(QueueCommand::Clear)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get the current execution queue state
+#[tauri::command]
+async fn get_execution_queue_state(
+    queue: tauri::State<'_, SharedExecutionQueue>,
+) -> Result<ExecutionQueueState, String> {
+    let q = queue.lock().map_err(|e| e.to_string())?;
+    Ok(q.get_state())
+}
+
 #[tauri::command]
 async fn start_kernel(
     kernelspec_name: String,
     app: tauri::AppHandle,
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
     let mut kernel = kernel_state.lock().await;
     kernel
@@ -207,7 +244,7 @@ async fn start_kernel(
 
 #[tauri::command]
 async fn interrupt_kernel(
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
     let kernel = kernel_state.lock().await;
     kernel.interrupt().await.map_err(|e| e.to_string())
@@ -215,7 +252,7 @@ async fn interrupt_kernel(
 
 #[tauri::command]
 async fn shutdown_kernel(
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
     let mut kernel = kernel_state.lock().await;
     kernel.shutdown().await.map_err(|e| e.to_string())
@@ -224,7 +261,7 @@ async fn shutdown_kernel(
 #[tauri::command]
 async fn send_shell_message(
     message: serde_json::Value,
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
     let mut kernel = kernel_state.lock().await;
     kernel
@@ -235,7 +272,7 @@ async fn send_shell_message(
 
 #[tauri::command]
 async fn get_preferred_kernelspec(
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<Option<String>, String> {
     let state = state.lock().map_err(|e| e.to_string())?;
     Ok(state
@@ -250,7 +287,7 @@ async fn get_preferred_kernelspec(
 async fn complete(
     code: String,
     cursor_pos: usize,
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<CompletionResult, String> {
     let mut kernel = kernel_state.lock().await;
     kernel
@@ -292,7 +329,7 @@ async fn check_uv_available() -> bool {
 /// Get dependencies from notebook metadata.
 #[tauri::command]
 async fn get_notebook_dependencies(
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<Option<NotebookDependenciesJson>, String> {
     let state = state.lock().map_err(|e| e.to_string())?;
     let deps = uv_env::extract_dependencies(&state.notebook.metadata);
@@ -307,7 +344,7 @@ async fn get_notebook_dependencies(
 async fn set_notebook_dependencies(
     dependencies: Vec<String>,
     requires_python: Option<String>,
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
 
@@ -329,7 +366,7 @@ async fn set_notebook_dependencies(
 #[tauri::command]
 async fn add_dependency(
     package: String,
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
 
@@ -370,7 +407,7 @@ async fn add_dependency(
 #[tauri::command]
 async fn remove_dependency(
     package: String,
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
 
@@ -406,8 +443,8 @@ async fn remove_dependency(
 #[tauri::command]
 async fn start_kernel_with_uv(
     app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
     let deps = {
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
@@ -431,7 +468,7 @@ async fn start_kernel_with_uv(
 /// Check if a kernel is currently running.
 #[tauri::command]
 async fn is_kernel_running(
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<bool, String> {
     let kernel = kernel_state.lock().await;
     Ok(kernel.is_running())
@@ -440,7 +477,7 @@ async fn is_kernel_running(
 /// Check if the running kernel has a uv-managed environment.
 #[tauri::command]
 async fn kernel_has_uv_env(
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<bool, String> {
     let kernel = kernel_state.lock().await;
     Ok(kernel.has_uv_environment())
@@ -452,8 +489,8 @@ async fn kernel_has_uv_env(
 /// Returns true if sync was performed, false if no uv environment exists.
 #[tauri::command]
 async fn sync_kernel_dependencies(
-    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<bool, String> {
     let deps = {
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
@@ -493,7 +530,7 @@ struct CondaDependenciesJson {
 /// Get conda dependencies from notebook metadata.
 #[tauri::command]
 async fn get_conda_dependencies(
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<Option<CondaDependenciesJson>, String> {
     let state = state.lock().map_err(|e| e.to_string())?;
     let deps = conda_env::extract_dependencies(&state.notebook.metadata);
@@ -510,7 +547,7 @@ async fn set_conda_dependencies(
     dependencies: Vec<String>,
     channels: Vec<String>,
     python: Option<String>,
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
 
@@ -533,7 +570,7 @@ async fn set_conda_dependencies(
 #[tauri::command]
 async fn add_conda_dependency(
     package: String,
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
 
@@ -573,7 +610,7 @@ async fn add_conda_dependency(
 #[tauri::command]
 async fn remove_conda_dependency(
     package: String,
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
 
@@ -610,8 +647,8 @@ async fn remove_conda_dependency(
 #[tauri::command]
 async fn start_kernel_with_conda(
     app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
     let deps = {
         let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
@@ -666,8 +703,8 @@ async fn start_kernel_with_conda(
 #[tauri::command]
 async fn start_default_uv_kernel(
     app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
     // Ensure uv metadata exists in the notebook (for legacy notebooks)
     {
@@ -705,8 +742,8 @@ async fn start_default_uv_kernel(
 #[tauri::command]
 async fn start_default_conda_kernel(
     app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
     // Get the env_id for this notebook (should be set at notebook creation)
     // Fall back to creating one for legacy notebooks
@@ -772,8 +809,8 @@ async fn start_default_conda_kernel(
 #[tauri::command]
 async fn start_default_kernel(
     app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<String, String> {
     if uv_env::check_uv_available().await {
         info!("uv is available, using uv for default kernel");
@@ -872,7 +909,7 @@ async fn start_default_kernel(
 /// Check if the running kernel has a conda-managed environment.
 #[tauri::command]
 async fn kernel_has_conda_env(
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<bool, String> {
     let kernel = kernel_state.lock().await;
     Ok(kernel.has_conda_environment())
@@ -884,8 +921,8 @@ async fn kernel_has_conda_env(
 /// Returns true if sync was performed, false if no conda environment exists.
 #[tauri::command]
 async fn sync_conda_dependencies(
-    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<bool, String> {
     let deps = {
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
@@ -918,7 +955,7 @@ async fn sync_conda_dependencies(
 /// Detect pyproject.toml near the notebook and return info about it.
 #[tauri::command]
 async fn detect_pyproject(
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<Option<pyproject::PyProjectInfo>, String> {
     let notebook_path = {
         let state = state.lock().map_err(|e| e.to_string())?;
@@ -962,7 +999,7 @@ struct PyProjectDepsJson {
 /// Get full parsed dependencies from the detected pyproject.toml.
 #[tauri::command]
 async fn get_pyproject_dependencies(
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<Option<PyProjectDepsJson>, String> {
     let notebook_path = {
         let state = state.lock().map_err(|e| e.to_string())?;
@@ -998,7 +1035,7 @@ async fn get_pyproject_dependencies(
 /// This makes the notebook more portable.
 #[tauri::command]
 async fn import_pyproject_dependencies(
-    state: tauri::State<'_, Mutex<NotebookState>>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
 ) -> Result<(), String> {
     let notebook_path = {
         let state = state.lock().map_err(|e| e.to_string())?;
@@ -1050,8 +1087,8 @@ async fn import_pyproject_dependencies(
 #[tauri::command]
 async fn start_kernel_with_pyproject(
     app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
-    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
     let notebook_path = {
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
@@ -1113,10 +1150,21 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
         .unwrap_or("Untitled.ipynb")
         .to_string();
 
+    // Create execution queue and command sender
+    let queue: SharedExecutionQueue = Arc::new(Mutex::new(ExecutionQueue::default()));
+    let notebook_state = Arc::new(Mutex::new(initial_state));
+    let kernel_state = Arc::new(tokio::sync::Mutex::new(NotebookKernel::default()));
+
+    // Clone for setup closure
+    let queue_for_processor = queue.clone();
+    let notebook_for_processor = notebook_state.clone();
+    let kernel_for_processor = kernel_state.clone();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(Mutex::new(initial_state))
-        .manage(tokio::sync::Mutex::new(NotebookKernel::default()))
+        .manage(notebook_state)
+        .manage(kernel_state)
+        .manage(queue)
         .invoke_handler(tauri::generate_handler![
             load_notebook,
             has_notebook_path,
@@ -1128,6 +1176,9 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             add_cell,
             delete_cell,
             execute_cell,
+            queue_execute_cell,
+            clear_execution_queue,
+            get_execution_queue_state,
             start_kernel,
             interrupt_kernel,
             shutdown_kernel,
@@ -1171,6 +1222,27 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             // Set up native menu bar
             let menu = crate::menu::create_menu(app.handle())?;
             app.set_menu(menu)?;
+
+            // Spawn the execution queue processor
+            let app_handle = app.handle().clone();
+            let queue_tx = execution_queue::spawn_queue_processor(
+                app_handle,
+                queue_for_processor,
+                notebook_for_processor,
+                kernel_for_processor.clone(),
+            );
+
+            // Store the queue sender in Tauri state for commands to use
+            app.manage(queue_tx.clone());
+
+            // Set the queue sender on the kernel so iopub can signal completion
+            let kernel_for_tx = kernel_for_processor.clone();
+            let tx_for_kernel = queue_tx.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut kernel = kernel_for_tx.lock().await;
+                kernel.set_queue_tx(tx_for_kernel);
+            });
+
             Ok(())
         })
         .on_menu_event(|app, event| {
