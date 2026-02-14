@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { AlertTriangleIcon, PackageIcon, ShieldAlertIcon, ExternalLinkIcon } from "lucide-react";
+import { AlertTriangleIcon, PackageIcon, ShieldAlertIcon } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -21,51 +21,23 @@ interface TrustDialogProps {
   loading?: boolean;
 }
 
-/** Open PyPI page for a package */
-function openPyPI(pkg: string) {
-  // Extract package name without version specifiers
-  const name = pkg.split(/[><=!~\[;@]/)[0].trim();
-  window.open(`https://pypi.org/project/${name}/`, "_blank");
-}
-
-/** Open conda-forge page for a package */
-function openCondaForge(pkg: string) {
-  const name = pkg.split(/[><=!~\[]/)[0].trim();
-  window.open(`https://anaconda.org/conda-forge/${name}`, "_blank");
-}
-
 /** Package list item with optional typosquat warning */
 function PackageItem({
   pkg,
   warning,
-  onViewPyPI,
 }: {
   pkg: string;
   warning?: TyposquatWarning;
-  onViewPyPI?: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between py-1 px-2 rounded hover:bg-muted/50 group">
-      <div className="flex items-center gap-2 min-w-0 flex-1">
-        <PackageIcon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="font-mono text-sm truncate">{pkg}</span>
-        {warning && (
-          <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded">
-            <AlertTriangleIcon className="size-3" />
-            Similar to "{warning.similar_to}"
-          </span>
-        )}
-      </div>
-      {onViewPyPI && (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="opacity-0 group-hover:opacity-100 transition-opacity"
-          onClick={onViewPyPI}
-          title="View on PyPI"
-        >
-          <ExternalLinkIcon className="size-3" />
-        </Button>
+    <div className="flex items-center gap-2 py-1.5 px-2">
+      <PackageIcon className="size-4 shrink-0 text-muted-foreground" />
+      <span className="font-mono text-sm truncate">{pkg}</span>
+      {warning && (
+        <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded">
+          <AlertTriangleIcon className="size-3" />
+          Similar to "{warning.similar_to}"
+        </span>
       )}
     </div>
   );
@@ -136,7 +108,6 @@ export function TrustDialog({
                     key={pkg}
                     pkg={pkg}
                     warning={getWarning(pkg)}
-                    onViewPyPI={() => openPyPI(pkg)}
                   />
                 ))}
               </div>
@@ -160,7 +131,6 @@ export function TrustDialog({
                     key={pkg}
                     pkg={pkg}
                     warning={getWarning(pkg)}
-                    onViewPyPI={() => openCondaForge(pkg)}
                   />
                 ))}
               </div>
