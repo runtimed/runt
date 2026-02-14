@@ -312,7 +312,7 @@ export function IsolationTest() {
     !testResult.canAccessParentLocalStorage;
 
   return (
-    <div className="p-4 space-y-4 bg-background text-foreground">
+    <div data-testid="isolation-test" className="p-4 space-y-4 bg-background text-foreground">
       <h2 className="text-lg font-semibold">Blob URL Iframe Isolation Test</h2>
 
       {/* Parent context info */}

@@ -48,6 +48,7 @@ jobs:
 
       - name: Build UIs
         run: |
+          pnpm run isolated-renderer:build
           pnpm --dir apps/sidecar build
           pnpm --dir apps/notebook build
 
@@ -59,3 +60,69 @@ jobs:
 
       - name: Run tests
         run: cargo test --verbose
+
+  # E2E security tests for iframe isolation
+  # Only runs on Linux where tauri-driver is supported
+  e2e-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            xvfb \
+            webkit2gtk-driver
+
+      - name: Install rust
+        uses: dsherret/rust-toolchain-file@v1
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build frontend
+        run: |
+          pnpm run isolated-renderer:build
+          pnpm --dir apps/notebook build
+
+      - name: Install tauri-cli and tauri-driver
+        run: cargo install tauri-cli tauri-driver --locked
+
+      - name: Build Tauri app
+        run: cd crates/notebook && cargo tauri build --ci --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Run E2E security tests
+        run: |
+          # Start Xvfb
+          Xvfb :99 -screen 0 1920x1080x24 &
+          export DISPLAY=:99
+          sleep 2
+
+          # Start tauri-driver in background
+          tauri-driver --port 4444 &
+          DRIVER_PID=$!
+          sleep 3
+
+          # Run tests
+          pnpm test:e2e || TEST_EXIT=$?
+
+          # Cleanup
+          kill $DRIVER_PID 2>/dev/null || true
+
+          exit ${TEST_EXIT:-0}
+        env:
+          TAURI_APP_PATH: ./target/release/notebook
