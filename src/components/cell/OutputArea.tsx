@@ -339,6 +339,7 @@ export function OutputArea({
             <IsolatedFrame
               ref={frameRef}
               darkMode={true}
+              useReactRenderer={true}
               minHeight={24}
               maxHeight={maxHeight ?? 2000}
               onReady={renderIsolatedOutputs}
