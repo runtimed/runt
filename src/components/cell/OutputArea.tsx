@@ -1,13 +1,17 @@
 "use client";
 
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { type ReactNode, useId } from "react";
+import { useCallback, useId, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import {
   AnsiErrorOutput,
   AnsiStreamOutput,
 } from "@/components/outputs/ansi-output";
-import { MediaRouter } from "@/components/outputs/media-router";
+import { MediaRouter, DEFAULT_PRIORITY } from "@/components/outputs/media-router";
+import {
+  IsolatedFrame,
+  type IsolatedFrameHandle,
+} from "@/components/outputs/isolated";
 
 /**
  * Jupyter output types based on the nbformat spec.
@@ -72,6 +76,20 @@ interface OutputAreaProps {
    * Whether to allow unsafe HTML rendering.
    */
   unsafe?: boolean;
+  /**
+   * Force isolation mode. When true, all outputs render in an isolated iframe.
+   * When "auto" (default), isolation is used when any output needs it.
+   * When false, outputs render in-DOM (less secure but faster for simple outputs).
+   */
+  isolated?: boolean | "auto";
+  /**
+   * Callback when a link is clicked in isolated outputs.
+   */
+  onLinkClick?: (url: string, newTab: boolean) => void;
+  /**
+   * Callback when widget state is updated in isolated outputs.
+   */
+  onWidgetUpdate?: (commId: string, state: Record<string, unknown>) => void;
 }
 
 /**
@@ -79,6 +97,66 @@ interface OutputAreaProps {
  */
 function normalizeText(text: string | string[]): string {
   return Array.isArray(text) ? text.join("") : text;
+}
+
+/**
+ * MIME types that require iframe isolation for security.
+ * These types can contain executable scripts or interactive content.
+ */
+const ISOLATED_MIME_TYPES = new Set([
+  "text/html",
+  "text/markdown",
+  "image/svg+xml",
+  "application/vnd.jupyter.widget-view+json",
+  "application/vnd.plotly.v1+json",
+  "application/vnd.vegalite.v5+json",
+  "application/vnd.vegalite.v4+json",
+  "application/vnd.vegalite.v3+json",
+  "application/vnd.vega.v5+json",
+  "application/vnd.vega.v4+json",
+]);
+
+/**
+ * Select the best MIME type from available data based on priority.
+ */
+function selectMimeType(
+  data: Record<string, unknown>,
+  priority: readonly string[] = DEFAULT_PRIORITY
+): string | null {
+  const availableTypes = Object.keys(data);
+  for (const mimeType of priority) {
+    if (availableTypes.includes(mimeType) && data[mimeType] != null) {
+      return mimeType;
+    }
+  }
+  const firstAvailable = availableTypes.find((type) => data[type] != null);
+  return firstAvailable || null;
+}
+
+/**
+ * Check if a single output needs iframe isolation.
+ */
+function outputNeedsIsolation(
+  output: JupyterOutput,
+  priority: readonly string[] = DEFAULT_PRIORITY
+): boolean {
+  if (output.output_type === "execute_result" || output.output_type === "display_data") {
+    const mimeType = selectMimeType(output.data, priority);
+    return mimeType ? ISOLATED_MIME_TYPES.has(mimeType) : false;
+  }
+  // stream and error outputs don't need isolation
+  return false;
+}
+
+/**
+ * Check if any outputs in the array need iframe isolation.
+ * If any output needs isolation, ALL outputs should go to the iframe.
+ */
+function anyOutputNeedsIsolation(
+  outputs: JupyterOutput[],
+  priority: readonly string[] = DEFAULT_PRIORITY
+): boolean {
+  return outputs.some((output) => outputNeedsIsolation(output, priority));
 }
 
 /**
@@ -159,18 +237,66 @@ export function OutputArea({
   maxHeight,
   className,
   renderers,
-  priority,
+  priority = DEFAULT_PRIORITY,
   unsafe = false,
+  isolated = "auto",
+  onLinkClick,
+  onWidgetUpdate,
 }: OutputAreaProps) {
   const id = useId();
+  const frameRef = useRef<IsolatedFrameHandle>(null);
 
   // Empty state: render nothing
   if (outputs.length === 0) {
     return null;
   }
 
+  // Determine if we should use isolation
+  const shouldIsolate =
+    isolated === true || (isolated === "auto" && anyOutputNeedsIsolation(outputs, priority));
+
   const hasCollapseControl = onToggleCollapse !== undefined;
   const outputCount = outputs.length;
+
+  // Callback to render outputs in isolated frame
+  const renderIsolatedOutputs = useCallback(() => {
+    if (!frameRef.current) return;
+
+    // For now, render each output in sequence
+    // TODO: Optimize by sending all outputs in one message once
+    // the iframe has a full renderer bundle
+    outputs.forEach((output, index) => {
+      if (output.output_type === "execute_result" || output.output_type === "display_data") {
+        const mimeType = selectMimeType(output.data, priority);
+        if (mimeType) {
+          frameRef.current?.render({
+            mimeType,
+            data: output.data[mimeType],
+            metadata: output.metadata?.[mimeType] as Record<string, unknown> | undefined,
+            outputIndex: index,
+          });
+        }
+      } else if (output.output_type === "stream") {
+        // Render stream as plain text with ANSI
+        frameRef.current?.render({
+          mimeType: "text/plain",
+          data: normalizeText(output.text),
+          metadata: { streamName: output.name },
+          outputIndex: index,
+        });
+      } else if (output.output_type === "error") {
+        // Render error as HTML with traceback
+        const errorHtml = `<div class="error">
+          <pre>${output.traceback.join("\n")}</pre>
+        </div>`;
+        frameRef.current?.render({
+          mimeType: "text/html",
+          data: errorHtml,
+          outputIndex: index,
+        });
+      }
+    });
+  }, [outputs, priority]);
 
   return (
     <div data-slot="output-area" className={cn("output-area", className)}>
@@ -203,8 +329,21 @@ export function OutputArea({
           className={cn("space-y-2", maxHeight && "overflow-y-auto")}
           style={maxHeight ? { maxHeight: `${maxHeight}px` } : undefined}
         >
-          {outputs.map((output, index) =>
-            renderOutput(output, index, renderers, priority, unsafe),
+          {shouldIsolate ? (
+            <IsolatedFrame
+              ref={frameRef}
+              darkMode={true}
+              minHeight={24}
+              maxHeight={maxHeight ?? 2000}
+              onReady={renderIsolatedOutputs}
+              onLinkClick={onLinkClick}
+              onWidgetUpdate={onWidgetUpdate}
+              onError={(err) => console.error("[OutputArea] iframe error:", err)}
+            />
+          ) : (
+            outputs.map((output, index) =>
+              renderOutput(output, index, renderers, priority, unsafe),
+            )
           )}
         </div>
       )}
