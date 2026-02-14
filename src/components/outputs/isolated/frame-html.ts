@@ -225,19 +225,35 @@ export function generateFrameHtml(options: FrameHtmlOptions = {}): string {
       }
 
       function handleRender(payload) {
-        const { mimeType, data, metadata } = payload || {};
+        const { mimeType, data, metadata, append } = payload || {};
+
+        // Create output container
+        const output = document.createElement('div');
+        output.className = 'output-item';
+        output.style.marginBottom = '8px';
 
         if (mimeType === 'text/html') {
           // Use createContextualFragment for proper script execution
           const range = document.createRange();
           const fragment = range.createContextualFragment(String(data));
-          root.innerHTML = '';
-          root.appendChild(fragment);
+          output.appendChild(fragment);
         } else if (mimeType === 'text/plain') {
           const pre = document.createElement('pre');
-          pre.textContent = String(data);
-          root.innerHTML = '';
-          root.appendChild(pre);
+          // Handle ANSI escape codes for colored output
+          pre.innerHTML = parseAnsi(String(data));
+          output.appendChild(pre);
+        } else if (mimeType === 'image/svg+xml') {
+          // SVG: render inline
+          const container = document.createElement('div');
+          container.innerHTML = String(data);
+          const svg = container.querySelector('svg');
+          if (svg) {
+            svg.style.maxWidth = '100%';
+            svg.style.height = 'auto';
+            output.appendChild(svg);
+          } else {
+            output.appendChild(container);
+          }
         } else if (mimeType && mimeType.startsWith('image/')) {
           const img = document.createElement('img');
           const imgData = String(data);
@@ -249,20 +265,81 @@ export function generateFrameHtml(options: FrameHtmlOptions = {}): string {
           }
           if (metadata?.width) img.width = metadata.width;
           if (metadata?.height) img.height = metadata.height;
-          root.innerHTML = '';
-          root.appendChild(img);
+          output.appendChild(img);
+        } else if (mimeType === 'application/json') {
+          // JSON: render as formatted, collapsible tree
+          const pre = document.createElement('pre');
+          try {
+            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+            pre.textContent = JSON.stringify(parsed, null, 2);
+          } catch (e) {
+            pre.textContent = String(data);
+          }
+          output.appendChild(pre);
         } else {
           // Fallback: render as text
           const pre = document.createElement('pre');
           pre.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+          output.appendChild(pre);
+        }
+
+        // Append or replace
+        if (append) {
+          root.appendChild(output);
+        } else {
           root.innerHTML = '';
-          root.appendChild(pre);
+          root.appendChild(output);
         }
 
         // Notify completion
         requestAnimationFrame(function() {
           send('render_complete', { height: document.body.scrollHeight });
         });
+      }
+
+      // Basic ANSI escape code parser
+      function parseAnsi(text) {
+        // Simple ANSI color mapping
+        const colors = {
+          '30': '#000', '31': '#e74c3c', '32': '#2ecc71', '33': '#f1c40f',
+          '34': '#3498db', '35': '#9b59b6', '36': '#1abc9c', '37': '#ecf0f1',
+          '90': '#7f8c8d', '91': '#e74c3c', '92': '#2ecc71', '93': '#f1c40f',
+          '94': '#3498db', '95': '#9b59b6', '96': '#1abc9c', '97': '#fff'
+        };
+
+        // Escape HTML
+        let result = text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+
+        // Parse ANSI codes
+        result = result.replace(/\\x1b\\[(\\d+(?:;\\d+)*)m/g, function(match, codes) {
+          const codeList = codes.split(';');
+          let style = '';
+          for (const code of codeList) {
+            if (code === '0') return '</span>';
+            if (code === '1') style += 'font-weight:bold;';
+            if (code === '3') style += 'font-style:italic;';
+            if (code === '4') style += 'text-decoration:underline;';
+            if (colors[code]) style += 'color:' + colors[code] + ';';
+          }
+          return style ? '<span style="' + style + '">' : '';
+        });
+
+        // Also handle \e[ format
+        result = result.replace(/\\e\\[(\\d+(?:;\\d+)*)m/g, function(match, codes) {
+          const codeList = codes.split(';');
+          let style = '';
+          for (const code of codeList) {
+            if (code === '0') return '</span>';
+            if (code === '1') style += 'font-weight:bold;';
+            if (colors[code]) style += 'color:' + colors[code] + ';';
+          }
+          return style ? '<span style="' + style + '">' : '';
+        });
+
+        return result;
       }
 
       function handleTheme(payload) {

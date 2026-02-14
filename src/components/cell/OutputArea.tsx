@@ -262,10 +262,13 @@ export function OutputArea({
   const renderIsolatedOutputs = useCallback(() => {
     if (!frameRef.current) return;
 
-    // For now, render each output in sequence
-    // TODO: Optimize by sending all outputs in one message once
-    // the iframe has a full renderer bundle
+    // First, clear existing content
+    frameRef.current.clear();
+
+    // Render each output, using append for all but the first
     outputs.forEach((output, index) => {
+      const append = index > 0; // First output replaces, rest append
+
       if (output.output_type === "execute_result" || output.output_type === "display_data") {
         const mimeType = selectMimeType(output.data, priority);
         if (mimeType) {
@@ -274,6 +277,7 @@ export function OutputArea({
             data: output.data[mimeType],
             metadata: output.metadata?.[mimeType] as Record<string, unknown> | undefined,
             outputIndex: index,
+            append,
           });
         }
       } else if (output.output_type === "stream") {
@@ -283,6 +287,7 @@ export function OutputArea({
           data: normalizeText(output.text),
           metadata: { streamName: output.name },
           outputIndex: index,
+          append,
         });
       } else if (output.output_type === "error") {
         // Render error as HTML with traceback
@@ -293,6 +298,7 @@ export function OutputArea({
           mimeType: "text/html",
           data: errorHtml,
           outputIndex: index,
+          append,
         });
       }
     });

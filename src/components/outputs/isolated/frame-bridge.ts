@@ -38,6 +38,8 @@ export interface RenderPayload {
   cellId?: string;
   /** Output index within the cell */
   outputIndex?: number;
+  /** If true, append to existing outputs instead of replacing */
+  append?: boolean;
 }
 
 /**
