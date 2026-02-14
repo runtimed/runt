@@ -33,6 +33,16 @@ export function useCondaDependencies() {
     loadDependencies();
   }, [loadDependencies]);
 
+  // Re-sign the notebook after user modifications to keep it trusted
+  const resignTrust = useCallback(async () => {
+    try {
+      await invoke("approve_notebook_trust");
+    } catch (e) {
+      // Signing may fail if no trust key yet - that's okay
+      console.debug("[conda] Could not resign trust:", e);
+    }
+  }, []);
+
   // Try to sync deps to running kernel
   const syncToKernel = useCallback(async (): Promise<boolean> => {
     try {
@@ -82,6 +92,8 @@ export function useCondaDependencies() {
       try {
         await invoke("add_conda_dependency", { package: pkg.trim() });
         await loadDependencies();
+        // Re-sign to keep notebook trusted after user modification
+        await resignTrust();
         // Try to sync to running kernel
         await syncToKernel();
       } catch (e) {
@@ -90,7 +102,7 @@ export function useCondaDependencies() {
         setLoading(false);
       }
     },
-    [loadDependencies, syncToKernel]
+    [loadDependencies, resignTrust, syncToKernel]
   );
 
   const removeDependency = useCallback(
@@ -99,6 +111,8 @@ export function useCondaDependencies() {
       try {
         await invoke("remove_conda_dependency", { package: pkg });
         await loadDependencies();
+        // Re-sign to keep notebook trusted after user modification
+        await resignTrust();
         // Note: removing a dep doesn't uninstall from running kernel
         // User would need to restart for that
         const hasCondaEnv = await invoke<boolean>("kernel_has_conda_env");
@@ -111,7 +125,7 @@ export function useCondaDependencies() {
         setLoading(false);
       }
     },
-    [loadDependencies]
+    [loadDependencies, resignTrust]
   );
 
   // Clear the synced notice (e.g., when kernel restarts)
@@ -130,13 +144,15 @@ export function useCondaDependencies() {
           python: dependencies?.python ?? null,
         });
         await loadDependencies();
+        // Re-sign to keep notebook trusted after user modification
+        await resignTrust();
       } catch (e) {
         console.error("Failed to set channels:", e);
       } finally {
         setLoading(false);
       }
     },
-    [dependencies, loadDependencies]
+    [dependencies, loadDependencies, resignTrust]
   );
 
   const setPython = useCallback(
@@ -149,13 +165,15 @@ export function useCondaDependencies() {
           python: version,
         });
         await loadDependencies();
+        // Re-sign to keep notebook trusted after user modification
+        await resignTrust();
       } catch (e) {
         console.error("Failed to set python version:", e);
       } finally {
         setLoading(false);
       }
     },
-    [dependencies, loadDependencies]
+    [dependencies, loadDependencies, resignTrust]
   );
 
   const hasDependencies =

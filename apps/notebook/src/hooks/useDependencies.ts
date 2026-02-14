@@ -64,6 +64,16 @@ export function useDependencies() {
     loadDependencies();
   }, [loadDependencies]);
 
+  // Re-sign the notebook after user modifications to keep it trusted
+  const resignTrust = useCallback(async () => {
+    try {
+      await invoke("approve_notebook_trust");
+    } catch (e) {
+      // Signing may fail if no trust key yet - that's okay
+      console.debug("[deps] Could not resign trust:", e);
+    }
+  }, []);
+
   // Try to sync deps to running kernel
   const syncToKernel = useCallback(async (): Promise<boolean> => {
     try {
@@ -104,6 +114,8 @@ export function useDependencies() {
       try {
         await invoke("add_dependency", { package: pkg.trim() });
         await loadDependencies();
+        // Re-sign to keep notebook trusted after user modification
+        await resignTrust();
         // Try to sync to running kernel
         await syncToKernel();
       } catch (e) {
@@ -112,7 +124,7 @@ export function useDependencies() {
         setLoading(false);
       }
     },
-    [loadDependencies, syncToKernel]
+    [loadDependencies, resignTrust, syncToKernel]
   );
 
   const removeDependency = useCallback(
@@ -121,6 +133,8 @@ export function useDependencies() {
       try {
         await invoke("remove_dependency", { package: pkg });
         await loadDependencies();
+        // Re-sign to keep notebook trusted after user modification
+        await resignTrust();
         // Note: removing a dep doesn't uninstall from running kernel
         // User would need to restart for that
         const hasUvEnv = await invoke<boolean>("kernel_has_uv_env");
@@ -133,7 +147,7 @@ export function useDependencies() {
         setLoading(false);
       }
     },
-    [loadDependencies]
+    [loadDependencies, resignTrust]
   );
 
   // Clear the synced notice (e.g., when kernel restarts)
@@ -151,13 +165,15 @@ export function useDependencies() {
           requiresPython: version,
         });
         await loadDependencies();
+        // Re-sign to keep notebook trusted after user modification
+        await resignTrust();
       } catch (e) {
         console.error("Failed to set requires-python:", e);
       } finally {
         setLoading(false);
       }
     },
-    [dependencies, loadDependencies]
+    [dependencies, loadDependencies, resignTrust]
   );
 
   const hasDependencies =
@@ -189,13 +205,15 @@ export function useDependencies() {
     try {
       await invoke("import_pyproject_dependencies");
       await loadDependencies();
+      // Re-sign to keep notebook trusted after user modification
+      await resignTrust();
       console.log("[deps] Imported dependencies from pyproject.toml");
     } catch (e) {
       console.error("Failed to import from pyproject.toml:", e);
     } finally {
       setLoading(false);
     }
-  }, [loadDependencies]);
+  }, [loadDependencies, resignTrust]);
 
   // Refresh pyproject detection
   const refreshPyproject = useCallback(async () => {
