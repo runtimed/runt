@@ -13,7 +13,7 @@ import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { cn } from "@/lib/utils";
-import { isDarkMode } from "@/components/themes";
+import { isDarkMode } from "@/components/editor/themes";
 
 import "katex/dist/katex.min.css";
 
