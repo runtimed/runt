@@ -126,16 +126,8 @@ function AppContent() {
     setPython: setCondaPython,
   } = useCondaDependencies();
 
-  // Deno permissions management
-  const {
-    permissions: denoPermissions,
-    denoAvailable,
-    denoConfigInfo,
-    loading: denoLoading,
-    addPermission: addDenoPermission,
-    removePermission: removeDenoPermission,
-    togglePermission: toggleDenoPermission,
-  } = useDenoDependencies();
+  // Deno config detection
+  const { denoAvailable, denoConfigInfo } = useDenoDependencies();
 
   // Auto-detect environment type based on what's configured
   // uv takes priority if metadata exists (even with empty deps)
@@ -146,10 +138,9 @@ function AppContent() {
       : null;
 
   // Combine hasDependencies for toolbar badge
-  // For Deno, we show the badge if any permissions are set
-  const hasDenoPermissions = denoPermissions.length > 0;
+  // For Deno, show badge if deno.json is found with imports
   const hasDependencies = runtime === "deno"
-    ? hasDenoPermissions
+    ? denoConfigInfo?.has_imports ?? false
     : hasUvDependencies || hasCondaDependencies;
 
   // Get widget store handler for routing comm messages
@@ -364,13 +355,8 @@ onKernelStarted: loadCondaDependencies,
       />
       {dependencyHeaderOpen && runtime === "deno" && (
         <DenoDependencyHeader
-          permissions={denoPermissions}
           denoAvailable={denoAvailable}
           denoConfigInfo={denoConfigInfo}
-          loading={denoLoading}
-          onTogglePermission={toggleDenoPermission}
-          onAddPermission={addDenoPermission}
-          onRemovePermission={removeDenoPermission}
         />
       )}
       {dependencyHeaderOpen && runtime === "python" && envType === "conda" && (
