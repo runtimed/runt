@@ -66,6 +66,10 @@ function updateDocumentTheme(isDark: boolean) {
   // Set data-theme for components that check this attribute
   root.setAttribute("data-theme", isDark ? "dark" : "light");
 
+  // Set color-scheme to influence prefers-color-scheme media queries
+  // Some widgets (like drawdata) use @media (prefers-color-scheme: dark)
+  root.style.colorScheme = isDark ? "dark" : "light";
+
   // Update CSS variables for base styles
   if (isDark) {
     root.style.setProperty("--bg-primary", "#0a0a0a");
