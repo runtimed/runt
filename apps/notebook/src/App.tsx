@@ -6,12 +6,14 @@ import { NotebookView } from "./components/NotebookView";
 import { DependencyHeader } from "./components/DependencyHeader";
 import { CondaDependencyHeader } from "./components/CondaDependencyHeader";
 import { TrustDialog } from "./components/TrustDialog";
+import { DenoDependencyHeader } from "./components/DenoDependencyHeader";
 import { DebugBanner } from "./components/DebugBanner";
 import { useNotebook } from "./hooks/useNotebook";
 import { useKernel, type MimeBundle } from "./hooks/useKernel";
 import { useDependencies } from "./hooks/useDependencies";
 import { useCondaDependencies } from "./hooks/useCondaDependencies";
 import { useTrust } from "./hooks/useTrust";
+import { useDenoDependencies } from "./hooks/useDenoDependencies";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useEnvProgress } from "./hooks/useEnvProgress";
 import { useExecutionQueue } from "./hooks/useExecutionQueue";
@@ -124,6 +126,17 @@ function AppContent() {
     setPython: setCondaPython,
   } = useCondaDependencies();
 
+  // Deno permissions management
+  const {
+    permissions: denoPermissions,
+    denoAvailable,
+    denoConfigInfo,
+    loading: denoLoading,
+    addPermission: addDenoPermission,
+    removePermission: removeDenoPermission,
+    togglePermission: toggleDenoPermission,
+  } = useDenoDependencies();
+
   // Auto-detect environment type based on what's configured
   // uv takes priority if metadata exists (even with empty deps)
   const envType = isUvConfigured
@@ -133,7 +146,11 @@ function AppContent() {
       : null;
 
   // Combine hasDependencies for toolbar badge
-  const hasDependencies = hasUvDependencies || hasCondaDependencies;
+  // For Deno, we show the badge if any permissions are set
+  const hasDenoPermissions = denoPermissions.length > 0;
+  const hasDependencies = runtime === "deno"
+    ? hasDenoPermissions
+    : hasUvDependencies || hasCondaDependencies;
 
   // Get widget store handler for routing comm messages
   const { handleMessage: handleWidgetMessage } = useWidgetStoreRequired();
@@ -345,7 +362,18 @@ onKernelStarted: loadCondaDependencies,
         onToggleDependencies={() => setDependencyHeaderOpen((prev) => !prev)}
         listKernelspecs={listKernelspecs}
       />
-      {dependencyHeaderOpen && envType === "conda" && (
+      {dependencyHeaderOpen && runtime === "deno" && (
+        <DenoDependencyHeader
+          permissions={denoPermissions}
+          denoAvailable={denoAvailable}
+          denoConfigInfo={denoConfigInfo}
+          loading={denoLoading}
+          onTogglePermission={toggleDenoPermission}
+          onAddPermission={addDenoPermission}
+          onRemovePermission={removeDenoPermission}
+        />
+      )}
+      {dependencyHeaderOpen && runtime === "python" && envType === "conda" && (
         <CondaDependencyHeader
           dependencies={condaDependencies?.dependencies ?? []}
           channels={condaDependencies?.channels ?? []}
@@ -359,7 +387,7 @@ onKernelStarted: loadCondaDependencies,
           onSetPython={setCondaPython}
         />
       )}
-      {dependencyHeaderOpen && envType !== "conda" && (
+      {dependencyHeaderOpen && runtime === "python" && envType !== "conda" && (
         <DependencyHeader
           dependencies={dependencies?.dependencies ?? []}
           requiresPython={dependencies?.requires_python ?? null}
