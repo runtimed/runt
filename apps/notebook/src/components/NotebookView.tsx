@@ -31,8 +31,8 @@ function AddCellButtons({
   return (
     <div className="group/betweener flex h-4 w-full items-center">
       {/* Gutter spacer - matches cell gutter: action area + ribbon */}
-      <div className="flex-shrink-0 flex h-full">
-        <div className="w-6" />
+      <div className="flex h-full flex-shrink-0">
+        <div className="w-10" />
         <div className="w-1 bg-gray-200 dark:bg-gray-700" />
       </div>
       {/* Content area with centered buttons */}
@@ -176,7 +176,7 @@ function NotebookViewContent({
   );
 
   return (
-    <div ref={containerRef} className="max-w-4xl mx-auto px-4 py-4">
+    <div ref={containerRef} className="py-4 pl-8 pr-4">
       {cells.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
           <p className="text-sm">Empty notebook</p>

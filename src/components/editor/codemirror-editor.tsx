@@ -17,7 +17,6 @@ import {
   useState,
 } from "react";
 
-import { cn } from "@/lib/utils";
 import { defaultExtensions } from "./extensions";
 import { getLanguageExtension, type SupportedLanguage } from "./languages";
 import { darkTheme, isDarkMode, lightTheme, type ThemeMode } from "./themes";
@@ -252,7 +251,7 @@ export const CodeMirrorEditor = forwardRef<
         ref={editorRef}
         onBlur={onBlur}
         onFocus={handleFocus}
-        className={cn("text-sm", className)}
+        className={className}
       />
     );
   },

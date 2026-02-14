@@ -1,8 +1,7 @@
 import { useCallback, useRef, useEffect, useMemo } from "react";
 import type { KeyBinding } from "@codemirror/view";
 import { CellContainer } from "@/components/cell/CellContainer";
-import { PlayButton } from "@/components/cell/PlayButton";
-import { ExecutionCount } from "@/components/cell/ExecutionCount";
+import { CompactExecutionButton } from "@/components/cell/CompactExecutionButton";
 import { OutputArea } from "@/components/cell/OutputArea";
 import { AnsiOutput } from "@/components/outputs/ansi-output";
 import {
@@ -159,16 +158,24 @@ export function CodeCell({
     handleExecuteWithClear();
   }, [handleExecuteWithClear]);
 
-  const playButton = (
-    <PlayButton
-      executionState={isExecuting ? "running" : "idle"}
-      cellType="code"
-      isFocused={isFocused}
+  const gutterContent = (
+    <CompactExecutionButton
+      count={cell.execution_count}
+      isExecuting={isExecuting}
       onExecute={handleExecute}
       onInterrupt={onInterrupt}
-      className="h-4 w-4"
-      focusedClass="text-gray-700 dark:text-gray-300"
     />
+  );
+
+  const rightGutterContent = (
+    <button
+      type="button"
+      onClick={onDelete}
+      className="flex items-center justify-center rounded p-1 text-muted-foreground/40 transition-colors hover:text-destructive"
+      title="Delete cell"
+    >
+      <Trash2 className="h-3.5 w-3.5" />
+    </button>
   );
 
   return (
@@ -177,30 +184,11 @@ export function CodeCell({
       cellType="code"
       isFocused={isFocused}
       onFocus={onFocus}
-      gutterContent={playButton}
+      gutterContent={gutterContent}
+      rightGutterContent={rightGutterContent}
     >
-      {/* Cell header: execution count + controls */}
-      <div className="flex items-center gap-1 px-2 py-1">
-        <ExecutionCount
-          count={cell.execution_count}
-          isExecuting={isExecuting}
-          className="text-xs"
-        />
-        <div className="flex-1" />
-        <div className="cell-controls opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            type="button"
-            onClick={onDelete}
-            className="flex items-center justify-center rounded p-1 text-muted-foreground/40 transition-colors hover:text-destructive"
-            title="Delete cell"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-
       {/* Editor */}
-      <div className="px-2">
+      <div>
         <CodeMirrorEditor
           ref={editorRef}
           value={cell.source}
@@ -226,7 +214,7 @@ export function CodeCell({
 
       {/* Outputs */}
       {cell.outputs.length > 0 && (
-        <div className="px-2 py-2">
+        <div className="py-2">
           <OutputArea outputs={cell.outputs} />
         </div>
       )}
