@@ -149,6 +149,8 @@ export function CondaDependencyHeader({
                   className="w-32 rounded border bg-background px-1.5 py-0.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                   autoFocus
                   disabled={loading}
+                  autoComplete="off"
+                  spellCheck={false}
                 />
                 <button
                   type="button"
@@ -183,6 +185,8 @@ export function CondaDependencyHeader({
             placeholder="3.11"
             className="w-20 rounded border bg-background px-1.5 py-0.5 text-xs font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             disabled={loading}
+            autoComplete="off"
+            spellCheck={false}
           />
         </div>
 
@@ -223,6 +227,8 @@ export function CondaDependencyHeader({
             placeholder="package or package>=version"
             className="flex-1 rounded border bg-background px-2 py-1 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             disabled={loading}
+            autoComplete="off"
+            spellCheck={false}
           />
           <button
             type="button"
