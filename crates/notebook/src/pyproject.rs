@@ -274,4 +274,141 @@ index-url = "https://pypi.org/simple"
         assert!(config.project_name.is_none());
         assert!(config.dependencies.is_empty());
     }
+
+    #[test]
+    fn test_find_pyproject_from_file_path() {
+        let temp = TempDir::new().unwrap();
+        let subdir = temp.path().join("notebooks");
+        std::fs::create_dir(&subdir).unwrap();
+        create_pyproject(temp.path(), "[project]\nname = \"test\"");
+
+        // Create a notebook file
+        let notebook_path = subdir.join("analysis.ipynb");
+        std::fs::write(&notebook_path, "{}").unwrap();
+
+        // Should find pyproject.toml from a file path (not just directory)
+        let found = find_pyproject(&notebook_path);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), temp.path().join("pyproject.toml"));
+    }
+
+    #[test]
+    fn test_find_pyproject_deeply_nested() {
+        let temp = TempDir::new().unwrap();
+        let deep_dir = temp.path().join("src").join("analysis").join("notebooks");
+        std::fs::create_dir_all(&deep_dir).unwrap();
+        create_pyproject(temp.path(), "[project]\nname = \"test\"");
+
+        let found = find_pyproject(&deep_dir);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), temp.path().join("pyproject.toml"));
+    }
+
+    #[test]
+    fn test_create_pyproject_info() {
+        let temp = TempDir::new().unwrap();
+        let notebooks_dir = temp.path().join("notebooks");
+        std::fs::create_dir(&notebooks_dir).unwrap();
+
+        create_pyproject(
+            temp.path(),
+            r#"
+[project]
+name = "myproject"
+dependencies = ["pandas", "numpy"]
+requires-python = ">=3.10"
+
+[tool.uv]
+dev-dependencies = ["pytest"]
+"#,
+        );
+
+        let config = parse_pyproject(&temp.path().join("pyproject.toml")).unwrap();
+        let notebook_path = notebooks_dir.join("test.ipynb");
+        let info = create_pyproject_info(&config, &notebook_path);
+
+        assert_eq!(info.project_name, Some("myproject".to_string()));
+        assert!(info.has_dependencies);
+        assert_eq!(info.dependency_count, 2);
+        assert!(info.has_dev_dependencies);
+        assert_eq!(info.requires_python, Some(">=3.10".to_string()));
+        assert_eq!(info.relative_path, "../pyproject.toml");
+    }
+
+    #[test]
+    fn test_get_all_dependencies() {
+        let temp = TempDir::new().unwrap();
+        create_pyproject(
+            temp.path(),
+            r#"
+[project]
+name = "myproject"
+dependencies = ["pandas", "numpy"]
+
+[tool.uv]
+dev-dependencies = ["pytest", "ruff"]
+"#,
+        );
+
+        let config = parse_pyproject(&temp.path().join("pyproject.toml")).unwrap();
+        let all_deps = get_all_dependencies(&config);
+
+        assert_eq!(all_deps.len(), 4);
+        assert!(all_deps.iter().any(|d| d.contains("pandas")));
+        assert!(all_deps.iter().any(|d| d.contains("numpy")));
+        assert!(all_deps.iter().any(|d| d == "pytest"));
+        assert!(all_deps.iter().any(|d| d == "ruff"));
+    }
+
+    #[test]
+    fn test_fixture_sample_project() {
+        // Test against the actual fixture in fixtures/sample-project
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let fixture_dir = manifest_dir.join("fixtures").join("sample-project");
+        let pyproject_path = fixture_dir.join("pyproject.toml");
+
+        // Skip if fixture doesn't exist (e.g., in CI without fixtures)
+        if !pyproject_path.exists() {
+            return;
+        }
+
+        let config = parse_pyproject(&pyproject_path).unwrap();
+        assert_eq!(config.project_name, Some("sample-project".to_string()));
+        assert_eq!(config.requires_python, Some(">=3.10".to_string()));
+
+        // Check dependencies
+        assert!(config.dependencies.iter().any(|d| d.contains("pandas")));
+        assert!(config.dependencies.iter().any(|d| d.contains("numpy")));
+        assert!(config.dependencies.iter().any(|d| d.contains("matplotlib")));
+
+        // Check dev dependencies
+        assert!(config.dev_dependencies.iter().any(|d| d == "pytest"));
+        assert!(config.dev_dependencies.iter().any(|d| d == "ruff"));
+    }
+
+    #[test]
+    fn test_fixture_discovery_from_notebook() {
+        // Test pyproject discovery from the notebook in fixtures/sample-project/notebooks/
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let notebook_path = manifest_dir
+            .join("fixtures")
+            .join("sample-project")
+            .join("notebooks")
+            .join("analysis.ipynb");
+
+        // Skip if fixture doesn't exist
+        if !notebook_path.exists() {
+            return;
+        }
+
+        let found = find_pyproject(&notebook_path);
+        assert!(found.is_some());
+
+        let pyproject_path = found.unwrap();
+        assert!(pyproject_path.ends_with("pyproject.toml"));
+        assert!(pyproject_path
+            .parent()
+            .unwrap()
+            .ends_with("sample-project"));
+    }
 }
