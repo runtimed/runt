@@ -2,6 +2,7 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Wry};
 
 pub const MENU_NEW_NOTEBOOK: &str = "new_notebook";
+pub const MENU_OPEN: &str = "open";
 pub const MENU_SAVE: &str = "save";
 
 /// Build the application menu bar
@@ -29,6 +30,13 @@ pub fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         "New Notebook",
         true,
         Some("CmdOrCtrl+N"),
+    )?)?;
+    file_menu.append(&MenuItem::with_id(
+        app,
+        MENU_OPEN,
+        "Open...",
+        true,
+        Some("CmdOrCtrl+O"),
     )?)?;
     file_menu.append(&PredefinedMenuItem::separator(app)?)?;
     file_menu.append(&MenuItem::with_id(

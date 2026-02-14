@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { save as saveDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { NotebookCell, JupyterOutput } from "../types";
 
 export function useNotebook() {
@@ -111,6 +111,25 @@ export function useNotebook() {
     }
   }, []);
 
+  const openNotebook = useCallback(async () => {
+    try {
+      const filePath = await openDialog({
+        multiple: false,
+        filters: [{ name: "Jupyter Notebook", extensions: ["ipynb"] }],
+      });
+
+      if (!filePath || typeof filePath !== "string") {
+        // User cancelled or unexpected type
+        return;
+      }
+
+      // Open the notebook in a new window
+      await invoke("open_notebook_in_new_window", { path: filePath });
+    } catch (e) {
+      console.error("open_notebook failed:", e);
+    }
+  }, []);
+
   const appendOutput = useCallback(
     (cellId: string, output: JupyterOutput) => {
       setCells((prev) =>
@@ -164,6 +183,7 @@ export function useNotebook() {
     addCell,
     deleteCell,
     save,
+    openNotebook,
     dirty,
     appendOutput,
     setExecutionCount,
