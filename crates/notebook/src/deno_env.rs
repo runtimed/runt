@@ -233,7 +233,7 @@ fn strip_jsonc_comments(content: &str) -> String {
                 Some('/') => {
                     // Single-line comment - skip until newline
                     chars.next();
-                    while let Some(cc) = chars.next() {
+                    for cc in chars.by_ref() {
                         if cc == '\n' {
                             result.push('\n');
                             break;
@@ -243,13 +243,12 @@ fn strip_jsonc_comments(content: &str) -> String {
                 Some('*') => {
                     // Multi-line comment - skip until */
                     chars.next();
-                    while let Some(cc) = chars.next() {
-                        if cc == '*' {
-                            if chars.peek() == Some(&'/') {
-                                chars.next();
-                                break;
-                            }
+                    let mut prev_was_star = false;
+                    for cc in chars.by_ref() {
+                        if prev_was_star && cc == '/' {
+                            break;
                         }
+                        prev_was_star = cc == '*';
                     }
                 }
                 _ => {
