@@ -1,0 +1,5 @@
+{
+  "name": "e2e-tests",
+  "type": "module",
+  "private": true
+}

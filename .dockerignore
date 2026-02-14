@@ -1,0 +1,23 @@
+# Dependencies and build artifacts
+node_modules/
+target/
+dist/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose.yml
+
+# Misc
+.DS_Store
+*.log
+.context/

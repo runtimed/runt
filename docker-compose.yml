@@ -1,0 +1,24 @@
+services:
+  # E2E test environment with Tauri app and WebDriver
+  # Runs tests inside the container since tauri-driver only binds to localhost
+  tauri-e2e:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: e2e/Dockerfile
+    volumes:
+      # Mount e2e tests for live updates during development
+      - ./e2e:/app/e2e:ro
+    environment:
+      - DISPLAY=:99
+      - TAURI_APP_PATH=/app/target/release/notebook
+    # Run tests inside the container
+    command: >
+      bash -c "
+        Xvfb :99 -screen 0 1920x1080x24 &
+        sleep 2 &&
+        DISPLAY=:99 tauri-driver --port 4444 &
+        sleep 3 &&
+        cd /app &&
+        pnpm test:e2e
+      "
