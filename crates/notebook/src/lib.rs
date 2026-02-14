@@ -767,6 +767,108 @@ async fn start_default_conda_kernel(
         .map_err(|e| e.to_string())
 }
 
+/// Start a default kernel, automatically choosing uv or conda based on availability.
+/// Uses uv if available (faster), falls back to conda/rattler if not.
+#[tauri::command]
+async fn start_default_kernel(
+    app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
+    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+) -> Result<String, String> {
+    if uv_env::check_uv_available().await {
+        info!("uv is available, using uv for default kernel");
+
+        // Ensure uv metadata exists in the notebook (for legacy notebooks)
+        {
+            let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
+
+            if !state.notebook.metadata.additional.contains_key("uv") {
+                state.notebook.metadata.additional.insert(
+                    "uv".to_string(),
+                    serde_json::json!({
+                        "dependencies": Vec::<String>::new(),
+                    }),
+                );
+                state.dirty = true;
+            }
+        }
+
+        // Create minimal deps with just ipykernel
+        let deps = uv_env::NotebookDependencies {
+            dependencies: vec![],
+            requires_python: None,
+        };
+
+        let mut kernel = kernel_state.lock().await;
+        kernel
+            .start_with_uv(app, &deps)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        Ok("uv".to_string())
+    } else {
+        info!("uv not available, falling back to conda/rattler for default kernel");
+
+        // Get the env_id for this notebook (should be set at notebook creation)
+        // Fall back to creating one for legacy notebooks
+        let env_id = {
+            let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
+
+            // Check if there's already an env_id in the runt metadata
+            let existing_id = state
+                .notebook
+                .metadata
+                .additional
+                .get("runt")
+                .and_then(|v| v.get("env_id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
+            match existing_id {
+                Some(id) => id,
+                None => {
+                    // Legacy notebook without env_id - generate one and set conda metadata
+                    let new_id = uuid::Uuid::new_v4().to_string();
+
+                    state.notebook.metadata.additional.insert(
+                        "runt".to_string(),
+                        serde_json::json!({ "env_id": new_id }),
+                    );
+
+                    if !state.notebook.metadata.additional.contains_key("conda") {
+                        state.notebook.metadata.additional.insert(
+                            "conda".to_string(),
+                            serde_json::json!({
+                                "dependencies": Vec::<String>::new(),
+                                "channels": ["conda-forge"],
+                            }),
+                        );
+                    }
+
+                    state.dirty = true;
+                    new_id
+                }
+            }
+        };
+
+        // Create minimal deps with just ipykernel and the unique env_id
+        let deps = conda_env::CondaDependencies {
+            dependencies: vec!["ipykernel".to_string()],
+            channels: vec!["conda-forge".to_string()],
+            python: None,
+            env_id: Some(env_id.clone()),
+        };
+
+        let mut kernel = kernel_state.lock().await;
+        kernel
+            .start_with_conda(app, &deps)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        Ok("conda".to_string())
+    }
+}
+
 /// Check if the running kernel has a conda-managed environment.
 #[tauri::command]
 async fn kernel_has_conda_env(
@@ -1051,6 +1153,7 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             remove_conda_dependency,
             start_kernel_with_conda,
             start_default_conda_kernel,
+            start_default_kernel,
             kernel_has_conda_env,
             sync_conda_dependencies,
             // pyproject.toml discovery
