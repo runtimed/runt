@@ -11,15 +11,18 @@ env:
 
 jobs:
   build:
+    name: ${{ matrix.platform.name }}
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
         platform:
-          - runner: ubuntu-latest
+          - name: Linux
+            runner: ubuntu-latest
             setup: |
               sudo apt-get update
               sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev
-          - runner: macos-latest
+          - name: macOS
+            runner: macos-latest
             setup: echo "No extra deps needed on macOS"
     steps:
       - uses: actions/checkout@v4
@@ -61,9 +64,9 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
 
-  # E2E security tests for iframe isolation
+  # E2E tests (security and happy path)
   # Only runs on Linux where tauri-driver is supported
-  e2e-security:
+  e2e:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
