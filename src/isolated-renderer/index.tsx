@@ -25,6 +25,14 @@ import { SvgOutput } from "@/components/outputs/svg-output";
 import { JsonOutput } from "@/components/outputs/json-output";
 import type { RenderPayload } from "@/components/outputs/isolated/frame-bridge";
 
+// Import widget support
+import { IframeWidgetStoreProvider } from "./widget-provider";
+import { WidgetView } from "@/components/widgets/widget-view";
+
+// Import widget controls to register them in the widget registry
+// This import has side effects that register all built-in widgets
+import "@/components/widgets/controls";
+
 // --- Types ---
 
 interface OutputEntry {
@@ -209,6 +217,12 @@ function OutputRenderer({ payload }: { payload: RenderPayload }) {
   // Route to appropriate component based on MIME type
   // (Direct rendering without MediaRouter's lazy loading)
 
+  // Widget view - render interactive Jupyter widget
+  if (mimeType === "application/vnd.jupyter.widget-view+json") {
+    const widgetData = data as { model_id: string };
+    return <WidgetView modelId={widgetData.model_id} />;
+  }
+
   // Markdown
   if (mimeType === "text/markdown") {
     return <MarkdownOutput content={String(content)} unsafe={true} />;
@@ -288,11 +302,13 @@ export function init() {
     document.body.appendChild(rootEl);
   }
 
-  // Create React root and render
+  // Create React root and render with widget provider
   root = createRoot(rootEl);
   root.render(
     <StrictMode>
-      <IsolatedRendererApp />
+      <IframeWidgetStoreProvider>
+        <IsolatedRendererApp />
+      </IframeWidgetStoreProvider>
     </StrictMode>
   );
 

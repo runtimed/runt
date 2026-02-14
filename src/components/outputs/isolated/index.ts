@@ -35,3 +35,6 @@ export type {
   MessageType,
 } from "./frame-bridge";
 export { isIframeMessage, isMessageType } from "./frame-bridge";
+
+// Widget comm bridge for isolated frames
+export { CommBridgeManager, createCommBridgeManager } from "./comm-bridge-manager";

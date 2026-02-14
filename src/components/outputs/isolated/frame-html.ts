@@ -196,6 +196,15 @@ export function generateFrameHtml(options: FrameHtmlOptions = {}): string {
               handleWidgetState(payload);
               break;
 
+            // Comm bridge messages - handled by React widget system, ignore here
+            case 'bridge_ready':
+            case 'comm_open':
+            case 'comm_msg':
+            case 'comm_close':
+            case 'comm_sync':
+              // These are handled by widget-bridge-client.ts
+              break;
+
             default:
               console.warn('[frame] Unknown message type:', type);
           }

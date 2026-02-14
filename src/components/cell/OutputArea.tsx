@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useCallback, useId, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import {
   AnsiErrorOutput,
@@ -11,7 +11,10 @@ import { MediaRouter, DEFAULT_PRIORITY } from "@/components/outputs/media-router
 import {
   IsolatedFrame,
   type IsolatedFrameHandle,
+  CommBridgeManager,
+  type IframeToParentMessage,
 } from "@/components/outputs/isolated";
+import { useWidgetStore } from "@/components/widgets/widget-store-context";
 
 /**
  * Jupyter output types based on the nbformat spec.
@@ -88,6 +91,7 @@ interface OutputAreaProps {
   onLinkClick?: (url: string, newTab: boolean) => void;
   /**
    * Callback when widget state is updated in isolated outputs.
+   * @deprecated Use the comm bridge instead for full widget support
    */
   onWidgetUpdate?: (commId: string, state: Record<string, unknown>) => void;
 }
@@ -157,6 +161,22 @@ function anyOutputNeedsIsolation(
   priority: readonly string[] = DEFAULT_PRIORITY
 ): boolean {
   return outputs.some((output) => outputNeedsIsolation(output, priority));
+}
+
+/**
+ * Check if outputs contain any widget MIME types.
+ */
+function hasWidgetOutputs(
+  outputs: JupyterOutput[],
+  priority: readonly string[] = DEFAULT_PRIORITY
+): boolean {
+  return outputs.some((output) => {
+    if (output.output_type === "execute_result" || output.output_type === "display_data") {
+      const mimeType = selectMimeType(output.data, priority);
+      return mimeType === "application/vnd.jupyter.widget-view+json";
+    }
+    return false;
+  });
 }
 
 /**
@@ -245,6 +265,10 @@ export function OutputArea({
 }: OutputAreaProps) {
   const id = useId();
   const frameRef = useRef<IsolatedFrameHandle>(null);
+  const bridgeRef = useRef<CommBridgeManager | null>(null);
+
+  // Get widget store context (may be null if not in provider)
+  const widgetContext = useWidgetStore();
 
   // Empty state: render nothing
   if (outputs.length === 0) {
@@ -255,19 +279,50 @@ export function OutputArea({
   const shouldIsolate =
     isolated === true || (isolated === "auto" && anyOutputNeedsIsolation(outputs, priority));
 
+  // Check if we have widgets and should set up comm bridge
+  const hasWidgets = hasWidgetOutputs(outputs, priority);
+  const shouldUseBridge = shouldIsolate && hasWidgets && widgetContext !== null;
+
   const hasCollapseControl = onToggleCollapse !== undefined;
   const outputCount = outputs.length;
 
-  // Callback to render outputs in isolated frame
-  const renderIsolatedOutputs = useCallback(() => {
+  // Handle messages from iframe, routing widget messages to comm bridge
+  const handleIframeMessage = useCallback(
+    (message: IframeToParentMessage) => {
+      // Route widget messages to bridge
+      if (bridgeRef.current) {
+        bridgeRef.current.handleIframeMessage(message);
+      }
+
+      // Also handle widget_update for backward compatibility
+      if (message.type === "widget_update" && onWidgetUpdate) {
+        onWidgetUpdate(message.payload.commId, message.payload.state);
+      }
+    },
+    [onWidgetUpdate]
+  );
+
+  // Callback when frame is ready - set up bridge and render outputs
+  const handleFrameReady = useCallback(() => {
     if (!frameRef.current) return;
 
-    // First, clear existing content
+    // Set up comm bridge if we have widgets and widget context
+    if (shouldUseBridge && widgetContext && !bridgeRef.current) {
+      bridgeRef.current = new CommBridgeManager({
+        frame: frameRef.current,
+        store: widgetContext.store,
+        sendUpdate: widgetContext.sendUpdate,
+        sendCustom: widgetContext.sendCustom,
+        closeComm: widgetContext.closeComm,
+      });
+    }
+
+    // Clear existing content
     frameRef.current.clear();
 
-    // Render each output, using append for all but the first
+    // Render each output
     outputs.forEach((output, index) => {
-      const append = index > 0; // First output replaces, rest append
+      const append = index > 0;
 
       if (output.output_type === "execute_result" || output.output_type === "display_data") {
         const mimeType = selectMimeType(output.data, priority);
@@ -281,7 +336,6 @@ export function OutputArea({
           });
         }
       } else if (output.output_type === "stream") {
-        // Render stream as plain text with ANSI
         frameRef.current?.render({
           mimeType: "text/plain",
           data: normalizeText(output.text),
@@ -290,19 +344,39 @@ export function OutputArea({
           append,
         });
       } else if (output.output_type === "error") {
-        // Render error as HTML with traceback
-        const errorHtml = `<div class="error">
-          <pre>${output.traceback.join("\n")}</pre>
-        </div>`;
+        // Render error with metadata so iframe can use AnsiErrorOutput
         frameRef.current?.render({
-          mimeType: "text/html",
-          data: errorHtml,
+          mimeType: "text/plain",
+          data: output.traceback.join("\n"),
+          metadata: {
+            isError: true,
+            ename: output.ename,
+            evalue: output.evalue,
+            traceback: output.traceback,
+          },
           outputIndex: index,
           append,
         });
       }
     });
-  }, [outputs, priority]);
+  }, [outputs, priority, shouldUseBridge, widgetContext]);
+
+  // Clean up bridge on unmount
+  useEffect(() => {
+    return () => {
+      if (bridgeRef.current) {
+        bridgeRef.current.dispose();
+        bridgeRef.current = null;
+      }
+    };
+  }, []);
+
+  // Re-render outputs when they change (after initial ready)
+  useEffect(() => {
+    if (frameRef.current?.isReady) {
+      handleFrameReady();
+    }
+  }, [outputs, handleFrameReady]);
 
   return (
     <div data-slot="output-area" className={cn("output-area", className)}>
@@ -342,9 +416,10 @@ export function OutputArea({
               useReactRenderer={true}
               minHeight={24}
               maxHeight={maxHeight ?? 2000}
-              onReady={renderIsolatedOutputs}
+              onReady={handleFrameReady}
               onLinkClick={onLinkClick}
               onWidgetUpdate={onWidgetUpdate}
+              onMessage={handleIframeMessage}
               onError={(err) => console.error("[OutputArea] iframe error:", err)}
             />
           ) : (

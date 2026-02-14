@@ -87,6 +87,85 @@ export interface ClearMessage {
   type: "clear";
 }
 
+// --- Widget Comm Protocol: Parent → Iframe ---
+
+/**
+ * Forward a comm_open message to the iframe.
+ * Sent when a widget model is created by the kernel.
+ */
+export interface CommOpenMessage {
+  type: "comm_open";
+  payload: {
+    /** Comm ID of the widget */
+    commId: string;
+    /** Target name (e.g., "jupyter.widget") */
+    targetName: string;
+    /** Initial widget state */
+    state: Record<string, unknown>;
+    /** Buffer paths for binary data reconstruction */
+    bufferPaths?: string[][];
+    /** Binary buffers (transferred via structured clone) */
+    buffers?: ArrayBuffer[];
+  };
+}
+
+/**
+ * Forward a comm_msg to the iframe.
+ * Sent for state updates and custom messages from kernel.
+ */
+export interface CommMsgMessage {
+  type: "comm_msg";
+  payload: {
+    /** Comm ID of the widget */
+    commId: string;
+    /** Message method: "update" or "custom" */
+    method: "update" | "custom";
+    /** State patch (for update) or custom content (for custom) */
+    data: Record<string, unknown>;
+    /** Buffer paths for binary data reconstruction */
+    bufferPaths?: string[][];
+    /** Binary buffers (transferred via structured clone) */
+    buffers?: ArrayBuffer[];
+  };
+}
+
+/**
+ * Forward a comm_close message to the iframe.
+ * Sent when a widget is destroyed by the kernel.
+ */
+export interface CommCloseMessage {
+  type: "comm_close";
+  payload: {
+    /** Comm ID of the widget to close */
+    commId: string;
+  };
+}
+
+/**
+ * Sync all existing widget models to the iframe.
+ * Sent on iframe ready to bootstrap existing widgets.
+ */
+export interface CommSyncMessage {
+  type: "comm_sync";
+  payload: {
+    /** Array of existing models to sync */
+    models: Array<{
+      commId: string;
+      targetName: string;
+      state: Record<string, unknown>;
+      buffers?: ArrayBuffer[];
+    }>;
+  };
+}
+
+/**
+ * Signal that the parent's comm bridge is ready.
+ * Iframe should respond with widget_ready to trigger comm_sync.
+ */
+export interface BridgeReadyMessage {
+  type: "bridge_ready";
+}
+
 /**
  * All message types that can be sent from parent to iframe.
  */
@@ -96,7 +175,12 @@ export type ParentToIframeMessage =
   | WidgetStateMessage
   | ThemeMessage
   | PingMessage
-  | ClearMessage;
+  | ClearMessage
+  | CommOpenMessage
+  | CommMsgMessage
+  | CommCloseMessage
+  | CommSyncMessage
+  | BridgeReadyMessage;
 
 // --- Message Types: Iframe → Parent ---
 
@@ -202,6 +286,48 @@ export interface RendererReadyMessage {
   type: "renderer_ready";
 }
 
+// --- Widget Comm Protocol: Iframe → Parent ---
+
+/**
+ * Iframe widget system is ready to receive comm messages.
+ * Parent should send comm_sync with existing models after this.
+ */
+export interface WidgetReadyMessage {
+  type: "widget_ready";
+}
+
+/**
+ * Widget initiated a state update or custom message.
+ * Parent should forward to kernel and update its store.
+ */
+export interface WidgetCommMsgMessage {
+  type: "widget_comm_msg";
+  payload: {
+    /** Comm ID of the widget */
+    commId: string;
+    /** Message method: "update" or "custom" */
+    method: "update" | "custom";
+    /** State patch or custom content */
+    data: Record<string, unknown>;
+    /** Buffer paths */
+    bufferPaths?: string[][];
+    /** Binary buffers */
+    buffers?: ArrayBuffer[];
+  };
+}
+
+/**
+ * Widget initiated comm close.
+ * Parent should forward to kernel and clean up.
+ */
+export interface WidgetCommCloseMessage {
+  type: "widget_comm_close";
+  payload: {
+    /** Comm ID of the widget to close */
+    commId: string;
+  };
+}
+
 /**
  * All message types that can be sent from iframe to parent.
  */
@@ -214,7 +340,10 @@ export type IframeToParentMessage =
   | LinkClickMessage
   | WidgetUpdateMessage
   | IframeErrorMessage
-  | RendererReadyMessage;
+  | RendererReadyMessage
+  | WidgetReadyMessage
+  | WidgetCommMsgMessage
+  | WidgetCommCloseMessage;
 
 // --- Utility Types ---
 
@@ -236,9 +365,20 @@ export function isIframeMessage(data: unknown): data is IframeToParentMessage {
   const msg = data as { type?: unknown };
   return (
     typeof msg.type === "string" &&
-    ["ready", "pong", "eval_result", "render_complete", "resize", "link_click", "widget_update", "error", "renderer_ready"].includes(
-      msg.type
-    )
+    [
+      "ready",
+      "pong",
+      "eval_result",
+      "render_complete",
+      "resize",
+      "link_click",
+      "widget_update",
+      "error",
+      "renderer_ready",
+      "widget_ready",
+      "widget_comm_msg",
+      "widget_comm_close",
+    ].includes(msg.type)
   );
 }
 

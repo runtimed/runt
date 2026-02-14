@@ -227,6 +227,8 @@ export const IsolatedFrame = forwardRef<IsolatedFrameHandle, IsolatedFrameProps>
     const [isIframeReady, setIsIframeReady] = useState(false);
     // Track renderer ready (React bundle initialized, or inline renderer if not using React)
     const [isReady, setIsReady] = useState(false);
+    // Use ref to track ready state for send callback (avoids stale closure)
+    const isReadyRef = useRef(false);
     const [height, setHeight] = useState(minHeight);
 
     // Queue messages until iframe is ready
@@ -244,10 +246,16 @@ export const IsolatedFrame = forwardRef<IsolatedFrameHandle, IsolatedFrameProps>
       };
     }, [darkMode]);
 
+    // Keep ref in sync with state (ref avoids stale closures in callbacks)
+    useEffect(() => {
+      isReadyRef.current = isReady;
+    }, [isReady]);
+
     // Send a message to the iframe
+    // Uses ref to check ready state to avoid stale closure issues
     const send = useCallback(
       (message: ParentToIframeMessage) => {
-        if (!isReady) {
+        if (!isReadyRef.current) {
           // Queue message until ready
           pendingMessagesRef.current.push(message);
           return;
@@ -257,7 +265,7 @@ export const IsolatedFrame = forwardRef<IsolatedFrameHandle, IsolatedFrameProps>
           iframeRef.current.contentWindow.postMessage(message, "*");
         }
       },
-      [isReady]
+      [] // No deps - uses ref instead of state
     );
 
     // Flush pending messages when ready
