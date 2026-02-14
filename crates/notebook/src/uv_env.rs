@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::process::Stdio;
 
+
 /// Dependencies extracted from notebook metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotebookDependencies {

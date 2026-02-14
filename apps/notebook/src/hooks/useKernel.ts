@@ -18,9 +18,20 @@ interface UseKernelOptions {
   onExecutionCount: (cellId: string, count: number) => void;
   onExecutionDone: (cellId: string) => void;
   onCommMessage?: (msg: JupyterMessage) => void;
-onKernelStarted?: () => void;
+  onKernelStarted?: () => void;
   /** Called when a page payload is received (triggered by ? or ?? in IPython) */
   onPagePayload?: (cellId: string, data: MimeBundle, start: number) => void;
+}
+
+/** Info about a detected pyproject.toml */
+export interface PyProjectInfo {
+  path: string;
+  relative_path: string;
+  project_name: string | null;
+  has_dependencies: boolean;
+  dependency_count: number;
+  has_dev_dependencies: boolean;
+  requires_python: string | null;
 }
 
 /**
@@ -255,8 +266,22 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
     }
   }, []);
 
+  const startKernelWithPyproject = useCallback(async () => {
+    setKernelStatus("starting");
+    try {
+      console.log("[kernel] starting kernel with pyproject.toml");
+      await invoke("start_kernel_with_pyproject");
+      console.log("[kernel] start_kernel_with_pyproject succeeded");
+      setKernelStatus("idle");
+      callbacksRef.current.onKernelStarted?.();
+    } catch (e) {
+      console.error("start_kernel_with_pyproject failed:", e);
+      setKernelStatus("error");
+    }
+  }, []);
+
   const ensureKernelStarted = useCallback(
-    async (opts?: { useUv?: boolean; useConda?: boolean }) => {
+    async (opts?: { useUv?: boolean; useConda?: boolean; usePyproject?: boolean }) => {
       if (startingRef.current) return;
       startingRef.current = true;
       try {
@@ -274,6 +299,13 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
           return;
         }
 
+        // If usePyproject is explicitly requested, use pyproject.toml
+        if (opts?.usePyproject) {
+          console.log("[kernel] usePyproject explicitly requested");
+          await startKernelWithPyproject();
+          return;
+        }
+
         // Check if notebook has conda dependencies (priority over uv)
         const condaDeps = await invoke<{ dependencies: string[] } | null>(
           "get_conda_dependencies"
@@ -286,11 +318,21 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
           return;
         }
 
+        // Check for pyproject.toml (auto-detect if present)
+        const uvAvailable = await invoke<boolean>("check_uv_available");
+        if (uvAvailable) {
+          const pyprojectInfo = await invoke<PyProjectInfo | null>("detect_pyproject");
+          if (pyprojectInfo?.has_dependencies) {
+            console.log("[kernel] detected pyproject.toml:", pyprojectInfo.relative_path);
+            await startKernelWithPyproject();
+            return;
+          }
+        }
+
         // Check if notebook has uv dependencies
         const deps = await invoke<{ dependencies: string[] } | null>(
           "get_notebook_dependencies"
         );
-        const uvAvailable = await invoke<boolean>("check_uv_available");
 
         console.log("[kernel] deps check:", { deps, uvAvailable });
 
@@ -308,7 +350,7 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
         startingRef.current = false;
       }
     },
-    [startKernelWithUv, startKernelWithConda, startDefaultUvKernel]
+    [startKernelWithUv, startKernelWithConda, startKernelWithPyproject, startDefaultUvKernel]
   );
 
   const shutdownKernel = useCallback(async () => {
@@ -335,6 +377,7 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
     startKernel,
     startKernelWithUv,
     startKernelWithConda,
+    startKernelWithPyproject,
     startDefaultUvKernel,
     startDefaultCondaKernel,
     ensureKernelStarted,

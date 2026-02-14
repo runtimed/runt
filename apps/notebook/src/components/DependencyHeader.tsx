@@ -1,5 +1,6 @@
 import { useState, useCallback, type KeyboardEvent } from "react";
-import { X, Plus, Info } from "lucide-react";
+import { X, Plus, Info, FileText, Download } from "lucide-react";
+import type { PyProjectInfo, PyProjectDeps } from "../hooks/useDependencies";
 
 interface DependencyHeaderProps {
   dependencies: string[];
@@ -10,6 +11,10 @@ interface DependencyHeaderProps {
   needsKernelRestart: boolean;
   onAdd: (pkg: string) => Promise<void>;
   onRemove: (pkg: string) => Promise<void>;
+  // pyproject.toml support
+  pyprojectInfo?: PyProjectInfo | null;
+  pyprojectDeps?: PyProjectDeps | null;
+  onImportFromPyproject?: () => Promise<void>;
 }
 
 export function DependencyHeader({
@@ -21,6 +26,9 @@ export function DependencyHeader({
   needsKernelRestart,
   onAdd,
   onRemove,
+  pyprojectInfo,
+  pyprojectDeps,
+  onImportFromPyproject,
 }: DependencyHeaderProps) {
   const [newDep, setNewDep] = useState("");
 
@@ -80,6 +88,63 @@ export function DependencyHeader({
               <code className="rounded bg-amber-500/20 px-1">
                 curl -LsSf https://astral.sh/uv/install.sh | sh
               </code>
+            </div>
+          )}
+
+          {/* pyproject.toml detected banner */}
+          {pyprojectInfo?.has_dependencies && (
+            <div className="mb-3 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Using deps from{" "}
+                    <code className="rounded bg-uv/20 px-1">
+                      {pyprojectInfo.relative_path}
+                    </code>
+                    {pyprojectInfo.project_name && (
+                      <span className="text-muted-foreground ml-1">
+                        ({pyprojectInfo.project_name})
+                      </span>
+                    )}
+                  </span>
+                </div>
+                {onImportFromPyproject && (
+                  <button
+                    type="button"
+                    onClick={onImportFromPyproject}
+                    disabled={loading}
+                    className="flex items-center gap-1 text-uv hover:text-uv/80 transition-colors disabled:opacity-50"
+                    title="Copy pyproject.toml dependencies into notebook for portability"
+                  >
+                    <Download className="h-3 w-3" />
+                    Import to notebook
+                  </button>
+                )}
+              </div>
+              {pyprojectDeps && (pyprojectDeps.dependencies.length > 0 || pyprojectDeps.dev_dependencies.length > 0) && (
+                <div className="mt-2 text-xs text-uv/80">
+                  {pyprojectDeps.dependencies.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-1">
+                      {pyprojectDeps.dependencies.map((dep) => (
+                        <span key={dep} className="rounded bg-uv/20 px-1.5 py-0.5 font-mono">
+                          {dep}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {pyprojectDeps.dev_dependencies.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      <span className="text-muted-foreground">dev:</span>
+                      {pyprojectDeps.dev_dependencies.map((dep) => (
+                        <span key={dep} className="rounded bg-uv/10 px-1.5 py-0.5 font-mono">
+                          {dep}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

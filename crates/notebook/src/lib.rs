@@ -2,6 +2,7 @@ pub mod conda_env;
 pub mod kernel;
 pub mod menu;
 pub mod notebook_state;
+pub mod pyproject;
 pub mod uv_env;
 
 use notebook_state::{FrontendCell, NotebookState};
@@ -808,6 +809,175 @@ async fn sync_conda_dependencies(
     Ok(true)
 }
 
+// ============================================================================
+// pyproject.toml Discovery and Environment Commands
+// ============================================================================
+
+/// Detect pyproject.toml near the notebook and return info about it.
+#[tauri::command]
+async fn detect_pyproject(
+    state: tauri::State<'_, Mutex<NotebookState>>,
+) -> Result<Option<pyproject::PyProjectInfo>, String> {
+    let notebook_path = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        state.path.clone()
+    };
+
+    // Need a notebook path to search from
+    let Some(notebook_path) = notebook_path else {
+        return Ok(None);
+    };
+
+    // Find pyproject.toml walking up from notebook directory
+    let Some(pyproject_path) = pyproject::find_pyproject(&notebook_path) else {
+        return Ok(None);
+    };
+
+    // Parse and create info
+    let config = pyproject::parse_pyproject(&pyproject_path).map_err(|e| e.to_string())?;
+    let info = pyproject::create_pyproject_info(&config, &notebook_path);
+
+    info!(
+        "Detected pyproject.toml at {} with {} dependencies",
+        info.relative_path, info.dependency_count
+    );
+
+    Ok(Some(info))
+}
+
+/// Full pyproject dependencies for display in the UI.
+#[derive(Serialize)]
+struct PyProjectDepsJson {
+    path: String,
+    relative_path: String,
+    project_name: Option<String>,
+    dependencies: Vec<String>,
+    dev_dependencies: Vec<String>,
+    requires_python: Option<String>,
+    index_url: Option<String>,
+}
+
+/// Get full parsed dependencies from the detected pyproject.toml.
+#[tauri::command]
+async fn get_pyproject_dependencies(
+    state: tauri::State<'_, Mutex<NotebookState>>,
+) -> Result<Option<PyProjectDepsJson>, String> {
+    let notebook_path = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        state.path.clone()
+    };
+
+    let Some(notebook_path) = notebook_path else {
+        return Ok(None);
+    };
+
+    let Some(pyproject_path) = pyproject::find_pyproject(&notebook_path) else {
+        return Ok(None);
+    };
+
+    let config = pyproject::parse_pyproject(&pyproject_path).map_err(|e| e.to_string())?;
+
+    let relative_path = pathdiff::diff_paths(&config.path, notebook_path.parent().unwrap_or(&notebook_path))
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| config.path.display().to_string());
+
+    Ok(Some(PyProjectDepsJson {
+        path: config.path.display().to_string(),
+        relative_path,
+        project_name: config.project_name,
+        dependencies: config.dependencies,
+        dev_dependencies: config.dev_dependencies,
+        requires_python: config.requires_python,
+        index_url: config.index_url,
+    }))
+}
+
+/// Import dependencies from pyproject.toml into notebook metadata.
+/// This makes the notebook more portable.
+#[tauri::command]
+async fn import_pyproject_dependencies(
+    state: tauri::State<'_, Mutex<NotebookState>>,
+) -> Result<(), String> {
+    let notebook_path = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        state.path.clone()
+    };
+
+    let Some(notebook_path) = notebook_path else {
+        return Err("No notebook path set".to_string());
+    };
+
+    let Some(pyproject_path) = pyproject::find_pyproject(&notebook_path) else {
+        return Err("No pyproject.toml found".to_string());
+    };
+
+    let config = pyproject::parse_pyproject(&pyproject_path).map_err(|e| e.to_string())?;
+
+    // Merge pyproject deps into notebook metadata
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+
+    let all_deps = pyproject::get_all_dependencies(&config);
+
+    let uv_value = serde_json::json!({
+        "dependencies": all_deps,
+        "requires-python": config.requires_python,
+    });
+
+    state
+        .notebook
+        .metadata
+        .additional
+        .insert("uv".to_string(), uv_value);
+    state.dirty = true;
+
+    info!(
+        "Imported {} dependencies from pyproject.toml into notebook",
+        all_deps.len()
+    );
+
+    Ok(())
+}
+
+/// Start kernel using `uv run` in the project directory with pyproject.toml.
+///
+/// This delegates environment management to uv:
+/// - uv auto-detects and uses the project's pyproject.toml
+/// - Creates/updates .venv in the project directory
+/// - Respects uv.lock if present
+/// - Adds ipykernel transiently via --with
+#[tauri::command]
+async fn start_kernel_with_pyproject(
+    app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Mutex<NotebookState>>,
+    kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
+) -> Result<(), String> {
+    let notebook_path = {
+        let state = notebook_state.lock().map_err(|e| e.to_string())?;
+        state.path.clone()
+    };
+
+    let notebook_path = notebook_path.ok_or_else(|| "No notebook path set".to_string())?;
+
+    let pyproject_path = pyproject::find_pyproject(&notebook_path)
+        .ok_or_else(|| "No pyproject.toml found".to_string())?;
+
+    // Get the project directory (parent of pyproject.toml)
+    let project_dir = pyproject_path
+        .parent()
+        .ok_or_else(|| "Invalid pyproject.toml path".to_string())?;
+
+    info!(
+        "Starting kernel with uv run in project {}",
+        project_dir.display()
+    );
+
+    let mut kernel = kernel_state.lock().await;
+    kernel
+        .start_with_uv_run(app, project_dir)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Run the notebook Tauri app.
 ///
 /// If `notebook_path` is Some, opens that file. If None, creates a new empty notebook.
@@ -883,6 +1053,11 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             start_default_conda_kernel,
             kernel_has_conda_env,
             sync_conda_dependencies,
+            // pyproject.toml discovery
+            detect_pyproject,
+            get_pyproject_dependencies,
+            import_pyproject_dependencies,
+            start_kernel_with_pyproject,
             // Debug info
             get_git_info,
         ])

@@ -1,0 +1,16 @@
+[project]
+name = "sample-project"
+version = "0.1.0"
+description = "A sample project for testing pyproject.toml detection"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0",
+    "numpy",
+    "matplotlib",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest",
+    "ruff",
+]

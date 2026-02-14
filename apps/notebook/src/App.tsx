@@ -77,6 +77,9 @@ function AppContent() {
     needsKernelRestart,
     addDependency,
     removeDependency,
+    pyprojectInfo,
+    pyprojectDeps,
+    importFromPyproject,
   } = useDependencies();
 
   // Conda Dependency management
@@ -298,6 +301,9 @@ onKernelStarted: loadCondaDependencies,
           needsKernelRestart={needsKernelRestart}
           onAdd={addDependency}
           onRemove={removeDependency}
+          pyprojectInfo={pyprojectInfo}
+          pyprojectDeps={pyprojectDeps}
+          onImportFromPyproject={importFromPyproject}
         />
       )}
       <NotebookView
