@@ -48,6 +48,7 @@ function AppContent() {
     addCell,
     deleteCell,
     save,
+    openNotebook,
     dirty,
     appendOutput,
     setExecutionCount,
@@ -226,6 +227,28 @@ onKernelStarted: loadCondaDependencies,
       unlistenPromise.then((unlisten) => unlisten());
     };
   }, [save]);
+
+  // Cmd+O to open (keyboard and native menu)
+  useEffect(() => {
+    // Listen for native menu open event
+    const unlistenPromise = listen("menu:open", () => {
+      openNotebook();
+    });
+
+    // Keep keyboard shortcut as fallback
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "o") {
+        e.preventDefault();
+        openNotebook();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, [openNotebook]);
 
   return (
     <div className="min-h-screen bg-background">

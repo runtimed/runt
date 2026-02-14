@@ -116,6 +116,17 @@ async fn save_notebook_as(
     Ok(())
 }
 
+/// Open a notebook file in a new window (spawns new process)
+#[tauri::command]
+async fn open_notebook_in_new_window(path: String) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    std::process::Command::new(exe)
+        .arg(&path)
+        .spawn()
+        .map_err(|e| format!("Failed to open notebook: {}", e))?;
+    Ok(())
+}
+
 #[tauri::command]
 async fn update_cell_source(
     cell_id: String,
@@ -840,6 +851,7 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             get_notebook_path,
             save_notebook,
             save_notebook_as,
+            open_notebook_in_new_window,
             update_cell_source,
             add_cell,
             delete_cell,
@@ -889,6 +901,12 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
                     // Spawn new process with no file argument
                     if let Ok(exe) = std::env::current_exe() {
                         let _ = std::process::Command::new(exe).spawn();
+                    }
+                }
+                crate::menu::MENU_OPEN => {
+                    // Emit event to frontend to trigger open dialog
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("menu:open", ());
                     }
                 }
                 crate::menu::MENU_SAVE => {
