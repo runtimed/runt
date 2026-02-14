@@ -19,3 +19,9 @@ Keep descriptions short and descriptive, e.g.:
 - "Adding ipywidgets support"
 
 The `.context/` directory is gitignored and used for per-worktree state that shouldn't be committed.
+
+## Contributing Guidelines
+
+See the `contributing/` directory for detailed guides:
+- `contributing/ui.md` - UI components and shadcn setup
+- `contributing/nteract-elements.md` - Working with nteract/elements registry
