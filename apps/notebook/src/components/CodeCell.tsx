@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect, useMemo } from "react";
+import { useCallback, useRef, useEffect, useMemo, useState } from "react";
 import type { KeyBinding } from "@codemirror/view";
 import { CellContainer } from "@/components/cell/CellContainer";
 import { CompactExecutionButton } from "@/components/cell/CompactExecutionButton";
@@ -12,6 +12,7 @@ import { Trash2, X } from "lucide-react";
 import { kernelCompletionExtension } from "../lib/kernel-completion";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
 import { useEditorRegistry } from "../hooks/useEditorRegistry";
+import { HistorySearchDialog } from "./HistorySearchDialog";
 import type { CodeCell as CodeCellType } from "../types";
 import type { CellPagePayload } from "../App";
 import type { MimeBundle } from "../hooks/useKernel";
@@ -89,6 +90,7 @@ export function CodeCell({
 }: CodeCellProps) {
   const editorRef = useRef<CodeMirrorEditorRef>(null);
   const { registerEditor, unregisterEditor } = useEditorRegistry();
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
 
   // Register editor with the registry for cross-cell navigation
   useEffect(() => {
@@ -148,10 +150,30 @@ export function CodeCell({
       : undefined,
   });
 
+  // Ctrl+R to open history search
+  const historyKeyBinding: KeyBinding = useMemo(
+    () => ({
+      key: "Ctrl-r",
+      run: () => {
+        setHistoryDialogOpen(true);
+        return true;
+      },
+    }),
+    []
+  );
+
+  // Handle history selection - replace cell content
+  const handleHistorySelect = useCallback(
+    (source: string) => {
+      onUpdateSource(source);
+    },
+    [onUpdateSource]
+  );
+
   // Merge navigation keybindings (navigation bindings take precedence for Shift-Enter)
   const keyMap: KeyBinding[] = useMemo(
-    () => [...navigationKeyMap],
-    [navigationKeyMap]
+    () => [...navigationKeyMap, historyKeyBinding],
+    [navigationKeyMap, historyKeyBinding]
   );
 
   const handleExecute = useCallback(() => {
@@ -179,45 +201,54 @@ export function CodeCell({
   );
 
   return (
-    <CellContainer
-      id={cell.id}
-      cellType="code"
-      isFocused={isFocused}
-      onFocus={onFocus}
-      gutterContent={gutterContent}
-      rightGutterContent={rightGutterContent}
-    >
-      {/* Editor */}
-      <div>
-        <CodeMirrorEditor
-          ref={editorRef}
-          value={cell.source}
-          language="python"
-          onValueChange={onUpdateSource}
-          keyMap={keyMap}
-          extensions={[kernelCompletionExtension]}
-          placeholder="Enter code..."
-          className="min-h-[2rem]"
-          autoFocus={isFocused}
-        />
-      </div>
-
-      {/* Page Payload (documentation from ? or ??) */}
-      {pagePayload && (
-        <div className="px-2 py-1">
-          <PagePayloadDisplay
-            data={pagePayload.data}
-            onDismiss={() => onClearPagePayload?.()}
+    <>
+      <CellContainer
+        id={cell.id}
+        cellType="code"
+        isFocused={isFocused}
+        onFocus={onFocus}
+        gutterContent={gutterContent}
+        rightGutterContent={rightGutterContent}
+      >
+        {/* Editor */}
+        <div>
+          <CodeMirrorEditor
+            ref={editorRef}
+            value={cell.source}
+            language="python"
+            onValueChange={onUpdateSource}
+            keyMap={keyMap}
+            extensions={[kernelCompletionExtension]}
+            placeholder="Enter code..."
+            className="min-h-[2rem]"
+            autoFocus={isFocused}
           />
         </div>
-      )}
 
-      {/* Outputs */}
-      {cell.outputs.length > 0 && (
-        <div className="py-2">
-          <OutputArea outputs={cell.outputs} />
-        </div>
-      )}
-    </CellContainer>
+        {/* Page Payload (documentation from ? or ??) */}
+        {pagePayload && (
+          <div className="px-2 py-1">
+            <PagePayloadDisplay
+              data={pagePayload.data}
+              onDismiss={() => onClearPagePayload?.()}
+            />
+          </div>
+        )}
+
+        {/* Outputs */}
+        {cell.outputs.length > 0 && (
+          <div className="py-2">
+            <OutputArea outputs={cell.outputs} />
+          </div>
+        )}
+      </CellContainer>
+
+      {/* History Search Dialog (Ctrl+R) */}
+      <HistorySearchDialog
+        open={historyDialogOpen}
+        onOpenChange={setHistoryDialogOpen}
+        onSelect={handleHistorySelect}
+      />
+    </>
   );
 }
