@@ -938,18 +938,22 @@ async fn import_pyproject_dependencies(
     Ok(())
 }
 
-/// Start kernel using pyproject.toml dependencies merged with notebook deps.
+/// Start kernel using `uv run` in the project directory with pyproject.toml.
+///
+/// This delegates environment management to uv:
+/// - uv auto-detects and uses the project's pyproject.toml
+/// - Creates/updates .venv in the project directory
+/// - Respects uv.lock if present
+/// - Adds ipykernel transiently via --with
 #[tauri::command]
 async fn start_kernel_with_pyproject(
     app: tauri::AppHandle,
     notebook_state: tauri::State<'_, Mutex<NotebookState>>,
     kernel_state: tauri::State<'_, tokio::sync::Mutex<NotebookKernel>>,
 ) -> Result<(), String> {
-    let (notebook_path, notebook_deps) = {
+    let notebook_path = {
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
-        let path = state.path.clone();
-        let deps = uv_env::extract_dependencies(&state.notebook.metadata);
-        (path, deps)
+        state.path.clone()
     };
 
     let notebook_path = notebook_path.ok_or_else(|| "No notebook path set".to_string())?;
@@ -957,22 +961,19 @@ async fn start_kernel_with_pyproject(
     let pyproject_path = pyproject::find_pyproject(&notebook_path)
         .ok_or_else(|| "No pyproject.toml found".to_string())?;
 
-    let config = pyproject::parse_pyproject(&pyproject_path).map_err(|e| e.to_string())?;
+    // Get the project directory (parent of pyproject.toml)
+    let project_dir = pyproject_path
+        .parent()
+        .ok_or_else(|| "Invalid pyproject.toml path".to_string())?;
 
     info!(
-        "Starting kernel with pyproject.toml at {} ({} + {} deps)",
-        config.path.display(),
-        config.dependencies.len(),
-        config.dev_dependencies.len()
+        "Starting kernel with uv run in project {}",
+        project_dir.display()
     );
-
-    let env = uv_env::prepare_environment_from_pyproject(&config, notebook_deps.as_ref())
-        .await
-        .map_err(|e| e.to_string())?;
 
     let mut kernel = kernel_state.lock().await;
     kernel
-        .start_with_env(app, env)
+        .start_with_uv_run(app, project_dir)
         .await
         .map_err(|e| e.to_string())
 }

@@ -506,19 +506,22 @@ impl NotebookKernel {
         Ok(())
     }
 
-    /// Start a kernel with a pre-prepared uv environment.
+    /// Start a kernel using `uv run` with a pyproject.toml.
     ///
-    /// This is used when the environment has already been created,
-    /// such as when using pyproject.toml dependencies.
-    pub async fn start_with_env(
+    /// This delegates environment management to uv, which will:
+    /// - Auto-detect and use the project's pyproject.toml
+    /// - Create/update .venv in the project directory
+    /// - Respect uv.lock if present
+    /// - Add ipykernel transiently via --with
+    pub async fn start_with_uv_run(
         &mut self,
         app: AppHandle,
-        env: UvEnvironment,
+        project_dir: &std::path::Path,
     ) -> Result<()> {
         // Shutdown existing kernel if any
         self.shutdown().await.ok();
 
-        info!("Starting kernel with pre-prepared environment at {:?}", env.venv_path);
+        info!("Starting kernel with uv run in project {:?}", project_dir);
 
         // Reserve ports
         let ip = std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -551,21 +554,32 @@ impl NotebookKernel {
         .await?;
 
         info!(
-            "Starting kernel at {:?} with python {:?}",
-            connection_file_path, env.python_path
+            "Starting uv run kernel at {:?} in project {:?}",
+            connection_file_path, project_dir
         );
 
-        // Spawn kernel using python from the environment
-        let process = tokio::process::Command::new(&env.python_path)
-            .args(["-m", "ipykernel_launcher", "-f"])
+        // Use `uv run` to launch the kernel - this lets uv handle the environment
+        // --with ipykernel adds it transiently without modifying pyproject.toml
+        let process = tokio::process::Command::new("uv")
+            .args([
+                "run",
+                "--directory",
+                &project_dir.to_string_lossy(),
+                "--with",
+                "ipykernel",
+                "python",
+                "-m",
+                "ipykernel_launcher",
+                "-f",
+            ])
             .arg(&connection_file_path)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()?;
 
-        // Small delay to let the kernel start
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        // Small delay to let the kernel start (uv run may need to sync first)
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
         self.session_id = Uuid::new_v4().to_string();
 
@@ -631,7 +645,7 @@ impl NotebookKernel {
         let request: JupyterMessage = KernelInfoRequest::default().into();
         shell.send(request).await?;
 
-        let reply = tokio::time::timeout(std::time::Duration::from_secs(30), shell.read()).await;
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(60), shell.read()).await;
         match reply {
             Ok(Ok(msg)) => {
                 info!("Kernel alive: got {} reply", msg.header.msg_type);
@@ -642,7 +656,7 @@ impl NotebookKernel {
             }
             Err(_) => {
                 error!("Timeout waiting for kernel_info_reply");
-                return Err(anyhow::anyhow!("Kernel did not respond within 30s"));
+                return Err(anyhow::anyhow!("Kernel did not respond within 60s"));
             }
         }
 
@@ -712,9 +726,9 @@ impl NotebookKernel {
         self.shell_reader_task = Some(shell_reader_task);
         self.shell_writer = Some(shell_writer);
         self._process = Some(process);
-        self.uv_environment = Some(env);
+        // Note: uv_environment is None - uv manages the .venv in the project
 
-        info!("Kernel started with pre-prepared environment: {}", kernel_id);
+        info!("Kernel started with uv run: {}", kernel_id);
         Ok(())
     }
 
