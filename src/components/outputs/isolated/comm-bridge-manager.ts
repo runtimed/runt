@@ -79,6 +79,9 @@ export class CommBridgeManager {
   // Flag to prevent echoing iframe updates back to iframe
   private isProcessingIframeUpdate = false;
 
+  // Track custom message subscriptions for each model
+  private customMessageUnsubscribers = new Map<string, () => void>();
+
   constructor(options: CommBridgeManagerOptions) {
     this.frame = options.frame;
     this.store = options.store;
@@ -204,6 +207,11 @@ export class CommBridgeManager {
       this.storeUnsubscribe();
       this.storeUnsubscribe = null;
     }
+    // Unsubscribe from all custom message subscriptions
+    for (const unsubscribe of this.customMessageUnsubscribers.values()) {
+      unsubscribe();
+    }
+    this.customMessageUnsubscribers.clear();
     this.messageBuffer = [];
     this.sentModels.clear();
     this.previousState.clear();
@@ -232,6 +240,8 @@ export class CommBridgeManager {
       this.sentModels.add(commId);
       // Store initial state for change detection
       this.previousState.set(commId, { ...model.state });
+      // Subscribe to custom messages for this model
+      this.subscribeToModelCustomMessages(commId);
     }
 
     if (modelArray.length > 0) {
@@ -323,6 +333,8 @@ export class CommBridgeManager {
         );
         // Store initial state for change detection
         this.previousState.set(commId, { ...model.state });
+        // Subscribe to custom messages for this model
+        this.subscribeToModelCustomMessages(commId);
       } else {
         // Existing model - check for state changes
         const previous = this.previousState.get(commId);
@@ -348,7 +360,41 @@ export class CommBridgeManager {
       if (!models.has(commId)) {
         this.sendCommClose(commId);
         this.previousState.delete(commId);
+        // Unsubscribe from custom messages
+        this.unsubscribeFromModelCustomMessages(commId);
       }
+    }
+  }
+
+  /**
+   * Subscribe to custom messages for a model and forward them to iframe.
+   * This is critical for anywidgets like quak that use custom messages for data.
+   */
+  private subscribeToModelCustomMessages(commId: string): void {
+    // Don't double-subscribe
+    if (this.customMessageUnsubscribers.has(commId)) return;
+
+    const unsubscribe = this.store.subscribeToCustomMessage(
+      commId,
+      (content, buffers) => {
+        // Convert DataView[] to ArrayBuffer[] for postMessage
+        const arrayBuffers = buffers?.map((dv) => dv.buffer);
+        // Forward custom message to iframe
+        this.sendCommMsg(commId, "custom", content, arrayBuffers);
+      }
+    );
+
+    this.customMessageUnsubscribers.set(commId, unsubscribe);
+  }
+
+  /**
+   * Unsubscribe from custom messages for a model.
+   */
+  private unsubscribeFromModelCustomMessages(commId: string): void {
+    const unsubscribe = this.customMessageUnsubscribers.get(commId);
+    if (unsubscribe) {
+      unsubscribe();
+      this.customMessageUnsubscribers.delete(commId);
     }
   }
 
