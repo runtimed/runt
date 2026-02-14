@@ -1,15 +1,19 @@
 "use client";
 
 import { Check, Copy } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+import {
+  oneDark,
+  oneLight,
+} from "react-syntax-highlighter/dist/esm/styles/prism";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { cn } from "@/lib/utils";
+import { isDarkMode } from "@/components/themes";
 
 import "katex/dist/katex.min.css";
 
@@ -44,16 +48,49 @@ function isInIframe(): boolean {
   }
 }
 
+/**
+ * Hook to detect dark mode from document state or system preference.
+ * Watches for theme changes via MutationObserver and media query.
+ */
+function useDarkMode(): boolean {
+  const [isDark, setIsDark] = useState(() =>
+    typeof window !== "undefined" ? isDarkMode() : false,
+  );
+
+  useEffect(() => {
+    setIsDark(isDarkMode());
+
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = () => setIsDark(isDarkMode());
+    mediaQuery.addEventListener("change", handleChange);
+
+    const observer = new MutationObserver(() => setIsDark(isDarkMode()));
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style", "data-theme", "data-mode"],
+    });
+
+    return () => {
+      mediaQuery.removeEventListener("change", handleChange);
+      observer.disconnect();
+    };
+  }, []);
+
+  return isDark;
+}
+
 interface CodeBlockProps {
   children: string;
   language?: string;
   enableCopy?: boolean;
+  isDark?: boolean;
 }
 
 function CodeBlock({
   children,
   language = "",
   enableCopy = true,
+  isDark = false,
 }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
 
@@ -71,14 +108,14 @@ function CodeBlock({
     <div className="group/codeblock relative">
       <SyntaxHighlighter
         language={language}
-        style={oneLight}
+        style={isDark ? oneDark : oneLight}
         PreTag="div"
         customStyle={{
           margin: 0,
           padding: "0.75rem",
           fontSize: "0.875rem",
           overflow: "auto",
-          background: "#fafafa",
+          background: isDark ? "#282c34" : "#fafafa",
           borderRadius: "0.375rem",
         }}
       >
@@ -87,7 +124,7 @@ function CodeBlock({
       {enableCopy && (
         <button
           onClick={handleCopy}
-          className="absolute top-2 right-2 z-10 rounded border border-gray-200 bg-white p-1.5 text-gray-600 opacity-0 shadow-sm transition-opacity group-hover/codeblock:opacity-100 hover:bg-gray-50 hover:text-gray-800"
+          className="absolute top-2 right-2 z-10 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1.5 text-gray-600 dark:text-gray-400 opacity-0 shadow-sm transition-opacity group-hover/codeblock:opacity-100 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200"
           title={copied ? "Copied!" : "Copy code"}
           type="button"
         >
@@ -117,6 +154,8 @@ export function MarkdownOutput({
   enableCopyCode = true,
   unsafe = false,
 }: MarkdownOutputProps) {
+  const isDark = useDarkMode();
+
   if (!content) {
     return null;
   }
@@ -152,7 +191,11 @@ export function MarkdownOutput({
 
             if (isBlockCode) {
               return (
-                <CodeBlock language={language} enableCopy={enableCopyCode}>
+                <CodeBlock
+                  language={language}
+                  enableCopy={enableCopyCode}
+                  isDark={isDark}
+                >
                   {codeContent}
                 </CodeBlock>
               );
@@ -161,7 +204,7 @@ export function MarkdownOutput({
             // Inline code
             return (
               <code
-                className="rounded bg-gray-100 px-1 py-0.5 text-sm text-gray-800"
+                className="rounded bg-gray-100 dark:bg-gray-800 px-1 py-0.5 text-sm text-gray-800 dark:text-gray-200"
                 {...props}
               >
                 {children}
@@ -174,7 +217,7 @@ export function MarkdownOutput({
             return (
               <a
                 href={href}
-                className="text-blue-600 hover:text-blue-800 hover:underline"
+                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"
                 rel="noopener noreferrer"
                 target="_blank"
                 {...props}
@@ -189,7 +232,7 @@ export function MarkdownOutput({
             return (
               <div className="my-4 overflow-x-auto">
                 <table
-                  className="min-w-full border-collapse border border-gray-300 bg-white text-sm"
+                  className="min-w-full border-collapse border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
                   {...props}
                 >
                   {children}
@@ -199,21 +242,27 @@ export function MarkdownOutput({
           },
           thead({ children, ...props }) {
             return (
-              <thead className="bg-gray-50" {...props}>
+              <thead className="bg-gray-50 dark:bg-gray-800" {...props}>
                 {children}
               </thead>
             );
           },
           tbody({ children, ...props }) {
             return (
-              <tbody className="divide-y divide-gray-200" {...props}>
+              <tbody
+                className="divide-y divide-gray-200 dark:divide-gray-700"
+                {...props}
+              >
                 {children}
               </tbody>
             );
           },
           tr({ children, ...props }) {
             return (
-              <tr className="hover:bg-gray-50" {...props}>
+              <tr
+                className="hover:bg-gray-50 dark:hover:bg-gray-800"
+                {...props}
+              >
                 {children}
               </tr>
             );
@@ -221,7 +270,7 @@ export function MarkdownOutput({
           th({ children, ...props }) {
             return (
               <th
-                className="border border-gray-300 px-3 py-2 text-left font-semibold text-gray-900"
+                className="border border-gray-300 dark:border-gray-700 px-3 py-2 text-left font-semibold text-gray-900 dark:text-gray-100"
                 {...props}
               >
                 {children}
@@ -231,7 +280,7 @@ export function MarkdownOutput({
           td({ children, ...props }) {
             return (
               <td
-                className="border border-gray-300 px-3 py-2 text-gray-700"
+                className="border border-gray-300 dark:border-gray-700 px-3 py-2 text-gray-700 dark:text-gray-300"
                 {...props}
               >
                 {children}
@@ -319,7 +368,7 @@ export function MarkdownOutput({
           blockquote({ children, ...props }) {
             return (
               <blockquote
-                className="my-4 border-l-4 border-gray-300 pl-4 italic text-gray-600"
+                className="my-4 border-l-4 border-gray-300 dark:border-gray-600 pl-4 italic text-gray-600 dark:text-gray-400"
                 {...props}
               >
                 {children}
@@ -329,7 +378,12 @@ export function MarkdownOutput({
 
           // Horizontal rule
           hr({ ...props }) {
-            return <hr className="my-6 border-t border-gray-300" {...props} />;
+            return (
+              <hr
+                className="my-6 border-t border-gray-300 dark:border-gray-600"
+                {...props}
+              />
+            );
           },
 
           // Images
