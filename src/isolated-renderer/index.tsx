@@ -11,11 +11,14 @@
 
 import { createRoot, type Root } from "react-dom/client";
 import { StrictMode, useState, useEffect, useCallback } from "react";
-import { MediaRouter, DEFAULT_PRIORITY } from "@/components/outputs/media-router";
-import {
-  AnsiErrorOutput,
-  AnsiStreamOutput,
-} from "@/components/outputs/ansi-output";
+// Import output components directly (not through MediaRouter's lazy loading)
+// This ensures all components are bundled inline for the isolated iframe
+import { AnsiOutput, AnsiErrorOutput, AnsiStreamOutput } from "@/components/outputs/ansi-output";
+import { MarkdownOutput } from "@/components/outputs/markdown-output";
+import { HtmlOutput } from "@/components/outputs/html-output";
+import { ImageOutput } from "@/components/outputs/image-output";
+import { SvgOutput } from "@/components/outputs/svg-output";
+import { JsonOutput } from "@/components/outputs/json-output";
 import type { RenderPayload } from "@/components/outputs/isolated/frame-bridge";
 
 // --- Types ---
@@ -135,9 +138,11 @@ function IsolatedRendererApp() {
 
 /**
  * Render a single output based on its MIME type.
+ * Uses direct component imports (not lazy loading) for isolated iframe compatibility.
  */
 function OutputRenderer({ payload }: { payload: RenderPayload }) {
   const { mimeType, data, metadata } = payload;
+  const content = data;
 
   // Handle stream output (plain text with potential ANSI)
   if (mimeType === "text/plain" && metadata?.streamName) {
@@ -164,18 +169,51 @@ function OutputRenderer({ payload }: { payload: RenderPayload }) {
     );
   }
 
-  // Use MediaRouter for rich outputs
-  // Wrap the single MIME type in an object for MediaRouter
-  const mediaData = { [mimeType]: data };
-  const mediaMetadata = metadata ? { [mimeType]: metadata } : undefined;
+  // Route to appropriate component based on MIME type
+  // (Direct rendering without MediaRouter's lazy loading)
 
+  // Markdown
+  if (mimeType === "text/markdown") {
+    return <MarkdownOutput content={String(content)} unsafe={true} />;
+  }
+
+  // HTML
+  if (mimeType === "text/html") {
+    return <HtmlOutput content={String(content)} unsafe={true} />;
+  }
+
+  // SVG
+  if (mimeType === "image/svg+xml") {
+    return <SvgOutput content={String(content)} />;
+  }
+
+  // Images (PNG, JPEG, GIF, WebP)
+  if (mimeType.startsWith("image/")) {
+    return (
+      <ImageOutput
+        data={content}
+        mimeType={mimeType}
+        metadata={metadata as Record<string, unknown>}
+      />
+    );
+  }
+
+  // JSON
+  if (mimeType === "application/json") {
+    const jsonData = typeof content === "string" ? JSON.parse(content) : content;
+    return <JsonOutput data={jsonData} />;
+  }
+
+  // Plain text / ANSI
+  if (mimeType === "text/plain") {
+    return <AnsiOutput text={String(content)} />;
+  }
+
+  // Fallback: render as plain text
   return (
-    <MediaRouter
-      data={mediaData}
-      metadata={mediaMetadata}
-      priority={DEFAULT_PRIORITY}
-      unsafe={true} // We're in an iframe, so unsafe rendering is OK
-    />
+    <pre style={{ whiteSpace: "pre-wrap", wordWrap: "break-word" }}>
+      {typeof content === "string" ? content : JSON.stringify(content, null, 2)}
+    </pre>
   );
 }
 
