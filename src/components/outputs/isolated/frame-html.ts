@@ -154,6 +154,8 @@ export function generateFrameHtml(options: FrameHtmlOptions = {}): string {
       const root = document.getElementById('root');
 
       // --- Message Handler ---
+      // Note: When the React renderer bundle is loaded, it sets window.__REACT_RENDERER_ACTIVE__
+      // and the inline handlers should defer to React for render/theme/clear messages.
       window.addEventListener('message', function(event) {
         // Only accept messages from our parent window
         if (event.source !== window.parent) {
@@ -173,14 +175,20 @@ export function generateFrameHtml(options: FrameHtmlOptions = {}): string {
               break;
 
             case 'render':
+              // Skip inline rendering if React renderer is active
+              if (window.__REACT_RENDERER_ACTIVE__) return;
               handleRender(payload);
               break;
 
             case 'theme':
+              // Skip inline theme handling if React renderer is active
+              if (window.__REACT_RENDERER_ACTIVE__) return;
               handleTheme(payload);
               break;
 
             case 'clear':
+              // Skip inline clear if React renderer is active
+              if (window.__REACT_RENDERER_ACTIVE__) return;
               handleClear();
               break;
 

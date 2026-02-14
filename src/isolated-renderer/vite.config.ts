@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
 /**
@@ -14,7 +15,7 @@ import path from "path";
  * It explicitly excludes Tauri dependencies (which shouldn't be imported anyway).
  */
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       "@/": path.resolve(__dirname, "..") + "/",

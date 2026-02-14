@@ -11,6 +11,10 @@
 
 import { createRoot, type Root } from "react-dom/client";
 import { StrictMode, useState, useEffect, useCallback } from "react";
+
+// Import styles (Tailwind + theme variables)
+import "./styles.css";
+
 // Import output components directly (not through MediaRouter's lazy loading)
 // This ensures all components are bundled inline for the isolated iframe
 import { AnsiOutput, AnsiErrorOutput, AnsiStreamOutput } from "@/components/outputs/ansi-output";
@@ -31,6 +35,45 @@ interface OutputEntry {
 interface RendererState {
   outputs: OutputEntry[];
   isDark: boolean;
+}
+
+// --- Theme Management ---
+
+/**
+ * Update the document theme so components can detect it via isDarkMode().
+ * Sets class and data-theme on documentElement (html tag).
+ */
+function updateDocumentTheme(isDark: boolean) {
+  const root = document.documentElement;
+
+  // Set class for Tailwind dark: variant detection
+  if (isDark) {
+    root.classList.add("dark");
+    root.classList.remove("light");
+  } else {
+    root.classList.add("light");
+    root.classList.remove("dark");
+  }
+
+  // Set data-theme for components that check this attribute
+  root.setAttribute("data-theme", isDark ? "dark" : "light");
+
+  // Update CSS variables for base styles
+  if (isDark) {
+    root.style.setProperty("--bg-primary", "#0a0a0a");
+    root.style.setProperty("--bg-secondary", "#1a1a1a");
+    root.style.setProperty("--text-primary", "#e0e0e0");
+    root.style.setProperty("--text-secondary", "#a0a0a0");
+    root.style.setProperty("--background", "#0a0a0a");
+    root.style.setProperty("--foreground", "#e0e0e0");
+  } else {
+    root.style.setProperty("--bg-primary", "#ffffff");
+    root.style.setProperty("--bg-secondary", "#f5f5f5");
+    root.style.setProperty("--text-primary", "#1a1a1a");
+    root.style.setProperty("--text-secondary", "#666666");
+    root.style.setProperty("--background", "#ffffff");
+    root.style.setProperty("--foreground", "#1a1a1a");
+  }
 }
 
 // --- Message Handling ---
@@ -100,28 +143,22 @@ function IsolatedRendererApp() {
         const themePayload = payload as { isDark?: boolean };
         if (themePayload?.isDark !== undefined) {
           setState((prev) => ({ ...prev, isDark: themePayload.isDark! }));
-          // Update CSS variables
-          const root = document.documentElement;
-          if (themePayload.isDark) {
-            root.style.setProperty("--bg-primary", "#0a0a0a");
-            root.style.setProperty("--bg-secondary", "#1a1a1a");
-            root.style.setProperty("--text-primary", "#e0e0e0");
-            root.style.setProperty("--text-secondary", "#a0a0a0");
-          } else {
-            root.style.setProperty("--bg-primary", "#ffffff");
-            root.style.setProperty("--bg-secondary", "#f5f5f5");
-            root.style.setProperty("--text-primary", "#1a1a1a");
-            root.style.setProperty("--text-secondary", "#666666");
-          }
+          // Update theme on document.documentElement so theme detection works
+          updateDocumentTheme(themePayload.isDark);
         }
         break;
       }
     }
   }, []);
 
-  // Register message handler
+  // Register message handler and notify parent when ready
   useEffect(() => {
     messageHandler = handleMessage;
+
+    // Now that the handler is registered, notify parent that renderer is ready
+    // This ensures messages won't be dropped due to race conditions
+    window.parent.postMessage({ type: "renderer_ready" }, "*");
+
     return () => {
       messageHandler = null;
     };
@@ -184,16 +221,17 @@ function OutputRenderer({ payload }: { payload: RenderPayload }) {
 
   // SVG
   if (mimeType === "image/svg+xml") {
-    return <SvgOutput content={String(content)} />;
+    return <SvgOutput data={String(content)} />;
   }
 
   // Images (PNG, JPEG, GIF, WebP)
   if (mimeType.startsWith("image/")) {
     return (
       <ImageOutput
-        data={content}
-        mimeType={mimeType}
-        metadata={metadata as Record<string, unknown>}
+        data={String(content)}
+        mediaType={mimeType as "image/png" | "image/jpeg" | "image/gif" | "image/webp"}
+        width={metadata?.width as number | undefined}
+        height={metadata?.height as number | undefined}
       />
     );
   }
@@ -206,7 +244,7 @@ function OutputRenderer({ payload }: { payload: RenderPayload }) {
 
   // Plain text / ANSI
   if (mimeType === "text/plain") {
-    return <AnsiOutput text={String(content)} />;
+    return <AnsiOutput>{String(content)}</AnsiOutput>;
   }
 
   // Fallback: render as plain text
@@ -224,9 +262,23 @@ let root: Root | null = null;
 /**
  * Initialize the renderer. Called when the bundle is eval'd in the iframe.
  */
+// Declare the global flag type for TypeScript
+declare global {
+  interface Window {
+    __REACT_RENDERER_ACTIVE__?: boolean;
+  }
+}
+
 export function init() {
+  // Signal to the inline handler that React is taking over
+  // This prevents the inline handler from processing render/theme/clear messages
+  window.__REACT_RENDERER_ACTIVE__ = true;
+
   // Set up message listener
   setupMessageListener();
+
+  // Initialize theme to dark (default) - will be updated by parent if needed
+  updateDocumentTheme(true);
 
   // Create root element if needed
   let rootEl = document.getElementById("root");
@@ -253,8 +305,8 @@ export function init() {
   });
   resizeObserver.observe(document.body);
 
-  // Notify parent that renderer is ready
-  window.parent.postMessage({ type: "renderer_ready" }, "*");
+  // Note: "renderer_ready" is sent from the React component's useEffect
+  // to ensure the message handler is registered before parent sends messages
 }
 
 // Auto-init if this is the main module being eval'd

@@ -1,0 +1,81 @@
+/**
+ * Styles for the isolated renderer.
+ * Includes Tailwind CSS and dark mode theme variables.
+ */
+
+@import "tailwindcss";
+
+/* Source paths for Tailwind to scan for class names */
+@source "../components/outputs/**/*.{ts,tsx}";
+@source "./**/*.{ts,tsx}";
+
+/* Dark mode variant */
+@custom-variant dark (&:is(.dark *, [data-theme="dark"] *));
+
+/* Theme variables matching the main app */
+:root {
+  --background: #ffffff;
+  --foreground: #1a1a1a;
+  --muted: #f5f5f5;
+  --muted-foreground: #666666;
+  --border: #e0e0e0;
+  --ring: #3b82f6;
+  --radius: 0.375rem;
+}
+
+.dark,
+[data-theme="dark"] {
+  --background: #0a0a0a;
+  --foreground: #e0e0e0;
+  --muted: #1a1a1a;
+  --muted-foreground: #a0a0a0;
+  --border: #333333;
+  --ring: #3b82f6;
+}
+
+/* Base styles */
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+body {
+  padding: 8px;
+}
+
+/* Code font */
+pre, code {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* Output item spacing */
+.output-item {
+  margin-bottom: 8px;
+}
+
+/* Ensure images don't overflow */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Links */
+a {
+  color: #3b82f6;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Error styling */
+.error pre {
+  color: #ef4444;
+  background: #1a1010;
+}
