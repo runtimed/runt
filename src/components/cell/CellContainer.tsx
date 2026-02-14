@@ -1,43 +1,24 @@
 import { forwardRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { type GutterColorConfig, getGutterColors } from "./gutter-colors";
 
 interface CellContainerProps {
   id: string;
-  cellType?: "code" | "markdown";
+  cellType: string;
   isFocused?: boolean;
   onFocus?: () => void;
   children: ReactNode;
-  /** Content to render in the gutter (e.g., play button) */
+  /** Content to render in the left gutter action area (e.g., play button, execution count) */
   gutterContent?: ReactNode;
+  /** Content to render in the right margin (e.g., cell controls, kebab menu) */
+  rightGutterContent?: ReactNode;
+  /** Custom color configuration for cell types not in defaults */
+  customGutterColors?: Record<string, GutterColorConfig>;
   onDragStart?: (e: React.DragEvent) => void;
   onDragOver?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
   className?: string;
 }
-
-const getGutterColor = (cellType?: "code" | "markdown", isFocused?: boolean) => {
-  switch (cellType) {
-    case "markdown":
-      return isFocused
-        ? "bg-amber-400 dark:bg-amber-500"
-        : "bg-amber-200 dark:bg-amber-700";
-    case "code":
-    default:
-      return isFocused
-        ? "bg-gray-400 dark:bg-gray-500"
-        : "bg-gray-200 dark:bg-gray-700";
-  }
-};
-
-const getFocusBgColor = (cellType?: "code" | "markdown") => {
-  switch (cellType) {
-    case "markdown":
-      return "bg-amber-50/50 dark:bg-amber-900/20";
-    case "code":
-    default:
-      return "bg-gray-50/50 dark:bg-gray-800/30";
-  }
-};
 
 export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
   (
@@ -48,6 +29,8 @@ export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
       onFocus,
       children,
       gutterContent,
+      rightGutterContent,
+      customGutterColors,
       onDragStart,
       onDragOver,
       onDrop,
@@ -55,17 +38,21 @@ export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
     },
     ref,
   ) => {
-    const gutterColor = getGutterColor(cellType, isFocused);
-    const focusBgColor = getFocusBgColor(cellType);
+    const colors = getGutterColors(cellType, customGutterColors);
+    const ribbonColor = isFocused
+      ? colors.ribbon.focused
+      : colors.ribbon.default;
+    const bgColor = isFocused ? colors.background.focused : undefined;
 
     return (
       <div
         ref={ref}
         data-slot="cell-container"
         data-cell-id={id}
+        data-cell-type={cellType}
         className={cn(
           "cell-container group flex transition-colors duration-150",
-          isFocused && focusBgColor,
+          bgColor,
           className,
         )}
         onMouseDown={onFocus}
@@ -74,24 +61,35 @@ export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
         onDragOver={onDragOver}
         onDrop={onDrop}
       >
-        {/* Gutter area: action button + thin ribbon */}
-        <div className="flex-shrink-0 flex">
-          {/* Action button area (play button for code cells) */}
-          <div className="w-6 flex items-start justify-center pt-1.5">
+        {/* Gutter area: action content + thin ribbon */}
+        <div className="flex flex-shrink-0">
+          {/* Action area - pt-3 matches content padding */}
+          <div className="flex w-10 flex-col items-end justify-start gap-0.5 pr-1 pt-3">
             {gutterContent}
           </div>
-          {/* Thin ribbon */}
+          {/* Thin ribbon - self-stretch ensures it fills full height */}
           <div
             className={cn(
-              "w-1 transition-colors duration-150",
-              gutterColor,
+              "w-1 self-stretch transition-colors duration-150",
+              ribbonColor,
             )}
           />
         </div>
-        {/* Cell content */}
-        <div className="flex-1 min-w-0">
-          {children}
-        </div>
+        {/* Cell content - more left padding for breathing room after ribbon */}
+        <div className="min-w-0 flex-1 py-3 pl-5 pr-3">{children}</div>
+        {/* Right margin - pt-3 aligns with left gutter, appears on hover/focus */}
+        {rightGutterContent && (
+          <div
+            className={cn(
+              "flex w-10 flex-shrink-0 flex-col items-center gap-1 pt-3",
+              "opacity-100 transition-opacity duration-150",
+              "sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100",
+              isFocused && "sm:opacity-100",
+            )}
+          >
+            {rightGutterContent}
+          </div>
+        )}
       </div>
     );
   },

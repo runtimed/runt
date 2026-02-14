@@ -109,7 +109,7 @@ export function MarkdownCell({
     >
       {editing ? (
         <>
-          <div className="flex items-center gap-1 px-2 py-1">
+          <div className="flex items-center gap-1 py-1">
             <span className="text-xs text-muted-foreground font-mono">md</span>
             <div className="flex-1" />
             <div className="cell-controls opacity-0 group-hover:opacity-100 transition-opacity">
@@ -123,7 +123,7 @@ export function MarkdownCell({
               </button>
             </div>
           </div>
-          <div className="px-2">
+          <div>
             <CodeMirrorEditor
               ref={editorRef}
               value={cell.source}
@@ -139,7 +139,7 @@ export function MarkdownCell({
         </>
       ) : (
         <div
-          className="px-2 py-2 prose prose-sm max-w-none cursor-text relative group/md"
+          className="py-2 prose prose-sm max-w-none cursor-text relative group/md"
           onDoubleClick={handleDoubleClick}
         >
           {cell.source ? (
