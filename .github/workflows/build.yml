@@ -106,6 +106,23 @@ jobs:
         run: cd crates/notebook && cargo tauri build --ci --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: Run E2E security tests
-        run: xvfb-run --auto-servernum pnpm test:e2e
+        run: |
+          # Start Xvfb
+          Xvfb :99 -screen 0 1920x1080x24 &
+          export DISPLAY=:99
+          sleep 2
+
+          # Start tauri-driver in background
+          tauri-driver --port 4444 &
+          DRIVER_PID=$!
+          sleep 3
+
+          # Run tests
+          pnpm test:e2e || TEST_EXIT=$?
+
+          # Cleanup
+          kill $DRIVER_PID 2>/dev/null || true
+
+          exit ${TEST_EXIT:-0}
         env:
           TAURI_APP_PATH: ./target/release/notebook
