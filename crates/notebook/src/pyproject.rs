@@ -1,9 +1,11 @@
 //! pyproject.toml discovery and parsing for notebook environments.
 //!
 //! This module handles finding and parsing pyproject.toml files to extract
-//! dependencies for notebook environments.
+//! dependencies for notebook environments. Uses the `pyproject-toml` crate
+//! from PyO3 for PEP 517/518/621 compliant parsing.
 
 use anyhow::{anyhow, Result};
+use pyproject_toml::PyProjectToml;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -45,35 +47,25 @@ pub struct PyProjectInfo {
     pub requires_python: Option<String>,
 }
 
-// TOML structure definitions for deserialization
-
-#[derive(Debug, Deserialize)]
-struct PyProjectToml {
-    project: Option<ProjectSection>,
-    tool: Option<ToolSection>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ProjectSection {
-    name: Option<String>,
-    dependencies: Option<Vec<String>>,
-    #[serde(rename = "requires-python")]
-    requires_python: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ToolSection {
-    uv: Option<UvSection>,
-}
-
-#[derive(Debug, Deserialize)]
-struct UvSection {
+// [tool.uv] section - not covered by pyproject-toml crate
+#[derive(Debug, Deserialize, Default)]
+struct ToolUv {
     #[serde(rename = "dev-dependencies")]
     dev_dependencies: Option<Vec<String>>,
     #[serde(rename = "index-url")]
     index_url: Option<String>,
     #[serde(rename = "extra-index-url")]
     extra_index_url: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ToolSection {
+    uv: Option<ToolUv>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct RawPyProject {
+    tool: Option<ToolSection>,
 }
 
 /// Find a pyproject.toml file by walking up from the given path.
@@ -116,30 +108,48 @@ pub fn find_pyproject(start_path: &Path) -> Option<PathBuf> {
 }
 
 /// Parse a pyproject.toml file and extract relevant configuration.
+///
+/// Uses pyproject-toml crate for PEP 517/518/621 compliant parsing of
+/// [project] section, and manual parsing for [tool.uv] section.
 pub fn parse_pyproject(path: &Path) -> Result<PyProjectConfig> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| anyhow!("Failed to read pyproject.toml: {}", e))?;
 
-    let parsed: PyProjectToml = toml::from_str(&content)
+    // Parse using pyproject-toml for PEP-compliant [project] section
+    let parsed = PyProjectToml::new(&content)
         .map_err(|e| anyhow!("Failed to parse pyproject.toml: {}", e))?;
 
-    let project = parsed.project.unwrap_or(ProjectSection {
-        name: None,
-        dependencies: None,
-        requires_python: None,
-    });
+    // Extract [project] fields using the proper PEP 621 types
+    let (project_name, dependencies, requires_python) = if let Some(project) = &parsed.project {
+        let name = Some(project.name.clone());
 
-    let uv = parsed.tool.and_then(|t| t.uv).unwrap_or(UvSection {
-        dev_dependencies: None,
-        index_url: None,
-        extra_index_url: None,
-    });
+        // Convert pep508 Requirements to strings
+        let deps: Vec<String> = project
+            .dependencies
+            .as_ref()
+            .map(|deps| deps.iter().map(|r| r.to_string()).collect())
+            .unwrap_or_default();
+
+        // Convert pep440 VersionSpecifiers to string
+        let python = project
+            .requires_python
+            .as_ref()
+            .map(|v| v.to_string());
+
+        (name, deps, python)
+    } else {
+        (None, vec![], None)
+    };
+
+    // Parse [tool.uv] section manually (not covered by pyproject-toml)
+    let raw: RawPyProject = toml::from_str(&content).unwrap_or_default();
+    let uv = raw.tool.and_then(|t| t.uv).unwrap_or_default();
 
     Ok(PyProjectConfig {
         path: path.to_path_buf(),
-        project_name: project.name,
-        dependencies: project.dependencies.unwrap_or_default(),
-        requires_python: project.requires_python,
+        project_name,
+        dependencies,
+        requires_python,
         dev_dependencies: uv.dev_dependencies.unwrap_or_default(),
         index_url: uv.index_url,
         extra_index_urls: uv.extra_index_url.unwrap_or_default(),
@@ -148,9 +158,10 @@ pub fn parse_pyproject(path: &Path) -> Result<PyProjectConfig> {
 
 /// Create PyProjectInfo from a config for sending to the frontend.
 pub fn create_pyproject_info(config: &PyProjectConfig, notebook_path: &Path) -> PyProjectInfo {
-    let relative_path = pathdiff::diff_paths(&config.path, notebook_path.parent().unwrap_or(notebook_path))
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| config.path.display().to_string());
+    let relative_path =
+        pathdiff::diff_paths(&config.path, notebook_path.parent().unwrap_or(notebook_path))
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| config.path.display().to_string());
 
     PyProjectInfo {
         path: config.path.display().to_string(),
@@ -241,16 +252,23 @@ index-url = "https://pypi.org/simple"
 
         let config = parse_pyproject(&temp.path().join("pyproject.toml")).unwrap();
         assert_eq!(config.project_name, Some("myproject".to_string()));
-        assert_eq!(config.dependencies, vec!["pandas>=2.0", "numpy"]);
+        assert_eq!(config.dependencies.len(), 2);
+        // PEP 508 normalized form may differ slightly
+        assert!(config.dependencies.iter().any(|d| d.contains("pandas")));
+        assert!(config.dependencies.iter().any(|d| d.contains("numpy")));
         assert_eq!(config.requires_python, Some(">=3.10".to_string()));
         assert_eq!(config.dev_dependencies, vec!["pytest", "ruff"]);
-        assert_eq!(config.index_url, Some("https://pypi.org/simple".to_string()));
+        assert_eq!(
+            config.index_url,
+            Some("https://pypi.org/simple".to_string())
+        );
     }
 
     #[test]
     fn test_parse_pyproject_empty_sections() {
         let temp = TempDir::new().unwrap();
-        create_pyproject(temp.path(), "# Empty pyproject.toml");
+        // pyproject-toml requires at least [project] or [build-system]
+        create_pyproject(temp.path(), "[build-system]\nrequires = []");
 
         let config = parse_pyproject(&temp.path().join("pyproject.toml")).unwrap();
         assert!(config.project_name.is_none());

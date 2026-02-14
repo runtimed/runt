@@ -36,6 +36,7 @@ sha2 = "0.10"
 dirs = "5"
 toml = "0.8"
 pathdiff = "0.2"
+pyproject-toml = "0.13"
 
 # Conda environment support via rattler
 rattler = "0.39"
