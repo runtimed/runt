@@ -78,6 +78,16 @@ function AppContent() {
   // Track pending kernel start that was blocked by trust dialog
   const pendingKernelStartRef = useRef(false);
 
+  // Notebook runtime type (python or deno)
+  const [runtime, setRuntime] = useState<"python" | "deno">("python");
+
+  // Load runtime from notebook metadata on mount
+  useEffect(() => {
+    invoke<string>("get_notebook_runtime").then((r) => {
+      setRuntime(r as "python" | "deno");
+    });
+  }, []);
+
   // Page payload state: maps cell_id -> payload (transient, not saved)
   const [pagePayloads, setPagePayloads] = useState<Map<string, CellPagePayload>>(
     new Map()
@@ -325,6 +335,7 @@ onKernelStarted: loadCondaDependencies,
         hasDependencies={hasDependencies}
         theme={theme}
         envProgress={envProgress.isActive ? envProgress : null}
+        runtime={runtime}
         onThemeChange={setTheme}
         onSave={save}
         onStartKernel={handleStartKernel}

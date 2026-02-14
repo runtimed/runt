@@ -1167,6 +1167,285 @@ impl NotebookKernel {
         Ok(())
     }
 
+    /// Start a Deno kernel.
+    ///
+    /// Uses the system `deno jupyter` command to launch a Deno/TypeScript kernel.
+    /// Optionally accepts permissions and a workspace directory (for deno.json detection).
+    pub async fn start_with_deno(
+        &mut self,
+        app: AppHandle,
+        permissions: &[String],
+        workspace_dir: Option<&std::path::Path>,
+    ) -> Result<()> {
+        // Shutdown existing kernel if any
+        self.shutdown().await.ok();
+
+        info!("Starting Deno kernel with permissions: {:?}", permissions);
+
+        // Reserve ports
+        let ip = std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+        let ports = runtimelib::peek_ports(ip, 5).await?;
+
+        let connection_info = ConnectionInfo {
+            transport: jupyter_protocol::connection_info::Transport::TCP,
+            ip: ip.to_string(),
+            stdin_port: ports[0],
+            control_port: ports[1],
+            hb_port: ports[2],
+            shell_port: ports[3],
+            iopub_port: ports[4],
+            signature_scheme: "hmac-sha256".to_string(),
+            key: Uuid::new_v4().to_string(),
+            kernel_name: Some("deno".to_string()),
+        };
+
+        let runtime_dir = runtimelib::dirs::runtime_dir();
+        tokio::fs::create_dir_all(&runtime_dir).await?;
+
+        let kernel_id: String =
+            petname::petname(2, "-").unwrap_or_else(|| Uuid::new_v4().to_string());
+        let connection_file_path = runtime_dir.join(format!("runt-kernel-{}.json", kernel_id));
+
+        tokio::fs::write(
+            &connection_file_path,
+            serde_json::to_string_pretty(&connection_info)?,
+        )
+        .await?;
+
+        info!(
+            "Starting Deno kernel at {:?}",
+            connection_file_path
+        );
+
+        // Build the deno command
+        let mut cmd = tokio::process::Command::new("deno");
+        cmd.arg("jupyter")
+            .arg("--kernel")
+            .arg("--conn")
+            .arg(&connection_file_path);
+
+        // Add any permissions
+        for perm in permissions {
+            cmd.arg(perm);
+        }
+
+        // Set working directory if specified (e.g., for deno.json discovery)
+        if let Some(dir) = workspace_dir {
+            cmd.current_dir(dir);
+        }
+
+        let process = cmd
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()?;
+
+        // Give Deno time to start
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        self.session_id = Uuid::new_v4().to_string();
+
+        // Create iopub connection and spawn listener
+        let mut iopub = runtimelib::create_client_iopub_connection(
+            &connection_info,
+            "",
+            &self.session_id,
+        )
+        .await?;
+
+        let app_handle = app.clone();
+        let cell_id_map = self.cell_id_map.clone();
+        let queue_tx = self.queue_tx.clone();
+        let iopub_task = tokio::spawn(async move {
+            loop {
+                match iopub.read().await {
+                    Ok(message) => {
+                        debug!(
+                            "iopub: type={} parent_msg_id={:?}",
+                            message.header.msg_type,
+                            message.parent_header.as_ref().map(|h| &h.msg_id)
+                        );
+
+                        // Look up cell_id from the msg_id → cell_id map
+                        let cell_id = message
+                            .parent_header
+                            .as_ref()
+                            .and_then(|h| cell_id_map.lock().ok()?.get(&h.msg_id).cloned());
+
+                        // Check for status: idle to signal execution completion
+                        if let JupyterMessageContent::Status(ref status) = message.content {
+                            if status.execution_state == jupyter_protocol::ExecutionState::Idle {
+                                if let Some(ref cid) = cell_id {
+                                    if let Some(ref tx) = queue_tx {
+                                        let _ = tx.try_send(QueueCommand::ExecutionDone {
+                                            cell_id: cid.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+
+                        let tauri_msg = TauriJupyterMessage {
+                            header: message.header,
+                            parent_header: message.parent_header,
+                            metadata: message.metadata,
+                            content: message.content,
+                            buffers: message.buffers,
+                            channel: message.channel,
+                            cell_id,
+                        };
+
+                        if let Err(e) = app_handle.emit("kernel:iopub", &tauri_msg) {
+                            error!("Failed to emit kernel:iopub: {}", e);
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!("iopub read error: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Create persistent shell connection
+        let identity = runtimelib::peer_identity_for_session(&self.session_id)?;
+        let mut shell = runtimelib::create_client_shell_connection_with_identity(
+            &connection_info,
+            &self.session_id,
+            identity,
+        )
+        .await?;
+
+        // Verify kernel is alive with kernel_info handshake
+        let request: JupyterMessage = KernelInfoRequest::default().into();
+        shell.send(request).await?;
+
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(30), shell.read()).await;
+        match reply {
+            Ok(Ok(msg)) => {
+                info!("Deno kernel alive: got {} reply", msg.header.msg_type);
+            }
+            Ok(Err(e)) => {
+                error!("Error reading kernel_info_reply: {}", e);
+                return Err(anyhow::anyhow!("Deno kernel did not respond: {}", e));
+            }
+            Err(_) => {
+                error!("Timeout waiting for kernel_info_reply");
+                return Err(anyhow::anyhow!("Deno kernel did not respond within 30s"));
+            }
+        }
+
+        // Split shell into persistent writer + reader
+        let (shell_writer, mut shell_reader) = shell.split();
+
+        let pending = self.pending_completions.clone();
+        let pending_hist = self.pending_history.clone();
+        let shell_app = app.clone();
+        let shell_cell_id_map = self.cell_id_map.clone();
+        let shell_reader_task = tokio::spawn(async move {
+            loop {
+                match shell_reader.read().await {
+                    Ok(msg) => {
+                        let parent_msg_id = msg.parent_header.as_ref().map(|h| h.msg_id.clone());
+
+                        match msg.content {
+                            JupyterMessageContent::CompleteReply(reply) => {
+                                if let Some(ref msg_id) = parent_msg_id {
+                                    if let Some(sender) = pending.lock().unwrap().remove(msg_id) {
+                                        let _ = sender.send(CompletionResult {
+                                            matches: reply.matches,
+                                            cursor_start: reply.cursor_start,
+                                            cursor_end: reply.cursor_end,
+                                        });
+                                    }
+                                }
+                            }
+                            JupyterMessageContent::HistoryReply(reply) => {
+                                if let Some(ref msg_id) = parent_msg_id {
+                                    if let Some(sender) =
+                                        pending_hist.lock().unwrap().remove(msg_id)
+                                    {
+                                        let entries = reply
+                                            .history
+                                            .into_iter()
+                                            .map(|entry| match entry {
+                                                jupyter_protocol::HistoryEntry::Input(
+                                                    session,
+                                                    line,
+                                                    source,
+                                                ) => HistoryEntryData {
+                                                    session,
+                                                    line,
+                                                    source,
+                                                },
+                                                jupyter_protocol::HistoryEntry::InputOutput(
+                                                    session,
+                                                    line,
+                                                    (source, _),
+                                                ) => HistoryEntryData {
+                                                    session,
+                                                    line,
+                                                    source,
+                                                },
+                                            })
+                                            .collect();
+                                        let _ = sender.send(HistoryResult { entries });
+                                    }
+                                }
+                            }
+                            JupyterMessageContent::ExecuteReply(ref reply) => {
+                                // Handle page payloads (for inspect/help features)
+                                if !reply.payload.is_empty() {
+                                    if let Some(ref msg_id) = parent_msg_id {
+                                        if let Some(cell_id) =
+                                            shell_cell_id_map.lock().ok().and_then(|map| {
+                                                map.get(msg_id).cloned()
+                                            })
+                                        {
+                                            for p in &reply.payload {
+                                                if let Payload::Page { data, start } = p {
+                                                    let event = PagePayloadEvent {
+                                                        cell_id: cell_id.clone(),
+                                                        data: data.clone(),
+                                                        start: *start,
+                                                    };
+                                                    if let Err(e) =
+                                                        shell_app.emit("kernel:page_payload", &event)
+                                                    {
+                                                        error!("Failed to emit page_payload: {}", e);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {
+                                debug!("shell reply: type={}", msg.header.msg_type);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("shell read error: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        self.connection_info = Some(connection_info);
+        self.connection_file = Some(connection_file_path);
+        self.iopub_task = Some(iopub_task);
+        self.shell_reader_task = Some(shell_reader_task);
+        self.shell_writer = Some(shell_writer);
+        self._process = Some(process);
+        // Note: No uv_environment or conda_environment for Deno
+
+        info!("Deno kernel started: {}", kernel_id);
+        Ok(())
+    }
+
     /// Execute code and return the msg_id. Registers the cell_id mapping
     /// before sending so the iopub listener can tag responses.
     pub async fn execute(&mut self, code: &str, cell_id: &str) -> Result<String> {

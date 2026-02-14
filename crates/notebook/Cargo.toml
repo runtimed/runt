@@ -16,6 +16,7 @@ name = "notebook"
 path = "src/main.rs"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 tauri = { version = "2", features = ["devtools"] }
 tauri-plugin-dialog = "2"
 serde = { workspace = true }

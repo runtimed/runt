@@ -10,12 +10,58 @@ import type { ThemeMode } from "@/hooks/useTheme";
 import type { KernelspecInfo } from "../types";
 import type { EnvProgressState } from "../hooks/useEnvProgress";
 
+/** Notebook runtime type */
+export type Runtime = "python" | "deno";
+
+/** Deno logo icon (from tabler icons) */
+function DenoIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" />
+      <path d="M13.47 20.882l-1.47 -5.882c-2.649 -.088 -5 -1.624 -5 -3.5c0 -1.933 2.239 -3.5 5 -3.5s4 1 5 3c.024 .048 .69 2.215 2 6.5" />
+      <path d="M12 11h.01" />
+    </svg>
+  );
+}
+
+/** Python logo icon (from tabler icons) */
+function PythonIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M12 9h-7a2 2 0 0 0 -2 2v4a2 2 0 0 0 2 2h3" />
+      <path d="M12 15h7a2 2 0 0 0 2 -2v-4a2 2 0 0 0 -2 -2h-3" />
+      <path d="M8 9v-4a2 2 0 0 1 2 -2h4a2 2 0 0 1 2 2v5a2 2 0 0 1 -2 2h-4a2 2 0 0 0 -2 2v5a2 2 0 0 0 2 2h4a2 2 0 0 0 2 -2v-4" />
+      <path d="M11 6l0 .01" />
+      <path d="M13 18l0 .01" />
+    </svg>
+  );
+}
+
 interface NotebookToolbarProps {
   kernelStatus: string;
   dirty: boolean;
   hasDependencies: boolean;
   theme: ThemeMode;
   envProgress: EnvProgressState | null;
+  runtime?: Runtime;
   onThemeChange: (theme: ThemeMode) => void;
   onSave: () => void;
   onStartKernel: (name: string) => void;
@@ -38,6 +84,7 @@ export function NotebookToolbar({
   hasDependencies,
   theme,
   envProgress,
+  runtime = "python",
   onThemeChange,
   onSave,
   onStartKernel,
@@ -162,6 +209,29 @@ export function NotebookToolbar({
               </button>
             </>
           )}
+
+          {/* Runtime badge */}
+          <div
+            className={cn(
+              "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
+              runtime === "deno"
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+            )}
+            title={runtime === "deno" ? "Deno/TypeScript notebook" : "Python notebook"}
+          >
+            {runtime === "deno" ? (
+              <>
+                <DenoIcon className="h-3 w-3" />
+                <span>Deno</span>
+              </>
+            ) : (
+              <>
+                <PythonIcon className="h-3 w-3" />
+                <span>Python</span>
+              </>
+            )}
+          </div>
 
           {/* Kernel status */}
           <div className="flex items-center gap-1.5">

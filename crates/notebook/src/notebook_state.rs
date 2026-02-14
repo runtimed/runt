@@ -1,3 +1,4 @@
+use crate::runtime::Runtime;
 use nbformat::v4::{Cell, CellId, CellMetadata, Notebook, Output};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -118,12 +119,88 @@ impl NotebookState {
         }
     }
 
+    /// Create a new empty notebook with a specific runtime
+    pub fn new_empty_with_runtime(runtime: Runtime) -> Self {
+        let env_id = Uuid::new_v4().to_string();
+        let mut additional = HashMap::new();
+
+        // Set runtime-specific metadata
+        match runtime {
+            Runtime::Python => {
+                // Default Python setup with uv
+                additional.insert(
+                    "uv".to_string(),
+                    serde_json::json!({
+                        "dependencies": Vec::<String>::new(),
+                    }),
+                );
+                additional.insert(
+                    "runt".to_string(),
+                    serde_json::json!({
+                        "env_id": env_id,
+                        "runtime": "python",
+                    }),
+                );
+            }
+            Runtime::Deno => {
+                // Deno setup with default permissions
+                additional.insert(
+                    "deno".to_string(),
+                    serde_json::json!({
+                        "permissions": Vec::<String>::new(),
+                    }),
+                );
+                additional.insert(
+                    "runt".to_string(),
+                    serde_json::json!({
+                        "env_id": env_id,
+                        "runtime": "deno",
+                    }),
+                );
+            }
+        }
+
+        NotebookState {
+            notebook: Notebook {
+                metadata: nbformat::v4::Metadata {
+                    kernelspec: None,
+                    language_info: None,
+                    authors: None,
+                    additional,
+                },
+                nbformat: 4,
+                nbformat_minor: 5,
+                cells: vec![Cell::Code {
+                    id: CellId::from(Uuid::new_v4()),
+                    metadata: empty_cell_metadata(),
+                    execution_count: None,
+                    source: Vec::new(),
+                    outputs: Vec::new(),
+                }],
+            },
+            path: None,
+            dirty: false,
+        }
+    }
+
     pub fn from_notebook(notebook: Notebook, path: PathBuf) -> Self {
         NotebookState {
             notebook,
             path: Some(path),
             dirty: false,
         }
+    }
+
+    /// Get the runtime type from notebook metadata
+    pub fn get_runtime(&self) -> Runtime {
+        self.notebook
+            .metadata
+            .additional
+            .get("runt")
+            .and_then(|v| v.get("runtime"))
+            .and_then(|r| r.as_str())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(Runtime::Python)
     }
 
     pub fn cells_for_frontend(&self) -> Vec<FrontendCell> {

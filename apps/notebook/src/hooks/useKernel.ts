@@ -34,6 +34,15 @@ export interface PyProjectInfo {
   requires_python: string | null;
 }
 
+/** Info about a detected deno.json/deno.jsonc */
+export interface DenoConfigInfo {
+  path: string;
+  relative_path: string;
+  name: string | null;
+  has_imports: boolean;
+  has_tasks: boolean;
+}
+
 /**
  * Decode base64-encoded buffer strings into ArrayBuffers.
  * The Rust side serializes Vec<Bytes> as base64 strings.
@@ -296,11 +305,32 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
     }
   }, []);
 
+  const startKernelWithDeno = useCallback(async () => {
+    setKernelStatus("starting");
+    try {
+      console.log("[kernel] starting Deno kernel");
+      await invoke("start_kernel_with_deno");
+      console.log("[kernel] start_kernel_with_deno succeeded");
+      setKernelStatus("idle");
+      callbacksRef.current.onKernelStarted?.();
+    } catch (e) {
+      console.error("start_kernel_with_deno failed:", e);
+      setKernelStatus("error");
+    }
+  }, []);
+
   const ensureKernelStarted = useCallback(
-    async (opts?: { useUv?: boolean; useConda?: boolean; usePyproject?: boolean }) => {
+    async (opts?: { useUv?: boolean; useConda?: boolean; usePyproject?: boolean; useDeno?: boolean }) => {
       if (startingRef.current) return;
       startingRef.current = true;
       try {
+        // If useDeno is explicitly requested, use Deno kernel
+        if (opts?.useDeno) {
+          console.log("[kernel] useDeno explicitly requested");
+          await startKernelWithDeno();
+          return;
+        }
+
         // If useConda is explicitly requested, use conda-managed kernel
         if (opts?.useConda) {
           console.log("[kernel] useConda explicitly requested");
@@ -321,6 +351,27 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
           await startKernelWithPyproject();
           return;
         }
+
+        // Check notebook runtime from metadata - Deno notebooks should use Deno kernel
+        const runtime = await invoke<string>("get_notebook_runtime");
+        console.log("[kernel] notebook runtime:", runtime);
+
+        if (runtime === "deno") {
+          // Check if Deno is available
+          const denoAvailable = await invoke<boolean>("check_deno_available");
+          if (denoAvailable) {
+            console.log("[kernel] starting Deno kernel for deno notebook");
+            await startKernelWithDeno();
+            return;
+          } else {
+            console.warn("[kernel] Deno not available, notebook requires Deno runtime");
+            setKernelStatus("error");
+            // TODO: Show install prompt
+            return;
+          }
+        }
+
+        // Python notebooks - existing logic follows
 
         // Check if notebook has conda dependencies (priority over uv)
         const condaDeps = await invoke<{ dependencies: string[] } | null>(
@@ -366,7 +417,7 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
         startingRef.current = false;
       }
     },
-    [startKernelWithUv, startKernelWithConda, startKernelWithPyproject, startDefaultKernel]
+    [startKernelWithUv, startKernelWithConda, startKernelWithPyproject, startKernelWithDeno, startDefaultKernel]
   );
 
   const shutdownKernel = useCallback(async () => {
@@ -394,6 +445,7 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
     startKernelWithUv,
     startKernelWithConda,
     startKernelWithPyproject,
+    startKernelWithDeno,
     startDefaultKernel,
     startDefaultUvKernel,
     startDefaultCondaKernel,

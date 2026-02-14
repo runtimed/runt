@@ -3097,6 +3097,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "chrono",
+ "clap",
  "dirs 5.0.1",
  "env_logger",
  "futures",
