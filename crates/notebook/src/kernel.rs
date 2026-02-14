@@ -1,4 +1,5 @@
 use crate::conda_env::{CondaDependencies, CondaEnvironment};
+use crate::execution_queue::QueueCommand;
 use crate::uv_env::{NotebookDependencies, UvEnvironment};
 use anyhow::Result;
 use bytes::Bytes;
@@ -16,6 +17,7 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex as StdMutex};
 use tauri::{AppHandle, Emitter};
 use tauri_jupyter::{serialize_buffers, RawJupyterMessage};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 /// Serializable Jupyter message for sending to the frontend via Tauri events.
@@ -68,6 +70,8 @@ pub struct NotebookKernel {
     uv_environment: Option<UvEnvironment>,
     /// Conda-managed environment (if using inline conda dependencies)
     conda_environment: Option<CondaEnvironment>,
+    /// Optional sender to notify execution queue when a cell finishes
+    queue_tx: Option<mpsc::Sender<QueueCommand>>,
 }
 
 impl Default for NotebookKernel {
@@ -84,7 +88,15 @@ impl Default for NotebookKernel {
             pending_completions: Arc::new(StdMutex::new(HashMap::new())),
             uv_environment: None,
             conda_environment: None,
+            queue_tx: None,
         }
+    }
+}
+
+impl NotebookKernel {
+    /// Set the queue command sender for notifying execution completion
+    pub fn set_queue_tx(&mut self, tx: mpsc::Sender<QueueCommand>) {
+        self.queue_tx = Some(tx);
     }
 }
 
@@ -151,6 +163,7 @@ impl NotebookKernel {
 
         let app_handle = app.clone();
         let cell_id_map = self.cell_id_map.clone();
+        let queue_tx = self.queue_tx.clone();
         let iopub_task = tokio::spawn(async move {
             loop {
                 match iopub.read().await {
@@ -166,6 +179,19 @@ impl NotebookKernel {
                             .parent_header
                             .as_ref()
                             .and_then(|h| cell_id_map.lock().ok()?.get(&h.msg_id).cloned());
+
+                        // Check for status: idle to signal execution completion
+                        if let JupyterMessageContent::Status(ref status) = message.content {
+                            if status.execution_state == jupyter_protocol::ExecutionState::Idle {
+                                if let Some(ref cid) = cell_id {
+                                    if let Some(ref tx) = queue_tx {
+                                        let _ = tx.try_send(QueueCommand::ExecutionDone {
+                                            cell_id: cid.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
 
                         let tauri_msg = TauriJupyterMessage {
                             header: message.header,
@@ -367,6 +393,7 @@ impl NotebookKernel {
 
         let app_handle = app.clone();
         let cell_id_map = self.cell_id_map.clone();
+        let queue_tx = self.queue_tx.clone();
         let iopub_task = tokio::spawn(async move {
             loop {
                 match iopub.read().await {
@@ -382,6 +409,19 @@ impl NotebookKernel {
                             .parent_header
                             .as_ref()
                             .and_then(|h| cell_id_map.lock().ok()?.get(&h.msg_id).cloned());
+
+                        // Check for status: idle to signal execution completion
+                        if let JupyterMessageContent::Status(ref status) = message.content {
+                            if status.execution_state == jupyter_protocol::ExecutionState::Idle {
+                                if let Some(ref cid) = cell_id {
+                                    if let Some(ref tx) = queue_tx {
+                                        let _ = tx.try_send(QueueCommand::ExecutionDone {
+                                            cell_id: cid.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
 
                         let tauri_msg = TauriJupyterMessage {
                             header: message.header,
@@ -593,6 +633,7 @@ impl NotebookKernel {
 
         let app_handle = app.clone();
         let cell_id_map = self.cell_id_map.clone();
+        let queue_tx = self.queue_tx.clone();
         let iopub_task = tokio::spawn(async move {
             loop {
                 match iopub.read().await {
@@ -608,6 +649,19 @@ impl NotebookKernel {
                             .parent_header
                             .as_ref()
                             .and_then(|h| cell_id_map.lock().ok()?.get(&h.msg_id).cloned());
+
+                        // Check for status: idle to signal execution completion
+                        if let JupyterMessageContent::Status(ref status) = message.content {
+                            if status.execution_state == jupyter_protocol::ExecutionState::Idle {
+                                if let Some(ref cid) = cell_id {
+                                    if let Some(ref tx) = queue_tx {
+                                        let _ = tx.try_send(QueueCommand::ExecutionDone {
+                                            cell_id: cid.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
 
                         let tauri_msg = TauriJupyterMessage {
                             header: message.header,
@@ -808,6 +862,7 @@ impl NotebookKernel {
 
         let app_handle = app.clone();
         let cell_id_map = self.cell_id_map.clone();
+        let queue_tx = self.queue_tx.clone();
         let iopub_task = tokio::spawn(async move {
             loop {
                 match iopub.read().await {
@@ -823,6 +878,19 @@ impl NotebookKernel {
                             .parent_header
                             .as_ref()
                             .and_then(|h| cell_id_map.lock().ok()?.get(&h.msg_id).cloned());
+
+                        // Check for status: idle to signal execution completion
+                        if let JupyterMessageContent::Status(ref status) = message.content {
+                            if status.execution_state == jupyter_protocol::ExecutionState::Idle {
+                                if let Some(ref cid) = cell_id {
+                                    if let Some(ref tx) = queue_tx {
+                                        let _ = tx.try_send(QueueCommand::ExecutionDone {
+                                            cell_id: cid.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
 
                         let tauri_msg = TauriJupyterMessage {
                             header: message.header,
