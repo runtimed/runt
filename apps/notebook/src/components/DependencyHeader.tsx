@@ -42,18 +42,25 @@ export function DependencyHeader({
   );
 
   return (
-    <div className="border-b bg-muted/30">
+    <div className="border-b bg-uv/5 dark:bg-uv/10">
       <div className="px-3 py-3">
-          {/* Sync notice */}
-          {syncedWhileRunning && (
-            <div className="mb-3 flex items-start gap-2 rounded bg-blue-500/10 px-2 py-1.5 text-xs text-blue-700 dark:text-blue-400">
-              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <span>
-                Dependencies synced to environment. New packages can be imported
-                now. Restart kernel if you updated existing packages.
-              </span>
-            </div>
-          )}
+        {/* uv badge */}
+        <div className="mb-2 flex items-center gap-2">
+          <span className="rounded bg-uv/20 px-1.5 py-0.5 text-xs font-medium text-uv">
+            uv
+          </span>
+        </div>
+
+        {/* Sync notice */}
+        {syncedWhileRunning && (
+          <div className="mb-3 flex items-start gap-2 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
+            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>
+              Dependencies synced to environment. New packages can be imported
+              now. Restart kernel if you updated existing packages.
+            </span>
+          </div>
+        )}
 
           {/* Kernel restart needed notice */}
           {needsKernelRestart && (
@@ -125,7 +132,7 @@ export function DependencyHeader({
               type="button"
               onClick={handleAdd}
               disabled={loading || !newDep.trim()}
-              className="flex items-center gap-1 rounded bg-primary px-2 py-1 text-xs text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              className="flex items-center gap-1 rounded bg-uv px-2 py-1 text-xs text-white transition-colors hover:bg-uv/90 disabled:opacity-50"
             >
               <Plus className="h-3 w-3" />
               Add
