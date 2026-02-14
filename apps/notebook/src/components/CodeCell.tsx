@@ -8,6 +8,7 @@ import {
   CodeMirrorEditor,
   type CodeMirrorEditorRef,
 } from "@/components/editor/codemirror-editor";
+import type { SupportedLanguage } from "@/components/editor/languages";
 import { Trash2, X } from "lucide-react";
 import { kernelCompletionExtension } from "../lib/kernel-completion";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
@@ -57,6 +58,7 @@ function PagePayloadDisplay({
 
 interface CodeCellProps {
   cell: CodeCellType;
+  language?: SupportedLanguage;
   isFocused: boolean;
   isExecuting: boolean;
   pagePayload: CellPagePayload | null;
@@ -74,6 +76,7 @@ interface CodeCellProps {
 
 export function CodeCell({
   cell,
+  language = "python",
   isFocused,
   isExecuting,
   pagePayload,
@@ -215,7 +218,7 @@ export function CodeCell({
           <CodeMirrorEditor
             ref={editorRef}
             value={cell.source}
-            language="python"
+            language={language}
             onValueChange={onUpdateSource}
             keyMap={keyMap}
             extensions={[kernelCompletionExtension]}

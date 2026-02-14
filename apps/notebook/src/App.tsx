@@ -6,12 +6,14 @@ import { NotebookView } from "./components/NotebookView";
 import { DependencyHeader } from "./components/DependencyHeader";
 import { CondaDependencyHeader } from "./components/CondaDependencyHeader";
 import { TrustDialog } from "./components/TrustDialog";
+import { DenoDependencyHeader } from "./components/DenoDependencyHeader";
 import { DebugBanner } from "./components/DebugBanner";
 import { useNotebook } from "./hooks/useNotebook";
 import { useKernel, type MimeBundle } from "./hooks/useKernel";
 import { useDependencies } from "./hooks/useDependencies";
 import { useCondaDependencies } from "./hooks/useCondaDependencies";
 import { useTrust } from "./hooks/useTrust";
+import { useDenoDependencies } from "./hooks/useDenoDependencies";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useEnvProgress } from "./hooks/useEnvProgress";
 import { useExecutionQueue } from "./hooks/useExecutionQueue";
@@ -78,6 +80,16 @@ function AppContent() {
   // Track pending kernel start that was blocked by trust dialog
   const pendingKernelStartRef = useRef(false);
 
+  // Notebook runtime type (python or deno)
+  const [runtime, setRuntime] = useState<"python" | "deno">("python");
+
+  // Load runtime from notebook metadata on mount
+  useEffect(() => {
+    invoke<string>("get_notebook_runtime").then((r) => {
+      setRuntime(r as "python" | "deno");
+    });
+  }, []);
+
   // Page payload state: maps cell_id -> payload (transient, not saved)
   const [pagePayloads, setPagePayloads] = useState<Map<string, CellPagePayload>>(
     new Map()
@@ -114,6 +126,9 @@ function AppContent() {
     setPython: setCondaPython,
   } = useCondaDependencies();
 
+  // Deno config detection
+  const { denoAvailable, denoConfigInfo } = useDenoDependencies();
+
   // Auto-detect environment type based on what's configured
   // uv takes priority if metadata exists (even with empty deps)
   const envType = isUvConfigured
@@ -123,7 +138,10 @@ function AppContent() {
       : null;
 
   // Combine hasDependencies for toolbar badge
-  const hasDependencies = hasUvDependencies || hasCondaDependencies;
+  // For Deno, show badge if deno.json is found with imports
+  const hasDependencies = runtime === "deno"
+    ? denoConfigInfo?.has_imports ?? false
+    : hasUvDependencies || hasCondaDependencies;
 
   // Get widget store handler for routing comm messages
   const { handleMessage: handleWidgetMessage } = useWidgetStoreRequired();
@@ -325,6 +343,7 @@ onKernelStarted: loadCondaDependencies,
         hasDependencies={hasDependencies}
         theme={theme}
         envProgress={envProgress.isActive ? envProgress : null}
+        runtime={runtime}
         onThemeChange={setTheme}
         onSave={save}
         onStartKernel={handleStartKernel}
@@ -334,7 +353,13 @@ onKernelStarted: loadCondaDependencies,
         onToggleDependencies={() => setDependencyHeaderOpen((prev) => !prev)}
         listKernelspecs={listKernelspecs}
       />
-      {dependencyHeaderOpen && envType === "conda" && (
+      {dependencyHeaderOpen && runtime === "deno" && (
+        <DenoDependencyHeader
+          denoAvailable={denoAvailable}
+          denoConfigInfo={denoConfigInfo}
+        />
+      )}
+      {dependencyHeaderOpen && runtime === "python" && envType === "conda" && (
         <CondaDependencyHeader
           dependencies={condaDependencies?.dependencies ?? []}
           channels={condaDependencies?.channels ?? []}
@@ -348,7 +373,7 @@ onKernelStarted: loadCondaDependencies,
           onSetPython={setCondaPython}
         />
       )}
-      {dependencyHeaderOpen && envType !== "conda" && (
+      {dependencyHeaderOpen && runtime === "python" && envType !== "conda" && (
         <DependencyHeader
           dependencies={dependencies?.dependencies ?? []}
           requiresPython={dependencies?.requires_python ?? null}
@@ -378,6 +403,7 @@ onKernelStarted: loadCondaDependencies,
         focusedCellId={focusedCellId}
         executingCellIds={executingCellIds}
         pagePayloads={pagePayloads}
+        runtime={runtime}
         onFocusCell={setFocusedCellId}
         onUpdateCellSource={updateCellSource}
         onExecuteCell={handleExecuteCell}

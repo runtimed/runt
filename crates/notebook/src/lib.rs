@@ -1,12 +1,17 @@
 pub mod conda_env;
+pub mod deno_env;
 pub mod execution_queue;
 pub mod kernel;
 pub mod menu;
 pub mod notebook_state;
 pub mod pyproject;
+pub mod runtime;
+pub mod settings;
 pub mod trust;
 pub mod typosquat;
 pub mod uv_env;
+
+pub use runtime::Runtime;
 
 use execution_queue::{ExecutionQueue, ExecutionQueueState, QueueCommand, SharedExecutionQueue};
 use kernel::{CompletionResult, HistoryResult, NotebookKernel};
@@ -1192,14 +1197,150 @@ async fn start_kernel_with_pyproject(
         .map_err(|e| e.to_string())
 }
 
+// ========== Deno kernel support ==========
+
+/// Check if Deno is available on the system
+#[tauri::command]
+async fn check_deno_available() -> bool {
+    deno_env::check_deno_available().await
+}
+
+/// Get the installed Deno version
+#[tauri::command]
+async fn get_deno_version() -> Result<String, String> {
+    deno_env::get_deno_version().await.map_err(|e| e.to_string())
+}
+
+/// Get the runtime type from notebook metadata
+#[tauri::command]
+async fn get_notebook_runtime(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<String, String> {
+    let state = state.lock().map_err(|e| e.to_string())?;
+    Ok(state.get_runtime().to_string())
+}
+
+/// Detect deno.json/deno.jsonc near the notebook and return info about it
+#[tauri::command]
+async fn detect_deno_config(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<Option<deno_env::DenoConfigInfo>, String> {
+    let notebook_path = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        state.path.clone()
+    };
+
+    let Some(notebook_path) = notebook_path else {
+        return Ok(None);
+    };
+
+    let Some(config_path) = deno_env::find_deno_config(&notebook_path) else {
+        return Ok(None);
+    };
+
+    let config = deno_env::parse_deno_config(&config_path).map_err(|e| e.to_string())?;
+    Ok(Some(deno_env::create_deno_config_info(&config, &notebook_path)))
+}
+
+/// Get Deno permissions from notebook metadata
+#[tauri::command]
+async fn get_deno_permissions(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<Vec<String>, String> {
+    let state = state.lock().map_err(|e| e.to_string())?;
+    let deps = deno_env::extract_deno_metadata(&state.notebook.metadata);
+    Ok(deps.map(|d| d.permissions).unwrap_or_default())
+}
+
+/// Set Deno permissions in notebook metadata
+#[tauri::command]
+async fn set_deno_permissions(
+    permissions: Vec<String>,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<(), String> {
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+
+    let deno_value = serde_json::json!({
+        "permissions": permissions,
+    });
+    state
+        .notebook
+        .metadata
+        .additional
+        .insert("deno".to_string(), deno_value);
+    state.dirty = true;
+
+    Ok(())
+}
+
+/// Start a Deno kernel
+#[tauri::command]
+async fn start_kernel_with_deno(
+    app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
+) -> Result<(), String> {
+    // Get permissions from notebook metadata
+    let (permissions, workspace_dir) = {
+        let state = notebook_state.lock().map_err(|e| e.to_string())?;
+        let deps = deno_env::extract_deno_metadata(&state.notebook.metadata);
+        let perms = deps.map(|d| d.permissions).unwrap_or_default();
+
+        // Find workspace directory with deno.json
+        let ws_dir = state
+            .path
+            .as_ref()
+            .and_then(|p| deno_env::find_deno_config(p))
+            .and_then(|c| c.parent().map(|p| p.to_path_buf()));
+
+        (perms, ws_dir)
+    };
+
+    info!(
+        "Starting Deno kernel with permissions: {:?}, workspace: {:?}",
+        permissions, workspace_dir
+    );
+
+    let mut kernel = kernel_state.lock().await;
+    kernel
+        .start_with_deno(app, &permissions, workspace_dir.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get app settings (default runtime, etc.)
+#[tauri::command]
+async fn get_settings() -> settings::AppSettings {
+    settings::load_settings()
+}
+
+/// Set the default runtime preference
+#[tauri::command]
+async fn set_default_runtime(runtime: Runtime) -> Result<(), String> {
+    let mut settings = settings::load_settings();
+    settings.default_runtime = runtime;
+    settings::save_settings(&settings).map_err(|e| e.to_string())
+}
+
+/// Spawn a new notebook process with the specified runtime
+fn spawn_new_notebook(runtime: Runtime) {
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::process::Command::new(exe)
+            .args(["--runtime", &runtime.to_string()])
+            .spawn();
+    }
+}
+
 /// Run the notebook Tauri app.
 ///
 /// If `notebook_path` is Some, opens that file. If None, creates a new empty notebook.
-pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
+/// The `runtime` parameter specifies which runtime to use for new notebooks.
+pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<()> {
     env_logger::init();
 
     let initial_state = match notebook_path {
         Some(ref path) if path.exists() => {
+            // Existing notebook - load it (runtime comes from notebook metadata)
             let content = std::fs::read_to_string(path)?;
             let nb = nbformat::parse_notebook(&content).map_err(|e| anyhow::anyhow!("{}", e))?;
             let nb_v4 = match nb {
@@ -1211,11 +1352,15 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             NotebookState::from_notebook(nb_v4, path.clone())
         }
         Some(ref path) => {
-            let mut state = NotebookState::new_empty();
+            // New notebook at specified path with requested runtime
+            let mut state = NotebookState::new_empty_with_runtime(runtime);
             state.path = Some(path.clone());
             state
         }
-        None => NotebookState::new_empty(),
+        None => {
+            // New empty notebook with requested runtime
+            NotebookState::new_empty_with_runtime(runtime)
+        }
     };
 
     let window_title = notebook_path
@@ -1292,6 +1437,17 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             verify_notebook_trust,
             approve_notebook_trust,
             check_typosquats,
+            // Deno kernel support
+            check_deno_available,
+            get_deno_version,
+            get_notebook_runtime,
+            detect_deno_config,
+            get_deno_permissions,
+            set_deno_permissions,
+            start_kernel_with_deno,
+            // Settings
+            get_settings,
+            set_default_runtime,
             // Debug info
             get_git_info,
         ])
@@ -1327,11 +1483,13 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
         })
         .on_menu_event(|app, event| {
             match event.id().as_ref() {
-                crate::menu::MENU_NEW_NOTEBOOK => {
-                    // Spawn new process with no file argument
-                    if let Ok(exe) = std::env::current_exe() {
-                        let _ = std::process::Command::new(exe).spawn();
-                    }
+                crate::menu::MENU_NEW_PYTHON_NOTEBOOK => {
+                    // Spawn new Python notebook (uses default or settings preference)
+                    spawn_new_notebook(Runtime::Python);
+                }
+                crate::menu::MENU_NEW_DENO_NOTEBOOK => {
+                    // Spawn new Deno/TypeScript notebook
+                    spawn_new_notebook(Runtime::Deno);
                 }
                 crate::menu::MENU_OPEN => {
                     // Emit event to frontend to trigger open dialog

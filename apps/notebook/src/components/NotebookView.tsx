@@ -6,12 +6,14 @@ import { MarkdownCell } from "./MarkdownCell";
 import { EditorRegistryProvider, useEditorRegistry } from "../hooks/useEditorRegistry";
 import type { NotebookCell } from "../types";
 import type { CellPagePayload } from "../App";
+import type { Runtime } from "./NotebookToolbar";
 
 interface NotebookViewProps {
   cells: NotebookCell[];
   focusedCellId: string | null;
   executingCellIds: Set<string>;
   pagePayloads: Map<string, CellPagePayload>;
+  runtime?: Runtime;
   onFocusCell: (cellId: string) => void;
   onUpdateCellSource: (cellId: string, source: string) => void;
   onExecuteCell: (cellId: string) => void;
@@ -70,6 +72,7 @@ function NotebookViewContent({
   focusedCellId,
   executingCellIds,
   pagePayloads,
+  runtime = "python",
   onFocusCell,
   onUpdateCellSource,
   onExecuteCell,
@@ -108,10 +111,13 @@ function NotebookViewContent({
 
       if (cell.cell_type === "code") {
         const pagePayload = pagePayloads.get(cell.id) ?? null;
+        // Use TSX for Deno (TypeScript with JSX), Python otherwise
+        const language = runtime === "deno" ? "tsx" : "python";
         return (
           <CodeCell
             key={cell.id}
             cell={cell}
+            language={language}
             isFocused={isFocused}
             isExecuting={isExecuting}
             pagePayload={pagePayload}
@@ -162,6 +168,7 @@ function NotebookViewContent({
       focusedCellId,
       executingCellIds,
       pagePayloads,
+      runtime,
       cellIds,
       cells.length,
       onFocusCell,
