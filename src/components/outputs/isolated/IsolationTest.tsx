@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { IsolatedFrame, type IsolatedFrameHandle } from "./isolated-frame";
 
 /**
  * Test results from the isolated iframe
@@ -435,6 +436,101 @@ export function IsolationTest() {
           This prevents the iframe from accessing the parent's origin, which should
           block Tauri's IPC injection since Tauri only injects into content at the app's origin.
         </p>
+      </div>
+
+      {/* Production IsolatedFrame Demo */}
+      <ProductionFrameDemo />
+    </div>
+  );
+}
+
+/**
+ * Demo of the production IsolatedFrame component.
+ */
+function ProductionFrameDemo() {
+  const frameRef = useRef<IsolatedFrameHandle>(null);
+  const [isReady, setIsReady] = useState(false);
+  const [height, setHeight] = useState(0);
+
+  const handleRenderHtml = () => {
+    frameRef.current?.render({
+      mimeType: "text/html",
+      data: `
+        <h2 style="margin: 0 0 8px 0;">Production IsolatedFrame Test</h2>
+        <p>This content was rendered via the <code>IsolatedFrame</code> component.</p>
+        <table>
+          <tr><th>Feature</th><th>Status</th></tr>
+          <tr><td>Blob URL isolation</td><td style="color: #4ade80;">✓</td></tr>
+          <tr><td>postMessage communication</td><td style="color: #4ade80;">✓</td></tr>
+          <tr><td>Auto-resizing</td><td style="color: #4ade80;">✓</td></tr>
+        </table>
+        <script>console.log('Script executed in isolated frame!');</script>
+      `,
+    });
+  };
+
+  const handleRenderImage = () => {
+    // A small test image (1x1 red pixel in base64)
+    frameRef.current?.render({
+      mimeType: "image/png",
+      data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==",
+    });
+  };
+
+  const handleClear = () => {
+    frameRef.current?.clear();
+  };
+
+  return (
+    <div className="p-3 rounded bg-muted space-y-3 border-t border-border mt-4">
+      <h3 className="font-medium">Production IsolatedFrame Component:</h3>
+      <div className="flex items-center gap-2 text-sm">
+        <span>
+          Ready:{" "}
+          <span className={isReady ? "text-green-500" : "text-yellow-500"}>
+            {isReady ? "Yes ✓" : "Waiting..."}
+          </span>
+        </span>
+        <span className="text-muted-foreground">|</span>
+        <span>Height: {height}px</span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={handleRenderHtml}
+          disabled={!isReady}
+          className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded"
+        >
+          Render HTML
+        </button>
+        <button
+          onClick={handleRenderImage}
+          disabled={!isReady}
+          className="px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 rounded"
+        >
+          Render Image
+        </button>
+        <button
+          onClick={handleClear}
+          disabled={!isReady}
+          className="px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 disabled:bg-gray-600 rounded"
+        >
+          Clear
+        </button>
+      </div>
+      <div className="border rounded overflow-hidden">
+        <IsolatedFrame
+          ref={frameRef}
+          darkMode={true}
+          minHeight={48}
+          maxHeight={400}
+          onReady={() => setIsReady(true)}
+          onResize={setHeight}
+          onLinkClick={(url, newTab) => {
+            console.log("Link clicked:", url, newTab);
+            window.open(url, newTab ? "_blank" : "_self");
+          }}
+          onError={(err) => console.error("Frame error:", err)}
+        />
       </div>
     </div>
   );
