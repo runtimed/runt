@@ -343,14 +343,19 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
           return;
         }
 
-        // Fall back to default uv kernel (faster startup)
-        console.log("[kernel] falling back to default uv kernel");
-        await startDefaultUvKernel();
+        // Fall back to default kernel
+        if (uvAvailable) {
+          console.log("[kernel] falling back to default uv kernel");
+          await startDefaultUvKernel();
+        } else {
+          console.log("[kernel] uv not available, falling back to default conda kernel");
+          await startDefaultCondaKernel();
+        }
       } finally {
         startingRef.current = false;
       }
     },
-    [startKernelWithUv, startKernelWithConda, startKernelWithPyproject, startDefaultUvKernel]
+    [startKernelWithUv, startKernelWithConda, startKernelWithPyproject, startDefaultUvKernel, startDefaultCondaKernel]
   );
 
   const shutdownKernel = useCallback(async () => {
