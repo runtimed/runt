@@ -212,9 +212,7 @@ fn extract_package_name(dep: &str) -> &str {
 /// Normalize a package name for comparison.
 /// PyPI considers `_`, `-`, and `.` as equivalent, and is case-insensitive.
 fn normalize_name(name: &str) -> String {
-    name.to_lowercase()
-        .replace('_', "-")
-        .replace('.', "-")
+    name.to_lowercase().replace(['_', '.'], "-")
 }
 
 /// Check if a package name is suspiciously similar to a popular package.
@@ -251,10 +249,8 @@ pub fn check_typosquat(package: &str) -> Option<TyposquatWarning> {
         }
 
         // Check if within threshold and better than current best
-        if distance <= threshold {
-            if best_match.is_none() || distance < best_match.unwrap().1 {
-                best_match = Some((popular, distance));
-            }
+        if distance <= threshold && (best_match.is_none() || distance < best_match.unwrap().1) {
+            best_match = Some((popular, distance));
         }
     }
 

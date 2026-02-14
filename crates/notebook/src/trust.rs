@@ -82,7 +82,7 @@ pub fn get_or_create_trust_key() -> Result<[u8; 32], String> {
                 .map_err(|e| format!("Failed to create config directory: {}", e))?;
         }
 
-        std::fs::write(&key_path, &key).map_err(|e| format!("Failed to write trust key: {}", e))?;
+        std::fs::write(&key_path, key).map_err(|e| format!("Failed to write trust key: {}", e))?;
 
         Ok(key)
     }
