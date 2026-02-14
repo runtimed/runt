@@ -4188,7 +4188,7 @@ snapshots:
       '@lumino/signaling': 2.1.5
       '@lumino/virtualdom': 2.0.4
       '@lumino/widgets': 2.7.5
-      '@rjsf/core': 5.24.13(@rjsf/utils@5.24.13(react@18.3.1))(react@18.3.1)
+      '@rjsf/core': 5.24.13(@rjsf/utils@5.24.13(react@19.2.4))(react@18.3.1)
       '@rjsf/utils': 5.24.13(react@18.3.1)
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
@@ -5091,9 +5091,9 @@ snapshots:
 
   '@radix-ui/rect@1.1.1': {}
 
-  '@rjsf/core@5.24.13(@rjsf/utils@5.24.13(react@18.3.1))(react@18.3.1)':
+  '@rjsf/core@5.24.13(@rjsf/utils@5.24.13(react@19.2.4))(react@18.3.1)':
     dependencies:
-      '@rjsf/utils': 5.24.13(react@18.3.1)
+      '@rjsf/utils': 5.24.13(react@19.2.4)
       lodash: 4.17.23
       lodash-es: 4.17.23
       markdown-to-jsx: 7.7.17(react@18.3.1)

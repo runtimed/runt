@@ -53,10 +53,7 @@ Keep local changes that:
 
 ### How to Upstream
 
-1. **Clone nteract/elements** (if you haven't):
-   ```bash
-   git clone https://github.com/nteract/elements ~/code/nteract/elements
-   ```
+1. **Clone nteract/elements** (if you haven't already)
 
 2. **Make the change** in the registry source files:
    - Component code: `registry/outputs/`, `registry/cell/`, etc.
@@ -64,7 +61,6 @@ Keep local changes that:
 
 3. **Test locally** by running the elements docs site:
    ```bash
-   cd ~/code/nteract/elements
    pnpm install
    pnpm dev
    ```
