@@ -417,6 +417,7 @@ onKernelStarted: loadCondaDependencies,
         focusedCellId={focusedCellId}
         executingCellIds={executingCellIds}
         pagePayloads={pagePayloads}
+        runtime={runtime}
         onFocusCell={setFocusedCellId}
         onUpdateCellSource={updateCellSource}
         onExecuteCell={handleExecuteCell}
