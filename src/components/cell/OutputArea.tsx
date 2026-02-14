@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import {
   AnsiErrorOutput,
@@ -15,6 +15,7 @@ import {
   type IframeToParentMessage,
 } from "@/components/outputs/isolated";
 import { useWidgetStore } from "@/components/widgets/widget-store-context";
+import { isDarkMode as detectDarkMode } from "@/components/themes";
 
 /**
  * Jupyter output types based on the nbformat spec.
@@ -267,6 +268,23 @@ export function OutputArea({
   const frameRef = useRef<IsolatedFrameHandle>(null);
   const bridgeRef = useRef<CommBridgeManager | null>(null);
 
+  // Track dark mode state and observe changes
+  const [darkMode, setDarkMode] = useState(() => detectDarkMode());
+
+  useEffect(() => {
+    // Update dark mode when document class changes
+    const observer = new MutationObserver(() => {
+      setDarkMode(detectDarkMode());
+    });
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme", "data-mode"],
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
   // Get widget store context (may be null if not in provider)
   const widgetContext = useWidgetStore();
 
@@ -412,7 +430,7 @@ export function OutputArea({
           {shouldIsolate ? (
             <IsolatedFrame
               ref={frameRef}
-              darkMode={true}
+              darkMode={darkMode}
               useReactRenderer={true}
               minHeight={24}
               maxHeight={maxHeight ?? 2000}

@@ -236,15 +236,28 @@ export const IsolatedFrame = forwardRef<IsolatedFrameHandle, IsolatedFrameProps>
     // Track if we've started bootstrapping to avoid double-fetch
     const bootstrappingRef = useRef(false);
 
-    // Create blob URL on mount
+    // Track initial darkMode for blob URL (don't recreate blob on theme change)
+    const initialDarkModeRef = useRef(darkMode);
+
+    // Create blob URL on mount (only once, with initial darkMode)
     useEffect(() => {
-      const url = createFrameBlobUrl({ darkMode });
+      const url = createFrameBlobUrl({ darkMode: initialDarkModeRef.current });
       setBlobUrl(url);
 
       return () => {
         URL.revokeObjectURL(url);
       };
-    }, [darkMode]);
+    }, []);
+
+    // Forward theme changes to iframe (without recreating the blob)
+    useEffect(() => {
+      if (isReady && iframeRef.current?.contentWindow) {
+        iframeRef.current.contentWindow.postMessage(
+          { type: "theme", payload: { isDark: darkMode } },
+          "*"
+        );
+      }
+    }, [darkMode, isReady]);
 
     // Keep ref in sync with state (ref avoids stale closures in callbacks)
     useEffect(() => {

@@ -109,15 +109,36 @@ export function IframeWidgetStoreProvider({
   );
 
   // Value for main WidgetStoreContext (so existing widget components work)
-  // handleMessage and sendMessage are no-ops since we use postMessage instead
+  // sendMessage parses Jupyter protocol and routes to bridge functions
   const mainContextValue = useMemo(
     () => ({
       store: client.store,
       handleMessage: () => {
         // No-op: messages come through postMessage in iframe
       },
-      sendMessage: () => {
-        // No-op: use sendUpdate/sendCustom which go through bridge
+      sendMessage: (msg: {
+        content: {
+          comm_id?: string;
+          data?: {
+            method?: string;
+            state?: Record<string, unknown>;
+            content?: Record<string, unknown>;
+          };
+        };
+        buffers?: ArrayBuffer[];
+      }) => {
+        // Route Jupyter protocol messages to bridge functions
+        const commId = msg.content?.comm_id;
+        const method = msg.content?.data?.method;
+        const buffers = msg.buffers;
+
+        if (!commId) return;
+
+        if (method === "update" && msg.content?.data?.state) {
+          client.sendUpdate(commId, msg.content.data.state, buffers);
+        } else if (method === "custom" && msg.content?.data?.content) {
+          client.sendCustom(commId, msg.content.data.content, buffers);
+        }
       },
       sendUpdate: client.sendUpdate,
       sendCustom: client.sendCustom,
