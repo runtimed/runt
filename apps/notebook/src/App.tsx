@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { NotebookToolbar } from "./components/NotebookToolbar";
 import { NotebookView } from "./components/NotebookView";
 import { DependencyHeader } from "./components/DependencyHeader";
 import { CondaDependencyHeader } from "./components/CondaDependencyHeader";
+import { TrustDialog } from "./components/TrustDialog";
 import { DebugBanner } from "./components/DebugBanner";
 import { useNotebook } from "./hooks/useNotebook";
 import { useKernel, type MimeBundle } from "./hooks/useKernel";
 import { useDependencies } from "./hooks/useDependencies";
 import { useCondaDependencies } from "./hooks/useCondaDependencies";
+import { useTrust } from "./hooks/useTrust";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useEnvProgress } from "./hooks/useEnvProgress";
 import { useExecutionQueue } from "./hooks/useExecutionQueue";
@@ -62,6 +64,19 @@ function AppContent() {
 
   const [dependencyHeaderOpen, setDependencyHeaderOpen] = useState(false);
   const [showIsolationTest, setShowIsolationTest] = useState(false);
+  const [trustDialogOpen, setTrustDialogOpen] = useState(false);
+
+  // Trust verification for notebook dependencies
+  const {
+    trustInfo,
+    typosquatWarnings,
+    loading: trustLoading,
+    checkTrust,
+    approveTrust,
+  } = useTrust();
+
+  // Track pending kernel start that was blocked by trust dialog
+  const pendingKernelStartRef = useRef(false);
 
   // Page payload state: maps cell_id -> payload (transient, not saved)
   const [pagePayloads, setPagePayloads] = useState<Map<string, CellPagePayload>>(
@@ -179,16 +194,49 @@ onKernelStarted: loadCondaDependencies,
   // Environment preparation progress
   const envProgress = useEnvProgress();
 
+  // Check trust and start kernel if trusted, otherwise show dialog
+  const tryStartKernel = useCallback(async () => {
+    // Re-check trust status (may have changed)
+    const info = await checkTrust();
+    if (!info) return;
+
+    if (info.status === "trusted" || info.status === "no_dependencies") {
+      // Trusted - start kernel
+      await ensureKernelStarted();
+    } else {
+      // Untrusted - show dialog and mark pending start
+      pendingKernelStartRef.current = true;
+      setTrustDialogOpen(true);
+    }
+  }, [checkTrust, ensureKernelStarted]);
+
+  // Handle trust approval from dialog
+  const handleTrustApprove = useCallback(async () => {
+    const success = await approveTrust();
+    if (success && pendingKernelStartRef.current) {
+      pendingKernelStartRef.current = false;
+      // Now start the kernel since trust was approved
+      await ensureKernelStarted();
+    }
+    return success;
+  }, [approveTrust, ensureKernelStarted]);
+
+  // Handle trust decline from dialog
+  const handleTrustDecline = useCallback(() => {
+    pendingKernelStartRef.current = false;
+    // User declined - don't start kernel, just close dialog
+  }, []);
+
   const handleExecuteCell = useCallback(
     (cellId: string) => {
       // Queue FIRST to preserve order - don't await so rapid executions queue in order
       queueCell(cellId);
       // Then ensure kernel is started (queue processor will wait for it)
       if (kernelStatus === "not started") {
-        ensureKernelStarted();
+        tryStartKernel();
       }
     },
-    [queueCell, kernelStatus, ensureKernelStarted]
+    [queueCell, kernelStatus, tryStartKernel]
   );
 
   const handleAddCell = useCallback(
@@ -198,13 +246,12 @@ onKernelStarted: loadCondaDependencies,
     [addCell]
   );
 
-  // Wrapper for toolbar's start kernel - uses ensureKernelStarted to check deps first
+  // Wrapper for toolbar's start kernel - uses trust check before starting
   const handleStartKernel = useCallback(
     async (_name: string) => {
-      // ensureKernelStarted checks for conda/uv deps and uses the right kernel type
-      await ensureKernelStarted();
+      await tryStartKernel();
     },
-    [ensureKernelStarted]
+    [tryStartKernel]
   );
 
   // Cmd+S to save (keyboard and native menu)
@@ -317,6 +364,15 @@ onKernelStarted: loadCondaDependencies,
         />
       )}
       {showIsolationTest && <IsolationTest />}
+      <TrustDialog
+        open={trustDialogOpen}
+        onOpenChange={setTrustDialogOpen}
+        trustInfo={trustInfo}
+        typosquatWarnings={typosquatWarnings}
+        onApprove={handleTrustApprove}
+        onDecline={handleTrustDecline}
+        loading={trustLoading}
+      />
       <NotebookView
         cells={cells}
         focusedCellId={focusedCellId}

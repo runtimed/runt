@@ -4,6 +4,8 @@ pub mod kernel;
 pub mod menu;
 pub mod notebook_state;
 pub mod pyproject;
+pub mod trust;
+pub mod typosquat;
 pub mod uv_env;
 
 use execution_queue::{ExecutionQueue, ExecutionQueueState, QueueCommand, SharedExecutionQueue};
@@ -1090,6 +1092,66 @@ async fn import_pyproject_dependencies(
     Ok(())
 }
 
+// ============================================================================
+// Trust Verification Commands
+// ============================================================================
+
+/// Verify the trust status of the current notebook's dependencies.
+///
+/// Returns the trust status and information about what packages would be installed.
+#[tauri::command]
+async fn verify_notebook_trust(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<trust::TrustInfo, String> {
+    let state = state.lock().map_err(|e| e.to_string())?;
+    trust::verify_notebook_trust(&state.notebook.metadata.additional)
+}
+
+/// Approve the notebook's dependencies and sign them with the local trust key.
+///
+/// After calling this, the notebook will be trusted on subsequent opens (until
+/// the dependency metadata is modified externally).
+#[tauri::command]
+async fn approve_notebook_trust(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<(), String> {
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+
+    // Compute signature over current dependencies
+    let signature = trust::sign_notebook_dependencies(&state.notebook.metadata.additional)?;
+
+    // Get or create the runt metadata section
+    let runt_value = state
+        .notebook
+        .metadata
+        .additional
+        .entry("runt".to_string())
+        .or_insert_with(|| serde_json::json!({}));
+
+    // Add/update the trust signature
+    if let Some(obj) = runt_value.as_object_mut() {
+        obj.insert(
+            "trust_signature".to_string(),
+            serde_json::Value::String(signature),
+        );
+        obj.insert(
+            "trust_timestamp".to_string(),
+            serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+        );
+    }
+
+    state.dirty = true;
+    Ok(())
+}
+
+/// Check packages for typosquatting (similar names to popular packages).
+///
+/// Returns warnings for any packages that look like potential typosquats.
+#[tauri::command]
+async fn check_typosquats(packages: Vec<String>) -> Vec<typosquat::TyposquatWarning> {
+    typosquat::check_packages(&packages)
+}
+
 /// Start kernel using `uv run` in the project directory with pyproject.toml.
 ///
 /// This delegates environment management to uv:
@@ -1226,6 +1288,10 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             get_pyproject_dependencies,
             import_pyproject_dependencies,
             start_kernel_with_pyproject,
+            // Trust verification
+            verify_notebook_trust,
+            approve_notebook_trust,
+            check_typosquats,
             // Debug info
             get_git_info,
         ])
