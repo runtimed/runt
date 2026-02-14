@@ -4,8 +4,9 @@ use crate::uv_env::{NotebookDependencies, UvEnvironment};
 use anyhow::Result;
 use bytes::Bytes;
 use jupyter_protocol::{
-    media::Media, CompleteRequest, ConnectionInfo, ExecuteRequest, InterruptRequest,
-    JupyterMessage, JupyterMessageContent, KernelInfoRequest, Payload, ShutdownRequest,
+    media::Media, CompleteRequest, ConnectionInfo, ExecuteRequest, HistoryRequest,
+    InterruptRequest, JupyterMessage, JupyterMessageContent, KernelInfoRequest, Payload,
+    ShutdownRequest,
 };
 use log::{debug, error, info};
 use serde::Serialize;
@@ -41,11 +42,27 @@ type CellIdMap = Arc<StdMutex<HashMap<String, String>>>;
 type PendingCompletions =
     Arc<StdMutex<HashMap<String, tokio::sync::oneshot::Sender<CompletionResult>>>>;
 
+/// Pending history requests: msg_id → oneshot sender for routing history_reply.
+type PendingHistory = Arc<StdMutex<HashMap<String, tokio::sync::oneshot::Sender<HistoryResult>>>>;
+
 #[derive(Serialize, Clone)]
 pub struct CompletionResult {
     pub matches: Vec<String>,
     pub cursor_start: usize,
     pub cursor_end: usize,
+}
+
+/// Result from a history request
+#[derive(Serialize, Clone)]
+pub struct HistoryResult {
+    pub entries: Vec<HistoryEntryData>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct HistoryEntryData {
+    pub session: usize,
+    pub line: usize,
+    pub source: String,
 }
 
 /// Event payload for page payloads (triggered by `?` or `??` in IPython).
@@ -66,6 +83,7 @@ pub struct NotebookKernel {
     _process: Option<tokio::process::Child>,
     cell_id_map: CellIdMap,
     pending_completions: PendingCompletions,
+    pending_history: PendingHistory,
     /// UV-managed environment (if using inline dependencies)
     uv_environment: Option<UvEnvironment>,
     /// Conda-managed environment (if using inline conda dependencies)
@@ -86,6 +104,7 @@ impl Default for NotebookKernel {
             _process: None,
             cell_id_map: Arc::new(StdMutex::new(HashMap::new())),
             pending_completions: Arc::new(StdMutex::new(HashMap::new())),
+            pending_history: Arc::new(StdMutex::new(HashMap::new())),
             uv_environment: None,
             conda_environment: None,
             queue_tx: None,
@@ -244,6 +263,7 @@ impl NotebookKernel {
         let (shell_writer, mut shell_reader) = shell.split();
 
         let pending = self.pending_completions.clone();
+        let pending_hist = self.pending_history.clone();
         let shell_app = app.clone();
         let shell_cell_id_map = self.cell_id_map.clone();
         let shell_reader_task = tokio::spawn(async move {
@@ -266,6 +286,39 @@ impl NotebookKernel {
                                             cursor_start: reply.cursor_start,
                                             cursor_end: reply.cursor_end,
                                         });
+                                    }
+                                }
+                            }
+                            JupyterMessageContent::HistoryReply(reply) => {
+                                if let Some(ref msg_id) = parent_msg_id {
+                                    if let Some(sender) =
+                                        pending_hist.lock().unwrap().remove(msg_id)
+                                    {
+                                        let entries = reply
+                                            .history
+                                            .into_iter()
+                                            .map(|entry| match entry {
+                                                jupyter_protocol::HistoryEntry::Input(
+                                                    session,
+                                                    line,
+                                                    source,
+                                                ) => HistoryEntryData {
+                                                    session,
+                                                    line,
+                                                    source,
+                                                },
+                                                jupyter_protocol::HistoryEntry::InputOutput(
+                                                    session,
+                                                    line,
+                                                    (source, _),
+                                                ) => HistoryEntryData {
+                                                    session,
+                                                    line,
+                                                    source,
+                                                },
+                                            })
+                                            .collect();
+                                        let _ = sender.send(HistoryResult { entries });
                                     }
                                 }
                             }
@@ -478,6 +531,7 @@ impl NotebookKernel {
         let (shell_writer, mut shell_reader) = shell.split();
 
         let pending = self.pending_completions.clone();
+        let pending_hist = self.pending_history.clone();
         let shell_app = app.clone();
         let shell_cell_id_map = self.cell_id_map.clone();
         let shell_reader_task = tokio::spawn(async move {
@@ -495,6 +549,38 @@ impl NotebookKernel {
                                             cursor_start: reply.cursor_start,
                                             cursor_end: reply.cursor_end,
                                         });
+                                    }
+                                }
+                            }
+                            JupyterMessageContent::HistoryReply(reply) => {
+                                if let Some(ref msg_id) = parent_msg_id {
+                                    if let Some(sender) = pending_hist.lock().unwrap().remove(msg_id)
+                                    {
+                                        let entries = reply
+                                            .history
+                                            .into_iter()
+                                            .map(|entry| match entry {
+                                                jupyter_protocol::HistoryEntry::Input(
+                                                    session,
+                                                    line,
+                                                    source,
+                                                ) => HistoryEntryData {
+                                                    session,
+                                                    line,
+                                                    source,
+                                                },
+                                                jupyter_protocol::HistoryEntry::InputOutput(
+                                                    session,
+                                                    line,
+                                                    (source, _),
+                                                ) => HistoryEntryData {
+                                                    session,
+                                                    line,
+                                                    source,
+                                                },
+                                            })
+                                            .collect();
+                                        let _ = sender.send(HistoryResult { entries });
                                     }
                                 }
                             }
@@ -718,6 +804,7 @@ impl NotebookKernel {
         let (shell_writer, mut shell_reader) = shell.split();
 
         let pending = self.pending_completions.clone();
+        let pending_hist = self.pending_history.clone();
         let shell_app = app.clone();
         let shell_cell_id_map = self.cell_id_map.clone();
         let shell_reader_task = tokio::spawn(async move {
@@ -735,6 +822,38 @@ impl NotebookKernel {
                                             cursor_start: reply.cursor_start,
                                             cursor_end: reply.cursor_end,
                                         });
+                                    }
+                                }
+                            }
+                            JupyterMessageContent::HistoryReply(reply) => {
+                                if let Some(ref msg_id) = parent_msg_id {
+                                    if let Some(sender) = pending_hist.lock().unwrap().remove(msg_id)
+                                    {
+                                        let entries = reply
+                                            .history
+                                            .into_iter()
+                                            .map(|entry| match entry {
+                                                jupyter_protocol::HistoryEntry::Input(
+                                                    session,
+                                                    line,
+                                                    source,
+                                                ) => HistoryEntryData {
+                                                    session,
+                                                    line,
+                                                    source,
+                                                },
+                                                jupyter_protocol::HistoryEntry::InputOutput(
+                                                    session,
+                                                    line,
+                                                    (source, _),
+                                                ) => HistoryEntryData {
+                                                    session,
+                                                    line,
+                                                    source,
+                                                },
+                                            })
+                                            .collect();
+                                        let _ = sender.send(HistoryResult { entries });
                                     }
                                 }
                             }
@@ -947,6 +1066,7 @@ impl NotebookKernel {
         let (shell_writer, mut shell_reader) = shell.split();
 
         let pending = self.pending_completions.clone();
+        let pending_hist = self.pending_history.clone();
         let shell_app = app.clone();
         let shell_cell_id_map = self.cell_id_map.clone();
         let shell_reader_task = tokio::spawn(async move {
@@ -964,6 +1084,38 @@ impl NotebookKernel {
                                             cursor_start: reply.cursor_start,
                                             cursor_end: reply.cursor_end,
                                         });
+                                    }
+                                }
+                            }
+                            JupyterMessageContent::HistoryReply(reply) => {
+                                if let Some(ref msg_id) = parent_msg_id {
+                                    if let Some(sender) = pending_hist.lock().unwrap().remove(msg_id)
+                                    {
+                                        let entries = reply
+                                            .history
+                                            .into_iter()
+                                            .map(|entry| match entry {
+                                                jupyter_protocol::HistoryEntry::Input(
+                                                    session,
+                                                    line,
+                                                    source,
+                                                ) => HistoryEntryData {
+                                                    session,
+                                                    line,
+                                                    source,
+                                                },
+                                                jupyter_protocol::HistoryEntry::InputOutput(
+                                                    session,
+                                                    line,
+                                                    (source, _),
+                                                ) => HistoryEntryData {
+                                                    session,
+                                                    line,
+                                                    source,
+                                                },
+                                            })
+                                            .collect();
+                                        let _ = sender.send(HistoryResult { entries });
                                     }
                                 }
                             }
@@ -1064,6 +1216,7 @@ impl NotebookKernel {
         }
         self.shell_writer = None;
         self.pending_completions.lock().unwrap().clear();
+        self.pending_history.lock().unwrap().clear();
 
         if let Some(connection_info) = &self.connection_info {
             let mut control =
@@ -1123,6 +1276,44 @@ impl NotebookKernel {
             Ok(Ok(result)) => Ok(result),
             Ok(Err(_)) => Err(anyhow::anyhow!("Shell reader dropped")),
             Err(_) => Err(anyhow::anyhow!("Timeout waiting for complete_reply")),
+        }
+    }
+
+    /// Request history from the kernel.
+    pub async fn history(&mut self, pattern: Option<&str>, n: i32) -> Result<HistoryResult> {
+        let shell = self
+            .shell_writer
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("No kernel running"))?;
+
+        let request: JupyterMessage = if let Some(pat) = pattern {
+            HistoryRequest::Search {
+                pattern: format!("*{}*", pat),
+                unique: true,
+                output: false,
+                raw: true,
+                n,
+            }
+        } else {
+            HistoryRequest::Tail {
+                n,
+                output: false,
+                raw: true,
+            }
+        }
+        .into();
+
+        let msg_id = request.header.msg_id.clone();
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_history.lock().unwrap().insert(msg_id, tx);
+
+        shell.send(request).await?;
+
+        match tokio::time::timeout(std::time::Duration::from_secs(5), rx).await {
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(_)) => Err(anyhow::anyhow!("Shell reader dropped")),
+            Err(_) => Err(anyhow::anyhow!("Timeout waiting for history_reply")),
         }
     }
 

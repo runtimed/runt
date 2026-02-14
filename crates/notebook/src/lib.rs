@@ -7,7 +7,7 @@ pub mod pyproject;
 pub mod uv_env;
 
 use execution_queue::{ExecutionQueue, ExecutionQueueState, QueueCommand, SharedExecutionQueue};
-use kernel::{CompletionResult, NotebookKernel};
+use kernel::{CompletionResult, HistoryResult, NotebookKernel};
 use notebook_state::{FrontendCell, NotebookState};
 
 use log::info;
@@ -292,6 +292,19 @@ async fn complete(
     let mut kernel = kernel_state.lock().await;
     kernel
         .complete(&code, cursor_pos)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_history(
+    pattern: Option<String>,
+    n: Option<i32>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
+) -> Result<HistoryResult, String> {
+    let mut kernel = kernel_state.lock().await;
+    kernel
+        .history(pattern.as_deref(), n.unwrap_or(100))
         .await
         .map_err(|e| e.to_string())
 }
@@ -1184,6 +1197,7 @@ pub fn run(notebook_path: Option<PathBuf>) -> anyhow::Result<()> {
             shutdown_kernel,
             send_shell_message,
             complete,
+            get_history,
             get_preferred_kernelspec,
             list_kernelspecs,
             // UV dependency management
