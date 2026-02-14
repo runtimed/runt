@@ -192,6 +192,8 @@ export function DependencyHeader({
               placeholder="package or package>=version"
               className="flex-1 rounded border bg-background px-2 py-1 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               disabled={loading}
+              autoComplete="off"
+              spellCheck={false}
             />
             <button
               type="button"
