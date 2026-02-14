@@ -43,6 +43,9 @@ jobs:
       - name: Install JS dependencies
         run: pnpm install
 
+      - name: Run JS tests
+        run: pnpm test:run
+
       - name: Build UIs
         run: |
           pnpm --dir apps/sidecar build

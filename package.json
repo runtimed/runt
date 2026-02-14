@@ -7,7 +7,9 @@
     "sidecar:build": "pnpm --dir apps/sidecar build",
     "notebook:build": "pnpm --dir apps/notebook build",
     "notebook:dev": "pnpm --dir apps/notebook dev",
-    "isolated-renderer:build": "vite build --config src/isolated-renderer/vite.config.ts"
+    "isolated-renderer:build": "vite build --config src/isolated-renderer/vite.config.ts",
+    "test": "vitest",
+    "test:run": "vitest run"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.0",
@@ -50,8 +52,10 @@
     "@types/react-dom": "^19.1.5",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^4.5.2",
+    "jsdom": "^26.0.0",
     "tailwindcss": "^4.1.8",
     "typescript": "~5.8.3",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4"
   }
 }
