@@ -29,6 +29,9 @@ dist/
 **/dist/
 *.tsbuildinfo
 
+# Generated isolated-renderer bundle (built from src/isolated-renderer)
+apps/notebook/public/isolated/
+
 # Python artifacts
 __pycache__/
 **/__pycache__/

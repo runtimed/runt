@@ -3,10 +3,13 @@
   "private": true,
   "packageManager": "pnpm@10.12.1",
   "scripts": {
-    "build": "pnpm --dir apps/sidecar build && pnpm --dir apps/notebook build",
+    "build": "pnpm run isolated-renderer:build && pnpm --dir apps/sidecar build && pnpm --dir apps/notebook build",
     "sidecar:build": "pnpm --dir apps/sidecar build",
     "notebook:build": "pnpm --dir apps/notebook build",
-    "notebook:dev": "pnpm --dir apps/notebook dev"
+    "notebook:dev": "pnpm --dir apps/notebook dev",
+    "isolated-renderer:build": "vite build --config src/isolated-renderer/vite.config.ts",
+    "test": "vitest",
+    "test:run": "vitest run"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.0",
@@ -44,9 +47,15 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.8",
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.5",
     "@types/react-syntax-highlighter": "^15.5.13",
-    "typescript": "~5.8.3"
+    "@vitejs/plugin-react": "^4.5.2",
+    "jsdom": "^26.0.0",
+    "tailwindcss": "^4.1.8",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4"
   }
 }

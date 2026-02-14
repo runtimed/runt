@@ -17,6 +17,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { WidgetStoreProvider, useWidgetStoreRequired } from "@/components/widgets/widget-store-context";
 import { MediaProvider } from "@/components/outputs/media-provider";
 import { WidgetView } from "@/components/widgets/widget-view";
+import { IsolationTest } from "@/components/outputs/isolated";
 import type { JupyterOutput, JupyterMessage } from "./types";
 
 /** Page payload data for a cell */
@@ -60,6 +61,7 @@ function AppContent() {
   const { queueCell, queuedCellIds: executingCellIds } = useExecutionQueue();
 
   const [dependencyHeaderOpen, setDependencyHeaderOpen] = useState(false);
+  const [showIsolationTest, setShowIsolationTest] = useState(false);
 
   // Page payload state: maps cell_id -> payload (transient, not saved)
   const [pagePayloads, setPagePayloads] = useState<Map<string, CellPagePayload>>(
@@ -249,6 +251,18 @@ onKernelStarted: loadCondaDependencies,
     };
   }, [openNotebook]);
 
+  // Cmd+Shift+I to toggle isolation test panel (dev only)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "i") {
+        e.preventDefault();
+        setShowIsolationTest((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
     <div className="min-h-screen bg-background">
       {gitInfo && (
@@ -302,6 +316,7 @@ onKernelStarted: loadCondaDependencies,
           onImportFromPyproject={importFromPyproject}
         />
       )}
+      {showIsolationTest && <IsolationTest />}
       <NotebookView
         cells={cells}
         focusedCellId={focusedCellId}
