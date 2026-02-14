@@ -57,6 +57,7 @@ function AppContent() {
     dirty,
     appendOutput,
     setExecutionCount,
+    clearCellOutputs,
   } = useNotebook();
 
   const { theme, setTheme } = useTheme("notebook-theme");
@@ -247,6 +248,8 @@ onKernelStarted: loadCondaDependencies,
 
   const handleExecuteCell = useCallback(
     (cellId: string) => {
+      // Clear outputs immediately so user sees feedback
+      clearCellOutputs(cellId);
       // Queue FIRST to preserve order - don't await so rapid executions queue in order
       queueCell(cellId);
       // Then ensure kernel is started (queue processor will wait for it)
@@ -254,7 +257,7 @@ onKernelStarted: loadCondaDependencies,
         tryStartKernel();
       }
     },
-    [queueCell, kernelStatus, tryStartKernel]
+    [clearCellOutputs, queueCell, kernelStatus, tryStartKernel]
   );
 
   const handleAddCell = useCallback(
