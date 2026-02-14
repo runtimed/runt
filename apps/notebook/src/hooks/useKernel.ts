@@ -266,6 +266,22 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
     }
   }, []);
 
+  // Unified default kernel starter - backend decides uv vs conda based on availability
+  const startDefaultKernel = useCallback(async () => {
+    setKernelStatus("starting");
+    try {
+      console.log("[kernel] starting default kernel (backend will choose uv or conda)");
+      const envType = await invoke<string>("start_default_kernel");
+      console.log(`[kernel] start_default_kernel succeeded, using ${envType}`);
+      setKernelStatus("idle");
+      // Notify that kernel started (backend may have updated metadata)
+      callbacksRef.current.onKernelStarted?.();
+    } catch (e) {
+      console.error("start_default_kernel failed:", e);
+      setKernelStatus("error");
+    }
+  }, []);
+
   const startKernelWithPyproject = useCallback(async () => {
     setKernelStatus("starting");
     try {
@@ -343,14 +359,14 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
           return;
         }
 
-        // Fall back to default uv kernel (faster startup)
-        console.log("[kernel] falling back to default uv kernel");
-        await startDefaultUvKernel();
+        // Fall back to default kernel (backend decides uv vs conda)
+        console.log("[kernel] falling back to default kernel");
+        await startDefaultKernel();
       } finally {
         startingRef.current = false;
       }
     },
-    [startKernelWithUv, startKernelWithConda, startKernelWithPyproject, startDefaultUvKernel]
+    [startKernelWithUv, startKernelWithConda, startKernelWithPyproject, startDefaultKernel]
   );
 
   const shutdownKernel = useCallback(async () => {
@@ -378,6 +394,7 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
     startKernelWithUv,
     startKernelWithConda,
     startKernelWithPyproject,
+    startDefaultKernel,
     startDefaultUvKernel,
     startDefaultCondaKernel,
     ensureKernelStarted,
