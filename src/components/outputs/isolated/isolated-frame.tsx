@@ -33,6 +33,14 @@ export interface IsolatedFrameProps {
   darkMode?: boolean;
 
   /**
+   * Whether to bootstrap the React renderer bundle.
+   * When true, fetches and evals the isolated-renderer bundle after the iframe is ready.
+   * The bundle provides full React-based output rendering with MediaRouter support.
+   * @default false
+   */
+  useReactRenderer?: boolean;
+
+  /**
    * Minimum height of the iframe in pixels.
    * @default 24
    */
@@ -108,8 +116,16 @@ export interface IsolatedFrameHandle {
 
   /**
    * Whether the iframe is ready to receive messages.
+   * When useReactRenderer is true, this is true after the React bundle is initialized.
+   * When useReactRenderer is false, this is true after the inline renderer is ready.
    */
   isReady: boolean;
+
+  /**
+   * Whether the iframe bootstrap HTML is loaded.
+   * This is true before the React renderer bundle is loaded (if useReactRenderer is true).
+   */
+  isIframeReady: boolean;
 }
 
 /**
@@ -152,12 +168,47 @@ const SANDBOX_ATTRS = [
  * />
  * ```
  */
+/**
+ * Cache for the renderer bundle to avoid re-fetching.
+ */
+let rendererBundleCache: string | null = null;
+let rendererCssCache: string | null = null;
+
+/**
+ * Fetch the React renderer bundle and CSS.
+ */
+async function fetchRendererBundle(): Promise<{ js: string; css: string }> {
+  if (rendererBundleCache && rendererCssCache) {
+    return { js: rendererBundleCache, css: rendererCssCache };
+  }
+
+  const [jsResponse, cssResponse] = await Promise.all([
+    fetch("/isolated/isolated-renderer.js"),
+    fetch("/isolated/isolated-renderer.css"),
+  ]);
+
+  if (!jsResponse.ok) {
+    throw new Error(`Failed to fetch renderer bundle: ${jsResponse.status}`);
+  }
+  if (!cssResponse.ok) {
+    throw new Error(`Failed to fetch renderer CSS: ${cssResponse.status}`);
+  }
+
+  const [js, css] = await Promise.all([jsResponse.text(), cssResponse.text()]);
+
+  rendererBundleCache = js;
+  rendererCssCache = css;
+
+  return { js, css };
+}
+
 export const IsolatedFrame = forwardRef<IsolatedFrameHandle, IsolatedFrameProps>(
   function IsolatedFrame(
     {
       id,
       initialContent,
       darkMode = true,
+      useReactRenderer = false,
       minHeight = 24,
       maxHeight = 2000,
       className = "",
@@ -172,11 +223,16 @@ export const IsolatedFrame = forwardRef<IsolatedFrameHandle, IsolatedFrameProps>
   ) {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
+    // Track iframe ready (bootstrap HTML loaded)
+    const [isIframeReady, setIsIframeReady] = useState(false);
+    // Track renderer ready (React bundle initialized, or inline renderer if not using React)
     const [isReady, setIsReady] = useState(false);
     const [height, setHeight] = useState(minHeight);
 
     // Queue messages until iframe is ready
     const pendingMessagesRef = useRef<ParentToIframeMessage[]>([]);
+    // Track if we've started bootstrapping to avoid double-fetch
+    const bootstrappingRef = useRef(false);
 
     // Create blob URL on mount
     useEffect(() => {
@@ -236,11 +292,65 @@ export const IsolatedFrame = forwardRef<IsolatedFrameHandle, IsolatedFrameProps>
         // Handle specific message types
         switch (data.type) {
           case "ready":
+            // Iframe bootstrap HTML is loaded
+            setIsIframeReady(true);
+
+            if (useReactRenderer) {
+              // Bootstrap the React renderer if not already doing so
+              if (!bootstrappingRef.current) {
+                bootstrappingRef.current = true;
+                fetchRendererBundle()
+                  .then(({ js, css }) => {
+                    // Inject CSS first
+                    const cssCode = `
+                      (function() {
+                        var style = document.createElement('style');
+                        style.textContent = ${JSON.stringify(css)};
+                        document.head.appendChild(style);
+                      })();
+                    `;
+                    iframeRef.current?.contentWindow?.postMessage(
+                      { type: "eval", payload: { code: cssCode } },
+                      "*"
+                    );
+                    // Then inject JS bundle
+                    iframeRef.current?.contentWindow?.postMessage(
+                      { type: "eval", payload: { code: js } },
+                      "*"
+                    );
+                  })
+                  .catch((err) => {
+                    console.error("[IsolatedFrame] Failed to load renderer:", err);
+                    onError?.({ message: err.message });
+                    // Fall back to inline renderer
+                    setIsReady(true);
+                    onReady?.();
+                  });
+              }
+            } else {
+              // Using inline renderer, mark as ready immediately
+              setIsReady(true);
+              onReady?.();
+              // Render initial content if provided
+              if (initialContent) {
+                iframeRef.current?.contentWindow?.postMessage(
+                  { type: "render", payload: initialContent },
+                  "*"
+                );
+              }
+            }
+            break;
+
+          case "renderer_ready":
+            // React renderer bundle is initialized
             setIsReady(true);
             onReady?.();
             // Render initial content if provided
             if (initialContent) {
-              send({ type: "render", payload: initialContent });
+              iframeRef.current?.contentWindow?.postMessage(
+                { type: "render", payload: initialContent },
+                "*"
+              );
             }
             break;
 
@@ -281,6 +391,7 @@ export const IsolatedFrame = forwardRef<IsolatedFrameHandle, IsolatedFrameProps>
       initialContent,
       minHeight,
       maxHeight,
+      useReactRenderer,
       onReady,
       onResize,
       onLinkClick,
@@ -301,8 +412,9 @@ export const IsolatedFrame = forwardRef<IsolatedFrameHandle, IsolatedFrameProps>
           send({ type: "theme", payload: { isDark } }),
         clear: () => send({ type: "clear" }),
         isReady,
+        isIframeReady,
       }),
-      [send, isReady]
+      [send, isReady, isIframeReady]
     );
 
     if (!blobUrl) {

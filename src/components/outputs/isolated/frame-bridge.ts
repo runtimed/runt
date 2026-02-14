@@ -195,6 +195,14 @@ export interface IframeErrorMessage {
 }
 
 /**
+ * The React renderer bundle has been loaded and initialized.
+ * This is sent after the bundle is eval'd and React is mounted.
+ */
+export interface RendererReadyMessage {
+  type: "renderer_ready";
+}
+
+/**
  * All message types that can be sent from iframe to parent.
  */
 export type IframeToParentMessage =
@@ -205,7 +213,8 @@ export type IframeToParentMessage =
   | ResizeMessage
   | LinkClickMessage
   | WidgetUpdateMessage
-  | IframeErrorMessage;
+  | IframeErrorMessage
+  | RendererReadyMessage;
 
 // --- Utility Types ---
 
@@ -227,7 +236,7 @@ export function isIframeMessage(data: unknown): data is IframeToParentMessage {
   const msg = data as { type?: unknown };
   return (
     typeof msg.type === "string" &&
-    ["ready", "pong", "eval_result", "render_complete", "resize", "link_click", "widget_update", "error"].includes(
+    ["ready", "pong", "eval_result", "render_complete", "resize", "link_click", "widget_update", "error", "renderer_ready"].includes(
       msg.type
     )
   );
