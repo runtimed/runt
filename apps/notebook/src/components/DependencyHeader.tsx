@@ -93,13 +93,13 @@ export function DependencyHeader({
 
           {/* pyproject.toml detected banner */}
           {pyprojectInfo?.has_dependencies && (
-            <div className="mb-3 rounded bg-green-500/10 px-2 py-1.5 text-xs text-green-700 dark:text-green-400">
+            <div className="mb-3 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <FileText className="h-3.5 w-3.5 shrink-0" />
                   <span>
                     Using deps from{" "}
-                    <code className="rounded bg-green-500/20 px-1">
+                    <code className="rounded bg-uv/20 px-1">
                       {pyprojectInfo.relative_path}
                     </code>
                     {pyprojectInfo.project_name && (
@@ -114,7 +114,7 @@ export function DependencyHeader({
                     type="button"
                     onClick={onImportFromPyproject}
                     disabled={loading}
-                    className="flex items-center gap-1 text-green-700 dark:text-green-400 hover:text-green-900 dark:hover:text-green-200 transition-colors disabled:opacity-50"
+                    className="flex items-center gap-1 text-uv hover:text-uv/80 transition-colors disabled:opacity-50"
                     title="Copy pyproject.toml dependencies into notebook for portability"
                   >
                     <Download className="h-3 w-3" />
@@ -123,11 +123,11 @@ export function DependencyHeader({
                 )}
               </div>
               {pyprojectDeps && (pyprojectDeps.dependencies.length > 0 || pyprojectDeps.dev_dependencies.length > 0) && (
-                <div className="mt-2 text-xs text-green-600 dark:text-green-500">
+                <div className="mt-2 text-xs text-uv/80">
                   {pyprojectDeps.dependencies.length > 0 && (
                     <div className="flex flex-wrap gap-1 mb-1">
                       {pyprojectDeps.dependencies.map((dep) => (
-                        <span key={dep} className="rounded bg-green-500/20 px-1.5 py-0.5 font-mono">
+                        <span key={dep} className="rounded bg-uv/20 px-1.5 py-0.5 font-mono">
                           {dep}
                         </span>
                       ))}
@@ -137,7 +137,7 @@ export function DependencyHeader({
                     <div className="flex flex-wrap gap-1">
                       <span className="text-muted-foreground">dev:</span>
                       {pyprojectDeps.dev_dependencies.map((dep) => (
-                        <span key={dep} className="rounded bg-green-500/10 px-1.5 py-0.5 font-mono">
+                        <span key={dep} className="rounded bg-uv/10 px-1.5 py-0.5 font-mono">
                           {dep}
                         </span>
                       ))}
