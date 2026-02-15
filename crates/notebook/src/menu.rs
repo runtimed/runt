@@ -6,6 +6,7 @@ pub const MENU_NEW_PYTHON_NOTEBOOK: &str = "new_python_notebook";
 pub const MENU_NEW_DENO_NOTEBOOK: &str = "new_deno_notebook";
 pub const MENU_OPEN: &str = "open";
 pub const MENU_SAVE: &str = "save";
+pub const MENU_CLONE_NOTEBOOK: &str = "clone_notebook";
 
 // Menu item IDs for zoom
 pub const MENU_ZOOM_IN: &str = "zoom_in";
@@ -64,6 +65,13 @@ pub fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         "Save",
         true,
         Some("CmdOrCtrl+S"),
+    )?)?;
+    file_menu.append(&MenuItem::with_id(
+        app,
+        MENU_CLONE_NOTEBOOK,
+        "Clone Notebook...",
+        true,
+        None::<&str>,
     )?)?;
     menu.append(&file_menu)?;
 

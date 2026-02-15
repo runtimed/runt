@@ -127,6 +127,56 @@ async fn save_notebook_as(
     Ok(())
 }
 
+/// Clone the current notebook for saving as a new file.
+/// Generates a fresh env_id and clears outputs/execution counts.
+#[tauri::command]
+async fn clone_notebook_to_path(
+    path: String,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<(), String> {
+    let state = state.lock().map_err(|e| e.to_string())?;
+
+    // Clone the notebook structure
+    let mut cloned_notebook = state.notebook.clone();
+
+    // Generate fresh env_id
+    let new_env_id = uuid::Uuid::new_v4().to_string();
+
+    // Update runt metadata with new env_id
+    if let Some(runt_value) = cloned_notebook.metadata.additional.get_mut("runt") {
+        if let Some(obj) = runt_value.as_object_mut() {
+            obj.insert("env_id".to_string(), serde_json::json!(new_env_id));
+        }
+    }
+
+    // Also update conda env_id if present
+    if let Some(conda_value) = cloned_notebook.metadata.additional.get_mut("conda") {
+        if let Some(obj) = conda_value.as_object_mut() {
+            obj.insert("env_id".to_string(), serde_json::json!(new_env_id));
+        }
+    }
+
+    // Clear outputs and execution counts from all code cells
+    for cell in &mut cloned_notebook.cells {
+        if let nbformat::v4::Cell::Code {
+            outputs,
+            execution_count,
+            ..
+        } = cell
+        {
+            outputs.clear();
+            *execution_count = None;
+        }
+    }
+
+    // Serialize and write to path
+    let nb = nbformat::Notebook::V4(cloned_notebook);
+    let content = nbformat::serialize_notebook(&nb).map_err(|e| e.to_string())?;
+    std::fs::write(&path, &content).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 /// Open a notebook file in a new window (spawns new process)
 #[tauri::command]
 async fn open_notebook_in_new_window(path: String) -> Result<(), String> {
@@ -1489,6 +1539,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
             get_notebook_path,
             save_notebook,
             save_notebook_as,
+            clone_notebook_to_path,
             open_notebook_in_new_window,
             update_cell_source,
             add_cell,
@@ -1601,6 +1652,12 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
                     // Emit event to frontend to trigger save
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.emit("menu:save", ());
+                    }
+                }
+                crate::menu::MENU_CLONE_NOTEBOOK => {
+                    // Emit event to frontend to trigger clone
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("menu:clone", ());
                     }
                 }
                 crate::menu::MENU_ZOOM_IN => {

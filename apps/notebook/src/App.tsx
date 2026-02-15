@@ -55,6 +55,7 @@ function AppContent() {
     deleteCell,
     save,
     openNotebook,
+    cloneNotebook,
     dirty,
     appendOutput,
     setExecutionCount,
@@ -325,6 +326,17 @@ onKernelStarted: loadCondaDependencies,
       unlistenPromise.then((unlisten) => unlisten());
     };
   }, [openNotebook]);
+
+  // Clone notebook via native menu
+  useEffect(() => {
+    const unlistenPromise = listen("menu:clone", () => {
+      cloneNotebook();
+    });
+
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, [cloneNotebook]);
 
   // Zoom controls via native menu
   useEffect(() => {
