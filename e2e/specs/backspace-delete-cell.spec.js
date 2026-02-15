@@ -54,6 +54,23 @@ describe("Backspace Delete Cell", () => {
     return ids;
   }
 
+  /**
+   * Helper to wait for editor content to contain expected text
+   */
+  async function waitForEditorContent(editor, expectedText, timeout = 5000) {
+    await browser.waitUntil(
+      async () => {
+        const text = await editor.getText();
+        return text.includes(expectedText);
+      },
+      {
+        timeout,
+        timeoutMsg: `Editor content did not contain "${expectedText}" within timeout`,
+        interval: 200,
+      }
+    );
+  }
+
   before(async () => {
     // Wait for app to fully load
     await browser.pause(5000);
@@ -70,36 +87,49 @@ describe("Backspace Delete Cell", () => {
       const addCodeButton = await $("button*=Code");
       await addCodeButton.waitForClickable({ timeout: 5000 });
       await addCodeButton.click();
-      await browser.pause(500);
+      await browser.pause(1000);
     }
 
-    // Step 2: Type some content in the first cell
+    // Step 2: Focus and type content in the first cell
     const firstCell = await $('[data-cell-type="code"]');
     const firstEditor = await firstCell.$('.cm-content[contenteditable="true"]');
     await firstEditor.waitForExist({ timeout: 5000 });
     await firstEditor.click();
+    await browser.pause(500);
+
+    // Clear any existing content first
+    await browser.keys(["Control", "a"]);
+    await browser.pause(200);
+    await browser.keys("Backspace");
     await browser.pause(200);
 
-    // Clear and type content in first cell
-    await browser.keys(["Control", "a"]);
-    await browser.pause(100);
-    await typeSlowly("first_cell_content");
-    await browser.pause(300);
+    // Now type our marker content
+    const markerText = "MARKER_FIRST_CELL";
+    console.log("Typing marker text:", markerText);
+    await typeSlowly(markerText, 80);
+    await browser.pause(500);
+
+    // Verify content was typed
+    const typedContent = await firstEditor.getText();
+    console.log("First cell content after typing:", JSON.stringify(typedContent));
 
     await takeScreenshot("backspace-02-first-cell-content");
 
-    // Step 3: Add a second cell using Alt+Enter (execute and insert)
-    // Or we can use the add cell button
-    // Find the add cell button after the first cell
+    // Step 3: Add a second cell by hovering to reveal add buttons
+    // Move to the bottom of the first cell to reveal the add cell buttons
     const addButtons = await $$("button*=Code");
-    // Click the second "Code" button (the one between/after cells)
+    console.log("Found add buttons:", addButtons.length);
+
     if (addButtons.length > 1) {
+      // Click the add button that appears between cells
       await addButtons[1].click();
     } else {
-      // Use keyboard shortcut to add cell - Alt+Enter inserts after
+      // Fallback: Use keyboard shortcut - focus editor first
+      await firstEditor.click();
+      await browser.pause(200);
       await browser.keys(["Alt", "Enter"]);
     }
-    await browser.pause(500);
+    await browser.pause(1000);
 
     // Verify we now have 2 cells
     let cellCount = await countCodeCells();
@@ -112,23 +142,27 @@ describe("Backspace Delete Cell", () => {
     const cellIdsBefore = await getCellIds();
     console.log("Cell IDs before deletion:", cellIdsBefore);
 
-    // Step 5: The second cell should be focused and empty
-    // Make sure it's empty by selecting all and deleting
-    const secondCell = (await $$('[data-cell-type="code"]'))[1];
+    // Step 5: Focus the second cell and ensure it's empty
+    const allCells = await $$('[data-cell-type="code"]');
+    const secondCell = allCells[1];
     const secondEditor = await secondCell.$('.cm-content[contenteditable="true"]');
     await secondEditor.click();
-    await browser.pause(200);
+    await browser.pause(300);
 
     // Select all and delete to ensure it's empty
     await browser.keys(["Control", "a"]);
-    await browser.pause(100);
-    await browser.keys("Backspace");
     await browser.pause(200);
+    await browser.keys("Backspace");
+    await browser.pause(300);
+
+    // Verify cell is empty
+    const secondCellContent = await secondEditor.getText();
+    console.log("Second cell content (should be empty or placeholder):", JSON.stringify(secondCellContent));
 
     // Now the cell should be empty, press backspace to delete it
     console.log("Pressing backspace on empty cell...");
     await browser.keys("Backspace");
-    await browser.pause(500);
+    await browser.pause(1000);
 
     await takeScreenshot("backspace-04-after-delete");
 
@@ -142,16 +176,18 @@ describe("Backspace Delete Cell", () => {
     console.log("Cell IDs after deletion:", cellIdsAfter);
     expect(cellIdsAfter).not.toContain(cellIdsBefore[1]);
 
-    // Step 8: Verify focus is now on the first cell
-    // The first cell's editor should be focused
+    // Step 8: Verify focus moved to the first cell
+    // The remaining cell should contain our marker text
     const remainingCell = await $('[data-cell-type="code"]');
     const remainingEditor = await remainingCell.$('.cm-content[contenteditable="true"]');
 
-    // Check if the editor content matches the first cell
-    // We can verify by checking if we can see our typed content
-    const editorContent = await remainingEditor.getText();
-    console.log("Remaining cell content:", editorContent);
-    expect(editorContent).toContain("first_cell_content");
+    const remainingContent = await remainingEditor.getText();
+    console.log("Remaining cell content:", JSON.stringify(remainingContent));
+
+    // Verify the remaining cell is the first cell (has our marker)
+    // Note: If the marker text wasn't typed successfully, the test will fail here
+    // which will help diagnose the root cause
+    expect(remainingContent).toContain(markerText);
 
     await takeScreenshot("backspace-05-focus-on-previous");
 
@@ -159,8 +195,9 @@ describe("Backspace Delete Cell", () => {
   });
 
   it("should not delete the last remaining cell", async () => {
-    // Ensure we only have one cell
+    // Ensure we only have one cell by deleting extras
     let cellCount = await countCodeCells();
+    console.log("Starting cell count:", cellCount);
 
     // Delete cells until we have only one
     while (cellCount > 1) {
@@ -168,19 +205,20 @@ describe("Backspace Delete Cell", () => {
       const lastCell = cells[cells.length - 1];
       const editor = await lastCell.$('.cm-content[contenteditable="true"]');
       await editor.click();
-      await browser.pause(200);
+      await browser.pause(300);
 
       // Clear the cell
       await browser.keys(["Control", "a"]);
-      await browser.pause(100);
-      await browser.keys("Backspace");
       await browser.pause(200);
-
-      // Try to delete
       await browser.keys("Backspace");
       await browser.pause(300);
 
+      // Try to delete
+      await browser.keys("Backspace");
+      await browser.pause(500);
+
       cellCount = await countCodeCells();
+      console.log("Cell count after deletion attempt:", cellCount);
     }
 
     console.log("Down to one cell");
@@ -190,15 +228,16 @@ describe("Backspace Delete Cell", () => {
     const lastCell = await $('[data-cell-type="code"]');
     const editor = await lastCell.$('.cm-content[contenteditable="true"]');
     await editor.click();
-    await browser.pause(200);
+    await browser.pause(300);
 
     // Clear the cell
     await browser.keys(["Control", "a"]);
-    await browser.pause(100);
-    await browser.keys("Backspace");
     await browser.pause(200);
+    await browser.keys("Backspace");
+    await browser.pause(300);
 
     // Try to delete with backspace
+    console.log("Attempting to delete last remaining cell...");
     await browser.keys("Backspace");
     await browser.pause(500);
 
