@@ -127,8 +127,13 @@ function AppContent() {
     setPython: setCondaPython,
   } = useCondaDependencies();
 
-  // Deno config detection
-  const { denoAvailable, denoConfigInfo } = useDenoDependencies();
+  // Deno config detection and settings
+  const {
+    denoAvailable,
+    denoConfigInfo,
+    flexibleNpmImports,
+    setFlexibleNpmImports,
+  } = useDenoDependencies();
 
   // Auto-detect environment type based on what's configured
   // uv takes priority if metadata exists (even with empty deps)
@@ -360,6 +365,8 @@ onKernelStarted: loadCondaDependencies,
         <DenoDependencyHeader
           denoAvailable={denoAvailable}
           denoConfigInfo={denoConfigInfo}
+          flexibleNpmImports={flexibleNpmImports}
+          onSetFlexibleNpmImports={setFlexibleNpmImports}
         />
       )}
       {dependencyHeaderOpen && runtime === "python" && envType === "conda" && (

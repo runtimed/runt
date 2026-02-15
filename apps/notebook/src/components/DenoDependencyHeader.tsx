@@ -1,14 +1,20 @@
 import { Info, FileText, Package, ExternalLink } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import type { DenoConfigInfo } from "../hooks/useDenoDependencies";
 
 interface DenoDependencyHeaderProps {
   denoAvailable: boolean | null;
   denoConfigInfo: DenoConfigInfo | null;
+  flexibleNpmImports: boolean;
+  onSetFlexibleNpmImports: (enabled: boolean) => void;
 }
 
 export function DenoDependencyHeader({
   denoAvailable,
   denoConfigInfo,
+  flexibleNpmImports,
+  onSetFlexibleNpmImports,
 }: DenoDependencyHeaderProps) {
   return (
     <div className="border-b bg-emerald-500/5 dark:bg-emerald-500/10">
@@ -73,6 +79,32 @@ export function DenoDependencyHeader({
               No <code className="rounded bg-muted px-1">deno.json</code> found.
               Deno can import modules directly without configuration.
             </span>
+          </div>
+        )}
+
+        {/* Auto-install npm packages setting */}
+        {denoAvailable !== false && (
+          <div className="mb-3 flex items-start gap-2.5">
+            <Checkbox
+              id="flexible-npm-imports"
+              checked={flexibleNpmImports}
+              onCheckedChange={(checked) =>
+                onSetFlexibleNpmImports(checked === true)
+              }
+              className="mt-0.5"
+            />
+            <Label
+              htmlFor="flexible-npm-imports"
+              className="flex-1 flex-col items-start gap-1 cursor-pointer"
+            >
+              <span className="text-xs font-medium text-foreground">
+                Auto-install npm packages
+              </span>
+              <p className="text-xs text-muted-foreground font-normal">
+                Packages download automatically when you import them. Disable to
+                use your project&apos;s node_modules instead.
+              </p>
+            </Label>
           </div>
         )}
 

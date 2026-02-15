@@ -11,8 +11,13 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+/// Default value for flexible_npm_imports (true = auto-install npm packages)
+fn default_flexible_npm_imports() -> bool {
+    true
+}
+
 /// Deno permissions and configuration stored in notebook metadata
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DenoDependencies {
     /// Deno permission flags (e.g., ["--allow-net", "--allow-read"])
     #[serde(default)]
@@ -25,6 +30,22 @@ pub struct DenoDependencies {
     /// Path to deno.json config file (relative to notebook or absolute)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config: Option<String>,
+
+    /// When true (default), npm: imports auto-install packages.
+    /// When false, uses packages from the project's node_modules.
+    #[serde(default = "default_flexible_npm_imports")]
+    pub flexible_npm_imports: bool,
+}
+
+impl Default for DenoDependencies {
+    fn default() -> Self {
+        Self {
+            permissions: Vec::new(),
+            import_map: None,
+            config: None,
+            flexible_npm_imports: true,
+        }
+    }
 }
 
 /// Configuration extracted from a deno.json file
@@ -401,6 +422,7 @@ mod tests {
         assert!(deps.permissions.is_empty());
         assert!(deps.import_map.is_none());
         assert!(deps.config.is_none());
+        assert!(deps.flexible_npm_imports); // Default is true
     }
 
     #[test]
@@ -409,6 +431,7 @@ mod tests {
             permissions: vec!["--allow-net".to_string(), "--allow-read".to_string()],
             import_map: Some("./import_map.json".to_string()),
             config: None,
+            flexible_npm_imports: false,
         };
 
         let json = serde_json::to_string(&deps).unwrap();
@@ -416,6 +439,7 @@ mod tests {
 
         assert_eq!(parsed.permissions.len(), 2);
         assert_eq!(parsed.import_map, Some("./import_map.json".to_string()));
+        assert!(!parsed.flexible_npm_imports);
     }
 
     #[test]

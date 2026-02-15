@@ -1171,16 +1171,22 @@ impl NotebookKernel {
     ///
     /// Uses the system `deno jupyter` command to launch a Deno/TypeScript kernel.
     /// Optionally accepts permissions and a workspace directory (for deno.json detection).
+    /// When `flexible_npm_imports` is true, sets DENO_NO_PACKAGE_JSON=1 to allow npm:
+    /// specifiers to auto-install packages regardless of package.json presence.
     pub async fn start_with_deno(
         &mut self,
         app: AppHandle,
         permissions: &[String],
         workspace_dir: Option<&std::path::Path>,
+        flexible_npm_imports: bool,
     ) -> Result<()> {
         // Shutdown existing kernel if any
         self.shutdown().await.ok();
 
-        info!("Starting Deno kernel with permissions: {:?}", permissions);
+        info!(
+            "Starting Deno kernel with permissions: {:?}, flexible_npm_imports: {}",
+            permissions, flexible_npm_imports
+        );
 
         // Reserve ports
         let ip = std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -1227,6 +1233,12 @@ impl NotebookKernel {
         // Add any permissions
         for perm in permissions {
             cmd.arg(perm);
+        }
+
+        // When flexible_npm_imports is enabled, tell Deno to ignore package.json
+        // This allows npm: specifiers to auto-install packages on the fly
+        if flexible_npm_imports {
+            cmd.env("DENO_NO_PACKAGE_JSON", "1");
         }
 
         // Set working directory if specified (e.g., for deno.json discovery)
