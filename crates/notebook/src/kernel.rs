@@ -1641,3 +1641,315 @@ impl NotebookKernel {
         self.conda_environment.as_ref()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ==================== CompletionResult Tests ====================
+
+    #[test]
+    fn test_completion_result_serializes_correctly() {
+        let result = CompletionResult {
+            matches: vec!["print".to_string(), "println".to_string()],
+            cursor_start: 0,
+            cursor_end: 5,
+        };
+
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["matches"], json!(["print", "println"]));
+        assert_eq!(json["cursor_start"], 0);
+        assert_eq!(json["cursor_end"], 5);
+    }
+
+    #[test]
+    fn test_completion_result_empty_matches() {
+        let result = CompletionResult {
+            matches: vec![],
+            cursor_start: 10,
+            cursor_end: 10,
+        };
+
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["matches"], json!([]));
+        assert_eq!(json["cursor_start"], 10);
+        assert_eq!(json["cursor_end"], 10);
+    }
+
+    #[test]
+    fn test_completion_result_clone() {
+        let result = CompletionResult {
+            matches: vec!["foo".to_string()],
+            cursor_start: 0,
+            cursor_end: 3,
+        };
+
+        let cloned = result.clone();
+        assert_eq!(cloned.matches, result.matches);
+        assert_eq!(cloned.cursor_start, result.cursor_start);
+        assert_eq!(cloned.cursor_end, result.cursor_end);
+    }
+
+    // ==================== HistoryEntryData Tests ====================
+
+    #[test]
+    fn test_history_entry_data_serializes_correctly() {
+        let entry = HistoryEntryData {
+            session: 1,
+            line: 5,
+            source: "print('hello')".to_string(),
+        };
+
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(json["session"], 1);
+        assert_eq!(json["line"], 5);
+        assert_eq!(json["source"], "print('hello')");
+    }
+
+    #[test]
+    fn test_history_entry_data_with_multiline_source() {
+        let entry = HistoryEntryData {
+            session: 2,
+            line: 10,
+            source: "def foo():\n    return 42".to_string(),
+        };
+
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(json["source"], "def foo():\n    return 42");
+    }
+
+    #[test]
+    fn test_history_entry_data_clone() {
+        let entry = HistoryEntryData {
+            session: 1,
+            line: 1,
+            source: "x = 1".to_string(),
+        };
+
+        let cloned = entry.clone();
+        assert_eq!(cloned.session, entry.session);
+        assert_eq!(cloned.line, entry.line);
+        assert_eq!(cloned.source, entry.source);
+    }
+
+    // ==================== HistoryResult Tests ====================
+
+    #[test]
+    fn test_history_result_serializes_correctly() {
+        let result = HistoryResult {
+            entries: vec![
+                HistoryEntryData {
+                    session: 1,
+                    line: 1,
+                    source: "x = 1".to_string(),
+                },
+                HistoryEntryData {
+                    session: 1,
+                    line: 2,
+                    source: "y = 2".to_string(),
+                },
+            ],
+        };
+
+        let json = serde_json::to_value(&result).unwrap();
+        let entries = json["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0]["source"], "x = 1");
+        assert_eq!(entries[1]["source"], "y = 2");
+    }
+
+    #[test]
+    fn test_history_result_empty() {
+        let result = HistoryResult { entries: vec![] };
+
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["entries"], json!([]));
+    }
+
+    #[test]
+    fn test_history_result_clone() {
+        let result = HistoryResult {
+            entries: vec![HistoryEntryData {
+                session: 1,
+                line: 1,
+                source: "test".to_string(),
+            }],
+        };
+
+        let cloned = result.clone();
+        assert_eq!(cloned.entries.len(), 1);
+        assert_eq!(cloned.entries[0].source, "test");
+    }
+
+    // ==================== PagePayloadEvent Tests ====================
+
+    #[test]
+    fn test_page_payload_event_serializes_correctly() {
+        let event = PagePayloadEvent {
+            cell_id: "cell-123".to_string(),
+            data: Media::default(),
+            start: 0,
+        };
+
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["cell_id"], "cell-123");
+        assert_eq!(json["start"], 0);
+        // Media serializes to an object
+        assert!(json["data"].is_object());
+    }
+
+    #[test]
+    fn test_page_payload_event_with_nonzero_start() {
+        let event = PagePayloadEvent {
+            cell_id: "cell-456".to_string(),
+            data: Media::default(),
+            start: 100,
+        };
+
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["start"], 100);
+    }
+
+    #[test]
+    fn test_page_payload_event_clone() {
+        let event = PagePayloadEvent {
+            cell_id: "cell-789".to_string(),
+            data: Media::default(),
+            start: 50,
+        };
+
+        let cloned = event.clone();
+        assert_eq!(cloned.cell_id, event.cell_id);
+        assert_eq!(cloned.start, event.start);
+    }
+
+    // ==================== NotebookKernel Default Tests ====================
+
+    #[test]
+    fn test_notebook_kernel_default_has_no_connection() {
+        let kernel = NotebookKernel::default();
+        assert!(kernel.connection_info.is_none());
+        assert!(kernel.connection_file.is_none());
+    }
+
+    #[test]
+    fn test_notebook_kernel_default_is_not_running() {
+        let kernel = NotebookKernel::default();
+        assert!(!kernel.is_running());
+    }
+
+    #[test]
+    fn test_notebook_kernel_default_has_no_uv_environment() {
+        let kernel = NotebookKernel::default();
+        assert!(!kernel.has_uv_environment());
+        assert!(kernel.uv_environment().is_none());
+    }
+
+    #[test]
+    fn test_notebook_kernel_default_has_no_conda_environment() {
+        let kernel = NotebookKernel::default();
+        assert!(!kernel.has_conda_environment());
+        assert!(kernel.conda_environment().is_none());
+    }
+
+    #[test]
+    fn test_notebook_kernel_default_has_empty_cell_id_map() {
+        let kernel = NotebookKernel::default();
+        let map = kernel.cell_id_map.lock().unwrap();
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn test_notebook_kernel_default_has_empty_pending_completions() {
+        let kernel = NotebookKernel::default();
+        let completions = kernel.pending_completions.lock().unwrap();
+        assert!(completions.is_empty());
+    }
+
+    #[test]
+    fn test_notebook_kernel_default_has_empty_pending_history() {
+        let kernel = NotebookKernel::default();
+        let history = kernel.pending_history.lock().unwrap();
+        assert!(history.is_empty());
+    }
+
+    #[test]
+    fn test_notebook_kernel_default_session_id_is_uuid_format() {
+        let kernel = NotebookKernel::default();
+        // UUID v4 format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+        assert!(uuid::Uuid::parse_str(&kernel.session_id).is_ok());
+    }
+
+    #[test]
+    fn test_notebook_kernel_default_has_no_queue_tx() {
+        let kernel = NotebookKernel::default();
+        assert!(kernel.queue_tx.is_none());
+    }
+
+    // ==================== set_queue_tx Tests ====================
+
+    #[test]
+    fn test_set_queue_tx_sets_sender() {
+        let mut kernel = NotebookKernel::default();
+        let (tx, _rx) = mpsc::channel(1);
+
+        assert!(kernel.queue_tx.is_none());
+        kernel.set_queue_tx(tx);
+        assert!(kernel.queue_tx.is_some());
+    }
+
+    // ==================== is_running State Tests ====================
+
+    #[test]
+    fn test_is_running_false_when_no_connection_info() {
+        let kernel = NotebookKernel::default();
+        assert!(!kernel.is_running());
+    }
+
+    // ==================== Cell ID Map Tests ====================
+
+    #[test]
+    fn test_cell_id_map_can_insert_and_retrieve() {
+        let kernel = NotebookKernel::default();
+        {
+            let mut map = kernel.cell_id_map.lock().unwrap();
+            map.insert("msg-123".to_string(), "cell-456".to_string());
+        }
+        {
+            let map = kernel.cell_id_map.lock().unwrap();
+            assert_eq!(map.get("msg-123"), Some(&"cell-456".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_cell_id_map_returns_none_for_missing_key() {
+        let kernel = NotebookKernel::default();
+        let map = kernel.cell_id_map.lock().unwrap();
+        assert!(map.get("nonexistent").is_none());
+    }
+
+    // ==================== Multiple Kernels Independence ====================
+
+    #[test]
+    fn test_multiple_kernels_have_different_session_ids() {
+        let kernel1 = NotebookKernel::default();
+        let kernel2 = NotebookKernel::default();
+        assert_ne!(kernel1.session_id, kernel2.session_id);
+    }
+
+    #[test]
+    fn test_multiple_kernels_have_independent_cell_id_maps() {
+        let kernel1 = NotebookKernel::default();
+        let kernel2 = NotebookKernel::default();
+
+        {
+            let mut map1 = kernel1.cell_id_map.lock().unwrap();
+            map1.insert("msg-1".to_string(), "cell-1".to_string());
+        }
+
+        // kernel2's map should still be empty
+        let map2 = kernel2.cell_id_map.lock().unwrap();
+        assert!(map2.is_empty());
+    }
+}

@@ -351,3 +351,355 @@ fn empty_cell_metadata() -> CellMetadata {
         additional: HashMap::new(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_empty_creates_single_code_cell() {
+        let state = NotebookState::new_empty();
+
+        assert_eq!(state.notebook.cells.len(), 1);
+        assert!(matches!(state.notebook.cells[0], Cell::Code { .. }));
+        assert!(state.path.is_none());
+        assert!(!state.dirty);
+    }
+
+    #[test]
+    fn test_new_empty_sets_uv_metadata() {
+        let state = NotebookState::new_empty();
+
+        assert!(state.notebook.metadata.additional.contains_key("uv"));
+        assert!(state.notebook.metadata.additional.contains_key("runt"));
+    }
+
+    #[test]
+    fn test_new_empty_with_runtime_python() {
+        let state = NotebookState::new_empty_with_runtime(Runtime::Python);
+
+        assert!(state.notebook.metadata.additional.contains_key("uv"));
+        let runt = state.notebook.metadata.additional.get("runt").unwrap();
+        assert_eq!(runt.get("runtime").unwrap(), "python");
+    }
+
+    #[test]
+    fn test_new_empty_with_runtime_deno() {
+        let state = NotebookState::new_empty_with_runtime(Runtime::Deno);
+
+        assert!(state.notebook.metadata.additional.contains_key("deno"));
+        let runt = state.notebook.metadata.additional.get("runt").unwrap();
+        assert_eq!(runt.get("runtime").unwrap(), "deno");
+    }
+
+    #[test]
+    fn test_get_runtime_returns_python_by_default() {
+        let state = NotebookState::new_empty();
+        assert_eq!(state.get_runtime(), Runtime::Python);
+    }
+
+    #[test]
+    fn test_get_runtime_returns_correct_runtime() {
+        let state = NotebookState::new_empty_with_runtime(Runtime::Deno);
+        assert_eq!(state.get_runtime(), Runtime::Deno);
+    }
+
+    #[test]
+    fn test_find_cell_index_returns_correct_position() {
+        let state = NotebookState::new_empty();
+        let cell_id = state.notebook.cells[0].id().to_string();
+
+        assert_eq!(state.find_cell_index(&cell_id), Some(0));
+    }
+
+    #[test]
+    fn test_find_cell_index_returns_none_for_missing() {
+        let state = NotebookState::new_empty();
+        assert_eq!(state.find_cell_index("nonexistent"), None);
+    }
+
+    #[test]
+    fn test_update_cell_source_modifies_cell() {
+        let mut state = NotebookState::new_empty();
+        let cell_id = state.notebook.cells[0].id().to_string();
+
+        state.update_cell_source(&cell_id, "print('hello')");
+
+        let source = state.get_cell_source(&cell_id).unwrap();
+        assert_eq!(source, "print('hello')\n");
+    }
+
+    #[test]
+    fn test_update_cell_source_sets_dirty_flag() {
+        let mut state = NotebookState::new_empty();
+        let cell_id = state.notebook.cells[0].id().to_string();
+
+        assert!(!state.dirty);
+        state.update_cell_source(&cell_id, "x = 1");
+        assert!(state.dirty);
+    }
+
+    #[test]
+    fn test_get_cell_source_returns_joined_lines() {
+        let mut state = NotebookState::new_empty();
+        let cell_id = state.notebook.cells[0].id().to_string();
+
+        state.update_cell_source(&cell_id, "line1\nline2\nline3");
+
+        let source = state.get_cell_source(&cell_id).unwrap();
+        assert_eq!(source, "line1\nline2\nline3\n");
+    }
+
+    #[test]
+    fn test_get_cell_source_returns_none_for_missing() {
+        let state = NotebookState::new_empty();
+        assert!(state.get_cell_source("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_add_cell_code() {
+        let mut state = NotebookState::new_empty();
+
+        let result = state.add_cell("code", None);
+
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), FrontendCell::Code { .. }));
+        assert_eq!(state.notebook.cells.len(), 2);
+    }
+
+    #[test]
+    fn test_add_cell_markdown() {
+        let mut state = NotebookState::new_empty();
+
+        let result = state.add_cell("markdown", None);
+
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), FrontendCell::Markdown { .. }));
+    }
+
+    #[test]
+    fn test_add_cell_raw() {
+        let mut state = NotebookState::new_empty();
+
+        let result = state.add_cell("raw", None);
+
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), FrontendCell::Raw { .. }));
+    }
+
+    #[test]
+    fn test_add_cell_invalid_type_returns_none() {
+        let mut state = NotebookState::new_empty();
+
+        let result = state.add_cell("invalid", None);
+
+        assert!(result.is_none());
+        assert_eq!(state.notebook.cells.len(), 1);
+    }
+
+    #[test]
+    fn test_add_cell_after_existing_cell() {
+        let mut state = NotebookState::new_empty();
+        let first_cell_id = state.notebook.cells[0].id().to_string();
+
+        state.add_cell("code", Some(&first_cell_id));
+
+        assert_eq!(state.notebook.cells.len(), 2);
+        // New cell should be at index 1 (after first cell)
+        assert_ne!(state.notebook.cells[1].id().to_string(), first_cell_id);
+    }
+
+    #[test]
+    fn test_add_cell_at_beginning_when_no_after() {
+        let mut state = NotebookState::new_empty();
+        let first_cell_id = state.notebook.cells[0].id().to_string();
+
+        let new_cell = state.add_cell("code", None).unwrap();
+
+        // New cell should be at index 0
+        assert_eq!(state.notebook.cells[0].id().to_string(), new_cell.id());
+        // Original cell should now be at index 1
+        assert_eq!(state.notebook.cells[1].id().to_string(), first_cell_id);
+    }
+
+    #[test]
+    fn test_add_cell_sets_dirty_flag() {
+        let mut state = NotebookState::new_empty();
+
+        assert!(!state.dirty);
+        state.add_cell("code", None);
+        assert!(state.dirty);
+    }
+
+    #[test]
+    fn test_delete_cell_removes_cell() {
+        let mut state = NotebookState::new_empty();
+        state.add_cell("code", None);
+        let cell_to_delete = state.notebook.cells[0].id().to_string();
+
+        let result = state.delete_cell(&cell_to_delete);
+
+        assert!(result);
+        assert_eq!(state.notebook.cells.len(), 1);
+    }
+
+    #[test]
+    fn test_delete_cell_prevents_removing_last() {
+        let mut state = NotebookState::new_empty();
+        let only_cell = state.notebook.cells[0].id().to_string();
+
+        let result = state.delete_cell(&only_cell);
+
+        assert!(!result);
+        assert_eq!(state.notebook.cells.len(), 1);
+    }
+
+    #[test]
+    fn test_delete_cell_returns_false_for_missing() {
+        let mut state = NotebookState::new_empty();
+        state.add_cell("code", None);
+
+        let result = state.delete_cell("nonexistent");
+
+        assert!(!result);
+        assert_eq!(state.notebook.cells.len(), 2);
+    }
+
+    #[test]
+    fn test_delete_cell_sets_dirty_flag() {
+        let mut state = NotebookState::new_empty();
+        state.add_cell("code", None);
+        state.dirty = false;
+        let cell_to_delete = state.notebook.cells[0].id().to_string();
+
+        state.delete_cell(&cell_to_delete);
+
+        assert!(state.dirty);
+    }
+
+    #[test]
+    fn test_clear_cell_outputs_clears_outputs_and_count() {
+        let mut state = NotebookState::new_empty();
+        let cell_id = state.notebook.cells[0].id().to_string();
+
+        // Set some execution state
+        state.set_cell_execution_count(&cell_id, 5);
+
+        // Clear outputs
+        state.clear_cell_outputs(&cell_id);
+
+        // Check execution count is cleared
+        if let Cell::Code {
+            execution_count, ..
+        } = &state.notebook.cells[0]
+        {
+            assert!(execution_count.is_none());
+        }
+    }
+
+    #[test]
+    fn test_set_cell_execution_count() {
+        let mut state = NotebookState::new_empty();
+        let cell_id = state.notebook.cells[0].id().to_string();
+
+        state.set_cell_execution_count(&cell_id, 42);
+
+        if let Cell::Code {
+            execution_count, ..
+        } = &state.notebook.cells[0]
+        {
+            assert_eq!(*execution_count, Some(42));
+        } else {
+            panic!("Expected code cell");
+        }
+    }
+
+    #[test]
+    fn test_cells_for_frontend_converts_correctly() {
+        let mut state = NotebookState::new_empty();
+        let cell_id = state.notebook.cells[0].id().to_string();
+        state.update_cell_source(&cell_id, "x = 1");
+
+        let frontend_cells = state.cells_for_frontend();
+
+        assert_eq!(frontend_cells.len(), 1);
+        if let FrontendCell::Code { source, .. } = &frontend_cells[0] {
+            assert_eq!(source, "x = 1\n");
+        } else {
+            panic!("Expected code cell");
+        }
+    }
+
+    #[test]
+    fn test_serialize_produces_valid_json() {
+        let state = NotebookState::new_empty();
+
+        let result = state.serialize();
+
+        assert!(result.is_ok());
+        let json_str = result.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["nbformat"], 4);
+        assert!(parsed["cells"].is_array());
+    }
+
+    #[test]
+    fn test_source_to_lines_handles_empty_string() {
+        let lines = source_to_lines("");
+        assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn test_source_to_lines_adds_newlines() {
+        let lines = source_to_lines("line1\nline2");
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], "line1\n");
+        assert_eq!(lines[1], "line2\n");
+    }
+
+    #[test]
+    fn test_source_to_lines_single_line() {
+        let lines = source_to_lines("single");
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0], "single\n");
+    }
+
+    #[test]
+    fn test_frontend_cell_id_method() {
+        let code_cell = FrontendCell::Code {
+            id: "code-123".to_string(),
+            source: String::new(),
+            execution_count: None,
+            outputs: vec![],
+        };
+        let md_cell = FrontendCell::Markdown {
+            id: "md-456".to_string(),
+            source: String::new(),
+        };
+        let raw_cell = FrontendCell::Raw {
+            id: "raw-789".to_string(),
+            source: String::new(),
+        };
+
+        assert_eq!(code_cell.id(), "code-123");
+        assert_eq!(md_cell.id(), "md-456");
+        assert_eq!(raw_cell.id(), "raw-789");
+    }
+
+    #[test]
+    fn test_frontend_cell_serialization() {
+        let cell = FrontendCell::Code {
+            id: "test-id".to_string(),
+            source: "print('hi')".to_string(),
+            execution_count: Some(1),
+            outputs: vec![],
+        };
+
+        let json = serde_json::to_value(&cell).unwrap();
+
+        assert_eq!(json["cell_type"], "code");
+        assert_eq!(json["id"], "test-id");
+        assert_eq!(json["source"], "print('hi')");
+        assert_eq!(json["execution_count"], 1);
+    }
+}
