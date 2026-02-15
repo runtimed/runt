@@ -7,7 +7,12 @@ interface CellContainerProps {
   cellType: string;
   isFocused?: boolean;
   onFocus?: () => void;
-  children: ReactNode;
+  /** Content for the code/editor section (use with outputContent for segmented ribbon) */
+  codeContent?: ReactNode;
+  /** Content for the output section (renders with a different ribbon color) */
+  outputContent?: ReactNode;
+  /** Legacy children prop - use codeContent/outputContent for segmented ribbon support */
+  children?: ReactNode;
   /** Content to render in the left gutter action area (e.g., play button, execution count) */
   gutterContent?: ReactNode;
   /** Content to render in the right margin (e.g., cell controls, kebab menu) */
@@ -27,6 +32,8 @@ export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
       cellType,
       isFocused = false,
       onFocus,
+      codeContent,
+      outputContent,
       children,
       gutterContent,
       rightGutterContent,
@@ -42,7 +49,14 @@ export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
     const ribbonColor = isFocused
       ? colors.ribbon.focused
       : colors.ribbon.default;
+    const outputRibbonColor = isFocused
+      ? colors.outputRibbon.focused
+      : colors.outputRibbon.default;
     const bgColor = isFocused ? colors.background.focused : undefined;
+
+    // Use segmented ribbon when codeContent is provided
+    const useSegmentedRibbon = codeContent !== undefined;
+    const hasOutput = outputContent !== undefined && outputContent !== null;
 
     return (
       <div
@@ -62,22 +76,55 @@ export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
         onDragOver={onDragOver}
         onDrop={onDrop}
       >
-        {/* Gutter area: action content + thin ribbon */}
-        <div className="flex flex-shrink-0">
-          {/* Action area - pt-3 matches content padding */}
-          <div className="flex w-10 flex-col items-end justify-start gap-0.5 pr-1 pt-3">
-            {gutterContent}
-          </div>
-          {/* Thin ribbon - self-stretch ensures it fills full height */}
-          <div
-            className={cn(
-              "w-1 self-stretch transition-colors duration-150",
-              ribbonColor,
-            )}
-          />
+        {/* Gutter area - action content only (ribbon moves to content rows for segmented) */}
+        <div className="flex w-10 flex-shrink-0 flex-col items-end justify-start gap-0.5 pr-1 pt-3">
+          {gutterContent}
         </div>
-        {/* Cell content - more left padding for breathing room after ribbon */}
-        <div className="min-w-0 flex-1 py-3 pl-5 pr-3">{children}</div>
+        {/* Cell content with ribbon */}
+        {useSegmentedRibbon ? (
+          <div className="flex min-w-0 flex-1 flex-col">
+            {/* Code row - ribbon + content together so heights match */}
+            <div className="flex">
+              <div
+                className={cn(
+                  "w-1 transition-colors duration-150",
+                  ribbonColor,
+                )}
+              />
+              <div className="min-w-0 flex-1 py-3 pl-5 pr-3">{codeContent}</div>
+            </div>
+            {/* Output row - ribbon + content together */}
+            {hasOutput && (
+              <div className="flex">
+                <div
+                  className={cn(
+                    "w-1 transition-colors duration-150",
+                    outputRibbonColor,
+                  )}
+                />
+                <div
+                  className={cn(
+                    "min-w-0 flex-1 py-2 pl-5 pr-3 transition-opacity duration-150",
+                    !isFocused && "opacity-70",
+                  )}
+                >
+                  {outputContent}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Legacy layout - ribbon + content side by side */
+          <div className="flex min-w-0 flex-1">
+            <div
+              className={cn(
+                "w-1 self-stretch transition-colors duration-150",
+                ribbonColor,
+              )}
+            />
+            <div className="min-w-0 flex-1 py-3 pl-5 pr-3">{children}</div>
+          </div>
+        )}
         {/* Right margin - pt-3 aligns with left gutter, appears on hover/focus */}
         {rightGutterContent && (
           <div
