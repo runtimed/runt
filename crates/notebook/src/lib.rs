@@ -1260,9 +1260,46 @@ async fn set_deno_permissions(
 ) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
 
-    let deno_value = serde_json::json!({
-        "permissions": permissions,
-    });
+    // Preserve existing settings when updating permissions
+    let mut deno_deps =
+        deno_env::extract_deno_metadata(&state.notebook.metadata).unwrap_or_default();
+    deno_deps.permissions = permissions;
+
+    let deno_value = serde_json::to_value(&deno_deps).map_err(|e| e.to_string())?;
+    state
+        .notebook
+        .metadata
+        .additional
+        .insert("deno".to_string(), deno_value);
+    state.dirty = true;
+
+    Ok(())
+}
+
+/// Get Deno flexible npm imports setting from notebook metadata
+#[tauri::command]
+async fn get_deno_flexible_npm_imports(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<bool, String> {
+    let state = state.lock().map_err(|e| e.to_string())?;
+    let deps = deno_env::extract_deno_metadata(&state.notebook.metadata);
+    Ok(deps.map(|d| d.flexible_npm_imports).unwrap_or(true))
+}
+
+/// Set Deno flexible npm imports setting in notebook metadata
+#[tauri::command]
+async fn set_deno_flexible_npm_imports(
+    enabled: bool,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<(), String> {
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+
+    // Preserve existing settings when updating flexible_npm_imports
+    let mut deno_deps =
+        deno_env::extract_deno_metadata(&state.notebook.metadata).unwrap_or_default();
+    deno_deps.flexible_npm_imports = enabled;
+
+    let deno_value = serde_json::to_value(&deno_deps).map_err(|e| e.to_string())?;
     state
         .notebook
         .metadata
@@ -1280,11 +1317,12 @@ async fn start_kernel_with_deno(
     notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
     kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
-    // Get permissions from notebook metadata
-    let (permissions, workspace_dir) = {
+    // Get permissions and settings from notebook metadata
+    let (permissions, workspace_dir, flexible_npm_imports) = {
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
         let deps = deno_env::extract_deno_metadata(&state.notebook.metadata);
-        let perms = deps.map(|d| d.permissions).unwrap_or_default();
+        let perms = deps.as_ref().map(|d| d.permissions.clone()).unwrap_or_default();
+        let flexible = deps.map(|d| d.flexible_npm_imports).unwrap_or(true);
 
         // Find workspace directory with deno.json
         let ws_dir = state
@@ -1293,17 +1331,17 @@ async fn start_kernel_with_deno(
             .and_then(|p| deno_env::find_deno_config(p))
             .and_then(|c| c.parent().map(|p| p.to_path_buf()));
 
-        (perms, ws_dir)
+        (perms, ws_dir, flexible)
     };
 
     info!(
-        "Starting Deno kernel with permissions: {:?}, workspace: {:?}",
-        permissions, workspace_dir
+        "Starting Deno kernel with permissions: {:?}, workspace: {:?}, flexible_npm_imports: {}",
+        permissions, workspace_dir, flexible_npm_imports
     );
 
     let mut kernel = kernel_state.lock().await;
     kernel
-        .start_with_deno(app, &permissions, workspace_dir.as_deref())
+        .start_with_deno(app, &permissions, workspace_dir.as_deref(), flexible_npm_imports)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1444,6 +1482,8 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
             detect_deno_config,
             get_deno_permissions,
             set_deno_permissions,
+            get_deno_flexible_npm_imports,
+            set_deno_flexible_npm_imports,
             start_kernel_with_deno,
             // Settings
             get_settings,
