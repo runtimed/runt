@@ -1,10 +1,11 @@
-import type { KeyBinding } from "@codemirror/view";
+import type { EditorView, KeyBinding } from "@codemirror/view";
 
 interface UseCellKeyboardNavigationOptions {
   onFocusPrevious: (cursorPosition: "start" | "end") => void;
   onFocusNext: (cursorPosition: "start" | "end") => void;
   onExecute?: () => void;
   onExecuteAndInsert?: () => void;
+  onDelete?: () => void;
 }
 
 export function useCellKeyboardNavigation({
@@ -12,6 +13,7 @@ export function useCellKeyboardNavigation({
   onFocusNext,
   onExecute,
   onExecuteAndInsert,
+  onDelete,
 }: UseCellKeyboardNavigationOptions): KeyBinding[] {
   return [
     {
@@ -37,6 +39,24 @@ export function useCellKeyboardNavigation({
         return false;
       },
     },
+    ...(onDelete
+      ? [
+          {
+            key: "Backspace",
+            run: (view: EditorView) => {
+              const { from } = view.state.selection.main;
+              const docLength = view.state.doc.length;
+              // Delete cell if cursor at start AND cell is empty
+              if (from === 0 && docLength === 0) {
+                onFocusPrevious("end");
+                onDelete();
+                return true;
+              }
+              return false;
+            },
+          },
+        ]
+      : []),
     ...(onExecute
       ? [
           {
