@@ -213,39 +213,38 @@ export function CodeCell({
         onFocus={onFocus}
         gutterContent={gutterContent}
         rightGutterContent={rightGutterContent}
-      >
-        {/* Editor */}
-        <div>
-          <CodeMirrorEditor
-            ref={editorRef}
-            value={cell.source}
-            language={language}
-            onValueChange={onUpdateSource}
-            keyMap={keyMap}
-            extensions={[kernelCompletionExtension]}
-            placeholder="Enter code..."
-            className="min-h-[2rem]"
-            autoFocus={isFocused}
-          />
-        </div>
+        codeContent={
+          <>
+            {/* Editor */}
+            <div>
+              <CodeMirrorEditor
+                ref={editorRef}
+                value={cell.source}
+                language={language}
+                onValueChange={onUpdateSource}
+                keyMap={keyMap}
+                extensions={[kernelCompletionExtension]}
+                placeholder="Enter code..."
+                className="min-h-[2rem]"
+                autoFocus={isFocused}
+              />
+            </div>
 
-        {/* Page Payload (documentation from ? or ??) */}
-        {pagePayload && (
-          <div className="px-2 py-1">
-            <PagePayloadDisplay
-              data={pagePayload.data}
-              onDismiss={() => onClearPagePayload?.()}
-            />
-          </div>
-        )}
-
-        {/* Outputs */}
-        {cell.outputs.length > 0 && (
-          <div className="py-2">
-            <OutputArea outputs={cell.outputs} />
-          </div>
-        )}
-      </CellContainer>
+            {/* Page Payload (documentation from ? or ??) */}
+            {pagePayload && (
+              <div className="px-2 py-1">
+                <PagePayloadDisplay
+                  data={pagePayload.data}
+                  onDismiss={() => onClearPagePayload?.()}
+                />
+              </div>
+            )}
+          </>
+        }
+        outputContent={
+          cell.outputs.length > 0 ? <OutputArea outputs={cell.outputs} /> : undefined
+        }
+      />
 
       {/* History Search Dialog (Ctrl+R) */}
       <HistorySearchDialog
