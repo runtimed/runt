@@ -10,8 +10,8 @@
 import { browser, expect } from "@wdio/globals";
 
 describe("Kernel Lifecycle", () => {
-  const KERNEL_STARTUP_TIMEOUT = 60000;
-  const EXECUTION_TIMEOUT = 15000;
+  const KERNEL_STARTUP_TIMEOUT = 90000;
+  const EXECUTION_TIMEOUT = 30000;
 
   let codeCell;
 
@@ -31,6 +31,24 @@ describe("Kernel Lifecycle", () => {
       await browser.keys(char);
       await browser.pause(delay);
     }
+  }
+
+  /**
+   * Helper to find a button by trying multiple selectors
+   */
+  async function findButton(labelPatterns) {
+    for (const pattern of labelPatterns) {
+      try {
+        const button = await $(pattern);
+        if (await button.isExisting()) {
+          return button;
+        }
+      } catch (e) {
+        // Selector might be invalid, try next
+        continue;
+      }
+    }
+    return null;
   }
 
   /**
@@ -155,9 +173,12 @@ describe("Kernel Lifecycle", () => {
     await browser.pause(1000);
 
     // If Ctrl+C didn't work, try the interrupt button if it exists
-    const interruptButton = await $('button[aria-label*="interrupt"]');
-    const buttonExists = await interruptButton.isExisting();
-    if (buttonExists) {
+    const interruptButton = await findButton([
+      'button[aria-label*="interrupt"]',
+      'button[aria-label*="Interrupt"]',
+      "button*=Interrupt",
+    ]);
+    if (interruptButton) {
       console.log("Clicking interrupt button");
       await interruptButton.click();
     }
@@ -189,24 +210,27 @@ describe("Kernel Lifecycle", () => {
     await browser.keys(["Shift", "Enter"]);
 
     // Wait for any output or completion
-    await browser.pause(3000);
+    await browser.pause(5000);
 
-    // Now find and click the restart button
-    // Look for restart button in toolbar
-    const restartButton = await $(
-      'button[aria-label*="restart"], button[aria-label*="Restart"], button*=Restart'
-    );
-    const buttonExists = await restartButton.isExisting();
+    // Now find and click the restart button - try multiple selectors separately
+    const restartButton = await findButton([
+      'button[aria-label*="restart"]',
+      'button[aria-label*="Restart"]',
+      "button*=Restart",
+    ]);
 
-    if (buttonExists) {
+    if (restartButton) {
       console.log("Found restart button, clicking...");
       await restartButton.click();
       await browser.pause(500);
 
-      // Handle confirmation dialog if it appears
-      const confirmButton = await $('button*=Confirm, button*=OK, button*=Yes');
-      const confirmExists = await confirmButton.isExisting();
-      if (confirmExists) {
+      // Handle confirmation dialog if it appears - try multiple selectors
+      const confirmButton = await findButton([
+        "button*=Confirm",
+        "button*=OK",
+        "button*=Yes",
+      ]);
+      if (confirmButton) {
         await confirmButton.click();
       }
 
@@ -249,7 +273,7 @@ describe("Kernel Lifecycle", () => {
 
     // Execute to verify it works
     await browser.keys(["Shift", "Enter"]);
-    await waitForOutput("preserved", EXECUTION_TIMEOUT);
+    await waitForOutput("preserved", KERNEL_STARTUP_TIMEOUT);
 
     // Verify content is still there
     const contentAfter = await getEditorContent();

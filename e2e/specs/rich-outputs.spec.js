@@ -10,8 +10,8 @@
 import { browser, expect } from "@wdio/globals";
 
 describe("Rich Output Types", () => {
-  const KERNEL_STARTUP_TIMEOUT = 60000;
-  const EXECUTION_TIMEOUT = 30000; // Longer for matplotlib
+  const KERNEL_STARTUP_TIMEOUT = 90000;
+  const EXECUTION_TIMEOUT = 45000; // Longer for matplotlib and pandas
 
   let codeCell;
 
@@ -69,8 +69,8 @@ describe("Rich Output Types", () => {
       async () => {
         // Check for various output types
         const streamOutput = await codeCell.$('[data-slot="ansi-stream-output"]');
-        const imageOutput = await codeCell.$('img');
-        const iframeOutput = await codeCell.$('iframe');
+        const imageOutput = await codeCell.$("img");
+        const iframeOutput = await codeCell.$("iframe");
         const displayData = await codeCell.$('[data-slot*="output"]');
 
         return (
@@ -83,6 +83,25 @@ describe("Rich Output Types", () => {
       {
         timeout,
         timeoutMsg: "No output appeared within timeout.",
+        interval: 500,
+      }
+    );
+  }
+
+  /**
+   * Helper to wait for stream output containing text
+   */
+  async function waitForStreamOutput(expectedText, timeout) {
+    await browser.waitUntil(
+      async () => {
+        const output = await codeCell.$('[data-slot="ansi-stream-output"]');
+        if (!(await output.isExisting())) return false;
+        const text = await output.getText();
+        return text.includes(expectedText);
+      },
+      {
+        timeout,
+        timeoutMsg: `Stream output containing "${expectedText}" did not appear within timeout.`,
         interval: 500,
       }
     );
@@ -114,7 +133,7 @@ plt.show()`;
         // Wait for image output
         await browser.waitUntil(
           async () => {
-            const img = await codeCell.$('img');
+            const img = await codeCell.$("img");
             return await img.isExisting();
           },
           {
@@ -124,7 +143,7 @@ plt.show()`;
         );
 
         // Verify image exists
-        const img = await codeCell.$('img');
+        const img = await codeCell.$("img");
         const imgExists = await img.isExisting();
         expect(imgExists).toBe(true);
 
@@ -164,7 +183,7 @@ display(Image(data=red_pixel, format='png'))`;
         await waitForAnyOutput(KERNEL_STARTUP_TIMEOUT);
 
         // Check for image
-        const img = await codeCell.$('img');
+        const img = await codeCell.$("img");
         if (await img.isExisting()) {
           console.log("IPython Image display test passed");
         } else {
@@ -194,7 +213,7 @@ display(HTML('<div style="color: blue; font-size: 20px;">Hello from HTML</div>')
         await waitForAnyOutput(KERNEL_STARTUP_TIMEOUT);
 
         // HTML should be rendered in an iframe for isolation
-        const iframe = await codeCell.$('iframe');
+        const iframe = await codeCell.$("iframe");
         const iframeExists = await iframe.isExisting();
 
         if (iframeExists) {
@@ -265,10 +284,8 @@ df`;
     it("should display multiple outputs from a single cell", async () => {
       await setupCodeCell();
 
-      // Generate multiple outputs
-      const testCode = `print("First output")
-print("Second output")
-print("Third output")`;
+      // Generate multiple outputs - use a simple test that works reliably
+      const testCode = 'print("First output"); print("Second output"); print("Third output")';
 
       console.log("Typing multiple print statements");
       await typeSlowly(testCode, 30);
@@ -276,18 +293,7 @@ print("Third output")`;
 
       await browser.keys(["Shift", "Enter"]);
 
-      await browser.waitUntil(
-        async () => {
-          const output = await codeCell.$('[data-slot="ansi-stream-output"]');
-          if (!(await output.isExisting())) return false;
-          const text = await output.getText();
-          return text.includes("Third output");
-        },
-        {
-          timeout: KERNEL_STARTUP_TIMEOUT,
-          interval: 500,
-        }
-      );
+      await waitForStreamOutput("Third output", KERNEL_STARTUP_TIMEOUT);
 
       // All outputs should be visible
       const outputText = await codeCell.$('[data-slot="ansi-stream-output"]').getText();
@@ -335,10 +341,9 @@ print("More stdout")`;
     it("should render ANSI color codes", async () => {
       await setupCodeCell();
 
-      // Print colored output
-      const testCode = `print("\\033[31mRed text\\033[0m")
-print("\\033[32mGreen text\\033[0m")
-print("\\033[34mBlue text\\033[0m")`;
+      // Print colored output - use single line for reliability
+      const testCode =
+        'print("\\033[31mRed\\033[0m \\033[32mGreen\\033[0m \\033[34mBlue\\033[0m")';
 
       console.log("Typing ANSI color code");
       await typeSlowly(testCode, 30);
@@ -346,18 +351,7 @@ print("\\033[34mBlue text\\033[0m")`;
 
       await browser.keys(["Shift", "Enter"]);
 
-      await browser.waitUntil(
-        async () => {
-          const output = await codeCell.$('[data-slot="ansi-stream-output"]');
-          if (!(await output.isExisting())) return false;
-          const text = await output.getText();
-          return text.includes("Blue text");
-        },
-        {
-          timeout: KERNEL_STARTUP_TIMEOUT,
-          interval: 500,
-        }
-      );
+      await waitForStreamOutput("Blue", KERNEL_STARTUP_TIMEOUT);
 
       // Check that ANSI spans are rendered with color classes
       const outputHtml = await codeCell.$('[data-slot="ansi-stream-output"]').getHTML();

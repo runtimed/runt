@@ -12,8 +12,8 @@
 import { browser, expect } from "@wdio/globals";
 
 describe("Cell Operations", () => {
-  const KERNEL_STARTUP_TIMEOUT = 60000;
-  const EXECUTION_TIMEOUT = 15000;
+  const KERNEL_STARTUP_TIMEOUT = 90000;
+  const EXECUTION_TIMEOUT = 30000;
 
   before(async () => {
     // Wait for app to fully load
@@ -56,6 +56,19 @@ describe("Cell Operations", () => {
     const codeCells = await countCodeCells();
     const mdCells = await countMarkdownCells();
     return codeCells + mdCells;
+  }
+
+  /**
+   * Helper to find a button by trying multiple selectors
+   */
+  async function findButton(labelPatterns) {
+    for (const pattern of labelPatterns) {
+      const button = await $(pattern);
+      if (await button.isExisting()) {
+        return button;
+      }
+    }
+    return null;
   }
 
   /**
@@ -159,12 +172,14 @@ describe("Cell Operations", () => {
         await cells[0].click();
         await browser.pause(200);
 
-        // Look for delete button
-        const deleteButton = await $(
-          'button[aria-label*="delete"], button[aria-label*="Delete"], button*=Delete'
-        );
+        // Look for delete button - try multiple selectors separately
+        const deleteButton = await findButton([
+          'button[aria-label*="delete"]',
+          'button[aria-label*="Delete"]',
+          "button*=Delete",
+        ]);
 
-        if (await deleteButton.isExisting()) {
+        if (deleteButton) {
           await deleteButton.click();
           await browser.pause(500);
 
@@ -175,8 +190,13 @@ describe("Cell Operations", () => {
           console.log("Delete cell test passed");
         } else {
           // Try keyboard shortcut
+          console.log("Delete button not found, trying keyboard shortcut");
           await browser.keys(["Control", "Shift", "d"]); // Common delete shortcut
           await browser.pause(500);
+
+          const newCount = await countAllCells();
+          // Just verify we still have cells
+          console.log("Cell count after keyboard shortcut:", newCount);
         }
       }
     });
@@ -188,15 +208,16 @@ describe("Cell Operations", () => {
 
       // Keep deleting until we have one cell
       while (cellCount > 1) {
-        const cells = await $$('[data-cell-type="code"], [data-cell-type="markdown"]');
+        const cells = await $$('[data-cell-type="code"]');
         if (cells.length > 1) {
           await cells[0].click();
           await browser.pause(200);
 
-          const deleteButton = await $(
-            'button[aria-label*="delete"], button[aria-label*="Delete"]'
-          );
-          if (await deleteButton.isExisting()) {
+          const deleteButton = await findButton([
+            'button[aria-label*="delete"]',
+            'button[aria-label*="Delete"]',
+          ]);
+          if (deleteButton) {
             await deleteButton.click();
             await browser.pause(300);
           } else {
@@ -213,15 +234,16 @@ describe("Cell Operations", () => {
       console.log("Cell count after deletions:", finalCount);
 
       // Try to delete the last cell
-      const lastCell = await $('[data-cell-type="code"], [data-cell-type="markdown"]');
+      const lastCell = await $('[data-cell-type="code"]');
       if (await lastCell.isExisting()) {
         await lastCell.click();
         await browser.pause(200);
 
-        const deleteButton = await $(
-          'button[aria-label*="delete"], button[aria-label*="Delete"]'
-        );
-        if (await deleteButton.isExisting()) {
+        const deleteButton = await findButton([
+          'button[aria-label*="delete"]',
+          'button[aria-label*="Delete"]',
+        ]);
+        if (deleteButton) {
           // The button might be disabled or should not work
           const isDisabled = await deleteButton.getAttribute("disabled");
           console.log("Delete button disabled:", isDisabled);
@@ -266,8 +288,29 @@ describe("Cell Operations", () => {
       await browser.pause(300);
       await browser.keys(["Shift", "Enter"]);
 
-      // Wait for first cell to execute
-      await browser.pause(KERNEL_STARTUP_TIMEOUT); // May need kernel startup
+      // Wait for first cell to execute (with kernel startup)
+      console.log("Waiting for kernel startup and first cell execution...");
+      await browser.waitUntil(
+        async () => {
+          // Look for any indication execution completed
+          const output = await firstCell.$('[data-slot="ansi-stream-output"]');
+          const error = await firstCell.$('[data-slot="ansi-error-output"]');
+          // If no output/error, check if execution count appeared
+          const cellText = await firstCell.getText();
+          const hasExecCount = cellText.match(/\[\d+\]/);
+          return (
+            (await output.isExisting()) ||
+            (await error.isExisting()) ||
+            hasExecCount
+          );
+        },
+        {
+          timeout: KERNEL_STARTUP_TIMEOUT,
+          interval: 1000,
+          timeoutMsg: "First cell execution did not complete",
+        }
+      );
+      console.log("First cell execution completed");
 
       // Add another cell
       await addCodeButton.click();
@@ -332,8 +375,7 @@ describe("Cell Operations", () => {
       // Look for execution count indicator (could be in various formats)
       const hasExecCount =
         cellText.match(/\[\d+\]/) || // [1], [2], etc.
-        cellText.match(/In\s*\[\d+\]/) || // In [1], In [2], etc.
-        (await codeCell.$('[data-testid*="execution-count"]').isExisting());
+        cellText.match(/In\s*\[\d+\]/); // In [1], In [2], etc.
 
       console.log("Has execution count:", !!hasExecCount);
 

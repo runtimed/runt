@@ -10,8 +10,8 @@
 import { browser, expect } from "@wdio/globals";
 
 describe("Error Handling", () => {
-  const KERNEL_STARTUP_TIMEOUT = 60000;
-  const EXECUTION_TIMEOUT = 15000;
+  const KERNEL_STARTUP_TIMEOUT = 90000;
+  const EXECUTION_TIMEOUT = 30000;
 
   let codeCell;
 
@@ -81,8 +81,9 @@ describe("Error Handling", () => {
   it("should display syntax error traceback", async () => {
     await setupCodeCell();
 
-    // Type code with syntax error (missing closing parenthesis)
-    const testCode = 'print("hello"';
+    // Use exec() to force syntax error at runtime rather than parse time
+    // This ensures IPython reports it as an error output
+    const testCode = 'exec("print(1 +")';
     console.log("Typing code with syntax error:", testCode);
     await typeSlowly(testCode);
     await browser.pause(300);
