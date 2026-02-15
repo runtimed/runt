@@ -7,6 +7,21 @@
 
 import { browser, expect } from "@wdio/globals";
 
+/**
+ * Screenshot helper for capturing milestone moments
+ */
+async function takeScreenshot(name) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeName = name.replace(/[^a-zA-Z0-9]/g, "-");
+  const screenshotPath = `/app/e2e-screenshots/${safeName}-${timestamp}.png`;
+  try {
+    await browser.saveScreenshot(screenshotPath);
+    console.log(`Screenshot saved: ${screenshotPath}`);
+  } catch (error) {
+    console.error(`Failed to save screenshot "${name}":`, error.message);
+  }
+}
+
 describe("Notebook Execution Happy Path", () => {
   // Allow time for kernel startup (first execution takes longer)
   const KERNEL_STARTUP_TIMEOUT = 60000;
@@ -23,6 +38,9 @@ describe("Notebook Execution Happy Path", () => {
     const url = await browser.getUrl();
     console.log("Page title:", title);
     console.log("Page URL:", url);
+
+    // Screenshot: Initial app state
+    await takeScreenshot("01-app-loaded");
   });
 
   /**
@@ -101,6 +119,9 @@ describe("Notebook Execution Happy Path", () => {
     await typeSlowly(testCode);
     await browser.pause(300);
 
+    // Screenshot: Code typed in editor
+    await takeScreenshot("02-code-typed");
+
     // Step 3: Execute the cell with Shift+Enter
     await browser.keys(["Shift", "Enter"]);
     console.log("Triggered execution (first time - kernel will start)");
@@ -113,6 +134,9 @@ describe("Notebook Execution Happy Path", () => {
     let outputText = await codeCell.$('[data-slot="ansi-stream-output"]').getText();
     expect(outputText).toContain("hello world");
     console.log("First execution verified successfully");
+
+    // Screenshot: First execution with output
+    await takeScreenshot("03-first-execution-output");
   });
 
   it("should clear previous outputs when re-executing", async () => {
@@ -160,6 +184,9 @@ describe("Notebook Execution Happy Path", () => {
 
     // Should NOT contain old output (this is the key assertion for the bug)
     expect(outputText).not.toContain("hello world");
+
+    // Screenshot: Second execution with cleared output
+    await takeScreenshot("04-second-execution-cleared");
 
     console.log("Test passed: Outputs are properly cleared on re-execution");
   });
