@@ -151,6 +151,7 @@ export function CodeCell({
           onInsertCellAfter();
         }
       : undefined,
+    onDelete,
   });
 
   // Ctrl+R to open history search

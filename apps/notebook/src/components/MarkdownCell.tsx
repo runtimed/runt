@@ -81,6 +81,7 @@ export function MarkdownCell({
     onFocusPrevious: onFocusPrevious ?? (() => {}),
     onFocusNext: handleFocusNextOrCreate,
     onExecute: () => {}, // No-op for markdown, enables Shift+Enter navigation
+    onDelete,
   });
 
   // Combine navigation with markdown-specific keys
