@@ -137,10 +137,11 @@ function AppContent() {
   } = useDenoDependencies();
 
   // Auto-detect environment type based on what's configured
-  // uv takes priority if metadata exists (even with empty deps)
-  const envType = isUvConfigured
+  // uv takes priority if metadata exists AND uv is available
+  // Falls back to conda if uv is not available
+  const envType = isUvConfigured && uvAvailable !== false
     ? "uv"
-    : isCondaConfigured
+    : isCondaConfigured || uvAvailable === false
       ? "conda"
       : null;
 

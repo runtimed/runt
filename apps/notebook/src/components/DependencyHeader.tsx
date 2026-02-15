@@ -83,11 +83,14 @@ export function DependencyHeader({
 
           {/* UV availability notice */}
           {uvAvailable === false && (
-            <div className="mb-3 rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-              <span className="font-medium">uv not found.</span> Install it with{" "}
-              <code className="rounded bg-amber-500/20 px-1">
-                curl -LsSf https://astral.sh/uv/install.sh | sh
-              </code>
+            <div className="mb-3 flex items-start gap-2 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
+              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                <span className="font-medium">uv not found.</span> Install it with{" "}
+                <code className="rounded bg-uv/20 px-1">
+                  curl -LsSf https://astral.sh/uv/install.sh | sh
+                </code>
+              </span>
             </div>
           )}
 
