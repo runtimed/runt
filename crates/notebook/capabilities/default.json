@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "core:event:default",
+    "core:webview:allow-set-webview-zoom",
     "dialog:default"
   ]
 }
