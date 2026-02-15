@@ -7,6 +7,7 @@ pub mod notebook_state;
 pub mod pyproject;
 pub mod runtime;
 pub mod settings;
+pub mod shell_env;
 pub mod trust;
 pub mod typosquat;
 pub mod uv_env;
@@ -90,9 +91,7 @@ async fn get_notebook_path(
 }
 
 #[tauri::command]
-async fn save_notebook(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-) -> Result<(), String> {
+async fn save_notebook(state: tauri::State<'_, Arc<Mutex<NotebookState>>>) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
     let path = state
         .path
@@ -117,7 +116,8 @@ async fn save_notebook_as(
     std::fs::write(&path, &content).map_err(|e| e.to_string())?;
 
     // Update the stored path and window title
-    let filename = path.file_name()
+    let filename = path
+        .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("Untitled.ipynb");
     let _ = window.set_title(filename);
@@ -189,7 +189,11 @@ async fn execute_cell(
         src
     };
 
-    info!("execute_cell: cell_id={}, code={:?}", cell_id, &code[..code.len().min(100)]);
+    info!(
+        "execute_cell: cell_id={}, code={:?}",
+        cell_id,
+        &code[..code.len().min(100)]
+    );
     let mut kernel = kernel_state.lock().await;
     let result = kernel
         .execute(&code, &cell_id)
@@ -396,17 +400,23 @@ async fn add_dependency(
         .unwrap_or_default();
 
     // Check if already exists (by package name, ignoring version specifiers)
-    let pkg_name = package.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(&package);
+    let pkg_name = package
+        .split(&['>', '<', '=', '!', '~', '['][..])
+        .next()
+        .unwrap_or(&package);
     let already_exists = deps.iter().any(|d| {
-        let existing_name = d.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(d);
+        let existing_name = d
+            .split(&['>', '<', '=', '!', '~', '['][..])
+            .next()
+            .unwrap_or(d);
         existing_name.eq_ignore_ascii_case(pkg_name)
     });
 
     if !already_exists {
         deps.push(package);
 
-        let requires_python = uv_env::extract_dependencies(&state.notebook.metadata)
-            .and_then(|d| d.requires_python);
+        let requires_python =
+            uv_env::extract_dependencies(&state.notebook.metadata).and_then(|d| d.requires_python);
 
         let uv_value = serde_json::json!({
             "dependencies": deps,
@@ -434,12 +444,18 @@ async fn remove_dependency(
     let existing = uv_env::extract_dependencies(&state.notebook.metadata);
     if let Some(existing) = existing {
         // Remove by package name (ignoring version specifiers)
-        let pkg_name = package.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(&package);
+        let pkg_name = package
+            .split(&['>', '<', '=', '!', '~', '['][..])
+            .next()
+            .unwrap_or(&package);
         let deps: Vec<String> = existing
             .dependencies
             .into_iter()
             .filter(|d| {
-                let existing_name = d.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(d);
+                let existing_name = d
+                    .split(&['>', '<', '=', '!', '~', '['][..])
+                    .next()
+                    .unwrap_or(d);
                 !existing_name.eq_ignore_ascii_case(pkg_name)
             })
             .collect();
@@ -526,7 +542,10 @@ async fn sync_kernel_dependencies(
         return Ok(false);
     };
 
-    info!("Syncing {} dependencies to kernel environment", deps.dependencies.len());
+    info!(
+        "Syncing {} dependencies to kernel environment",
+        deps.dependencies.len()
+    );
 
     uv_env::sync_dependencies(env, &deps.dependencies)
         .await
@@ -596,14 +615,26 @@ async fn add_conda_dependency(
 
     // Get existing deps or create new
     let existing = conda_env::extract_dependencies(&state.notebook.metadata);
-    let mut deps = existing.as_ref().map(|d| d.dependencies.clone()).unwrap_or_default();
-    let channels = existing.as_ref().map(|d| d.channels.clone()).unwrap_or_default();
+    let mut deps = existing
+        .as_ref()
+        .map(|d| d.dependencies.clone())
+        .unwrap_or_default();
+    let channels = existing
+        .as_ref()
+        .map(|d| d.channels.clone())
+        .unwrap_or_default();
     let python = existing.as_ref().and_then(|d| d.python.clone());
 
     // Check if already exists (by package name, ignoring version specifiers)
-    let pkg_name = package.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(&package);
+    let pkg_name = package
+        .split(&['>', '<', '=', '!', '~', '['][..])
+        .next()
+        .unwrap_or(&package);
     let already_exists = deps.iter().any(|d| {
-        let existing_name = d.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(d);
+        let existing_name = d
+            .split(&['>', '<', '=', '!', '~', '['][..])
+            .next()
+            .unwrap_or(d);
         existing_name.eq_ignore_ascii_case(pkg_name)
     });
 
@@ -637,12 +668,18 @@ async fn remove_conda_dependency(
     let existing = conda_env::extract_dependencies(&state.notebook.metadata);
     if let Some(existing) = existing {
         // Remove by package name (ignoring version specifiers)
-        let pkg_name = package.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(&package);
+        let pkg_name = package
+            .split(&['>', '<', '=', '!', '~', '['][..])
+            .next()
+            .unwrap_or(&package);
         let deps: Vec<String> = existing
             .dependencies
             .into_iter()
             .filter(|d| {
-                let existing_name = d.split(&['>', '<', '=', '!', '~', '['][..]).next().unwrap_or(d);
+                let existing_name = d
+                    .split(&['>', '<', '=', '!', '~', '['][..])
+                    .next()
+                    .unwrap_or(d);
                 !existing_name.eq_ignore_ascii_case(pkg_name)
             })
             .collect();
@@ -786,10 +823,11 @@ async fn start_default_conda_kernel(
                 // Legacy notebook without env_id - generate one and set conda metadata
                 let new_id = uuid::Uuid::new_v4().to_string();
 
-                state.notebook.metadata.additional.insert(
-                    "runt".to_string(),
-                    serde_json::json!({ "env_id": new_id }),
-                );
+                state
+                    .notebook
+                    .metadata
+                    .additional
+                    .insert("runt".to_string(), serde_json::json!({ "env_id": new_id }));
 
                 if !state.notebook.metadata.additional.contains_key("conda") {
                     state.notebook.metadata.additional.insert(
@@ -815,7 +853,10 @@ async fn start_default_conda_kernel(
         env_id: Some(env_id.clone()),
     };
 
-    info!("Starting default conda kernel with ipykernel (env_id: {})", env_id);
+    info!(
+        "Starting default conda kernel with ipykernel (env_id: {})",
+        env_id
+    );
 
     let mut kernel = kernel_state.lock().await;
     kernel
@@ -887,10 +928,11 @@ async fn start_default_kernel(
                     // Legacy notebook without env_id - generate one and set conda metadata
                     let new_id = uuid::Uuid::new_v4().to_string();
 
-                    state.notebook.metadata.additional.insert(
-                        "runt".to_string(),
-                        serde_json::json!({ "env_id": new_id }),
-                    );
+                    state
+                        .notebook
+                        .metadata
+                        .additional
+                        .insert("runt".to_string(), serde_json::json!({ "env_id": new_id }));
 
                     if !state.notebook.metadata.additional.contains_key("conda") {
                         state.notebook.metadata.additional.insert(
@@ -958,7 +1000,10 @@ async fn sync_conda_dependencies(
         return Ok(false);
     };
 
-    info!("Syncing {} conda dependencies to kernel environment", deps.dependencies.len());
+    info!(
+        "Syncing {} conda dependencies to kernel environment",
+        deps.dependencies.len()
+    );
 
     // Note: This will return an error for now since conda sync requires restart
     conda_env::sync_dependencies(env, &deps)
@@ -1036,9 +1081,12 @@ async fn get_pyproject_dependencies(
 
     let config = pyproject::parse_pyproject(&pyproject_path).map_err(|e| e.to_string())?;
 
-    let relative_path = pathdiff::diff_paths(&config.path, notebook_path.parent().unwrap_or(&notebook_path))
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| config.path.display().to_string());
+    let relative_path = pathdiff::diff_paths(
+        &config.path,
+        notebook_path.parent().unwrap_or(&notebook_path),
+    )
+    .map(|p| p.display().to_string())
+    .unwrap_or_else(|| config.path.display().to_string());
 
     Ok(Some(PyProjectDepsJson {
         path: config.path.display().to_string(),
@@ -1208,7 +1256,9 @@ async fn check_deno_available() -> bool {
 /// Get the installed Deno version
 #[tauri::command]
 async fn get_deno_version() -> Result<String, String> {
-    deno_env::get_deno_version().await.map_err(|e| e.to_string())
+    deno_env::get_deno_version()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Get the runtime type from notebook metadata
@@ -1239,7 +1289,10 @@ async fn detect_deno_config(
     };
 
     let config = deno_env::parse_deno_config(&config_path).map_err(|e| e.to_string())?;
-    Ok(Some(deno_env::create_deno_config_info(&config, &notebook_path)))
+    Ok(Some(deno_env::create_deno_config_info(
+        &config,
+        &notebook_path,
+    )))
 }
 
 /// Get Deno permissions from notebook metadata
@@ -1321,7 +1374,10 @@ async fn start_kernel_with_deno(
     let (permissions, workspace_dir, flexible_npm_imports) = {
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
         let deps = deno_env::extract_deno_metadata(&state.notebook.metadata);
-        let perms = deps.as_ref().map(|d| d.permissions.clone()).unwrap_or_default();
+        let perms = deps
+            .as_ref()
+            .map(|d| d.permissions.clone())
+            .unwrap_or_default();
         let flexible = deps.map(|d| d.flexible_npm_imports).unwrap_or(true);
 
         // Find workspace directory with deno.json
@@ -1341,7 +1397,12 @@ async fn start_kernel_with_deno(
 
     let mut kernel = kernel_state.lock().await;
     kernel
-        .start_with_deno(app, &permissions, workspace_dir.as_deref(), flexible_npm_imports)
+        .start_with_deno(
+            app,
+            &permissions,
+            workspace_dir.as_deref(),
+            flexible_npm_imports,
+        )
         .await
         .map_err(|e| e.to_string())
 }
@@ -1375,6 +1436,7 @@ fn spawn_new_notebook(runtime: Runtime) {
 /// The `runtime` parameter specifies which runtime to use for new notebooks.
 pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<()> {
     env_logger::init();
+    shell_env::load_shell_environment();
 
     let initial_state = match notebook_path {
         Some(ref path) if path.exists() => {
@@ -1383,9 +1445,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
             let nb = nbformat::parse_notebook(&content).map_err(|e| anyhow::anyhow!("{}", e))?;
             let nb_v4 = match nb {
                 nbformat::Notebook::V4(nb) => nb,
-                nbformat::Notebook::Legacy(legacy) => {
-                    nbformat::upgrade_legacy_notebook(legacy)?
-                }
+                nbformat::Notebook::Legacy(legacy) => nbformat::upgrade_legacy_notebook(legacy)?,
             };
             NotebookState::from_notebook(nb_v4, path.clone())
         }
