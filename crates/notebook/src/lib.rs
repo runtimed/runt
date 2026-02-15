@@ -22,7 +22,7 @@ use log::info;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, RunEvent};
 use tokio::sync::mpsc;
 
 #[derive(Serialize)]
@@ -1477,8 +1477,9 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
     let queue_for_processor = queue.clone();
     let notebook_for_processor = notebook_state.clone();
     let kernel_for_processor = kernel_state.clone();
+    let notebook_for_open = notebook_state.clone();
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(notebook_state)
         .manage(kernel_state)
@@ -1621,6 +1622,73 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
                 _ => {}
             }
         })
-        .run(tauri::generate_context!())
-        .map_err(|e| anyhow::anyhow!("Tauri error: {}", e))
+        .build(tauri::generate_context!())
+        .map_err(|e| anyhow::anyhow!("Tauri error: {}", e))?;
+
+    app.run(move |_app_handle, _event| {
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        if let RunEvent::Opened { urls } = _event {
+            for url in urls {
+                let path = match url.scheme() {
+                    "file" => url.to_file_path().ok(),
+                    _ => None,
+                };
+                let Some(path) = path else { continue };
+                if path.extension().and_then(|e| e.to_str()) != Some("ipynb") {
+                    continue;
+                }
+
+                // If the current window has no notebook loaded, open it here.
+                // Otherwise spawn a new process.
+                let has_path = notebook_for_open
+                    .lock()
+                    .map(|s| s.path.is_some())
+                    .unwrap_or(false);
+
+                if !has_path {
+                    // Load into the current window
+                    match std::fs::read_to_string(&path) {
+                        Ok(content) => match nbformat::parse_notebook(&content) {
+                            Ok(nb) => {
+                                let nb_v4 = match nb {
+                                    nbformat::Notebook::V4(nb) => nb,
+                                    nbformat::Notebook::Legacy(legacy) => {
+                                        match nbformat::upgrade_legacy_notebook(legacy) {
+                                            Ok(nb) => nb,
+                                            Err(e) => {
+                                                log::error!("Failed to upgrade notebook: {}", e);
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                };
+                                let new_state = NotebookState::from_notebook(nb_v4, path.clone());
+                                if let Ok(mut state) = notebook_for_open.lock() {
+                                    *state = new_state;
+                                }
+                                // Update window title and tell frontend to reload
+                                if let Some(window) = _app_handle.get_webview_window("main") {
+                                    let title = path
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or("Untitled.ipynb");
+                                    let _ = window.set_title(title);
+                                    let _ = window.emit("notebook:file-opened", ());
+                                }
+                            }
+                            Err(e) => log::error!("Failed to parse notebook: {}", e),
+                        },
+                        Err(e) => log::error!("Failed to read notebook file: {}", e),
+                    }
+                } else {
+                    // Already have a notebook open — spawn a new process
+                    if let Ok(exe) = std::env::current_exe() {
+                        let _ = std::process::Command::new(exe).arg(&path).spawn();
+                    }
+                }
+            }
+        }
+    });
+
+    Ok(())
 }
