@@ -53,6 +53,7 @@ export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
         className={cn(
           "cell-container group flex transition-colors duration-150",
           bgColor,
+          isFocused && "-mx-16 px-16",
           className,
         )}
         onMouseDown={onFocus}
