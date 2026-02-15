@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { NotebookToolbar } from "./components/NotebookToolbar";
 import { NotebookView } from "./components/NotebookView";
 import { DependencyHeader } from "./components/DependencyHeader";
@@ -323,6 +324,37 @@ onKernelStarted: loadCondaDependencies,
       unlistenPromise.then((unlisten) => unlisten());
     };
   }, [openNotebook]);
+
+  // Zoom controls via native menu
+  useEffect(() => {
+    const webview = getCurrentWebview();
+    let currentZoom = 1.0;
+
+    const handleZoomIn = () => {
+      currentZoom = Math.min(3.0, currentZoom + 0.1);
+      webview.setZoom(currentZoom);
+    };
+
+    const handleZoomOut = () => {
+      currentZoom = Math.max(0.5, currentZoom - 0.1);
+      webview.setZoom(currentZoom);
+    };
+
+    const handleZoomReset = () => {
+      currentZoom = 1.0;
+      webview.setZoom(1.0);
+    };
+
+    const unlistenIn = listen("menu:zoom-in", handleZoomIn);
+    const unlistenOut = listen("menu:zoom-out", handleZoomOut);
+    const unlistenReset = listen("menu:zoom-reset", handleZoomReset);
+
+    return () => {
+      unlistenIn.then((u) => u());
+      unlistenOut.then((u) => u());
+      unlistenReset.then((u) => u());
+    };
+  }, []);
 
   // Cmd+Shift+I to toggle isolation test panel (dev only)
   useEffect(() => {

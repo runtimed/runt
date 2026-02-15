@@ -1543,6 +1543,21 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
                         let _ = window.emit("menu:save", ());
                     }
                 }
+                crate::menu::MENU_ZOOM_IN => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("menu:zoom-in", ());
+                    }
+                }
+                crate::menu::MENU_ZOOM_OUT => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("menu:zoom-out", ());
+                    }
+                }
+                crate::menu::MENU_ZOOM_RESET => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("menu:zoom-reset", ());
+                    }
+                }
                 _ => {}
             }
         })

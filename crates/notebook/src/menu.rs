@@ -7,6 +7,11 @@ pub const MENU_NEW_DENO_NOTEBOOK: &str = "new_deno_notebook";
 pub const MENU_OPEN: &str = "open";
 pub const MENU_SAVE: &str = "save";
 
+// Menu item IDs for zoom
+pub const MENU_ZOOM_IN: &str = "zoom_in";
+pub const MENU_ZOOM_OUT: &str = "zoom_out";
+pub const MENU_ZOOM_RESET: &str = "zoom_reset";
+
 /// Build the application menu bar
 pub fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let menu = Menu::new(app)?;
@@ -72,6 +77,31 @@ pub fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     edit_menu.append(&PredefinedMenuItem::paste(app, None)?)?;
     edit_menu.append(&PredefinedMenuItem::select_all(app, None)?)?;
     menu.append(&edit_menu)?;
+
+    // View menu
+    let view_menu = Submenu::new(app, "View", true)?;
+    view_menu.append(&MenuItem::with_id(
+        app,
+        MENU_ZOOM_IN,
+        "Zoom In",
+        true,
+        Some("CmdOrCtrl+="),
+    )?)?;
+    view_menu.append(&MenuItem::with_id(
+        app,
+        MENU_ZOOM_OUT,
+        "Zoom Out",
+        true,
+        Some("CmdOrCtrl+-"),
+    )?)?;
+    view_menu.append(&MenuItem::with_id(
+        app,
+        MENU_ZOOM_RESET,
+        "Actual Size",
+        true,
+        Some("CmdOrCtrl+0"),
+    )?)?;
+    menu.append(&view_menu)?;
 
     // Window menu
     let window_menu = Submenu::new(app, "Window", true)?;
