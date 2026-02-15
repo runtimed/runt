@@ -138,6 +138,28 @@ export function useNotebook() {
     }
   }, []);
 
+  const cloneNotebook = useCallback(async () => {
+    try {
+      // Show Save dialog for the clone
+      const filePath = await saveDialog({
+        filters: [{ name: "Jupyter Notebook", extensions: ["ipynb"] }],
+        defaultPath: "Untitled-Clone.ipynb",
+      });
+
+      if (!filePath) {
+        return; // User cancelled
+      }
+
+      // Clone notebook with fresh env_id and save to path
+      await invoke("clone_notebook_to_path", { path: filePath });
+
+      // Open the cloned notebook in a new window
+      await invoke("open_notebook_in_new_window", { path: filePath });
+    } catch (e) {
+      console.error("clone_notebook failed:", e);
+    }
+  }, []);
+
   const appendOutput = useCallback(
     (cellId: string, output: JupyterOutput) => {
       setCells((prev) =>
@@ -193,6 +215,7 @@ export function useNotebook() {
     deleteCell,
     save,
     openNotebook,
+    cloneNotebook,
     dirty,
     appendOutput,
     setExecutionCount,
