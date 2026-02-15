@@ -341,3 +341,289 @@ async fn process_next(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_creates_empty_queue() {
+        let queue = ExecutionQueue::new();
+        assert!(queue.is_empty());
+        assert!(queue.executing.is_none());
+        assert!(queue.pending.is_empty());
+    }
+
+    #[test]
+    fn test_default_creates_empty_queue() {
+        let queue = ExecutionQueue::default();
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn test_enqueue_adds_to_pending() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+
+        assert!(!queue.is_empty());
+        assert_eq!(queue.pending.len(), 1);
+        assert_eq!(queue.pending[0], "cell-1");
+    }
+
+    #[test]
+    fn test_enqueue_maintains_fifo_order() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.enqueue("cell-2".to_string());
+        queue.enqueue("cell-3".to_string());
+
+        assert_eq!(queue.pending.len(), 3);
+        assert_eq!(queue.pending[0], "cell-1");
+        assert_eq!(queue.pending[1], "cell-2");
+        assert_eq!(queue.pending[2], "cell-3");
+    }
+
+    #[test]
+    fn test_dequeue_returns_first_cell_and_sets_executing() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.enqueue("cell-2".to_string());
+
+        let result = queue.dequeue();
+
+        assert_eq!(result, Some("cell-1".to_string()));
+        assert_eq!(queue.executing, Some("cell-1".to_string()));
+        assert_eq!(queue.pending.len(), 1);
+        assert_eq!(queue.pending[0], "cell-2");
+    }
+
+    #[test]
+    fn test_dequeue_returns_none_when_already_executing() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.enqueue("cell-2".to_string());
+
+        queue.dequeue(); // Start executing cell-1
+        let result = queue.dequeue(); // Should return None
+
+        assert_eq!(result, None);
+        assert_eq!(queue.executing, Some("cell-1".to_string()));
+    }
+
+    #[test]
+    fn test_dequeue_returns_none_when_empty() {
+        let mut queue = ExecutionQueue::new();
+        assert_eq!(queue.dequeue(), None);
+    }
+
+    #[test]
+    fn test_complete_clears_executing() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.dequeue();
+
+        assert!(queue.executing.is_some());
+        queue.complete("cell-1");
+        assert!(queue.executing.is_none());
+    }
+
+    #[test]
+    fn test_complete_only_clears_matching_cell() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.dequeue();
+
+        queue.complete("cell-2"); // Wrong cell ID
+        assert_eq!(queue.executing, Some("cell-1".to_string()));
+    }
+
+    #[test]
+    fn test_clear_pending_returns_cleared_ids() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.enqueue("cell-2".to_string());
+        queue.enqueue("cell-3".to_string());
+
+        let cleared = queue.clear_pending();
+
+        assert_eq!(cleared, vec!["cell-1", "cell-2", "cell-3"]);
+        assert!(queue.pending.is_empty());
+    }
+
+    #[test]
+    fn test_clear_pending_does_not_clear_executing() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.enqueue("cell-2".to_string());
+        queue.dequeue(); // cell-1 now executing
+
+        let cleared = queue.clear_pending();
+
+        assert_eq!(cleared, vec!["cell-2"]);
+        assert_eq!(queue.executing, Some("cell-1".to_string()));
+    }
+
+    #[test]
+    fn test_is_executing_returns_true_for_executing_cell() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.dequeue();
+
+        assert!(queue.is_executing("cell-1"));
+    }
+
+    #[test]
+    fn test_is_executing_returns_false_for_non_executing_cell() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.enqueue("cell-2".to_string());
+        queue.dequeue();
+
+        assert!(!queue.is_executing("cell-2"));
+    }
+
+    #[test]
+    fn test_is_executing_returns_false_when_nothing_executing() {
+        let queue = ExecutionQueue::new();
+        assert!(!queue.is_executing("cell-1"));
+    }
+
+    #[test]
+    fn test_is_empty_true_when_no_pending_and_no_executing() {
+        let queue = ExecutionQueue::new();
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_false_when_pending() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        assert!(!queue.is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_false_when_executing() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.dequeue();
+        queue.pending.clear(); // Clear pending but keep executing
+        assert!(!queue.is_empty());
+    }
+
+    #[test]
+    fn test_get_state_empty_queue() {
+        let queue = ExecutionQueue::new();
+        let state = queue.get_state();
+
+        assert!(!state.processing);
+        assert!(state.cells.is_empty());
+        assert!(state.executing_cell_id.is_none());
+    }
+
+    #[test]
+    fn test_get_state_with_pending_cells() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.enqueue("cell-2".to_string());
+
+        let state = queue.get_state();
+
+        assert!(state.processing);
+        assert_eq!(state.cells.len(), 2);
+        assert!(state.executing_cell_id.is_none());
+
+        // Both should be pending
+        assert_eq!(state.cells[0].cell_id, "cell-1");
+        assert_eq!(state.cells[0].status, CellQueueStatus::Pending);
+        assert_eq!(state.cells[0].position, 0);
+
+        assert_eq!(state.cells[1].cell_id, "cell-2");
+        assert_eq!(state.cells[1].status, CellQueueStatus::Pending);
+        assert_eq!(state.cells[1].position, 1);
+    }
+
+    #[test]
+    fn test_get_state_with_executing_cell() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.enqueue("cell-2".to_string());
+        queue.dequeue();
+
+        let state = queue.get_state();
+
+        assert!(state.processing);
+        assert_eq!(state.cells.len(), 2);
+        assert_eq!(state.executing_cell_id, Some("cell-1".to_string()));
+
+        // First is executing
+        assert_eq!(state.cells[0].cell_id, "cell-1");
+        assert_eq!(state.cells[0].status, CellQueueStatus::Executing);
+        assert_eq!(state.cells[0].position, 0);
+
+        // Second is pending
+        assert_eq!(state.cells[1].cell_id, "cell-2");
+        assert_eq!(state.cells[1].status, CellQueueStatus::Pending);
+        assert_eq!(state.cells[1].position, 1);
+    }
+
+    #[test]
+    fn test_get_state_positions_are_sequential() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.enqueue("cell-2".to_string());
+        queue.enqueue("cell-3".to_string());
+        queue.dequeue(); // cell-1 executing
+
+        let state = queue.get_state();
+
+        for (i, cell) in state.cells.iter().enumerate() {
+            assert_eq!(cell.position, i);
+        }
+    }
+
+    #[test]
+    fn test_cell_queue_status_serialization() {
+        let pending = CellQueueStatus::Pending;
+        let executing = CellQueueStatus::Executing;
+
+        let pending_json = serde_json::to_string(&pending).unwrap();
+        let executing_json = serde_json::to_string(&executing).unwrap();
+
+        assert_eq!(pending_json, "\"pending\"");
+        assert_eq!(executing_json, "\"executing\"");
+    }
+
+    #[test]
+    fn test_queued_cell_serialization() {
+        let cell = QueuedCell {
+            cell_id: "test-cell".to_string(),
+            status: CellQueueStatus::Pending,
+            position: 0,
+        };
+
+        let json = serde_json::to_value(&cell).unwrap();
+
+        assert_eq!(json["cell_id"], "test-cell");
+        assert_eq!(json["status"], "pending");
+        assert_eq!(json["position"], 0);
+    }
+
+    #[test]
+    fn test_execution_queue_state_serialization() {
+        let state = ExecutionQueueState {
+            processing: true,
+            cells: vec![QueuedCell {
+                cell_id: "cell-1".to_string(),
+                status: CellQueueStatus::Executing,
+                position: 0,
+            }],
+            executing_cell_id: Some("cell-1".to_string()),
+        };
+
+        let json = serde_json::to_value(&state).unwrap();
+
+        assert_eq!(json["processing"], true);
+        assert_eq!(json["executing_cell_id"], "cell-1");
+        assert_eq!(json["cells"].as_array().unwrap().len(), 1);
+    }
+}
