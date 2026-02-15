@@ -48,4 +48,23 @@ export const config = {
     ui: "bdd",
     timeout: 60000,
   },
+
+  /**
+   * Hook that gets executed after a test
+   * Captures screenshot on failure for debugging
+   */
+  afterTest: async function (test, context, { error }) {
+    if (error) {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const safeName = test.title.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 50);
+      const screenshotPath = `/app/e2e-screenshots/failures/${safeName}-${timestamp}.png`;
+      try {
+        const { browser } = await import("@wdio/globals");
+        await browser.saveScreenshot(screenshotPath);
+        console.log(`Failure screenshot saved: ${screenshotPath}`);
+      } catch (screenshotError) {
+        console.error("Failed to capture screenshot:", screenshotError.message);
+      }
+    }
+  },
 };

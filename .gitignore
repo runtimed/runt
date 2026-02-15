@@ -44,3 +44,6 @@ __pycache__/
 
 # Agent workspace context (per-worktree state)
 .context/
+
+# E2E test screenshots
+e2e-screenshots/

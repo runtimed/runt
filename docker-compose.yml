@@ -16,6 +16,8 @@ services:
     volumes:
       # Mount e2e tests for live updates during development
       - ./e2e:/app/e2e:ro
+      # Writable volume for screenshots
+      - ./e2e-screenshots:/app/e2e-screenshots
     environment:
       - DISPLAY=:99
       - TAURI_APP_PATH=/app/target/release/notebook
@@ -52,6 +54,8 @@ services:
     volumes:
       # Mount e2e tests for live updates
       - ./e2e:/app/e2e:ro
+      # Writable volume for screenshots
+      - ./e2e-screenshots:/app/e2e-screenshots
     environment:
       - DISPLAY=:99
       - TAURI_APP_PATH=/app/target/release/notebook
@@ -86,6 +90,8 @@ services:
       dockerfile: e2e/Dockerfile.dev
     volumes:
       - ./e2e:/app/e2e:ro
+      # Writable volume for screenshots
+      - ./e2e-screenshots:/app/e2e-screenshots
     environment:
       - DISPLAY=:99
       - TAURI_APP_PATH=/app/target/release/notebook
