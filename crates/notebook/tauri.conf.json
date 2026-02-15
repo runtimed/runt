@@ -23,6 +23,14 @@
     }
   },
   "bundle": {
-    "active": false
+    "active": true,
+    "fileAssociations": [
+      {
+        "ext": ["ipynb"],
+        "mimeType": "application/x-ipynb+json",
+        "name": "Jupyter Notebook",
+        "role": "Editor"
+      }
+    ]
   }
 }
