@@ -194,5 +194,44 @@ describe("Iframe Isolation Security", () => {
       expect(origin).toBe("null");
       await browser.switchToParentFrame();
     });
+
+    it("accessing localStorage should throw security error", async () => {
+      if (!iframeElement || !(await iframeElement.isExisting())) {
+        console.log("Skipping: No iframe found");
+        return;
+      }
+
+      await browser.switchToFrame(iframeElement);
+
+      let securityErrorThrown = false;
+      let result = null;
+
+      try {
+        result = await browser.execute(() => {
+          try {
+            // Accessing localStorage from an opaque origin should throw
+            const _test = window.localStorage.getItem("test");
+            return { success: true, error: null };
+          } catch (e) {
+            return { success: false, error: e.name || e.message };
+          }
+        });
+      } catch (e) {
+        // WebDriver may throw the SecurityError directly
+        if (e.name === "SecurityError" || e.message.includes("SecurityError")) {
+          securityErrorThrown = true;
+        } else {
+          throw e;
+        }
+      }
+
+      // Test passes if either:
+      // 1. WebDriver threw a SecurityError (security restriction working)
+      // 2. The JS caught the error and returned success: false
+      const accessBlocked = securityErrorThrown || (result && result.success === false);
+      expect(accessBlocked).toBe(true);
+
+      await browser.switchToParentFrame();
+    });
   });
 });
