@@ -825,7 +825,7 @@ async fn start_default_conda_kernel(
 }
 
 /// Start a default kernel, automatically choosing uv or conda based on availability.
-/// Uses uv if available (faster), falls back to conda/rattler if not.
+/// Prefers uv when available, falls back to conda/rattler otherwise.
 #[tauri::command]
 async fn start_default_kernel(
     app: tauri::AppHandle,

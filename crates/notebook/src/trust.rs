@@ -52,7 +52,13 @@ pub struct TrustInfo {
 }
 
 /// Path to the trust key file.
+///
+/// In tests, this can be overridden by setting RUNT_TRUST_KEY_PATH environment variable.
 fn trust_key_path() -> Option<PathBuf> {
+    // Allow override for testing
+    if let Ok(path) = std::env::var("RUNT_TRUST_KEY_PATH") {
+        return Some(PathBuf::from(path));
+    }
     dirs::config_dir().map(|d| d.join("runt").join("trust-key"))
 }
 
@@ -269,6 +275,21 @@ pub fn sign_notebook_dependencies(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
+
+    /// Set up a temporary trust key path for tests.
+    /// Returns a guard that cleans up the temp directory when dropped.
+    fn setup_test_trust_key() -> tempfile::TempDir {
+        let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let key_path = temp_dir.path().join("trust-key");
+        std::env::set_var("RUNT_TRUST_KEY_PATH", key_path.to_str().unwrap());
+        temp_dir
+    }
+
+    /// Clean up test trust key path.
+    fn teardown_test_trust_key() {
+        std::env::remove_var("RUNT_TRUST_KEY_PATH");
+    }
 
     fn make_test_metadata(uv_deps: Vec<&str>, conda_deps: Vec<&str>) -> HashMap<String, serde_json::Value> {
         let mut metadata = HashMap::new();
@@ -303,14 +324,19 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_unsigned_notebook_is_untrusted() {
+        let _temp = setup_test_trust_key();
         let metadata = make_test_metadata(vec!["pandas"], vec![]);
         let info = verify_notebook_trust(&metadata).unwrap();
+        teardown_test_trust_key();
         assert_eq!(info.status, TrustStatus::Untrusted);
     }
 
     #[test]
+    #[serial]
     fn test_sign_and_verify() {
+        let _temp = setup_test_trust_key();
         let metadata = make_test_metadata(vec!["pandas", "numpy"], vec![]);
 
         // Sign the notebook
@@ -327,11 +353,14 @@ mod tests {
 
         // Verify it's now trusted
         let info = verify_notebook_trust(&signed_metadata).unwrap();
+        teardown_test_trust_key();
         assert_eq!(info.status, TrustStatus::Trusted);
     }
 
     #[test]
+    #[serial]
     fn test_modified_deps_invalidates_signature() {
+        let _temp = setup_test_trust_key();
         let metadata = make_test_metadata(vec!["pandas"], vec![]);
 
         // Sign the notebook
@@ -356,13 +385,17 @@ mod tests {
 
         // Verify signature is now invalid
         let info = verify_notebook_trust(&signed_metadata).unwrap();
+        teardown_test_trust_key();
         assert_eq!(info.status, TrustStatus::SignatureInvalid);
     }
 
     #[test]
+    #[serial]
     fn test_signature_format() {
+        let _temp = setup_test_trust_key();
         let metadata = make_test_metadata(vec!["pandas"], vec![]);
         let signature = sign_notebook_dependencies(&metadata).unwrap();
+        teardown_test_trust_key();
         assert!(signature.starts_with("hmac-sha256:"));
     }
 

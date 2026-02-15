@@ -81,7 +81,7 @@ impl NotebookState {
         // Generate unique environment ID for this notebook
         let env_id = Uuid::new_v4().to_string();
 
-        // Set up default uv metadata (faster startup than conda/rattler)
+        // Set up default uv metadata for PyPI-based dependencies
         let mut additional = HashMap::new();
         additional.insert(
             "uv".to_string(),
