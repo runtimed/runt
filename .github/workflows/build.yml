@@ -34,6 +34,8 @@ jobs:
         uses: dsherret/rust-toolchain-file@v1
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.platform.runner }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -85,6 +87,8 @@ jobs:
         uses: dsherret/rust-toolchain-file@v1
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-latest
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
