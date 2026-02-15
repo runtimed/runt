@@ -262,26 +262,25 @@ describe("Kernel Lifecycle", () => {
     // After restart, the cell content should still be there
     await setupCodeCell();
 
-    // Type some code
-    const testCode = '# This comment should persist\nprint("preserved")';
+    // Type some code (single-line to avoid issues with typeSlowly and newlines)
+    const testCode = 'print("preserved_content_test")';
     await typeSlowly(testCode);
     await browser.pause(300);
 
-    // Get the content before any restart
+    // Get the content before execution
     const contentBefore = await getEditorContent();
     console.log("Content before:", contentBefore);
 
     // Execute to verify it works
     await browser.keys(["Shift", "Enter"]);
-    await waitForOutput("preserved", KERNEL_STARTUP_TIMEOUT);
+    await waitForOutput("preserved_content_test", KERNEL_STARTUP_TIMEOUT);
 
-    // Verify content is still there
+    // Verify content is still there after execution
     const contentAfter = await getEditorContent();
     console.log("Content after execution:", contentAfter);
 
-    // Content should be preserved (may have minor whitespace differences)
-    expect(contentAfter).toContain("preserved");
-    expect(contentAfter).toContain("comment");
+    // Content should be preserved
+    expect(contentAfter).toContain("preserved_content_test");
 
     console.log("Cell content preservation test passed");
   });
