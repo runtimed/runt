@@ -50,12 +50,17 @@ pub enum QueueCommand {
     RetryProcessing,
 }
 
+/// Maximum number of kernel-not-running retries before cancelling (50 * 100ms = 5 seconds)
+const MAX_KERNEL_RETRIES: usize = 50;
+
 /// The execution queue - owns the pending/executing state
 pub struct ExecutionQueue {
     /// Pending cell IDs (FIFO)
     pending: VecDeque<String>,
     /// Currently executing cell ID
     executing: Option<String>,
+    /// Number of consecutive "kernel not running" retries
+    kernel_retry_count: usize,
 }
 
 impl Default for ExecutionQueue {
@@ -69,7 +74,19 @@ impl ExecutionQueue {
         Self {
             pending: VecDeque::new(),
             executing: None,
+            kernel_retry_count: 0,
         }
+    }
+
+    /// Increment kernel retry count and return whether we should keep retrying
+    pub fn increment_kernel_retry(&mut self) -> bool {
+        self.kernel_retry_count += 1;
+        self.kernel_retry_count < MAX_KERNEL_RETRIES
+    }
+
+    /// Reset kernel retry count (called when execution succeeds)
+    pub fn reset_kernel_retry(&mut self) {
+        self.kernel_retry_count = 0;
     }
 
     /// Enqueue a cell for execution
@@ -305,23 +322,52 @@ async fn process_next(
     // Check if kernel is running
     let mut k = kernel.lock().await;
     if !k.is_running() {
-        // Kernel not running - we need to wait for it
-        info!("[queue] Kernel not running, scheduling retry...");
-        // Put the cell back at the front
-        {
+        // Kernel not running - check if we should keep retrying
+        let should_retry = {
             let mut q = queue.lock().unwrap();
-            q.complete(&cell_id); // Remove from executing
-            // Re-add to front of queue
-            q.pending.push_front(cell_id);
-            emit_queue_state(app, &q);
+            q.increment_kernel_retry()
+        };
+
+        if should_retry {
+            // Put the cell back at the front and retry
+            info!("[queue] Kernel not running, scheduling retry...");
+            {
+                let mut q = queue.lock().unwrap();
+                q.complete(&cell_id); // Remove from executing
+                // Re-add to front of queue
+                q.pending.push_front(cell_id);
+                emit_queue_state(app, &q);
+            }
+            // Schedule a retry after a short delay
+            let tx_clone = tx.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                let _ = tx_clone.send(QueueCommand::RetryProcessing).await;
+            });
+        } else {
+            // Exceeded retry limit - cancel all pending cells
+            error!(
+                "[queue] Kernel not running after {} retries, cancelling execution",
+                MAX_KERNEL_RETRIES
+            );
+            let cancelled = {
+                let mut q = queue.lock().unwrap();
+                q.complete(&cell_id); // Remove from executing
+                let mut cancelled = q.clear_pending();
+                cancelled.insert(0, cell_id); // Include the current cell
+                q.reset_kernel_retry();
+                emit_queue_state(app, &q);
+                cancelled
+            };
+            emit_cells_cancelled(app, cancelled);
         }
-        // Schedule a retry after a short delay
-        let tx_clone = tx.clone();
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            let _ = tx_clone.send(QueueCommand::RetryProcessing).await;
-        });
         return;
+    }
+
+    // Kernel is running - reset retry count
+    {
+        let mut q = queue.lock().unwrap();
+        q.reset_kernel_retry();
     }
 
     // Execute the cell
@@ -625,5 +671,40 @@ mod tests {
         assert_eq!(json["processing"], true);
         assert_eq!(json["executing_cell_id"], "cell-1");
         assert_eq!(json["cells"].as_array().unwrap().len(), 1);
+    }
+
+    // ==================== Kernel Retry Tests ====================
+
+    #[test]
+    fn test_new_queue_has_zero_retry_count() {
+        let queue = ExecutionQueue::new();
+        assert_eq!(queue.kernel_retry_count, 0);
+    }
+
+    #[test]
+    fn test_increment_kernel_retry_returns_true_under_limit() {
+        let mut queue = ExecutionQueue::new();
+        for _ in 0..(MAX_KERNEL_RETRIES - 1) {
+            assert!(queue.increment_kernel_retry());
+        }
+    }
+
+    #[test]
+    fn test_increment_kernel_retry_returns_false_at_limit() {
+        let mut queue = ExecutionQueue::new();
+        for _ in 0..MAX_KERNEL_RETRIES {
+            queue.increment_kernel_retry();
+        }
+        assert!(!queue.increment_kernel_retry());
+    }
+
+    #[test]
+    fn test_reset_kernel_retry_clears_count() {
+        let mut queue = ExecutionQueue::new();
+        for _ in 0..10 {
+            queue.increment_kernel_retry();
+        }
+        queue.reset_kernel_retry();
+        assert_eq!(queue.kernel_retry_count, 0);
     }
 }

@@ -334,6 +334,178 @@ pub async fn clear_cache() -> Result<()> {
     Ok(())
 }
 
+/// Find existing prewarmed environments from previous sessions.
+///
+/// Scans the cache directory for `prewarm-*` directories and validates
+/// they have a working Python binary. Returns valid environments that
+/// can be added to the pool on startup.
+pub async fn find_existing_prewarmed_environments() -> Vec<UvEnvironment> {
+    let cache_dir = get_cache_dir();
+    let mut found = Vec::new();
+
+    let Ok(mut entries) = tokio::fs::read_dir(&cache_dir).await else {
+        return found;
+    };
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("prewarm-") {
+            continue;
+        }
+
+        let venv_path = entry.path();
+
+        // Determine python path based on platform
+        #[cfg(target_os = "windows")]
+        let python_path = venv_path.join("Scripts").join("python.exe");
+        #[cfg(not(target_os = "windows"))]
+        let python_path = venv_path.join("bin").join("python");
+
+        // Validate the python binary exists
+        if !python_path.exists() {
+            info!(
+                "[prewarm] Removing invalid prewarmed env (no python): {:?}",
+                venv_path
+            );
+            tokio::fs::remove_dir_all(&venv_path).await.ok();
+            continue;
+        }
+
+        info!("[prewarm] Found existing prewarmed environment: {:?}", venv_path);
+        found.push(UvEnvironment {
+            venv_path,
+            python_path,
+        });
+    }
+
+    found
+}
+
+/// Create a prewarmed environment with just ipykernel installed.
+///
+/// This creates an environment at a temporary path (prewarm-{uuid}) that can
+/// later be claimed by a notebook using `claim_prewarmed_environment`.
+pub async fn create_prewarmed_environment() -> Result<UvEnvironment> {
+    let temp_id = format!("prewarm-{}", uuid::Uuid::new_v4());
+    let cache_dir = get_cache_dir();
+    let venv_path = cache_dir.join(&temp_id);
+
+    // Determine python path based on platform
+    #[cfg(target_os = "windows")]
+    let python_path = venv_path.join("Scripts").join("python.exe");
+    #[cfg(not(target_os = "windows"))]
+    let python_path = venv_path.join("bin").join("python");
+
+    info!("[prewarm] Creating prewarmed environment at {:?}", venv_path);
+
+    // Ensure cache directory exists
+    tokio::fs::create_dir_all(&cache_dir).await?;
+
+    // Create virtual environment with uv
+    let venv_status = tokio::process::Command::new("uv")
+        .arg("venv")
+        .arg(&venv_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .status()
+        .await?;
+
+    if !venv_status.success() {
+        return Err(anyhow!("Failed to create prewarmed virtual environment"));
+    }
+
+    // Install only ipykernel (no other dependencies)
+    let install_status = tokio::process::Command::new("uv")
+        .args([
+            "pip",
+            "install",
+            "--python",
+            &python_path.to_string_lossy(),
+            "ipykernel",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .status()
+        .await?;
+
+    if !install_status.success() {
+        // Clean up failed environment
+        tokio::fs::remove_dir_all(&venv_path).await.ok();
+        return Err(anyhow!("Failed to install ipykernel in prewarmed environment"));
+    }
+
+    info!("[prewarm] Prewarmed environment ready at {:?}", venv_path);
+
+    Ok(UvEnvironment {
+        venv_path,
+        python_path,
+    })
+}
+
+/// Claim a prewarmed environment for a specific notebook.
+///
+/// This moves the prewarmed environment to the correct cache location based
+/// on the notebook's env_id, so it will be found by `prepare_environment`.
+pub async fn claim_prewarmed_environment(
+    prewarmed: UvEnvironment,
+    env_id: &str,
+) -> Result<UvEnvironment> {
+    // Compute the hash that would be used for empty deps with this env_id
+    let deps = NotebookDependencies {
+        dependencies: vec![],
+        requires_python: None,
+    };
+    let hash = compute_env_hash(&deps, Some(env_id));
+    let cache_dir = get_cache_dir();
+    let dest_path = cache_dir.join(&hash);
+
+    // Determine python path based on platform
+    #[cfg(target_os = "windows")]
+    let python_path = dest_path.join("Scripts").join("python.exe");
+    #[cfg(not(target_os = "windows"))]
+    let python_path = dest_path.join("bin").join("python");
+
+    // If destination already exists, just use it (race condition safety)
+    if dest_path.exists() {
+        info!(
+            "[prewarm] Destination already exists, removing prewarmed env at {:?}",
+            prewarmed.venv_path
+        );
+        tokio::fs::remove_dir_all(&prewarmed.venv_path).await.ok();
+        return Ok(UvEnvironment {
+            venv_path: dest_path,
+            python_path,
+        });
+    }
+
+    info!(
+        "[prewarm] Claiming prewarmed environment: {:?} -> {:?}",
+        prewarmed.venv_path, dest_path
+    );
+
+    // Try to rename (fast if same filesystem)
+    match tokio::fs::rename(&prewarmed.venv_path, &dest_path).await {
+        Ok(()) => {
+            info!("[prewarm] Environment claimed via rename");
+        }
+        Err(e) => {
+            // Rename failed (possibly cross-filesystem), fall back to copy+delete
+            info!(
+                "[prewarm] Rename failed ({}), falling back to copy",
+                e
+            );
+            copy_dir_recursive(&prewarmed.venv_path, &dest_path).await?;
+            tokio::fs::remove_dir_all(&prewarmed.venv_path).await.ok();
+            info!("[prewarm] Environment claimed via copy");
+        }
+    }
+
+    Ok(UvEnvironment {
+        venv_path: dest_path,
+        python_path,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
