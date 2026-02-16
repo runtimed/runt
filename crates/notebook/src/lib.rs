@@ -948,28 +948,51 @@ async fn start_default_uv_kernel(
         let prewarmed = pool.lock().await.take();
         if let Some(prewarmed_env) = prewarmed {
             info!("[prewarm] Using prewarmed environment for default uv kernel");
-            let env = uv_env::claim_prewarmed_environment(
+
+            // Try to claim and use the prewarmed env, but fall back gracefully on error
+            match uv_env::claim_prewarmed_environment(
                 prewarmed_env.into_uv_environment(),
                 env_id,
             )
             .await
-            .map_err(|e| e.to_string())?;
+            {
+                Ok(env) => {
+                    // Validate the python path exists before trying to use it
+                    if env.python_path.exists() {
+                        // Immediately spawn replenishment
+                        env_pool::spawn_replenishment(pool.inner().clone());
 
-            // Immediately spawn replenishment
-            env_pool::spawn_replenishment(pool.inner().clone());
-
-            let mut kernel = kernel_state.lock().await;
-            kernel
-                .start_with_prewarmed_uv(app, env)
-                .await
-                .map_err(|e| e.to_string())?;
-
-            return Ok(());
+                        let mut kernel = kernel_state.lock().await;
+                        match kernel.start_with_prewarmed_uv(app.clone(), env).await {
+                            Ok(()) => return Ok(()),
+                            Err(e) => {
+                                log::warn!(
+                                    "[prewarm] Failed to start kernel with prewarmed env, falling back: {}",
+                                    e
+                                );
+                                // Fall through to create fresh environment
+                            }
+                        }
+                    } else {
+                        log::warn!(
+                            "[prewarm] Claimed env has invalid python path: {:?}, falling back",
+                            env.python_path
+                        );
+                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "[prewarm] Failed to claim prewarmed env, falling back: {}",
+                        e
+                    );
+                    // Fall through to create fresh environment
+                }
+            }
         }
     }
 
-    // No prewarmed env available, create one normally
-    info!("Starting default uv kernel with ipykernel (no prewarmed env)");
+    // No prewarmed env available (or prewarmed failed), create one normally
+    info!("Starting default uv kernel with ipykernel (creating fresh env)");
     let deps = uv_env::NotebookDependencies {
         dependencies: vec![],
         requires_python: None,
@@ -1090,23 +1113,46 @@ async fn start_default_kernel(
             let prewarmed = pool.lock().await.take();
             if let Some(prewarmed_env) = prewarmed {
                 info!("[prewarm] Using prewarmed environment for notebook");
-                let env = uv_env::claim_prewarmed_environment(
+
+                // Try to claim and use the prewarmed env, but fall back gracefully on error
+                match uv_env::claim_prewarmed_environment(
                     prewarmed_env.into_uv_environment(),
                     env_id,
                 )
                 .await
-                .map_err(|e| e.to_string())?;
+                {
+                    Ok(env) => {
+                        // Validate the python path exists before trying to use it
+                        if env.python_path.exists() {
+                            // Immediately spawn replenishment
+                            env_pool::spawn_replenishment(pool.inner().clone());
 
-                // Immediately spawn replenishment
-                env_pool::spawn_replenishment(pool.inner().clone());
-
-                let mut kernel = kernel_state.lock().await;
-                kernel
-                    .start_with_prewarmed_uv(app, env)
-                    .await
-                    .map_err(|e| e.to_string())?;
-
-                return Ok("uv".to_string());
+                            let mut kernel = kernel_state.lock().await;
+                            match kernel.start_with_prewarmed_uv(app.clone(), env).await {
+                                Ok(()) => return Ok("uv".to_string()),
+                                Err(e) => {
+                                    log::warn!(
+                                        "[prewarm] Failed to start kernel with prewarmed env, falling back: {}",
+                                        e
+                                    );
+                                    // Fall through to create fresh environment
+                                }
+                            }
+                        } else {
+                            log::warn!(
+                                "[prewarm] Claimed env has invalid python path: {:?}, falling back",
+                                env.python_path
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "[prewarm] Failed to claim prewarmed env, falling back: {}",
+                            e
+                        );
+                        // Fall through to create fresh environment
+                    }
+                }
             }
         }
 
