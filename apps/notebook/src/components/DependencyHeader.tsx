@@ -1,6 +1,6 @@
 import { useState, useCallback, type KeyboardEvent } from "react";
-import { X, Plus, Info, FileText, Download } from "lucide-react";
-import type { PyProjectInfo, PyProjectDeps } from "../hooks/useDependencies";
+import { X, Plus, Info, FileText, Download, RefreshCw } from "lucide-react";
+import type { PyProjectInfo, PyProjectDeps, EnvSyncState } from "../hooks/useDependencies";
 
 interface DependencyHeaderProps {
   dependencies: string[];
@@ -11,6 +11,9 @@ interface DependencyHeaderProps {
   needsKernelRestart: boolean;
   onAdd: (pkg: string) => Promise<void>;
   onRemove: (pkg: string) => Promise<void>;
+  // Environment sync state
+  syncState?: EnvSyncState | null;
+  onSyncNow?: () => Promise<boolean>;
   // pyproject.toml support
   pyprojectInfo?: PyProjectInfo | null;
   pyprojectDeps?: PyProjectDeps | null;
@@ -26,6 +29,8 @@ export function DependencyHeader({
   needsKernelRestart,
   onAdd,
   onRemove,
+  syncState,
+  onSyncNow,
   pyprojectInfo,
   pyprojectDeps,
   onImportFromPyproject,
@@ -78,6 +83,33 @@ export function DependencyHeader({
                 Restart kernel to use these dependencies. The current kernel
                 wasn&apos;t started with dependency management.
               </span>
+            </div>
+          )}
+
+          {/* Sync Now notice for dirty environment */}
+          {syncState?.status === "dirty" && onSyncNow && (
+            <div className="mb-3 flex items-center justify-between rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+              <div className="flex items-center gap-2">
+                <Info className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  {syncState.added.length > 0 && (
+                    <span>{syncState.added.length} package{syncState.added.length > 1 ? "s" : ""} to install</span>
+                  )}
+                  {syncState.added.length > 0 && syncState.removed.length > 0 && ", "}
+                  {syncState.removed.length > 0 && (
+                    <span>{syncState.removed.length} removed (restart to uninstall)</span>
+                  )}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={onSyncNow}
+                disabled={loading}
+                className="flex items-center gap-1 rounded bg-amber-600 px-2 py-0.5 text-white text-xs font-medium hover:bg-amber-700 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+                Sync Now
+              </button>
             </div>
           )}
 

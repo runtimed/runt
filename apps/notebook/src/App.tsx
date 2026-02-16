@@ -109,6 +109,8 @@ function AppContent() {
     needsKernelRestart,
     addDependency,
     removeDependency,
+    syncState,
+    syncNow,
     pyprojectInfo,
     pyprojectDeps,
     importFromPyproject,
@@ -438,6 +440,8 @@ onKernelStarted: loadCondaDependencies,
           needsKernelRestart={needsKernelRestart}
           onAdd={addDependency}
           onRemove={removeDependency}
+          syncState={syncState}
+          onSyncNow={syncNow}
           pyprojectInfo={pyprojectInfo}
           pyprojectDeps={pyprojectDeps}
           onImportFromPyproject={importFromPyproject}
