@@ -334,6 +334,53 @@ pub async fn clear_cache() -> Result<()> {
     Ok(())
 }
 
+/// Find existing prewarmed environments from previous sessions.
+///
+/// Scans the cache directory for `prewarm-*` directories and validates
+/// they have a working Python binary. Returns valid environments that
+/// can be added to the pool on startup.
+pub async fn find_existing_prewarmed_environments() -> Vec<UvEnvironment> {
+    let cache_dir = get_cache_dir();
+    let mut found = Vec::new();
+
+    let Ok(mut entries) = tokio::fs::read_dir(&cache_dir).await else {
+        return found;
+    };
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("prewarm-") {
+            continue;
+        }
+
+        let venv_path = entry.path();
+
+        // Determine python path based on platform
+        #[cfg(target_os = "windows")]
+        let python_path = venv_path.join("Scripts").join("python.exe");
+        #[cfg(not(target_os = "windows"))]
+        let python_path = venv_path.join("bin").join("python");
+
+        // Validate the python binary exists
+        if !python_path.exists() {
+            info!(
+                "[prewarm] Removing invalid prewarmed env (no python): {:?}",
+                venv_path
+            );
+            tokio::fs::remove_dir_all(&venv_path).await.ok();
+            continue;
+        }
+
+        info!("[prewarm] Found existing prewarmed environment: {:?}", venv_path);
+        found.push(UvEnvironment {
+            venv_path,
+            python_path,
+        });
+    }
+
+    found
+}
+
 /// Create a prewarmed environment with just ipykernel installed.
 ///
 /// This creates an environment at a temporary path (prewarm-{uuid}) that can

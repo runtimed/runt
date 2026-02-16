@@ -152,13 +152,62 @@ impl EnvPool {
     }
 }
 
+/// Recover any existing prewarmed environments from disk.
+///
+/// This scans the cache directory for `prewarm-*` directories left over
+/// from previous sessions and adds valid ones to the pool. This allows
+/// the pool to start with environments already available, providing
+/// instant kernel startup even on first notebook open after app launch.
+pub async fn recover_existing_prewarmed(pool: &SharedEnvPool) {
+    let recovered = crate::uv_env::find_existing_prewarmed_environments().await;
+
+    if recovered.is_empty() {
+        info!("[prewarm] No existing prewarmed environments found");
+        return;
+    }
+
+    info!(
+        "[prewarm] Recovered {} existing prewarmed environments",
+        recovered.len()
+    );
+
+    let mut p = pool.lock().await;
+    for env in recovered {
+        // Only add up to the pool size
+        if p.pool.len() >= p.config.pool_size {
+            // Clean up extras we don't need
+            info!(
+                "[prewarm] Pool full, removing extra prewarmed env: {:?}",
+                env.venv_path
+            );
+            tokio::fs::remove_dir_all(&env.venv_path).await.ok();
+            continue;
+        }
+
+        let prewarmed = PrewarmedEnv {
+            venv_path: env.venv_path,
+            python_path: env.python_path,
+            created_at: Instant::now(), // Treat as freshly created
+        };
+        p.pool.push(prewarmed);
+    }
+
+    info!(
+        "[prewarm] Pool initialized with {} environments",
+        p.pool.len()
+    );
+}
+
 /// Run the background prewarming loop.
 ///
 /// This function runs indefinitely, periodically checking the pool
 /// and creating new environments as needed to maintain the target size.
 pub async fn run_prewarming_loop(pool: SharedEnvPool, app: AppHandle) {
-    // Initial delay to avoid competing with app startup
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // First, recover any existing prewarmed environments from disk
+    recover_existing_prewarmed(&pool).await;
+
+    // Small delay to let the app finish startup before creating new envs
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
     info!("[prewarm] Starting prewarming loop");
     emit_progress(&app, PrewarmProgress::Starting);
