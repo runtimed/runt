@@ -2,11 +2,14 @@
  * Tests for media-router.tsx - MIME type selection and routing.
  *
  * These tests verify the MIME type selection logic that determines
- * which renderer to use for Jupyter output data.
+ * which renderer to use for Jupyter output data, as well as component
+ * rendering behavior for different MIME types.
  */
 
-import { describe, it, expect } from "vitest";
-import { getSelectedMimeType, DEFAULT_PRIORITY } from "../media-router";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { getSelectedMimeType, DEFAULT_PRIORITY, MediaRouter } from "../media-router";
+import { MediaProvider } from "../media-provider";
 
 describe("getSelectedMimeType", () => {
   describe("priority-based selection", () => {
@@ -217,6 +220,165 @@ describe("getSelectedMimeType", () => {
       expect(DEFAULT_PRIORITY).toContain("application/vnd.plotly.v1+json");
       expect(DEFAULT_PRIORITY).toContain("application/vnd.vegalite.v5+json");
       expect(DEFAULT_PRIORITY).toContain("application/vnd.vega.v5+json");
+    });
+  });
+});
+
+/**
+ * Component tests for MediaRouter rendering behavior.
+ */
+describe("MediaRouter component", () => {
+  describe("isolated MIME type handling", () => {
+    // These MIME types are routed to IsolatedFrame by OutputArea.tsx
+    // and should not be rendered by MediaRouter in the main bundle.
+    // MediaRouter returns null for these to avoid rendering potentially
+    // unsafe content directly in the DOM.
+
+    it("returns null for text/html", () => {
+      // Suppress the expected console.warn in dev mode
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const { container } = render(
+        <MediaProvider>
+          <MediaRouter data={{ "text/html": "<b>test</b>" }} />
+        </MediaProvider>
+      );
+      expect(container.firstChild).toBeNull();
+
+      warnSpy.mockRestore();
+    });
+
+    it("returns null for text/markdown", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const { container } = render(
+        <MediaProvider>
+          <MediaRouter data={{ "text/markdown": "# Test" }} />
+        </MediaProvider>
+      );
+      expect(container.firstChild).toBeNull();
+
+      warnSpy.mockRestore();
+    });
+
+    it("returns null for image/svg+xml", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const { container } = render(
+        <MediaProvider>
+          <MediaRouter data={{ "image/svg+xml": "<svg></svg>" }} />
+        </MediaProvider>
+      );
+      expect(container.firstChild).toBeNull();
+
+      warnSpy.mockRestore();
+    });
+
+  });
+
+  describe("non-isolated rendering (all eager)", () => {
+    it("renders text/plain synchronously", () => {
+      render(
+        <MediaProvider>
+          <MediaRouter data={{ "text/plain": "Hello World" }} />
+        </MediaProvider>
+      );
+      expect(screen.getByText("Hello World")).toBeInTheDocument();
+    });
+
+    it("renders images synchronously", () => {
+      // 1x1 transparent PNG as base64
+      const pngData =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+      render(
+        <MediaProvider>
+          <MediaRouter data={{ "image/png": pngData }} />
+        </MediaProvider>
+      );
+      expect(screen.getByRole("img")).toBeInTheDocument();
+    });
+
+    it("renders JSON synchronously", () => {
+      render(
+        <MediaProvider>
+          <MediaRouter data={{ "application/json": { key: "value" } }} />
+        </MediaProvider>
+      );
+      // JsonOutput renders in a pre element with the JSON structure
+      expect(screen.getByText(/"key"/)).toBeInTheDocument();
+    });
+
+    it("renders ANSI escape sequences correctly", () => {
+      // Red text using ANSI escape code
+      const ansiText = "\x1b[31mRed text\x1b[0m";
+
+      render(
+        <MediaProvider>
+          <MediaRouter data={{ "text/plain": ansiText }} />
+        </MediaProvider>
+      );
+      expect(screen.getByText("Red text")).toBeInTheDocument();
+    });
+  });
+
+  describe("fallback behavior", () => {
+    it("renders fallback when no data matches", () => {
+      const { container } = render(
+        <MediaProvider>
+          <MediaRouter data={{}} fallback={<div>No output</div>} />
+        </MediaProvider>
+      );
+      expect(screen.getByText("No output")).toBeInTheDocument();
+    });
+
+    it("renders default message when no data and no fallback", () => {
+      render(
+        <MediaProvider>
+          <MediaRouter data={{}} />
+        </MediaProvider>
+      );
+      expect(screen.getByText("No displayable output")).toBeInTheDocument();
+    });
+
+    it("renders unknown types as plain text (fallback)", () => {
+      render(
+        <MediaProvider>
+          <MediaRouter data={{ "application/octet-stream": "binary data" }} />
+        </MediaProvider>
+      );
+      // Falls back to AnsiOutput which renders as text
+      expect(screen.getByText("binary data")).toBeInTheDocument();
+    });
+  });
+
+  describe("custom renderers", () => {
+    it("uses custom renderer when provided", () => {
+      render(
+        <MediaProvider>
+          <MediaRouter
+            data={{ "custom/type": "custom data" }}
+            renderers={{
+              "custom/type": ({ data }) => <div>Custom: {String(data)}</div>,
+            }}
+          />
+        </MediaProvider>
+      );
+      expect(screen.getByText("Custom: custom data")).toBeInTheDocument();
+    });
+
+    it("custom renderer takes priority over built-in", () => {
+      render(
+        <MediaProvider>
+          <MediaRouter
+            data={{ "text/plain": "plain text" }}
+            renderers={{
+              "text/plain": ({ data }) => <div>Overridden: {String(data)}</div>,
+            }}
+          />
+        </MediaProvider>
+      );
+      expect(screen.getByText("Overridden: plain text")).toBeInTheDocument();
     });
   });
 });
