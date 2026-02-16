@@ -205,7 +205,7 @@ export const CodeMirrorEditor = forwardRef<
     const { setContainer, view } = useCodeMirror({
       container: editorRef.current,
       basicSetup: false,
-      indentWithTab: false,
+      indentWithTab: true,
       extensions,
       maxHeight,
       value,
