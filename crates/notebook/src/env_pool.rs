@@ -152,6 +152,46 @@ impl EnvPool {
     }
 }
 
+/// Spawn a background task to replenish the pool after taking an environment.
+///
+/// Call this after successfully using a prewarmed environment to immediately
+/// start creating a replacement, rather than waiting for the next loop iteration.
+pub fn spawn_replenishment(pool: SharedEnvPool) {
+    tokio::spawn(async move {
+        // Check if we actually need to create one
+        let should_create = {
+            let mut p = pool.lock().await;
+            if p.deficit() > 0 {
+                p.mark_creating(1);
+                true
+            } else {
+                false
+            }
+        };
+
+        if !should_create {
+            return;
+        }
+
+        info!("[prewarm] Spawning immediate replenishment");
+        match crate::uv_env::create_prewarmed_environment().await {
+            Ok(env) => {
+                let prewarmed = PrewarmedEnv {
+                    venv_path: env.venv_path,
+                    python_path: env.python_path,
+                    created_at: Instant::now(),
+                };
+                pool.lock().await.add(prewarmed);
+                info!("[prewarm] Replenishment complete");
+            }
+            Err(e) => {
+                error!("[prewarm] Replenishment failed: {}", e);
+                pool.lock().await.creation_failed();
+            }
+        }
+    });
+}
+
 /// Recover any existing prewarmed environments from disk.
 ///
 /// This scans the cache directory for `prewarm-*` directories left over

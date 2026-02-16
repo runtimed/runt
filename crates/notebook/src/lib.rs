@@ -955,6 +955,9 @@ async fn start_default_uv_kernel(
             .await
             .map_err(|e| e.to_string())?;
 
+            // Immediately spawn replenishment
+            env_pool::spawn_replenishment(pool.inner().clone());
+
             let mut kernel = kernel_state.lock().await;
             kernel
                 .start_with_prewarmed_uv(app, env)
@@ -1093,6 +1096,9 @@ async fn start_default_kernel(
                 )
                 .await
                 .map_err(|e| e.to_string())?;
+
+                // Immediately spawn replenishment
+                env_pool::spawn_replenishment(pool.inner().clone());
 
                 let mut kernel = kernel_state.lock().await;
                 kernel
