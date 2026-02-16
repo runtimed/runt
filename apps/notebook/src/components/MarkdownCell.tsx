@@ -195,6 +195,7 @@ export function MarkdownCell({
               maxHeight={2000}
               onReady={handleFrameReady}
               onLinkClick={handleLinkClick}
+              onDoubleClick={handleDoubleClick}
               onError={(err) => console.error("[MarkdownCell] iframe error:", err)}
               className="w-full"
             />

@@ -253,6 +253,13 @@ export interface LinkClickMessage {
 }
 
 /**
+ * User double-clicked in the iframe.
+ */
+export interface DoubleClickMessage {
+  type: "dblclick";
+}
+
+/**
  * Widget state was updated in the iframe (needs to sync to kernel).
  */
 export interface WidgetUpdateMessage {
@@ -338,6 +345,7 @@ export type IframeToParentMessage =
   | RenderCompleteMessage
   | ResizeMessage
   | LinkClickMessage
+  | DoubleClickMessage
   | WidgetUpdateMessage
   | IframeErrorMessage
   | RendererReadyMessage
@@ -372,6 +380,7 @@ export function isIframeMessage(data: unknown): data is IframeToParentMessage {
       "render_complete",
       "resize",
       "link_click",
+      "dblclick",
       "widget_update",
       "error",
       "renderer_ready",

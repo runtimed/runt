@@ -421,6 +421,15 @@ export function generateFrameHtml(options: FrameHtmlOptions = {}): string {
         }
       });
 
+      // --- Double Click Forwarding ---
+      document.addEventListener('dblclick', function(e) {
+        // Don't forward double-clicks on links (user is selecting text)
+        const link = e.target.closest('a');
+        if (!link) {
+          send('dblclick', null);
+        }
+      });
+
       // --- Error Handler ---
       window.addEventListener('error', function(e) {
         sendError(e.error || new Error(e.message));
