@@ -44,6 +44,10 @@ toml = "0.8"
 pathdiff = "0.2"
 pyproject-toml = "0.13"
 
+# Unix process group support for kernel cleanup
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.30", features = ["signal", "process"] }
+
 # Conda environment support via rattler
 rattler = "0.39"
 rattler_cache = "0.6"

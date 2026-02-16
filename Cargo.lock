@@ -3106,6 +3106,7 @@ dependencies = [
  "jupyter-protocol",
  "log",
  "nbformat",
+ "nix",
  "pathdiff",
  "petname",
  "pyproject-toml",

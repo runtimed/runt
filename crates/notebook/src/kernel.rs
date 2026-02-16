@@ -81,6 +81,9 @@ pub struct NotebookKernel {
     shell_reader_task: Option<tokio::task::JoinHandle<()>>,
     shell_writer: Option<runtimelib::DealerSendConnection>,
     _process: Option<tokio::process::Child>,
+    /// Process group ID for killing the kernel and all its children (Unix only)
+    #[cfg(unix)]
+    process_group_id: Option<i32>,
     cell_id_map: CellIdMap,
     pending_completions: PendingCompletions,
     pending_history: PendingHistory,
@@ -102,6 +105,8 @@ impl Default for NotebookKernel {
             shell_reader_task: None,
             shell_writer: None,
             _process: None,
+            #[cfg(unix)]
+            process_group_id: None,
             cell_id_map: Arc::new(StdMutex::new(HashMap::new())),
             pending_completions: Arc::new(StdMutex::new(HashMap::new())),
             pending_history: Arc::new(StdMutex::new(HashMap::new())),
@@ -122,7 +127,21 @@ impl Drop for NotebookKernel {
             task.abort();
         }
 
-        // Process has kill_on_drop(true), will be killed when dropped
+        // Kill the entire process group (kernel + any subprocesses it spawned)
+        #[cfg(unix)]
+        if let Some(pgid) = self.process_group_id.take() {
+            use nix::sys::signal::{killpg, Signal};
+            use nix::unistd::Pid;
+            // SIGKILL the entire process group to ensure cleanup
+            if let Err(e) = killpg(Pid::from_raw(pgid), Signal::SIGKILL) {
+                // ESRCH (no such process) is expected if process already exited
+                if e != nix::errno::Errno::ESRCH {
+                    log::warn!("Failed to kill process group {}: {}", pgid, e);
+                }
+            }
+        }
+
+        // Process handle cleanup (kill_on_drop as backup)
         self._process = None;
 
         // Sync cleanup of connection file
@@ -184,10 +203,17 @@ impl NotebookKernel {
 
         info!("Starting kernel {} at {:?}", kernelspec_name, connection_file_path);
 
-        let process = kernelspec
-            .command(&connection_file_path, Some(Stdio::null()), Some(Stdio::null()))?
-            .kill_on_drop(true)
-            .spawn()?;
+        let mut cmd = kernelspec
+            .command(&connection_file_path, Some(Stdio::null()), Some(Stdio::null()))?;
+        #[cfg(unix)]
+        cmd.process_group(0); // Create new process group for kernel and children
+        let process = cmd.kill_on_drop(true).spawn()?;
+
+        // Store process group ID for cleanup (PGID equals PID when process_group(0) is used)
+        #[cfg(unix)]
+        {
+            self.process_group_id = process.id().map(|pid| pid as i32);
+        }
 
         // Small delay to let the kernel start
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -445,13 +471,20 @@ impl NotebookKernel {
         );
 
         // Spawn kernel using python from the uv environment
-        let process = tokio::process::Command::new(&env.python_path)
-            .args(["-m", "ipykernel_launcher", "-f"])
+        let mut cmd = tokio::process::Command::new(&env.python_path);
+        cmd.args(["-m", "ipykernel_launcher", "-f"])
             .arg(&connection_file_path)
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()?;
+            .stderr(Stdio::null());
+        #[cfg(unix)]
+        cmd.process_group(0); // Create new process group for kernel and children
+        let process = cmd.kill_on_drop(true).spawn()?;
+
+        // Store process group ID for cleanup
+        #[cfg(unix)]
+        {
+            self.process_group_id = process.id().map(|pid| pid as i32);
+        }
 
         // Small delay to let the kernel start
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -708,23 +741,30 @@ impl NotebookKernel {
 
         // Use `uv run` to launch the kernel - this lets uv handle the environment
         // --with ipykernel adds it transiently without modifying pyproject.toml
-        let process = tokio::process::Command::new("uv")
-            .args([
-                "run",
-                "--directory",
-                &project_dir.to_string_lossy(),
-                "--with",
-                "ipykernel",
-                "python",
-                "-m",
-                "ipykernel_launcher",
-                "-f",
-            ])
-            .arg(&connection_file_path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()?;
+        let mut cmd = tokio::process::Command::new("uv");
+        cmd.args([
+            "run",
+            "--directory",
+            &project_dir.to_string_lossy(),
+            "--with",
+            "ipykernel",
+            "python",
+            "-m",
+            "ipykernel_launcher",
+            "-f",
+        ])
+        .arg(&connection_file_path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+        #[cfg(unix)]
+        cmd.process_group(0); // Create new process group for kernel and children
+        let process = cmd.kill_on_drop(true).spawn()?;
+
+        // Store process group ID for cleanup
+        #[cfg(unix)]
+        {
+            self.process_group_id = process.id().map(|pid| pid as i32);
+        }
 
         // Small delay to let the kernel start (uv run may need to sync first)
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
@@ -980,13 +1020,20 @@ impl NotebookKernel {
         );
 
         // Spawn kernel using python from the conda environment
-        let process = tokio::process::Command::new(&env.python_path)
-            .args(["-m", "ipykernel_launcher", "-f"])
+        let mut cmd = tokio::process::Command::new(&env.python_path);
+        cmd.args(["-m", "ipykernel_launcher", "-f"])
             .arg(&connection_file_path)
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()?;
+            .stderr(Stdio::null());
+        #[cfg(unix)]
+        cmd.process_group(0); // Create new process group for kernel and children
+        let process = cmd.kill_on_drop(true).spawn()?;
+
+        // Store process group ID for cleanup
+        #[cfg(unix)]
+        {
+            self.process_group_id = process.id().map(|pid| pid as i32);
+        }
 
         // Small delay to let the kernel start
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -1268,11 +1315,20 @@ impl NotebookKernel {
             cmd.current_dir(dir);
         }
 
+        #[cfg(unix)]
+        cmd.process_group(0); // Create new process group for kernel and children
+
         let process = cmd
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()?;
+
+        // Store process group ID for cleanup
+        #[cfg(unix)]
+        {
+            self.process_group_id = process.id().map(|pid| pid as i32);
+        }
 
         // Give Deno time to start
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -1551,6 +1607,19 @@ impl NotebookKernel {
         // Clean up conda environment (currently just releases the reference)
         if let Some(ref env) = self.conda_environment {
             crate::conda_env::cleanup_environment(env).await.ok();
+        }
+
+        // Send SIGTERM to the process group for graceful shutdown of kernel and children
+        #[cfg(unix)]
+        if let Some(pgid) = self.process_group_id.take() {
+            use nix::sys::signal::{killpg, Signal};
+            use nix::unistd::Pid;
+            // SIGTERM for graceful shutdown
+            if let Err(e) = killpg(Pid::from_raw(pgid), Signal::SIGTERM) {
+                if e != nix::errno::Errno::ESRCH {
+                    log::warn!("Failed to SIGTERM process group {}: {}", pgid, e);
+                }
+            }
         }
 
         self.connection_info = None;
