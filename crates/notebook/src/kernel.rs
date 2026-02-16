@@ -112,6 +112,28 @@ impl Default for NotebookKernel {
     }
 }
 
+impl Drop for NotebookKernel {
+    fn drop(&mut self) {
+        // Abort any running async tasks
+        if let Some(task) = self.iopub_task.take() {
+            task.abort();
+        }
+        if let Some(task) = self.shell_reader_task.take() {
+            task.abort();
+        }
+
+        // Process has kill_on_drop(true), will be killed when dropped
+        self._process = None;
+
+        // Sync cleanup of connection file
+        if let Some(ref path) = self.connection_file {
+            let _ = std::fs::remove_file(path);
+        }
+
+        log::info!("NotebookKernel dropped - resources cleaned up");
+    }
+}
+
 impl NotebookKernel {
     /// Set the queue command sender for notifying execution completion
     pub fn set_queue_tx(&mut self, tx: mpsc::Sender<QueueCommand>) {
