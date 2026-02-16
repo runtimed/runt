@@ -47,13 +47,35 @@ pub fn extract_dependencies(metadata: &nbformat::v4::Metadata) -> Option<Noteboo
     serde_json::from_value(uv_value.clone()).ok()
 }
 
+/// Extract the env_id from notebook metadata.
+///
+/// Looks for the `runt.env_id` field in the metadata's additional fields.
+pub fn extract_env_id(metadata: &nbformat::v4::Metadata) -> Option<String> {
+    let runt_value = metadata.additional.get("runt")?;
+    runt_value.get("env_id")?.as_str().map(|s| s.to_string())
+}
+
 /// Compute a cache key for the given dependencies.
-fn compute_env_hash(deps: &NotebookDependencies) -> String {
+///
+/// When deps are empty and env_id is provided, includes env_id in hash
+/// for per-notebook isolation. This ensures new notebooks get fresh
+/// environments while notebooks with dependencies can share cached envs.
+fn compute_env_hash(deps: &NotebookDependencies, env_id: Option<&str>) -> String {
     let mut hasher = Sha256::new();
 
     // Sort dependencies for consistent hashing
     let mut sorted_deps = deps.dependencies.clone();
     sorted_deps.sort();
+
+    // For empty deps, include env_id for per-notebook isolation
+    // This ensures new notebooks get their own environment
+    if sorted_deps.is_empty() {
+        if let Some(id) = env_id {
+            hasher.update(b"env_id:");
+            hasher.update(id.as_bytes());
+            hasher.update(b"\n");
+        }
+    }
 
     for dep in &sorted_deps {
         hasher.update(dep.as_bytes());
@@ -81,8 +103,15 @@ fn get_cache_dir() -> PathBuf {
 ///
 /// Uses cached environments when possible (keyed by dependency hash).
 /// If the cache doesn't exist or is invalid, creates a new environment.
-pub async fn prepare_environment(deps: &NotebookDependencies) -> Result<UvEnvironment> {
-    let hash = compute_env_hash(deps);
+///
+/// The `env_id` parameter enables per-notebook isolation for empty deps:
+/// - If deps are empty and env_id is provided, the env is unique to that notebook
+/// - If deps are non-empty, env_id is ignored and envs are shared by dep hash
+pub async fn prepare_environment(
+    deps: &NotebookDependencies,
+    env_id: Option<&str>,
+) -> Result<UvEnvironment> {
+    let hash = compute_env_hash(deps, env_id);
     let cache_dir = get_cache_dir();
     let venv_path = cache_dir.join(&hash);
 
@@ -224,6 +253,77 @@ pub async fn sync_dependencies(env: &UvEnvironment, deps: &[String]) -> Result<(
     Ok(())
 }
 
+/// Copy an existing UV environment to a new location for a cloned notebook.
+///
+/// This allows cloned notebooks to start with the source's environment
+/// already prepared, making kernel startup instant.
+pub async fn copy_environment(source: &UvEnvironment, new_env_id: &str) -> Result<UvEnvironment> {
+    let cache_dir = get_cache_dir();
+    let dest_path = cache_dir.join(new_env_id);
+
+    if dest_path.exists() {
+        // Already copied (shouldn't happen with UUIDs, but be safe)
+        info!("Clone environment already exists at {:?}", dest_path);
+        #[cfg(target_os = "windows")]
+        let python_path = dest_path.join("Scripts").join("python.exe");
+        #[cfg(not(target_os = "windows"))]
+        let python_path = dest_path.join("bin").join("python");
+
+        return Ok(UvEnvironment {
+            venv_path: dest_path,
+            python_path,
+        });
+    }
+
+    info!(
+        "Copying environment from {:?} to {:?}",
+        source.venv_path, dest_path
+    );
+
+    // Copy the entire venv directory
+    copy_dir_recursive(&source.venv_path, &dest_path).await?;
+
+    #[cfg(target_os = "windows")]
+    let python_path = dest_path.join("Scripts").join("python.exe");
+    #[cfg(not(target_os = "windows"))]
+    let python_path = dest_path.join("bin").join("python");
+
+    info!("Environment copied successfully");
+
+    Ok(UvEnvironment {
+        venv_path: dest_path,
+        python_path,
+    })
+}
+
+/// Recursively copy a directory.
+async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
+    tokio::fs::create_dir_all(dst).await?;
+    let mut entries = tokio::fs::read_dir(src).await?;
+
+    while let Some(entry) = entries.next_entry().await? {
+        let ty = entry.file_type().await?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if ty.is_dir() {
+            Box::pin(copy_dir_recursive(&src_path, &dst_path)).await?;
+        } else if ty.is_symlink() {
+            // Preserve symlinks (important for venv structure)
+            let link_target = tokio::fs::read_link(&src_path).await?;
+            // On Unix, use symlink. On Windows, copy the file.
+            #[cfg(unix)]
+            tokio::fs::symlink(&link_target, &dst_path).await?;
+            #[cfg(windows)]
+            tokio::fs::copy(&src_path, &dst_path).await?;
+        } else {
+            tokio::fs::copy(&src_path, &dst_path).await?;
+        }
+    }
+
+    Ok(())
+}
+
 /// Clear all cached environments.
 #[allow(dead_code)]
 pub async fn clear_cache() -> Result<()> {
@@ -245,8 +345,8 @@ mod tests {
             requires_python: Some(">=3.10".to_string()),
         };
 
-        let hash1 = compute_env_hash(&deps);
-        let hash2 = compute_env_hash(&deps);
+        let hash1 = compute_env_hash(&deps, None);
+        let hash2 = compute_env_hash(&deps, None);
 
         assert_eq!(hash1, hash2);
     }
@@ -263,7 +363,7 @@ mod tests {
             requires_python: None,
         };
 
-        assert_eq!(compute_env_hash(&deps1), compute_env_hash(&deps2));
+        assert_eq!(compute_env_hash(&deps1, None), compute_env_hash(&deps2, None));
     }
 
     #[test]
@@ -278,6 +378,6 @@ mod tests {
             requires_python: None,
         };
 
-        assert_ne!(compute_env_hash(&deps1), compute_env_hash(&deps2));
+        assert_ne!(compute_env_hash(&deps1, None), compute_env_hash(&deps2, None));
     }
 }

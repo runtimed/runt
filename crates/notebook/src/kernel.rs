@@ -90,6 +90,8 @@ pub struct NotebookKernel {
     conda_environment: Option<CondaEnvironment>,
     /// Optional sender to notify execution queue when a cell finishes
     queue_tx: Option<mpsc::Sender<QueueCommand>>,
+    /// Dependencies the kernel was started with (for dirty state detection)
+    synced_dependencies: Option<Vec<String>>,
 }
 
 impl Default for NotebookKernel {
@@ -108,6 +110,7 @@ impl Default for NotebookKernel {
             uv_environment: None,
             conda_environment: None,
             queue_tx: None,
+            synced_dependencies: None,
         }
     }
 }
@@ -396,10 +399,13 @@ impl NotebookKernel {
     ///
     /// Creates an ephemeral virtual environment using uv with the specified
     /// dependencies, installs ipykernel, and launches the kernel from that environment.
+    ///
+    /// The `env_id` parameter enables per-notebook isolation for empty deps.
     pub async fn start_with_uv(
         &mut self,
         app: AppHandle,
         deps: &NotebookDependencies,
+        env_id: Option<&str>,
     ) -> Result<()> {
         // Shutdown existing kernel if any
         self.shutdown().await.ok();
@@ -407,7 +413,7 @@ impl NotebookKernel {
         info!("Preparing uv environment with deps: {:?}", deps.dependencies);
 
         // Prepare the uv environment
-        let env = crate::uv_env::prepare_environment(deps).await?;
+        let env = crate::uv_env::prepare_environment(deps, env_id).await?;
 
         // Reserve ports
         let ip = std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -649,6 +655,7 @@ impl NotebookKernel {
         self.shell_writer = Some(shell_writer);
         self._process = Some(process);
         self.uv_environment = Some(env);
+        self.synced_dependencies = Some(deps.dependencies.clone());
 
         info!("UV-managed kernel started: {}", kernel_id);
         Ok(())
@@ -1663,6 +1670,16 @@ impl NotebookKernel {
     /// Get a reference to the uv environment, if this kernel was started with uv.
     pub fn uv_environment(&self) -> Option<&UvEnvironment> {
         self.uv_environment.as_ref()
+    }
+
+    /// Get the dependencies this kernel was started with (for dirty state detection).
+    pub fn synced_dependencies(&self) -> Option<&Vec<String>> {
+        self.synced_dependencies.as_ref()
+    }
+
+    /// Update the synced dependencies after a sync operation.
+    pub fn set_synced_dependencies(&mut self, deps: Vec<String>) {
+        self.synced_dependencies = Some(deps);
     }
 
     /// Check if this kernel is running with a conda-managed environment.

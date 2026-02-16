@@ -20,6 +20,7 @@ use notebook_state::{FrontendCell, NotebookState};
 
 use log::info;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
@@ -38,6 +39,29 @@ struct GitInfo {
     branch: String,
     commit: String,
     description: Option<String>,
+}
+
+/// Environment sync state for dirty detection.
+#[derive(Serialize)]
+#[serde(tag = "status")]
+pub enum EnvSyncState {
+    /// Kernel is not running
+    #[serde(rename = "not_running")]
+    NotRunning,
+    /// Kernel is running but not UV-managed
+    #[serde(rename = "not_uv_managed")]
+    NotUvManaged,
+    /// Environment is in sync with declared dependencies
+    #[serde(rename = "synced")]
+    Synced,
+    /// Environment differs from declared dependencies
+    #[serde(rename = "dirty")]
+    Dirty {
+        /// Dependencies declared but not synced
+        added: Vec<String>,
+        /// Dependencies synced but no longer declared
+        removed: Vec<String>,
+    },
 }
 
 /// Get git information for the debug banner.
@@ -129,43 +153,59 @@ async fn save_notebook_as(
 
 /// Clone the current notebook for saving as a new file.
 /// Generates a fresh env_id and clears outputs/execution counts.
+/// If the kernel is running with a UV environment, copies it for fast startup.
 #[tauri::command]
 async fn clone_notebook_to_path(
     path: String,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
-    let state = state.lock().map_err(|e| e.to_string())?;
-
-    // Clone the notebook structure
-    let mut cloned_notebook = state.notebook.clone();
-
-    // Generate fresh env_id
+    // Generate fresh env_id upfront
     let new_env_id = uuid::Uuid::new_v4().to_string();
 
-    // Update runt metadata with new env_id
-    if let Some(runt_value) = cloned_notebook.metadata.additional.get_mut("runt") {
-        if let Some(obj) = runt_value.as_object_mut() {
-            obj.insert("env_id".to_string(), serde_json::json!(new_env_id));
-        }
-    }
+    // Clone notebook structure while holding the lock
+    let cloned_notebook = {
+        let state = notebook_state.lock().map_err(|e| e.to_string())?;
+        let mut cloned = state.notebook.clone();
 
-    // Also update conda env_id if present
-    if let Some(conda_value) = cloned_notebook.metadata.additional.get_mut("conda") {
-        if let Some(obj) = conda_value.as_object_mut() {
-            obj.insert("env_id".to_string(), serde_json::json!(new_env_id));
+        // Update runt metadata with new env_id
+        if let Some(runt_value) = cloned.metadata.additional.get_mut("runt") {
+            if let Some(obj) = runt_value.as_object_mut() {
+                obj.insert("env_id".to_string(), serde_json::json!(new_env_id.clone()));
+            }
         }
-    }
 
-    // Clear outputs and execution counts from all code cells
-    for cell in &mut cloned_notebook.cells {
-        if let nbformat::v4::Cell::Code {
-            outputs,
-            execution_count,
-            ..
-        } = cell
-        {
-            outputs.clear();
-            *execution_count = None;
+        // Also update conda env_id if present
+        if let Some(conda_value) = cloned.metadata.additional.get_mut("conda") {
+            if let Some(obj) = conda_value.as_object_mut() {
+                obj.insert("env_id".to_string(), serde_json::json!(new_env_id.clone()));
+            }
+        }
+
+        // Clear outputs and execution counts from all code cells
+        for cell in &mut cloned.cells {
+            if let nbformat::v4::Cell::Code {
+                outputs,
+                execution_count,
+                ..
+            } = cell
+            {
+                outputs.clear();
+                *execution_count = None;
+            }
+        }
+
+        cloned
+    };
+
+    // If kernel is running with UV env, copy it for fast clone startup
+    {
+        let kernel = kernel_state.lock().await;
+        if let Some(source_env) = kernel.uv_environment() {
+            // Copy the environment - ignore errors, clone will just create fresh env on start
+            if let Err(e) = uv_env::copy_environment(source_env, &new_env_id).await {
+                info!("Failed to copy environment for clone (will create fresh): {}", e);
+            }
         }
     }
 
@@ -532,9 +572,12 @@ async fn start_kernel_with_uv(
     notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
     kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
-    let deps = {
+    let (deps, env_id) = {
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
-        uv_env::extract_dependencies(&state.notebook.metadata)
+        (
+            uv_env::extract_dependencies(&state.notebook.metadata),
+            uv_env::extract_env_id(&state.notebook.metadata),
+        )
     };
 
     let deps = deps.ok_or_else(|| "No dependencies in notebook metadata".to_string())?;
@@ -546,7 +589,7 @@ async fn start_kernel_with_uv(
 
     let mut kernel = kernel_state.lock().await;
     kernel
-        .start_with_uv(app, &deps)
+        .start_with_uv(app, &deps, env_id.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -569,6 +612,51 @@ async fn kernel_has_uv_env(
     Ok(kernel.has_uv_environment())
 }
 
+/// Get the sync state between declared dependencies and the running kernel's environment.
+#[tauri::command]
+async fn get_env_sync_state(
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
+) -> Result<EnvSyncState, String> {
+    let declared_deps = {
+        let state = notebook_state.lock().map_err(|e| e.to_string())?;
+        uv_env::extract_dependencies(&state.notebook.metadata)
+            .map(|d| d.dependencies)
+            .unwrap_or_default()
+    };
+
+    let kernel = kernel_state.lock().await;
+
+    if !kernel.is_running() {
+        return Ok(EnvSyncState::NotRunning);
+    }
+
+    if !kernel.has_uv_environment() {
+        return Ok(EnvSyncState::NotUvManaged);
+    }
+
+    let synced_deps = kernel.synced_dependencies().cloned().unwrap_or_default();
+
+    // Compare as sets
+    let declared_set: HashSet<_> = declared_deps.iter().collect();
+    let synced_set: HashSet<_> = synced_deps.iter().collect();
+
+    let added: Vec<_> = declared_set
+        .difference(&synced_set)
+        .map(|s| (*s).clone())
+        .collect();
+    let removed: Vec<_> = synced_set
+        .difference(&declared_set)
+        .map(|s| (*s).clone())
+        .collect();
+
+    if added.is_empty() && removed.is_empty() {
+        Ok(EnvSyncState::Synced)
+    } else {
+        Ok(EnvSyncState::Dirty { added, removed })
+    }
+}
+
 /// Sync dependencies to the running kernel's uv environment.
 ///
 /// Installs any new/changed dependencies into the existing venv.
@@ -587,7 +675,7 @@ async fn sync_kernel_dependencies(
         return Ok(false);
     };
 
-    let kernel = kernel_state.lock().await;
+    let mut kernel = kernel_state.lock().await;
     let Some(env) = kernel.uv_environment() else {
         return Ok(false);
     };
@@ -600,6 +688,9 @@ async fn sync_kernel_dependencies(
     uv_env::sync_dependencies(env, &deps.dependencies)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Update tracked synced dependencies after successful sync
+    kernel.set_synced_dependencies(deps.dependencies.clone());
 
     Ok(true)
 }
@@ -814,7 +905,8 @@ async fn start_default_uv_kernel(
     kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
     // Ensure uv metadata exists in the notebook (for legacy notebooks)
-    {
+    // Also extract env_id for per-notebook isolation
+    let env_id = {
         let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
 
         if !state.notebook.metadata.additional.contains_key("uv") {
@@ -826,7 +918,9 @@ async fn start_default_uv_kernel(
             );
             state.dirty = true;
         }
-    }
+
+        uv_env::extract_env_id(&state.notebook.metadata)
+    };
 
     // Create minimal deps with just ipykernel
     let deps = uv_env::NotebookDependencies {
@@ -838,7 +932,7 @@ async fn start_default_uv_kernel(
 
     let mut kernel = kernel_state.lock().await;
     kernel
-        .start_with_uv(app, &deps)
+        .start_with_uv(app, &deps, env_id.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -927,7 +1021,8 @@ async fn start_default_kernel(
         info!("uv is available, using uv for default kernel");
 
         // Ensure uv metadata exists in the notebook (for legacy notebooks)
-        {
+        // Also extract env_id for per-notebook isolation
+        let env_id = {
             let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
 
             if !state.notebook.metadata.additional.contains_key("uv") {
@@ -939,7 +1034,9 @@ async fn start_default_kernel(
                 );
                 state.dirty = true;
             }
-        }
+
+            uv_env::extract_env_id(&state.notebook.metadata)
+        };
 
         // Create minimal deps with just ipykernel
         let deps = uv_env::NotebookDependencies {
@@ -949,7 +1046,7 @@ async fn start_default_kernel(
 
         let mut kernel = kernel_state.lock().await;
         kernel
-            .start_with_uv(app, &deps)
+            .start_with_uv(app, &deps, env_id.as_deref())
             .await
             .map_err(|e| e.to_string())?;
 
@@ -1570,6 +1667,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
             start_default_uv_kernel,
             is_kernel_running,
             kernel_has_uv_env,
+            get_env_sync_state,
             sync_kernel_dependencies,
             // Conda dependency management
             get_conda_dependencies,

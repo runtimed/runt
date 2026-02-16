@@ -97,7 +97,7 @@ async fn test_uv_environment_creation_with_no_deps() {
         requires_python: None,
     };
 
-    let result = uv_env::prepare_environment(&deps).await;
+    let result = uv_env::prepare_environment(&deps, None).await;
 
     assert!(result.is_ok(), "prepare_environment should succeed: {:?}", result.err());
 
@@ -129,8 +129,8 @@ async fn test_uv_environment_uses_cache_correctly() {
     };
 
     // Create environment twice
-    let env1 = uv_env::prepare_environment(&deps).await.expect("First prepare should succeed");
-    let env2 = uv_env::prepare_environment(&deps).await.expect("Second prepare should succeed");
+    let env1 = uv_env::prepare_environment(&deps, None).await.expect("First prepare should succeed");
+    let env2 = uv_env::prepare_environment(&deps, None).await.expect("Second prepare should succeed");
 
     // Same dependencies should result in same cached environment
     assert_eq!(
