@@ -5,7 +5,11 @@ import {
   CodeMirrorEditor,
   type CodeMirrorEditorRef,
 } from "@/components/editor/codemirror-editor";
-import { MarkdownOutput } from "@/components/outputs/markdown-output";
+import {
+  IsolatedFrame,
+  type IsolatedFrameHandle,
+} from "@/components/outputs/isolated";
+import { isDarkMode as detectDarkMode } from "@/components/themes";
 import { Trash2, Pencil } from "lucide-react";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
 import { useEditorRegistry } from "../hooks/useEditorRegistry";
@@ -36,7 +40,22 @@ export function MarkdownCell({
 }: MarkdownCellProps) {
   const [editing, setEditing] = useState(cell.source === "");
   const editorRef = useRef<CodeMirrorEditorRef>(null);
+  const frameRef = useRef<IsolatedFrameHandle>(null);
   const { registerEditor, unregisterEditor } = useEditorRegistry();
+
+  // Track dark mode state for iframe theme sync
+  const [darkMode, setDarkMode] = useState(() => detectDarkMode());
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setDarkMode(detectDarkMode());
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme", "data-mode"],
+    });
+    return () => observer.disconnect();
+  }, []);
 
   // Register editor with the registry for cross-cell navigation
   useEffect(() => {
@@ -59,6 +78,30 @@ export function MarkdownCell({
       setEditing(false);
     }
   }, [cell.source]);
+
+  // Render markdown content when iframe is ready
+  const handleFrameReady = useCallback(() => {
+    if (!frameRef.current || !cell.source) return;
+    frameRef.current.render({
+      mimeType: "text/markdown",
+      data: cell.source,
+    });
+  }, [cell.source]);
+
+  // Re-render when source changes and not editing
+  useEffect(() => {
+    if (!editing && frameRef.current?.isReady && cell.source) {
+      frameRef.current.render({
+        mimeType: "text/markdown",
+        data: cell.source,
+      });
+    }
+  }, [editing, cell.source]);
+
+  // Handle link clicks from iframe
+  const handleLinkClick = useCallback((url: string) => {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, []);
 
   // Handle focus next, creating a new cell if at the end
   const handleFocusNextOrCreate = useCallback(
@@ -140,11 +183,22 @@ export function MarkdownCell({
         </>
       ) : (
         <div
-          className="py-2 prose prose-sm max-w-none cursor-text relative group/md"
+          className="py-2 cursor-text relative group/md"
           onDoubleClick={handleDoubleClick}
         >
           {cell.source ? (
-            <MarkdownOutput content={cell.source} />
+            <IsolatedFrame
+              ref={frameRef}
+              darkMode={darkMode}
+              useReactRenderer={true}
+              minHeight={24}
+              maxHeight={2000}
+              onReady={handleFrameReady}
+              onLinkClick={handleLinkClick}
+              onDoubleClick={handleDoubleClick}
+              onError={(err) => console.error("[MarkdownCell] iframe error:", err)}
+              className="w-full"
+            />
           ) : (
             <p className="text-muted-foreground italic">
               Double-click to edit

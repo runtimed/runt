@@ -73,6 +73,11 @@ export interface IsolatedFrameProps {
   onLinkClick?: (url: string, newTab: boolean) => void;
 
   /**
+   * Callback when the user double-clicks in the iframe.
+   */
+  onDoubleClick?: () => void;
+
+  /**
    * Callback when a widget state update is sent from the iframe.
    */
   onWidgetUpdate?: (commId: string, state: Record<string, unknown>) => void;
@@ -215,6 +220,7 @@ export const IsolatedFrame = forwardRef<IsolatedFrameHandle, IsolatedFrameProps>
       onReady,
       onResize,
       onLinkClick,
+      onDoubleClick,
       onWidgetUpdate,
       onError,
       onMessage,
@@ -392,6 +398,10 @@ export const IsolatedFrame = forwardRef<IsolatedFrameHandle, IsolatedFrameProps>
             }
             break;
 
+          case "dblclick":
+            onDoubleClick?.();
+            break;
+
           case "widget_update":
             if (data.payload?.commId && data.payload?.state) {
               onWidgetUpdate?.(data.payload.commId, data.payload.state);
@@ -416,6 +426,7 @@ export const IsolatedFrame = forwardRef<IsolatedFrameHandle, IsolatedFrameProps>
       onReady,
       onResize,
       onLinkClick,
+      onDoubleClick,
       onWidgetUpdate,
       onError,
       onMessage,
