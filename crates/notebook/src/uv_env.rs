@@ -345,8 +345,8 @@ mod tests {
             requires_python: Some(">=3.10".to_string()),
         };
 
-        let hash1 = compute_env_hash(&deps);
-        let hash2 = compute_env_hash(&deps);
+        let hash1 = compute_env_hash(&deps, None);
+        let hash2 = compute_env_hash(&deps, None);
 
         assert_eq!(hash1, hash2);
     }
@@ -363,7 +363,7 @@ mod tests {
             requires_python: None,
         };
 
-        assert_eq!(compute_env_hash(&deps1), compute_env_hash(&deps2));
+        assert_eq!(compute_env_hash(&deps1, None), compute_env_hash(&deps2, None));
     }
 
     #[test]
@@ -378,6 +378,6 @@ mod tests {
             requires_python: None,
         };
 
-        assert_ne!(compute_env_hash(&deps1), compute_env_hash(&deps2));
+        assert_ne!(compute_env_hash(&deps1, None), compute_env_hash(&deps2, None));
     }
 }
