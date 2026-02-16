@@ -252,19 +252,75 @@ pub async fn prepare_environment(
     let install_platform = Platform::current();
     let platforms = vec![install_platform, Platform::NoArch];
 
-    // Query repodata from channels
+    // Query repodata from channels with retry logic for transient failures
     info!("Fetching repodata from channels: {:?}", channels);
     emit_progress(app, EnvProgressPhase::FetchingRepodata { channels: channel_names });
 
     let repodata_start = Instant::now();
-    let repo_data = match gateway
-        .query(channels, platforms.clone(), specs.clone())
-        .recursive(true)
-        .await
-    {
-        Ok(data) => data,
-        Err(e) => {
-            let error_msg = format!("Failed to fetch package metadata: {}", e);
+
+    // Retry configuration for transient network errors (e.g., conda-forge 500 errors)
+    const MAX_RETRIES: u32 = 3;
+    const INITIAL_DELAY_MS: u64 = 1000;
+
+    let mut last_error = None;
+    let mut repo_data = None;
+
+    for attempt in 0..MAX_RETRIES {
+        if attempt > 0 {
+            let delay_ms = INITIAL_DELAY_MS * (1 << (attempt - 1)); // Exponential backoff
+            info!(
+                "Retrying repodata fetch (attempt {}/{}) after {}ms...",
+                attempt + 1,
+                MAX_RETRIES,
+                delay_ms
+            );
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+        }
+
+        match gateway
+            .query(channels.clone(), platforms.clone(), specs.clone())
+            .recursive(true)
+            .await
+        {
+            Ok(data) => {
+                repo_data = Some(data);
+                break;
+            }
+            Err(e) => {
+                let error_str = e.to_string();
+                // Check if it's a retryable error (server errors, timeouts)
+                let is_retryable = error_str.contains("500")
+                    || error_str.contains("502")
+                    || error_str.contains("503")
+                    || error_str.contains("504")
+                    || error_str.contains("timeout")
+                    || error_str.contains("connection");
+
+                if is_retryable && attempt < MAX_RETRIES - 1 {
+                    info!(
+                        "Transient error fetching repodata (attempt {}): {}",
+                        attempt + 1,
+                        error_str
+                    );
+                    last_error = Some(e);
+                    continue;
+                }
+
+                let error_msg = format!("Failed to fetch package metadata: {}", e);
+                emit_progress(app, EnvProgressPhase::Error { message: error_msg.clone() });
+                return Err(anyhow!(error_msg));
+            }
+        }
+    }
+
+    let repo_data = match repo_data {
+        Some(data) => data,
+        None => {
+            let error_msg = format!(
+                "Failed to fetch package metadata after {} retries: {}",
+                MAX_RETRIES,
+                last_error.map(|e| e.to_string()).unwrap_or_else(|| "unknown error".to_string())
+            );
             emit_progress(app, EnvProgressPhase::Error { message: error_msg.clone() });
             return Err(anyhow!(error_msg));
         }
@@ -443,14 +499,67 @@ pub async fn sync_dependencies(env: &CondaEnvironment, deps: &CondaDependencies)
         .with_client(download_client.clone())
         .finish();
 
-    // Query repodata
+    // Query repodata with retry logic
     let install_platform = Platform::current();
     let platforms = vec![install_platform, Platform::NoArch];
 
-    let repo_data = gateway
-        .query(channels, platforms.clone(), specs.clone())
-        .recursive(true)
-        .await?;
+    const MAX_RETRIES: u32 = 3;
+    const INITIAL_DELAY_MS: u64 = 1000;
+
+    let mut last_error = None;
+    let mut repo_data = None;
+
+    for attempt in 0..MAX_RETRIES {
+        if attempt > 0 {
+            let delay_ms = INITIAL_DELAY_MS * (1 << (attempt - 1));
+            info!(
+                "Retrying repodata fetch for sync (attempt {}/{}) after {}ms...",
+                attempt + 1,
+                MAX_RETRIES,
+                delay_ms
+            );
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+        }
+
+        match gateway
+            .query(channels.clone(), platforms.clone(), specs.clone())
+            .recursive(true)
+            .await
+        {
+            Ok(data) => {
+                repo_data = Some(data);
+                break;
+            }
+            Err(e) => {
+                let error_str = e.to_string();
+                let is_retryable = error_str.contains("500")
+                    || error_str.contains("502")
+                    || error_str.contains("503")
+                    || error_str.contains("504")
+                    || error_str.contains("timeout")
+                    || error_str.contains("connection");
+
+                if is_retryable && attempt < MAX_RETRIES - 1 {
+                    info!(
+                        "Transient error fetching repodata for sync (attempt {}): {}",
+                        attempt + 1,
+                        error_str
+                    );
+                    last_error = Some(e);
+                    continue;
+                }
+                return Err(anyhow!("Failed to fetch package metadata: {}", e));
+            }
+        }
+    }
+
+    let repo_data = repo_data.ok_or_else(|| {
+        anyhow!(
+            "Failed to fetch package metadata after {} retries: {}",
+            MAX_RETRIES,
+            last_error.map(|e| e.to_string()).unwrap_or_else(|| "unknown error".to_string())
+        )
+    })?;
 
     // Detect virtual packages
     let virtual_packages = rattler_virtual_packages::VirtualPackage::detect(
