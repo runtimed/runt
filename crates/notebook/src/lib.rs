@@ -1528,6 +1528,10 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
     let notebook_for_processor = notebook_state.clone();
     let kernel_for_processor = kernel_state.clone();
 
+    // Clone for lifecycle event handlers
+    let kernel_for_window_event = kernel_state.clone();
+    let kernel_for_exit = kernel_state.clone();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(notebook_state)
@@ -1678,6 +1682,32 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
                 _ => {}
             }
         })
-        .run(tauri::generate_context!())
-        .map_err(|e| anyhow::anyhow!("Tauri error: {}", e))
+        .on_window_event(move |_window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                // Shutdown kernel when window is closed
+                let kernel = kernel_for_window_event.clone();
+                tauri::async_runtime::block_on(async {
+                    let mut k = kernel.lock().await;
+                    if let Err(e) = k.shutdown().await {
+                        log::error!("Failed to shutdown kernel on window close: {}", e);
+                    }
+                });
+            }
+        })
+        .build(tauri::generate_context!())
+        .map_err(|e| anyhow::anyhow!("Tauri build error: {}", e))?
+        .run(move |_app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Shutdown kernel when app exits
+                let kernel = kernel_for_exit.clone();
+                tauri::async_runtime::block_on(async {
+                    let mut k = kernel.lock().await;
+                    if let Err(e) = k.shutdown().await {
+                        log::error!("Failed to shutdown kernel on app exit: {}", e);
+                    }
+                });
+            }
+        });
+
+    Ok(())
 }
