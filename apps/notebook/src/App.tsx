@@ -16,6 +16,7 @@ import { useCondaDependencies } from "./hooks/useCondaDependencies";
 import { useTrust } from "./hooks/useTrust";
 import { useDenoDependencies } from "./hooks/useDenoDependencies";
 import { useGitInfo } from "./hooks/useGitInfo";
+import { usePrewarmStatus } from "./hooks/usePrewarmStatus";
 import { useEnvProgress } from "./hooks/useEnvProgress";
 import { useExecutionQueue } from "./hooks/useExecutionQueue";
 import { useTheme } from "@/hooks/useTheme";
@@ -45,6 +46,7 @@ async function sendMessage(message: unknown): Promise<void> {
 
 function AppContent() {
   const gitInfo = useGitInfo();
+  const poolStatus = usePrewarmStatus();
 
   const {
     cells,
@@ -390,6 +392,7 @@ onKernelStarted: loadCondaDependencies,
           branch={gitInfo.branch}
           commit={gitInfo.commit}
           description={gitInfo.description}
+          poolStatus={poolStatus}
         />
       )}
       <NotebookToolbar

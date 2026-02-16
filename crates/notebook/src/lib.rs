@@ -1,5 +1,6 @@
 pub mod conda_env;
 pub mod deno_env;
+pub mod env_pool;
 pub mod execution_queue;
 pub mod kernel;
 pub mod menu;
@@ -85,6 +86,24 @@ async fn get_git_info() -> Option<GitInfo> {
     #[cfg(not(debug_assertions))]
     {
         None
+    }
+}
+
+/// Get the current status of the prewarming environment pool.
+/// Returns None in release builds.
+#[tauri::command]
+async fn get_prewarm_status(
+    pool: tauri::State<'_, env_pool::SharedEnvPool>,
+) -> Result<Option<env_pool::PoolStatus>, String> {
+    #[cfg(debug_assertions)]
+    {
+        let p = pool.lock().await;
+        Ok(Some(p.status()))
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = pool; // Silence unused warning
+        Ok(None)
     }
 }
 
@@ -898,11 +917,13 @@ async fn start_kernel_with_conda(
 
 /// Start a default uv kernel with just Python (no extra deps).
 /// Used as the default when no environment is configured.
+/// Uses prewarmed environments from the pool when available for faster startup.
 #[tauri::command]
 async fn start_default_uv_kernel(
     app: tauri::AppHandle,
     notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
     kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
+    pool: tauri::State<'_, env_pool::SharedEnvPool>,
 ) -> Result<(), String> {
     // Ensure uv metadata exists in the notebook (for legacy notebooks)
     // Also extract env_id for per-notebook isolation
@@ -922,13 +943,34 @@ async fn start_default_uv_kernel(
         uv_env::extract_env_id(&state.notebook.metadata)
     };
 
-    // Create minimal deps with just ipykernel
+    // Try to use a prewarmed environment from the pool
+    if let Some(env_id) = &env_id {
+        let prewarmed = pool.lock().await.take();
+        if let Some(prewarmed_env) = prewarmed {
+            info!("[prewarm] Using prewarmed environment for default uv kernel");
+            let env = uv_env::claim_prewarmed_environment(
+                prewarmed_env.into_uv_environment(),
+                env_id,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+            let mut kernel = kernel_state.lock().await;
+            kernel
+                .start_with_prewarmed_uv(app, env)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            return Ok(());
+        }
+    }
+
+    // No prewarmed env available, create one normally
+    info!("Starting default uv kernel with ipykernel (no prewarmed env)");
     let deps = uv_env::NotebookDependencies {
         dependencies: vec![],
         requires_python: None,
     };
-
-    info!("Starting default uv kernel with ipykernel");
 
     let mut kernel = kernel_state.lock().await;
     kernel
@@ -1011,11 +1053,13 @@ async fn start_default_conda_kernel(
 
 /// Start a default kernel, automatically choosing uv or conda based on availability.
 /// Prefers uv when available, falls back to conda/rattler otherwise.
+/// Uses prewarmed environments from the pool when available for faster startup.
 #[tauri::command]
 async fn start_default_kernel(
     app: tauri::AppHandle,
     notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
     kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
+    pool: tauri::State<'_, env_pool::SharedEnvPool>,
 ) -> Result<String, String> {
     if uv_env::check_uv_available().await {
         info!("uv is available, using uv for default kernel");
@@ -1038,7 +1082,30 @@ async fn start_default_kernel(
             uv_env::extract_env_id(&state.notebook.metadata)
         };
 
-        // Create minimal deps with just ipykernel
+        // Try to use a prewarmed environment from the pool
+        if let Some(env_id) = &env_id {
+            let prewarmed = pool.lock().await.take();
+            if let Some(prewarmed_env) = prewarmed {
+                info!("[prewarm] Using prewarmed environment for notebook");
+                let env = uv_env::claim_prewarmed_environment(
+                    prewarmed_env.into_uv_environment(),
+                    env_id,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+
+                let mut kernel = kernel_state.lock().await;
+                kernel
+                    .start_with_prewarmed_uv(app, env)
+                    .await
+                    .map_err(|e| e.to_string())?;
+
+                return Ok("uv".to_string());
+            }
+        }
+
+        // No prewarmed env available, create one normally
+        info!("No prewarmed environment available, creating fresh");
         let deps = uv_env::NotebookDependencies {
             dependencies: vec![],
             requires_python: None,
@@ -1620,10 +1687,15 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
     let notebook_state = Arc::new(Mutex::new(initial_state));
     let kernel_state = Arc::new(tokio::sync::Mutex::new(NotebookKernel::default()));
 
+    // Create the prewarming environment pool
+    let env_pool: env_pool::SharedEnvPool =
+        Arc::new(tokio::sync::Mutex::new(env_pool::EnvPool::new(env_pool::PoolConfig::default())));
+
     // Clone for setup closure
     let queue_for_processor = queue.clone();
     let notebook_for_processor = notebook_state.clone();
     let kernel_for_processor = kernel_state.clone();
+    let pool_for_prewarm = env_pool.clone();
 
     // Clone for lifecycle event handlers
     let kernel_for_window_event = kernel_state.clone();
@@ -1634,6 +1706,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
         .manage(notebook_state)
         .manage(kernel_state)
         .manage(queue)
+        .manage(env_pool)
         .invoke_handler(tauri::generate_handler![
             load_notebook,
             has_notebook_path,
@@ -1703,6 +1776,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
             set_default_runtime,
             // Debug info
             get_git_info,
+            get_prewarm_status,
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
@@ -1730,6 +1804,12 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
             tauri::async_runtime::spawn(async move {
                 let mut kernel = kernel_for_tx.lock().await;
                 kernel.set_queue_tx(tx_for_kernel);
+            });
+
+            // Spawn the environment prewarming loop
+            let app_for_prewarm = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                env_pool::run_prewarming_loop(pool_for_prewarm, app_for_prewarm).await;
             });
 
             Ok(())
