@@ -221,6 +221,8 @@ pub async fn prepare_environment(
 
     // Add ipykernel (required for Jupyter)
     specs.push(MatchSpec::from_str("ipykernel", match_spec_options)?);
+    // Add ipywidgets for interactive widget support
+    specs.push(MatchSpec::from_str("ipywidgets", match_spec_options)?);
 
     // Add user dependencies
     for dep in &deps.dependencies {
