@@ -139,10 +139,122 @@ jobs:
             runt-darwin-x64
             runt-darwin-arm64
 
+  build-notebook-macos-arm64:
+    name: Build macOS ARM64 Notebook DMG
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dsherret/rust-toolchain-file@v1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "macos-notebook-arm64"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install JS dependencies
+        run: pnpm install
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --locked
+
+      - name: Set version in tauri.conf.json
+        run: |
+          CURRENT_VERSION=$(grep '^version' crates/runt/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          COMMIT_SHA=${GITHUB_SHA::7}
+          VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
+          echo "Setting version to: ${VERSION}"
+          sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" crates/notebook/tauri.conf.json
+
+      - name: Build DMG
+        run: cargo tauri build --ci --bundles dmg --config '{"build":{"beforeBuildCommand":""}}'
+        working-directory: crates/notebook
+
+      - name: Rename DMG
+        run: |
+          DMG_PATH=$(find target/release/bundle/dmg -name "*.dmg" | head -1)
+          cp "$DMG_PATH" runt-notebook-darwin-arm64.dmg
+
+      - name: Upload ARM64 DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: runt-notebook-macos-arm64
+          path: runt-notebook-darwin-arm64.dmg
+
+  build-notebook-macos-x64:
+    name: Build macOS x64 Notebook DMG
+    runs-on: macos-13
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dsherret/rust-toolchain-file@v1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "macos-notebook-x64"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install JS dependencies
+        run: pnpm install
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --locked
+
+      - name: Set version in tauri.conf.json
+        run: |
+          CURRENT_VERSION=$(grep '^version' crates/runt/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          COMMIT_SHA=${GITHUB_SHA::7}
+          VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
+          echo "Setting version to: ${VERSION}"
+          sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" crates/notebook/tauri.conf.json
+
+      - name: Build DMG
+        run: cargo tauri build --ci --bundles dmg --config '{"build":{"beforeBuildCommand":""}}'
+        working-directory: crates/notebook
+
+      - name: Rename DMG
+        run: |
+          DMG_PATH=$(find target/release/bundle/dmg -name "*.dmg" | head -1)
+          cp "$DMG_PATH" runt-notebook-darwin-x64.dmg
+
+      - name: Upload x64 DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: runt-notebook-macos-x64
+          path: runt-notebook-darwin-x64.dmg
+
   prerelease:
     name: Prerelease
     runs-on: ubuntu-latest
-    needs: [build-linux, build-macos]
+    needs: [build-linux, build-macos, build-notebook-macos-arm64, build-notebook-macos-x64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -161,6 +273,18 @@ jobs:
           name: runt-macos-executables
           path: ./executables
 
+      - name: Download macOS ARM64 notebook DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: runt-notebook-macos-arm64
+          path: ./executables
+
+      - name: Download macOS x64 notebook DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: runt-notebook-macos-x64
+          path: ./executables
+
       - name: Create GitHub Preview Release
         uses: softprops/action-gh-release@v2
         env:
@@ -177,20 +301,33 @@ jobs:
 
             ## Installation
 
+            ### CLI
             ```bash
             curl https://i.safia.sh/runtimed/runt | sh
             ```
 
+            ### Notebook App (macOS)
+            Download the DMG for your architecture below. The app is not signed, so you may need to right-click and select "Open" on first launch.
+
             ## Manual Downloads
 
+            ### CLI
             | Platform | Architecture | Download |
             |----------|--------------|----------|
             | Linux | x64 | `runt-linux-x64` |
             | macOS | x64 | `runt-darwin-x64` |
             | macOS | ARM64 | `runt-darwin-arm64` |
+
+            ### Notebook App
+            | Platform | Architecture | Download |
+            |----------|--------------|----------|
+            | macOS | x64 (Intel) | `runt-notebook-darwin-x64.dmg` |
+            | macOS | ARM64 (Apple Silicon) | `runt-notebook-darwin-arm64.dmg` |
           draft: false
           prerelease: true
           files: |
             ./executables/runt-linux-x64
             ./executables/runt-darwin-x64
             ./executables/runt-darwin-arm64
+            ./executables/runt-notebook-darwin-x64.dmg
+            ./executables/runt-notebook-darwin-arm64.dmg
