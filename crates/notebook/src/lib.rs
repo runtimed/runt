@@ -1752,6 +1752,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
     // Clone for lifecycle event handlers
     let kernel_for_window_event = kernel_state.clone();
     let kernel_for_exit = kernel_state.clone();
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     let notebook_for_open = notebook_state.clone();
 
     let app = tauri::Builder::default()
