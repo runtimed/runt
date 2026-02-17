@@ -1,0 +1,13 @@
+name = "runt-telemetry"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]  # For Ed25519 support
+
+# D1 database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "runt-telemetry"
+database_id = "" # Fill in after `wrangler d1 create runt-telemetry`
+
+# No secrets needed - each install generates its own keypair
+# Public key = install_id, private key signs submissions
