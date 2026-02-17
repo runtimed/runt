@@ -74,6 +74,13 @@ export function useCellKeyboardNavigation({
               return true;
             },
           },
+          {
+            key: "Ctrl-Enter",
+            run: () => {
+              onExecute();
+              return true;
+            },
+          },
         ]
       : []),
     ...(onExecuteAndInsert
