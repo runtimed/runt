@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { save as saveDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { NotebookCell, JupyterOutput } from "../types";
 
@@ -8,14 +9,30 @@ export function useNotebook() {
   const [focusedCellId, setFocusedCellId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  useEffect(() => {
-    invoke<NotebookCell[]>("load_notebook").then((loadedCells) => {
-      setCells(loadedCells);
-      if (loadedCells.length > 0) {
-        setFocusedCellId(loadedCells[0].id);
-      }
-    }).catch(console.error);
+  const loadCells = useCallback(() => {
+    invoke<NotebookCell[]>("load_notebook")
+      .then((loadedCells) => {
+        setCells(loadedCells);
+        if (loadedCells.length > 0) {
+          setFocusedCellId(loadedCells[0].id);
+        }
+      })
+      .catch(console.error);
   }, []);
+
+  useEffect(() => {
+    loadCells();
+  }, [loadCells]);
+
+  // Reload cells when a file is opened via OS file association
+  useEffect(() => {
+    const unlisten = listen("notebook:file-opened", () => {
+      loadCells();
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [loadCells]);
 
   const updateCellSource = useCallback((cellId: string, source: string) => {
     setCells((prev) =>
