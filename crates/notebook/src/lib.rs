@@ -1077,15 +1077,13 @@ async fn start_default_conda_kernel(
         .map_err(|e| e.to_string())
 }
 
-/// Start a default kernel, automatically choosing uv or conda based on availability.
-/// Prefers uv when available, falls back to conda/rattler otherwise.
-/// Uses prewarmed environments from the pool when available for faster startup.
-#[tauri::command]
-async fn start_default_kernel(
+/// Core implementation for starting a default Python kernel.
+/// Extracted to allow calling from both Tauri commands and the setup hook.
+async fn start_default_python_kernel_impl(
     app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-    pool: tauri::State<'_, env_pool::SharedEnvPool>,
+    notebook_state: &Arc<Mutex<NotebookState>>,
+    kernel_state: &Arc<tokio::sync::Mutex<NotebookKernel>>,
+    pool: &env_pool::SharedEnvPool,
 ) -> Result<String, String> {
     if uv_env::check_uv_available().await {
         info!("uv is available, using uv for default kernel");
@@ -1125,7 +1123,7 @@ async fn start_default_kernel(
                         // Validate the python path exists before trying to use it
                         if env.python_path.exists() {
                             // Immediately spawn replenishment
-                            env_pool::spawn_replenishment(pool.inner().clone());
+                            env_pool::spawn_replenishment(pool.clone());
 
                             let mut kernel = kernel_state.lock().await;
                             match kernel.start_with_prewarmed_uv(app.clone(), env).await {
@@ -1232,6 +1230,19 @@ async fn start_default_kernel(
 
         Ok("conda".to_string())
     }
+}
+
+/// Start a default kernel, automatically choosing uv or conda based on availability.
+/// Prefers uv when available, falls back to conda/rattler otherwise.
+/// Uses prewarmed environments from the pool when available for faster startup.
+#[tauri::command]
+async fn start_default_kernel(
+    app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
+    pool: tauri::State<'_, env_pool::SharedEnvPool>,
+) -> Result<String, String> {
+    start_default_python_kernel_impl(app, &notebook_state, &kernel_state, &pool).await
 }
 
 /// Check if the running kernel has a conda-managed environment.
@@ -1629,12 +1640,12 @@ async fn set_deno_flexible_npm_imports(
     Ok(())
 }
 
-/// Start a Deno kernel
-#[tauri::command]
-async fn start_kernel_with_deno(
+/// Core implementation for starting a Deno kernel.
+/// Extracted to allow calling from both Tauri commands and the setup hook.
+async fn start_deno_kernel_impl(
     app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
+    notebook_state: &Arc<Mutex<NotebookState>>,
+    kernel_state: &Arc<tokio::sync::Mutex<NotebookKernel>>,
 ) -> Result<(), String> {
     // Get permissions and settings from notebook metadata
     let (permissions, workspace_dir, flexible_npm_imports) = {
@@ -1671,6 +1682,16 @@ async fn start_kernel_with_deno(
         )
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Start a Deno kernel
+#[tauri::command]
+async fn start_kernel_with_deno(
+    app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
+) -> Result<(), String> {
+    start_deno_kernel_impl(app, &notebook_state, &kernel_state).await
 }
 
 /// Get app settings (default runtime, etc.)
@@ -1748,6 +1769,11 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
     let notebook_for_processor = notebook_state.clone();
     let kernel_for_processor = kernel_state.clone();
     let pool_for_prewarm = env_pool.clone();
+
+    // Clone for auto-launch kernel task
+    let notebook_for_autolaunch = notebook_state.clone();
+    let kernel_for_autolaunch = kernel_state.clone();
+    let pool_for_autolaunch = env_pool.clone();
 
     // Clone for lifecycle event handlers
     let kernel_for_window_event = kernel_state.clone();
@@ -1862,6 +1888,77 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
             let app_for_prewarm = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 env_pool::run_prewarming_loop(pool_for_prewarm, app_for_prewarm).await;
+            });
+
+            // Auto-launch kernel for faster startup (only if trusted)
+            let app_for_autolaunch = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // Small delay to let prewarming recover existing envs
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+                // Get runtime and verify trust before launching
+                let (runtime, trust_status) = {
+                    match notebook_for_autolaunch.lock() {
+                        Ok(state) => {
+                            let rt = state.get_runtime();
+                            let trust_result =
+                                trust::verify_notebook_trust(&state.notebook.metadata.additional);
+                            (rt, trust_result)
+                        }
+                        Err(_) => return,
+                    }
+                };
+
+                // Only auto-launch for trusted notebooks or those with no dependencies
+                // Untrusted notebooks must wait for user approval via frontend dialog
+                let trust_info = match trust_status {
+                    Ok(info) => info,
+                    Err(e) => {
+                        log::warn!("Trust verification failed, skipping auto-launch: {}", e);
+                        return;
+                    }
+                };
+
+                match trust_info.status {
+                    trust::TrustStatus::Trusted | trust::TrustStatus::NoDependencies => {
+                        // Safe to auto-launch
+                    }
+                    trust::TrustStatus::Untrusted | trust::TrustStatus::SignatureInvalid => {
+                        log::info!(
+                            "Notebook not trusted, skipping auto-launch (will prompt user)"
+                        );
+                        return;
+                    }
+                }
+
+                match runtime {
+                    Runtime::Python => {
+                        if let Err(e) = start_default_python_kernel_impl(
+                            app_for_autolaunch,
+                            &notebook_for_autolaunch,
+                            &kernel_for_autolaunch,
+                            &pool_for_autolaunch,
+                        )
+                        .await
+                        {
+                            log::warn!("Auto-launch kernel failed (will start on demand): {}", e);
+                        }
+                    }
+                    Runtime::Deno => {
+                        if let Err(e) = start_deno_kernel_impl(
+                            app_for_autolaunch,
+                            &notebook_for_autolaunch,
+                            &kernel_for_autolaunch,
+                        )
+                        .await
+                        {
+                            log::warn!(
+                                "Auto-launch Deno kernel failed (will start on demand): {}",
+                                e
+                            );
+                        }
+                    }
+                }
             });
 
             Ok(())
