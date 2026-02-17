@@ -4,6 +4,7 @@ members = [
     "crates/runt",
     "crates/notebook",
     "crates/tauri-jupyter",
+    "crates/xtask",
 ]
 default-members = ["crates/notebook"]
 resolver = "2"
