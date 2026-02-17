@@ -17,7 +17,8 @@ use runtimelib::{
 
 /// Get the default working directory for kernel processes.
 /// - If running from CLI (cwd is not `/`), uses the current working directory
-/// - Otherwise falls back to home directory, then temp directory
+/// - Otherwise falls back to ~/notebooks (creating it if needed)
+/// - If ~/notebooks creation fails, falls back to home directory, then temp directory
 fn default_kernel_cwd() -> PathBuf {
     // Check if we're running from CLI (cwd is something other than `/`)
     // App bundles on macOS run with `/` as cwd, but CLI usage preserves shell cwd
@@ -26,8 +27,18 @@ fn default_kernel_cwd() -> PathBuf {
             return cwd;
         }
     }
-    // Fall back to home directory, then temp directory
-    dirs::home_dir().unwrap_or_else(std::env::temp_dir)
+
+    // Fall back to ~/notebooks, creating it if needed
+    if let Some(home) = dirs::home_dir() {
+        let notebooks_dir = home.join("notebooks");
+        match std::fs::create_dir(&notebooks_dir) {
+            Ok(()) => return notebooks_dir,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return notebooks_dir,
+            Err(_) => return home,
+        }
+    }
+
+    std::env::temp_dir()
 }
 
 pub struct KernelClient {
