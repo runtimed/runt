@@ -10,12 +10,36 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Python environment type for dependency management
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PythonEnvType {
+    /// Use uv for Python package management (fast, pip-compatible)
+    Uv,
+    /// Use conda/rattler for Python package management (supports conda packages)
+    #[default]
+    Conda,
+}
+
+impl std::fmt::Display for PythonEnvType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PythonEnvType::Uv => write!(f, "uv"),
+            PythonEnvType::Conda => write!(f, "conda"),
+        }
+    }
+}
+
 /// Application settings for notebook preferences
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     /// Default runtime for new notebooks (used by Cmd+N)
     #[serde(default)]
     pub default_runtime: Runtime,
+
+    /// Default Python environment type (uv or conda)
+    #[serde(default)]
+    pub default_python_env: PythonEnvType,
 
     /// Default Deno permissions for new notebooks
     #[serde(default)]
@@ -26,6 +50,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             default_runtime: Runtime::Python,
+            default_python_env: PythonEnvType::Conda,
             default_deno_permissions: vec![],
         }
     }
@@ -70,6 +95,7 @@ mod tests {
     fn test_default_settings() {
         let settings = AppSettings::default();
         assert_eq!(settings.default_runtime, Runtime::Python);
+        assert_eq!(settings.default_python_env, PythonEnvType::Conda);
         assert!(settings.default_deno_permissions.is_empty());
     }
 
@@ -77,6 +103,7 @@ mod tests {
     fn test_settings_serde() {
         let settings = AppSettings {
             default_runtime: Runtime::Deno,
+            default_python_env: PythonEnvType::Uv,
             default_deno_permissions: vec!["--allow-net".to_string()],
         };
 
@@ -84,7 +111,25 @@ mod tests {
         let parsed: AppSettings = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed.default_runtime, Runtime::Deno);
+        assert_eq!(parsed.default_python_env, PythonEnvType::Uv);
         assert_eq!(parsed.default_deno_permissions.len(), 1);
+    }
+
+    #[test]
+    fn test_python_env_type_serde() {
+        // Test that the enum serializes to lowercase strings
+        let uv = PythonEnvType::Uv;
+        let conda = PythonEnvType::Conda;
+
+        assert_eq!(serde_json::to_string(&uv).unwrap(), "\"uv\"");
+        assert_eq!(serde_json::to_string(&conda).unwrap(), "\"conda\"");
+
+        // Test deserialization
+        let parsed_uv: PythonEnvType = serde_json::from_str("\"uv\"").unwrap();
+        let parsed_conda: PythonEnvType = serde_json::from_str("\"conda\"").unwrap();
+
+        assert_eq!(parsed_uv, PythonEnvType::Uv);
+        assert_eq!(parsed_conda, PythonEnvType::Conda);
     }
 
     #[test]
