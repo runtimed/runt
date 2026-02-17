@@ -81,6 +81,17 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
   useEffect(() => {
     let cancelled = false;
 
+    // Query initial kernel lifecycle state to handle race condition
+    // where backend may have already started launching before we set up listeners
+    invoke<string>("get_kernel_lifecycle").then((state) => {
+      if (cancelled) return;
+      if (state === "launching") {
+        setKernelStatus("starting");
+      } else if (state === "running") {
+        setKernelStatus("idle");
+      }
+    });
+
     // Listen for page payloads from introspection (? and ??)
     const pageUnlisten = listen<PagePayloadEvent>("kernel:page_payload", (event) => {
       if (cancelled) return;
@@ -90,6 +101,17 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
         onPagePayload(cell_id, data, start);
       }
     });
+
+    // Listen for kernel lifecycle events (auto-launch starting)
+    const lifecycleUnlisten = listen<{ state: string; runtime: string }>(
+      "kernel:lifecycle",
+      (event) => {
+        if (cancelled) return;
+        if (event.payload.state === "launching") {
+          setKernelStatus("starting");
+        }
+      }
+    );
 
     const unlisten = listen<JupyterMessage>("kernel:iopub", (event) => {
       if (cancelled) return;
@@ -183,6 +205,7 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
       cancelled = true;
       unlisten.then((fn) => fn());
       pageUnlisten.then((fn) => fn());
+      lifecycleUnlisten.then((fn) => fn());
     };
   }, []); // Empty deps - callbacks accessed via ref
 
