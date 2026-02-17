@@ -1,21 +1,72 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use futures::future::join_all;
+use jupyter_protocol::{JupyterMessage, JupyterMessageContent, KernelInfoRequest};
 use serde::Serialize;
 use std::time::Duration;
+use tabled::{settings::Style, Table, Tabled};
 mod kernel_client;
 
 use crate::kernel_client::KernelClient;
 use runtimelib::{
-    create_client_heartbeat_connection, find_kernelspec, runtime_dir, ConnectionInfo,
+    create_client_heartbeat_connection, create_client_shell_connection_with_identity,
+    find_kernelspec, peer_identity_for_session, runtime_dir, ConnectionInfo,
 };
 use std::path::PathBuf;
 use tokio::fs;
+use uuid::Uuid;
+
+#[derive(Serialize, Clone, Copy, Debug)]
+#[serde(rename_all = "lowercase")]
+enum KernelStatus {
+    Alive,
+    Unresponsive,
+}
+
+impl std::fmt::Display for KernelStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KernelStatus::Alive => write!(f, "alive"),
+            KernelStatus::Unresponsive => write!(f, "unresponsive"),
+        }
+    }
+}
 
 #[derive(Serialize)]
 struct KernelInfo {
     name: String,
+    connection_file: PathBuf,
+    language: Option<String>,
+    language_version: Option<String>,
+    status: KernelStatus,
     #[serde(flatten)]
     connection_info: ConnectionInfo,
+}
+
+#[derive(Tabled)]
+struct KernelTableRow {
+    #[tabled(rename = "NAME")]
+    name: String,
+    #[tabled(rename = "LANGUAGE")]
+    language: String,
+    #[tabled(rename = "VERSION")]
+    version: String,
+    #[tabled(rename = "STATUS")]
+    status: String,
+    #[tabled(rename = "CONNECTION FILE")]
+    connection_file: String,
+}
+
+impl From<&KernelInfo> for KernelTableRow {
+    fn from(info: &KernelInfo) -> Self {
+        KernelTableRow {
+            name: info.name.clone(),
+            language: info.language.clone().unwrap_or_else(|| "-".to_string()),
+            version: info.language_version.clone().unwrap_or_else(|| "-".to_string()),
+            status: info.status.to_string(),
+            connection_file: info.connection_file.display().to_string(),
+        }
+    }
 }
 
 #[derive(Parser)]
@@ -32,6 +83,9 @@ enum Commands {
         /// Output in JSON format
         #[arg(long)]
         json: bool,
+        /// Show verbose output including port numbers
+        #[arg(short, long)]
+        verbose: bool,
     },
     /// Start a kernel given a name
     Start {
@@ -123,7 +177,7 @@ fn main() -> Result<()> {
 
 async fn async_main(command: Option<Commands>) -> Result<()> {
     match command {
-        Some(Commands::Ps { json }) => list_kernels(json).await?,
+        Some(Commands::Ps { json, verbose }) => list_kernels(json, verbose).await?,
         Some(Commands::Start { name }) => start_kernel(&name).await?,
         Some(Commands::Stop { id }) => stop_kernel(&id).await?,
         Some(Commands::Interrupt { id }) => interrupt_kernel(&id).await?,
@@ -140,39 +194,121 @@ async fn async_main(command: Option<Commands>) -> Result<()> {
     Ok(())
 }
 
-async fn list_kernels(json_output: bool) -> Result<()> {
+async fn list_kernels(json_output: bool, verbose: bool) -> Result<()> {
     let runtime_dir = runtime_dir();
-    let mut entries = fs::read_dir(runtime_dir).await?;
+    let mut entries = fs::read_dir(&runtime_dir).await?;
+    let timeout = Duration::from_secs(2);
 
-    let mut kernels: Vec<KernelInfo> = Vec::new();
-
+    // Collect all connection file paths first
+    let mut connection_files: Vec<PathBuf> = Vec::new();
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) == Some("json") {
-            if let Ok(info) = read_connection_info(&path).await {
-                let full_name = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("unknown");
-                let name = full_name
-                    .strip_prefix("runt-kernel-")
-                    .unwrap_or(full_name)
-                    .to_string();
-                kernels.push(KernelInfo {
-                    name,
-                    connection_info: info,
-                });
-            }
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
         }
+        let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        if !file_name.starts_with("runt-kernel-") {
+            continue;
+        }
+        connection_files.push(path);
     }
+
+    // Query all kernels in parallel
+    let kernel_futures = connection_files.into_iter().map(|path| {
+        let timeout = timeout;
+        async move { gather_kernel_info(path, timeout).await }
+    });
+
+    let kernels: Vec<KernelInfo> = join_all(kernel_futures)
+        .await
+        .into_iter()
+        .flatten()
+        .collect();
 
     if json_output {
         println!("{}", serde_json::to_string_pretty(&kernels)?);
+    } else if verbose {
+        print_verbose_kernel_table(&kernels);
     } else {
-        print_kernel_info_table(&kernels);
+        print_kernel_table(&kernels);
     }
 
     Ok(())
+}
+
+async fn gather_kernel_info(path: PathBuf, timeout: Duration) -> Option<KernelInfo> {
+    let connection_info = read_connection_info(&path).await.ok()?;
+
+    let full_name = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
+    let name = full_name
+        .strip_prefix("runt-kernel-")
+        .unwrap_or(full_name)
+        .to_string();
+
+    let (language, language_version, status) =
+        query_kernel_info(&connection_info, timeout).await;
+
+    Some(KernelInfo {
+        name,
+        connection_file: path,
+        language,
+        language_version,
+        status,
+        connection_info,
+    })
+}
+
+async fn query_kernel_info(
+    connection_info: &ConnectionInfo,
+    timeout: Duration,
+) -> (Option<String>, Option<String>, KernelStatus) {
+    // First check if kernel is alive via heartbeat (fast check)
+    if !check_kernel_alive(connection_info, timeout).await {
+        return (None, None, KernelStatus::Unresponsive);
+    }
+
+    // Kernel is alive, now get language info via shell
+    let session_id = Uuid::new_v4().to_string();
+    let identity = match peer_identity_for_session(&session_id) {
+        Ok(id) => id,
+        Err(_) => return (None, None, KernelStatus::Alive),
+    };
+
+    let shell = match create_client_shell_connection_with_identity(
+        connection_info,
+        &session_id,
+        identity,
+    )
+    .await
+    {
+        Ok(s) => s,
+        Err(_) => return (None, None, KernelStatus::Alive),
+    };
+
+    let (mut shell_writer, mut shell_reader) = shell.split();
+    let request: JupyterMessage = KernelInfoRequest::default().into();
+
+    if shell_writer.send(request).await.is_err() {
+        return (None, None, KernelStatus::Alive);
+    }
+
+    match tokio::time::timeout(timeout, shell_reader.read()).await {
+        Ok(Ok(msg)) => {
+            if let JupyterMessageContent::KernelInfoReply(reply) = msg.content {
+                (
+                    Some(reply.language_info.name.clone()),
+                    Some(reply.language_info.version.clone()),
+                    KernelStatus::Alive,
+                )
+            } else {
+                (None, None, KernelStatus::Alive)
+            }
+        }
+        _ => (None, None, KernelStatus::Alive),
+    }
 }
 
 async fn read_connection_info(path: &PathBuf) -> Result<ConnectionInfo> {
@@ -181,36 +317,68 @@ async fn read_connection_info(path: &PathBuf) -> Result<ConnectionInfo> {
     Ok(info)
 }
 
-fn print_kernel_info_table(kernels: &[KernelInfo]) {
-    println!(
-        "{:<12} {:<10} {:<6} {:<6} {:<6} {:<6} {:<6} {:<6} {:<38} {:<10}",
-        "KERNEL_NAME",
-        "IP",
-        "TRANS",
-        "SHELL",
-        "IOPUB",
-        "STDIN",
-        "CONTROL",
-        "HB",
-        "KEY",
-        "SIG_SCHEME"
-    );
-    for kernel in kernels {
-        let info = &kernel.connection_info;
-        println!(
-            "{:<12} {:<10} {:<6} {:<6} {:<6} {:<6} {:<6} {:<6} {:<38} {:<10}",
-            kernel.name,
-            info.ip,
-            info.transport,
-            info.shell_port,
-            info.iopub_port,
-            info.stdin_port,
-            info.control_port,
-            info.hb_port,
-            info.key,
-            info.signature_scheme
-        );
+fn print_kernel_table(kernels: &[KernelInfo]) {
+    if kernels.is_empty() {
+        println!("No running kernels found.");
+        return;
     }
+
+    let rows: Vec<KernelTableRow> = kernels.iter().map(KernelTableRow::from).collect();
+    let table = Table::new(rows).with(Style::rounded()).to_string();
+    println!("{}", table);
+}
+
+fn print_verbose_kernel_table(kernels: &[KernelInfo]) {
+    if kernels.is_empty() {
+        println!("No running kernels found.");
+        return;
+    }
+
+    #[derive(Tabled)]
+    struct VerboseRow {
+        #[tabled(rename = "NAME")]
+        name: String,
+        #[tabled(rename = "LANGUAGE")]
+        language: String,
+        #[tabled(rename = "STATUS")]
+        status: String,
+        #[tabled(rename = "SHELL")]
+        shell_port: u16,
+        #[tabled(rename = "IOPUB")]
+        iopub_port: u16,
+        #[tabled(rename = "STDIN")]
+        stdin_port: u16,
+        #[tabled(rename = "CTRL")]
+        control_port: u16,
+        #[tabled(rename = "HB")]
+        hb_port: u16,
+        #[tabled(rename = "CONNECTION FILE")]
+        connection_file: String,
+    }
+
+    let rows: Vec<VerboseRow> = kernels
+        .iter()
+        .map(|k| VerboseRow {
+            name: k.name.clone(),
+            language: format!(
+                "{} {}",
+                k.language.as_deref().unwrap_or("-"),
+                k.language_version.as_deref().unwrap_or("")
+            )
+            .trim()
+            .to_string(),
+            status: k.status.to_string(),
+            shell_port: k.connection_info.shell_port,
+            iopub_port: k.connection_info.iopub_port,
+            stdin_port: k.connection_info.stdin_port,
+            control_port: k.connection_info.control_port,
+            hb_port: k.connection_info.hb_port,
+            connection_file: k.connection_file.display().to_string(),
+        })
+        .collect();
+
+    let table = Table::new(rows).with(Style::rounded()).to_string();
+    println!("{}", table);
 }
 
 async fn start_kernel(name: &str) -> Result<()> {
