@@ -23,3 +23,4 @@ clap = { version = "4.5.1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 petname = "2"
 rpassword = "7"
+dirs = "5"

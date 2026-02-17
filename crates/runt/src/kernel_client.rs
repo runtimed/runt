@@ -49,7 +49,7 @@ impl KernelClient {
 
         let connection_file = runtime_dir.join(format!("runt-kernel-{}.json", kernel_id));
 
-        let working_dir = std::env::current_dir()?;
+        let working_dir = dirs::home_dir().unwrap_or_else(std::env::temp_dir);
 
         let mut command = kernelspec.clone().command(&connection_file, None, None)?;
         command.current_dir(working_dir);
@@ -107,7 +107,7 @@ impl KernelClient {
 
         let mut command = tokio::process::Command::new(&args[0]);
         command.args(&args[1..]);
-        command.current_dir(std::env::current_dir()?);
+        command.current_dir(dirs::home_dir().unwrap_or_else(std::env::temp_dir));
         let child = command.spawn().map_err(|e| RuntimeError::CommandFailed {
             command: "kernel",
             source: e,
