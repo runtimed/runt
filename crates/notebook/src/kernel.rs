@@ -47,12 +47,24 @@ type PendingHistory = Arc<StdMutex<HashMap<String, tokio::sync::oneshot::Sender<
 
 /// Get the working directory for kernel processes.
 /// - If notebook_path is provided, uses its parent directory
+/// - If running from CLI (cwd is not `/`), uses the current working directory
 /// - Otherwise falls back to home directory, then temp directory
 fn kernel_cwd(notebook_path: Option<&std::path::Path>) -> std::path::PathBuf {
-    notebook_path
-        .and_then(|p| p.parent())
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(std::env::temp_dir))
+    // If notebook has a path, use its parent directory
+    if let Some(parent) = notebook_path.and_then(|p| p.parent()) {
+        return parent.to_path_buf();
+    }
+
+    // Check if we're running from CLI (cwd is something other than `/`)
+    // App bundles on macOS run with `/` as cwd, but CLI usage preserves shell cwd
+    if let Ok(cwd) = std::env::current_dir() {
+        if cwd != std::path::Path::new("/") {
+            return cwd;
+        }
+    }
+
+    // Fall back to home directory, then temp directory
+    dirs::home_dir().unwrap_or_else(std::env::temp_dir)
 }
 
 #[derive(Serialize, Clone)]

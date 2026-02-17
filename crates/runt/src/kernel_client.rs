@@ -15,6 +15,21 @@ use runtimelib::{
     peek_ports, peer_identity_for_session, runtime_dir, KernelspecDir, Result, RuntimeError,
 };
 
+/// Get the default working directory for kernel processes.
+/// - If running from CLI (cwd is not `/`), uses the current working directory
+/// - Otherwise falls back to home directory, then temp directory
+fn default_kernel_cwd() -> PathBuf {
+    // Check if we're running from CLI (cwd is something other than `/`)
+    // App bundles on macOS run with `/` as cwd, but CLI usage preserves shell cwd
+    if let Ok(cwd) = std::env::current_dir() {
+        if cwd != Path::new("/") {
+            return cwd;
+        }
+    }
+    // Fall back to home directory, then temp directory
+    dirs::home_dir().unwrap_or_else(std::env::temp_dir)
+}
+
 pub struct KernelClient {
     kernel_id: String,
     session_id: String,
@@ -49,10 +64,8 @@ impl KernelClient {
 
         let connection_file = runtime_dir.join(format!("runt-kernel-{}.json", kernel_id));
 
-        let working_dir = dirs::home_dir().unwrap_or_else(std::env::temp_dir);
-
         let mut command = kernelspec.clone().command(&connection_file, None, None)?;
-        command.current_dir(working_dir);
+        command.current_dir(default_kernel_cwd());
 
         let child = command.spawn()?;
 
@@ -107,7 +120,7 @@ impl KernelClient {
 
         let mut command = tokio::process::Command::new(&args[0]);
         command.args(&args[1..]);
-        command.current_dir(dirs::home_dir().unwrap_or_else(std::env::temp_dir));
+        command.current_dir(default_kernel_cwd());
         let child = command.spawn().map_err(|e| RuntimeError::CommandFailed {
             command: "kernel",
             source: e,
