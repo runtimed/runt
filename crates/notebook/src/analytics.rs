@@ -109,7 +109,7 @@ fn create_new_key(key_path: &PathBuf) -> Option<SigningKey> {
 /// Get the lazily-initialized signing key.
 fn signing_key() -> Option<&'static SigningKey> {
     SIGNING_KEY
-        .get_or_init(|| get_or_create_signing_key())
+        .get_or_init(get_or_create_signing_key)
         .as_ref()
 }
 
