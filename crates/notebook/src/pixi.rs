@@ -303,6 +303,13 @@ pub fn get_all_dependencies(config: &PixiConfig) -> (Vec<String>, Vec<String>) {
     (config.dependencies.clone(), config.pypi_dependencies.clone())
 }
 
+impl PixiConfig {
+    /// Check if this config has PyPI dependencies.
+    pub fn has_pypi_dependencies(&self) -> bool {
+        !self.pypi_dependencies.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -541,12 +548,5 @@ platforms = ["linux-64"]
         let found = find_pixi_toml(&deep_dir);
         assert!(found.is_some());
         assert_eq!(found.unwrap(), temp.path().join("pixi.toml"));
-    }
-}
-
-impl PixiConfig {
-    /// Check if this config has PyPI dependencies.
-    pub fn has_pypi_dependencies(&self) -> bool {
-        !self.pypi_dependencies.is_empty()
     }
 }
