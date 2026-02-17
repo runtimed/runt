@@ -1122,21 +1122,64 @@ async fn start_default_python_kernel_impl(
     kernel_state: &Arc<tokio::sync::Mutex<NotebookKernel>>,
     pool: &env_pool::SharedEnvPool,
 ) -> Result<String, String> {
-    if uv_env::check_uv_available().await {
-        info!("uv is available, using uv for default kernel");
+    // Load user's preferred Python environment type from settings
+    let app_settings = settings::load_settings();
+    let preferred_env = app_settings.default_python_env;
+    let uv_available = uv_env::check_uv_available().await;
+
+    // Determine which env type to actually use based on preference and availability
+    let use_uv = match preferred_env {
+        settings::PythonEnvType::Uv => {
+            if uv_available {
+                true
+            } else {
+                info!("uv preferred but not available, falling back to conda");
+                false
+            }
+        }
+        settings::PythonEnvType::Conda => {
+            // Conda is always available via rattler
+            false
+        }
+    };
+
+    if use_uv {
+        info!("Using uv for default kernel (preferred: {:?})", preferred_env);
 
         // Ensure uv metadata exists in the notebook (for legacy notebooks)
         // Also extract env_id for per-notebook isolation
         let (env_id, notebook_path) = {
             let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
 
-            if !state.notebook.metadata.additional.contains_key("uv") {
+            // If notebook has empty conda deps and we're using UV, migrate to UV
+            let should_setup_uv = if let Some(conda_val) = state.notebook.metadata.additional.get("conda") {
+                // Only migrate if conda deps are empty
+                let conda_deps = conda_val.get("dependencies")
+                    .and_then(|d| d.as_array())
+                    .map(|a| a.is_empty())
+                    .unwrap_or(true);
+                conda_deps
+            } else {
+                true
+            };
+
+            if should_setup_uv && !state.notebook.metadata.additional.contains_key("uv") {
                 state.notebook.metadata.additional.insert(
                     "uv".to_string(),
                     serde_json::json!({
                         "dependencies": Vec::<String>::new(),
                     }),
                 );
+                // Remove empty conda metadata if migrating to uv
+                if let Some(conda_val) = state.notebook.metadata.additional.get("conda") {
+                    let conda_deps_empty = conda_val.get("dependencies")
+                        .and_then(|d| d.as_array())
+                        .map(|a| a.is_empty())
+                        .unwrap_or(true);
+                    if conda_deps_empty {
+                        state.notebook.metadata.additional.remove("conda");
+                    }
+                }
                 state.dirty = true;
             }
 
@@ -1206,12 +1249,25 @@ async fn start_default_python_kernel_impl(
 
         Ok("uv".to_string())
     } else {
-        info!("uv not available, falling back to conda/rattler for default kernel");
+        info!("Using conda/rattler for default kernel (preferred: {:?})", preferred_env);
 
         // Get the env_id for this notebook (should be set at notebook creation)
         // Fall back to creating one for legacy notebooks
         let (env_id, notebook_path) = {
             let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
+
+            // Check if notebook has empty uv deps - if so, migrate to conda
+            let uv_deps_empty = state.notebook.metadata.additional.get("uv")
+                .and_then(|v| v.get("dependencies"))
+                .and_then(|d| d.as_array())
+                .map(|a| a.is_empty())
+                .unwrap_or(true);
+
+            // Remove empty uv metadata when migrating to conda
+            if uv_deps_empty && state.notebook.metadata.additional.contains_key("uv") {
+                state.notebook.metadata.additional.remove("uv");
+                state.dirty = true;
+            }
 
             // Check if there's already an env_id in the runt metadata
             let existing_id = state
@@ -1224,7 +1280,20 @@ async fn start_default_python_kernel_impl(
                 .map(|s| s.to_string());
 
             let env_id = match existing_id {
-                Some(id) => id,
+                Some(id) => {
+                    // Ensure conda metadata exists even for existing notebooks
+                    if !state.notebook.metadata.additional.contains_key("conda") {
+                        state.notebook.metadata.additional.insert(
+                            "conda".to_string(),
+                            serde_json::json!({
+                                "dependencies": Vec::<String>::new(),
+                                "channels": ["conda-forge"],
+                            }),
+                        );
+                        state.dirty = true;
+                    }
+                    id
+                }
                 None => {
                     // Legacy notebook without env_id - generate one and set conda metadata
                     let new_id = uuid::Uuid::new_v4().to_string();
@@ -1833,6 +1902,20 @@ async fn set_default_runtime(runtime: Runtime) -> Result<(), String> {
     settings::save_settings(&settings).map_err(|e| e.to_string())
 }
 
+/// Set the default Python environment type (uv or conda)
+#[tauri::command]
+async fn set_default_python_env(env_type: String) -> Result<(), String> {
+    let python_env = match env_type.to_lowercase().as_str() {
+        "uv" => settings::PythonEnvType::Uv,
+        "conda" => settings::PythonEnvType::Conda,
+        _ => return Err(format!("Invalid Python env type: {}. Use 'uv' or 'conda'.", env_type)),
+    };
+
+    let mut settings = settings::load_settings();
+    settings.default_python_env = python_env;
+    settings::save_settings(&settings).map_err(|e| e.to_string())
+}
+
 /// Spawn a new notebook process with the specified runtime
 fn spawn_new_notebook(runtime: Runtime) {
     if let Ok(exe) = std::env::current_exe() {
@@ -1992,6 +2075,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
             // Settings
             get_settings,
             set_default_runtime,
+            set_default_python_env,
             // Debug info
             get_git_info,
             get_prewarm_status,
