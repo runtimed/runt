@@ -80,10 +80,10 @@ export function generateFrameHtml(options: FrameHtmlOptions = {}): string {
       min-height: 1px;
     }
 
-    /* Reset common elements */
+    /* Reset common elements - 0.875rem matches Tailwind's text-sm */
     pre, code {
       font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-      font-size: 13px;
+      font-size: 0.875rem;
     }
 
     pre {
@@ -96,11 +96,11 @@ export function generateFrameHtml(options: FrameHtmlOptions = {}): string {
       word-wrap: break-word;
     }
 
-    /* Table styling for pandas DataFrames */
+    /* Table styling for pandas DataFrames - 0.875rem matches Tailwind's text-sm */
     table {
       border-collapse: collapse;
       margin: 8px 0;
-      font-size: 13px;
+      font-size: 0.875rem;
     }
 
     th, td {

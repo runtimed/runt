@@ -110,9 +110,9 @@ body {
   padding: 8px;
 }
 
-/* Code font */
+/* Code font - uses Tailwind's text-sm to match main app output styling */
 pre, code {
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  @apply font-mono text-sm;
 }
 
 /* Output item spacing */
