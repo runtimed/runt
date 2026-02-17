@@ -13,12 +13,13 @@ import { browser, expect } from "@wdio/globals";
 async function takeScreenshot(name) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const safeName = name.replace(/[^a-zA-Z0-9]/g, "-");
-  const screenshotPath = `/app/e2e-screenshots/${safeName}-${timestamp}.png`;
+  const screenshotDir = process.env.E2E_SCREENSHOT_DIR || "./e2e-screenshots";
+  const screenshotPath = `${screenshotDir}/${safeName}-${timestamp}.png`;
   try {
     await browser.saveScreenshot(screenshotPath);
     console.log(`Screenshot saved: ${screenshotPath}`);
   } catch (error) {
-    console.error(`Failed to save screenshot "${name}":`, error.message);
+    console.log(`Screenshot skipped (${name}): ${error.message}`);
   }
 }
 

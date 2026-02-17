@@ -5,7 +5,7 @@
 //! notebooks, avoiding the delay of environment creation on first kernel start.
 
 use crate::uv_env::UvEnvironment;
-use log::{error, info};
+use log::{error, info, warn};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -245,6 +245,13 @@ pub async fn recover_existing_prewarmed(pool: &SharedEnvPool) {
 pub async fn run_prewarming_loop(pool: SharedEnvPool, app: AppHandle) {
     // First, recover any existing prewarmed environments from disk
     recover_existing_prewarmed(&pool).await;
+
+    // Check if uv is available before attempting to create environments
+    if !crate::uv_env::check_uv_available().await {
+        warn!("[prewarm] uv is not installed - skipping environment prewarming");
+        emit_progress(&app, PrewarmProgress::Ready { pool_size: 0 });
+        return;
+    }
 
     // Small delay to let the app finish startup before creating new envs
     tokio::time::sleep(Duration::from_millis(500)).await;

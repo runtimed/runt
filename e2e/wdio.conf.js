@@ -2,11 +2,20 @@
  * WebDriverIO configuration for Tauri E2E testing
  */
 
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Screenshot directory: configurable via env, defaults to ./e2e-screenshots
+const SCREENSHOT_DIR =
+  process.env.E2E_SCREENSHOT_DIR || path.join(__dirname, "..", "e2e-screenshots");
+const SCREENSHOT_FAILURES_DIR = path.join(SCREENSHOT_DIR, "failures");
+
+// Ensure screenshot directories exist
+fs.mkdirSync(SCREENSHOT_FAILURES_DIR, { recursive: true });
 
 export const config = {
   runner: "local",
@@ -57,7 +66,10 @@ export const config = {
     if (error) {
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const safeName = test.title.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 50);
-      const screenshotPath = `/app/e2e-screenshots/failures/${safeName}-${timestamp}.png`;
+      const screenshotPath = path.join(
+        SCREENSHOT_FAILURES_DIR,
+        `${safeName}-${timestamp}.png`
+      );
       try {
         const { browser } = await import("@wdio/globals");
         await browser.saveScreenshot(screenshotPath);
