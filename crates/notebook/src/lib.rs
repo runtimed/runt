@@ -353,11 +353,16 @@ async fn get_execution_queue_state(
 async fn start_kernel(
     kernelspec_name: String,
     app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
     kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
+    let notebook_path = {
+        let state = notebook_state.lock().map_err(|e| e.to_string())?;
+        state.path.clone()
+    };
     let mut kernel = kernel_state.lock().await;
     kernel
-        .start(app, &kernelspec_name)
+        .start(app, &kernelspec_name, notebook_path.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -591,11 +596,12 @@ async fn start_kernel_with_uv(
     notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
     kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
-    let (deps, env_id) = {
+    let (deps, env_id, notebook_path) = {
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
         (
             uv_env::extract_dependencies(&state.notebook.metadata),
             uv_env::extract_env_id(&state.notebook.metadata),
+            state.path.clone(),
         )
     };
 
@@ -608,7 +614,7 @@ async fn start_kernel_with_uv(
 
     let mut kernel = kernel_state.lock().await;
     kernel
-        .start_with_uv(app, &deps, env_id.as_deref())
+        .start_with_uv(app, &deps, env_id.as_deref(), notebook_path.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -867,7 +873,7 @@ async fn start_kernel_with_conda(
     notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
     kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
-    let deps = {
+    let (deps, notebook_path) = {
         let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
         let mut deps = conda_env::extract_dependencies(&state.notebook.metadata)
             .ok_or_else(|| "No conda dependencies in notebook metadata".to_string())?;
@@ -899,7 +905,7 @@ async fn start_kernel_with_conda(
             deps.env_id = Some(new_id);
         }
 
-        deps
+        (deps, state.path.clone())
     };
 
     info!(
@@ -910,7 +916,7 @@ async fn start_kernel_with_conda(
 
     let mut kernel = kernel_state.lock().await;
     kernel
-        .start_with_conda(app, &deps)
+        .start_with_conda(app, &deps, notebook_path.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -927,7 +933,7 @@ async fn start_default_uv_kernel(
 ) -> Result<(), String> {
     // Ensure uv metadata exists in the notebook (for legacy notebooks)
     // Also extract env_id for per-notebook isolation
-    let env_id = {
+    let (env_id, notebook_path) = {
         let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
 
         if !state.notebook.metadata.additional.contains_key("uv") {
@@ -940,7 +946,7 @@ async fn start_default_uv_kernel(
             state.dirty = true;
         }
 
-        uv_env::extract_env_id(&state.notebook.metadata)
+        (uv_env::extract_env_id(&state.notebook.metadata), state.path.clone())
     };
 
     // Try to use a prewarmed environment from the pool
@@ -963,7 +969,7 @@ async fn start_default_uv_kernel(
                         env_pool::spawn_replenishment(pool.inner().clone());
 
                         let mut kernel = kernel_state.lock().await;
-                        match kernel.start_with_prewarmed_uv(app.clone(), env).await {
+                        match kernel.start_with_prewarmed_uv(app.clone(), env, notebook_path.as_deref()).await {
                             Ok(()) => return Ok(()),
                             Err(e) => {
                                 log::warn!(
@@ -1000,7 +1006,7 @@ async fn start_default_uv_kernel(
 
     let mut kernel = kernel_state.lock().await;
     kernel
-        .start_with_uv(app, &deps, env_id.as_deref())
+        .start_with_uv(app, &deps, env_id.as_deref(), notebook_path.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -1016,7 +1022,7 @@ async fn start_default_conda_kernel(
 ) -> Result<(), String> {
     // Get the env_id for this notebook (should be set at notebook creation)
     // Fall back to creating one for legacy notebooks
-    let env_id = {
+    let (env_id, notebook_path) = {
         let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
 
         // Check if there's already an env_id in the runt metadata
@@ -1029,7 +1035,7 @@ async fn start_default_conda_kernel(
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        match existing_id {
+        let env_id = match existing_id {
             Some(id) => id,
             None => {
                 // Legacy notebook without env_id - generate one and set conda metadata
@@ -1054,7 +1060,8 @@ async fn start_default_conda_kernel(
                 state.dirty = true;
                 new_id
             }
-        }
+        };
+        (env_id, state.path.clone())
     };
 
     // Create minimal deps with just ipykernel and the unique env_id
@@ -1072,7 +1079,7 @@ async fn start_default_conda_kernel(
 
     let mut kernel = kernel_state.lock().await;
     kernel
-        .start_with_conda(app, &deps)
+        .start_with_conda(app, &deps, notebook_path.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -1090,7 +1097,7 @@ async fn start_default_python_kernel_impl(
 
         // Ensure uv metadata exists in the notebook (for legacy notebooks)
         // Also extract env_id for per-notebook isolation
-        let env_id = {
+        let (env_id, notebook_path) = {
             let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
 
             if !state.notebook.metadata.additional.contains_key("uv") {
@@ -1103,7 +1110,7 @@ async fn start_default_python_kernel_impl(
                 state.dirty = true;
             }
 
-            uv_env::extract_env_id(&state.notebook.metadata)
+            (uv_env::extract_env_id(&state.notebook.metadata), state.path.clone())
         };
 
         // Try to use a prewarmed environment from the pool
@@ -1126,7 +1133,7 @@ async fn start_default_python_kernel_impl(
                             env_pool::spawn_replenishment(pool.clone());
 
                             let mut kernel = kernel_state.lock().await;
-                            match kernel.start_with_prewarmed_uv(app.clone(), env).await {
+                            match kernel.start_with_prewarmed_uv(app.clone(), env, notebook_path.as_deref()).await {
                                 Ok(()) => return Ok("uv".to_string()),
                                 Err(e) => {
                                     log::warn!(
@@ -1163,7 +1170,7 @@ async fn start_default_python_kernel_impl(
 
         let mut kernel = kernel_state.lock().await;
         kernel
-            .start_with_uv(app, &deps, env_id.as_deref())
+            .start_with_uv(app, &deps, env_id.as_deref(), notebook_path.as_deref())
             .await
             .map_err(|e| e.to_string())?;
 
@@ -1173,7 +1180,7 @@ async fn start_default_python_kernel_impl(
 
         // Get the env_id for this notebook (should be set at notebook creation)
         // Fall back to creating one for legacy notebooks
-        let env_id = {
+        let (env_id, notebook_path) = {
             let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
 
             // Check if there's already an env_id in the runt metadata
@@ -1186,7 +1193,7 @@ async fn start_default_python_kernel_impl(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
 
-            match existing_id {
+            let env_id = match existing_id {
                 Some(id) => id,
                 None => {
                     // Legacy notebook without env_id - generate one and set conda metadata
@@ -1211,7 +1218,8 @@ async fn start_default_python_kernel_impl(
                     state.dirty = true;
                     new_id
                 }
-            }
+            };
+            (env_id, state.path.clone())
         };
 
         // Create minimal deps with just ipykernel and the unique env_id
@@ -1224,7 +1232,7 @@ async fn start_default_python_kernel_impl(
 
         let mut kernel = kernel_state.lock().await;
         kernel
-            .start_with_conda(app, &deps)
+            .start_with_conda(app, &deps, notebook_path.as_deref())
             .await
             .map_err(|e| e.to_string())?;
 
@@ -1648,7 +1656,7 @@ async fn start_deno_kernel_impl(
     kernel_state: &Arc<tokio::sync::Mutex<NotebookKernel>>,
 ) -> Result<(), String> {
     // Get permissions and settings from notebook metadata
-    let (permissions, workspace_dir, flexible_npm_imports) = {
+    let (permissions, workspace_dir, flexible_npm_imports, notebook_path) = {
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
         let deps = deno_env::extract_deno_metadata(&state.notebook.metadata);
         let perms = deps
@@ -1664,7 +1672,7 @@ async fn start_deno_kernel_impl(
             .and_then(|p| deno_env::find_deno_config(p))
             .and_then(|c| c.parent().map(|p| p.to_path_buf()));
 
-        (perms, ws_dir, flexible)
+        (perms, ws_dir, flexible, state.path.clone())
     };
 
     info!(
@@ -1679,6 +1687,7 @@ async fn start_deno_kernel_impl(
             &permissions,
             workspace_dir.as_deref(),
             flexible_npm_imports,
+            notebook_path.as_deref(),
         )
         .await
         .map_err(|e| e.to_string())

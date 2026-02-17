@@ -45,6 +45,28 @@ type PendingCompletions =
 /// Pending history requests: msg_id → oneshot sender for routing history_reply.
 type PendingHistory = Arc<StdMutex<HashMap<String, tokio::sync::oneshot::Sender<HistoryResult>>>>;
 
+/// Get the working directory for kernel processes.
+/// - If notebook_path is provided, uses its parent directory
+/// - If running from CLI (cwd is not `/`), uses the current working directory
+/// - Otherwise falls back to home directory, then temp directory
+fn kernel_cwd(notebook_path: Option<&std::path::Path>) -> std::path::PathBuf {
+    // If notebook has a path, use its parent directory
+    if let Some(parent) = notebook_path.and_then(|p| p.parent()) {
+        return parent.to_path_buf();
+    }
+
+    // Check if we're running from CLI (cwd is something other than `/`)
+    // App bundles on macOS run with `/` as cwd, but CLI usage preserves shell cwd
+    if let Ok(cwd) = std::env::current_dir() {
+        if cwd != std::path::Path::new("/") {
+            return cwd;
+        }
+    }
+
+    // Fall back to home directory, then temp directory
+    dirs::home_dir().unwrap_or_else(std::env::temp_dir)
+}
+
 #[derive(Serialize, Clone)]
 pub struct CompletionResult {
     pub matches: Vec<String>,
@@ -168,6 +190,7 @@ impl NotebookKernel {
         &mut self,
         app: AppHandle,
         kernelspec_name: &str,
+        notebook_path: Option<&std::path::Path>,
     ) -> Result<()> {
         // Shutdown existing kernel if any
         self.shutdown().await.ok();
@@ -208,6 +231,7 @@ impl NotebookKernel {
 
         let mut cmd = kernelspec
             .command(&connection_file_path, Some(Stdio::null()), Some(Stdio::null()))?;
+        cmd.current_dir(kernel_cwd(notebook_path));
         #[cfg(unix)]
         cmd.process_group(0); // Create new process group for kernel and children
         let process = cmd.kill_on_drop(true).spawn()?;
@@ -432,6 +456,7 @@ impl NotebookKernel {
         app: AppHandle,
         deps: &NotebookDependencies,
         env_id: Option<&str>,
+        notebook_path: Option<&std::path::Path>,
     ) -> Result<()> {
         // Shutdown existing kernel if any
         self.shutdown().await.ok();
@@ -480,6 +505,7 @@ impl NotebookKernel {
         let mut cmd = tokio::process::Command::new(&env.python_path);
         cmd.args(["-m", "ipykernel_launcher", "-f"])
             .arg(&connection_file_path)
+            .current_dir(kernel_cwd(notebook_path))
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         #[cfg(unix)]
@@ -702,6 +728,7 @@ impl NotebookKernel {
         &mut self,
         app: AppHandle,
         env: UvEnvironment,
+        notebook_path: Option<&std::path::Path>,
     ) -> Result<()> {
         // Shutdown existing kernel if any
         self.shutdown().await.ok();
@@ -750,6 +777,7 @@ impl NotebookKernel {
         let mut cmd = tokio::process::Command::new(&env.python_path);
         cmd.args(["-m", "ipykernel_launcher", "-f"])
             .arg(&connection_file_path)
+            .current_dir(kernel_cwd(notebook_path))
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         #[cfg(unix)]
@@ -1032,6 +1060,7 @@ impl NotebookKernel {
             "-f",
         ])
         .arg(&connection_file_path)
+        .current_dir(project_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null());
         #[cfg(unix)]
@@ -1253,6 +1282,7 @@ impl NotebookKernel {
         &mut self,
         app: AppHandle,
         deps: &CondaDependencies,
+        notebook_path: Option<&std::path::Path>,
     ) -> Result<()> {
         // Shutdown existing kernel if any
         self.shutdown().await.ok();
@@ -1301,6 +1331,7 @@ impl NotebookKernel {
         let mut cmd = tokio::process::Command::new(&env.python_path);
         cmd.args(["-m", "ipykernel_launcher", "-f"])
             .arg(&connection_file_path)
+            .current_dir(kernel_cwd(notebook_path))
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         #[cfg(unix)]
@@ -1526,6 +1557,7 @@ impl NotebookKernel {
         permissions: &[String],
         workspace_dir: Option<&std::path::Path>,
         flexible_npm_imports: bool,
+        notebook_path: Option<&std::path::Path>,
     ) -> Result<()> {
         // Shutdown existing kernel if any
         self.shutdown().await.ok();
@@ -1588,9 +1620,12 @@ impl NotebookKernel {
             cmd.env("DENO_NO_PACKAGE_JSON", "1");
         }
 
-        // Set working directory if specified (e.g., for deno.json discovery)
+        // Set working directory: prefer workspace_dir for deno.json discovery,
+        // otherwise use notebook directory or home directory
         if let Some(dir) = workspace_dir {
             cmd.current_dir(dir);
+        } else {
+            cmd.current_dir(kernel_cwd(notebook_path));
         }
 
         #[cfg(unix)]
