@@ -38,6 +38,11 @@
         "name": "Jupyter Notebook",
         "role": "Editor"
       }
-    ]
+    ],
+    "macOS": {
+      "entitlements": "entitlements.plist",
+      "hardenedRuntime": true,
+      "minimumSystemVersion": "10.13"
+    }
   }
 }
