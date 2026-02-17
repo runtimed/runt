@@ -237,7 +237,7 @@ jobs:
 
   build-notebook-macos-x64:
     name: Build macOS x64 Notebook DMG
-    runs-on: macos-13
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -246,6 +246,9 @@ jobs:
 
       - name: Set up Rust
         uses: dsherret/rust-toolchain-file@v1
+
+      - name: Add x64 target for cross-compilation
+        run: rustup target add x86_64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -310,7 +313,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: cargo tauri build --ci --bundles dmg --config '{"build":{"beforeBuildCommand":""}}'
+        run: cargo tauri build --ci --target x86_64-apple-darwin --bundles dmg --config '{"build":{"beforeBuildCommand":""}}'
         working-directory: crates/notebook
 
       - name: Cleanup keychain
@@ -322,7 +325,7 @@ jobs:
 
       - name: Rename DMG
         run: |
-          DMG_PATH=$(find target/release/bundle/dmg -name "*.dmg" | head -1)
+          DMG_PATH=$(find target/x86_64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
           cp "$DMG_PATH" runt-notebook-darwin-x64.dmg
 
       - name: Upload x64 DMG
