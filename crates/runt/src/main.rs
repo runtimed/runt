@@ -64,9 +64,19 @@ impl From<&KernelInfo> for KernelTableRow {
             language: info.language.clone().unwrap_or_else(|| "-".to_string()),
             version: info.language_version.clone().unwrap_or_else(|| "-".to_string()),
             status: info.status.to_string(),
-            connection_file: info.connection_file.display().to_string(),
+            connection_file: shorten_path(&info.connection_file),
         }
     }
+}
+
+/// Shorten a path for display by replacing home directory with ~
+fn shorten_path(path: &PathBuf) -> String {
+    if let Some(home) = dirs::home_dir() {
+        if let Ok(relative) = path.strip_prefix(&home) {
+            return format!("~/{}", relative.display());
+        }
+    }
+    path.display().to_string()
 }
 
 #[derive(Parser)]
@@ -94,8 +104,11 @@ enum Commands {
     },
     /// Stop a kernel given an ID
     Stop {
-        /// The ID of the kernel to stop
-        id: String,
+        /// The ID of the kernel to stop (required unless --all is used)
+        id: Option<String>,
+        /// Stop all running kernels
+        #[arg(long)]
+        all: bool,
     },
     /// Interrupt a kernel given an ID
     Interrupt {
@@ -179,7 +192,7 @@ async fn async_main(command: Option<Commands>) -> Result<()> {
     match command {
         Some(Commands::Ps { json, verbose }) => list_kernels(json, verbose).await?,
         Some(Commands::Start { name }) => start_kernel(&name).await?,
-        Some(Commands::Stop { id }) => stop_kernel(&id).await?,
+        Some(Commands::Stop { id, all }) => stop_kernels(id.as_deref(), all).await?,
         Some(Commands::Interrupt { id }) => interrupt_kernel(&id).await?,
         Some(Commands::Exec { id, code }) => execute_code(&id, code.as_deref()).await?,
         Some(Commands::Console { kernel, cmd, verbose }) => console(kernel.as_deref(), cmd.as_deref(), verbose).await?,
@@ -219,11 +232,14 @@ async fn list_kernels(json_output: bool, verbose: bool) -> Result<()> {
         async move { gather_kernel_info(path, timeout).await }
     });
 
-    let kernels: Vec<KernelInfo> = join_all(kernel_futures)
+    let mut kernels: Vec<KernelInfo> = join_all(kernel_futures)
         .await
         .into_iter()
         .flatten()
         .collect();
+
+    // Sort kernels by name for consistent display
+    kernels.sort_by(|a, b| a.name.cmp(&b.name));
 
     if json_output {
         println!("{}", serde_json::to_string_pretty(&kernels)?);
@@ -373,7 +389,7 @@ fn print_verbose_kernel_table(kernels: &[KernelInfo]) {
             stdin_port: k.connection_info.stdin_port,
             control_port: k.connection_info.control_port,
             hb_port: k.connection_info.hb_port,
-            connection_file: k.connection_file.display().to_string(),
+            connection_file: shorten_path(&k.connection_file),
         })
         .collect();
 
@@ -390,11 +406,56 @@ async fn start_kernel(name: &str) -> Result<()> {
     Ok(())
 }
 
-async fn stop_kernel(id: &str) -> Result<()> {
-    let connection_file = runtime_dir().join(format!("runt-kernel-{}.json", id));
-    let mut client = KernelClient::from_connection_file(&connection_file).await?;
-    client.shutdown(false).await?;
-    println!("Kernel with ID {} stopped", id);
+async fn stop_kernels(id: Option<&str>, all: bool) -> Result<()> {
+    if all {
+        // Stop all running kernels
+        let runtime_dir = runtime_dir();
+        let mut entries = fs::read_dir(&runtime_dir).await?;
+        let mut stopped = 0;
+
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
+            let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            if !file_name.starts_with("runt-kernel-") {
+                continue;
+            }
+
+            let kernel_id = file_name
+                .strip_prefix("runt-kernel-")
+                .and_then(|s| s.strip_suffix(".json"))
+                .unwrap_or("unknown");
+
+            match KernelClient::from_connection_file(&path).await {
+                Ok(mut client) => {
+                    if client.shutdown(false).await.is_ok() {
+                        println!("Stopped {}", kernel_id);
+                        stopped += 1;
+                    } else {
+                        eprintln!("Failed to stop {}", kernel_id);
+                    }
+                }
+                Err(_) => {
+                    eprintln!("Failed to connect to {}", kernel_id);
+                }
+            }
+        }
+
+        if stopped == 0 {
+            println!("No running kernels found.");
+        } else {
+            println!("\nStopped {} kernel(s)", stopped);
+        }
+    } else if let Some(id) = id {
+        let connection_file = runtime_dir().join(format!("runt-kernel-{}.json", id));
+        let mut client = KernelClient::from_connection_file(&connection_file).await?;
+        client.shutdown(false).await?;
+        println!("Kernel with ID {} stopped", id);
+    } else {
+        anyhow::bail!("Either provide a kernel ID or use --all to stop all kernels");
+    }
     Ok(())
 }
 
