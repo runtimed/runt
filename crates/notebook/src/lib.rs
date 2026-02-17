@@ -9,7 +9,7 @@ pub mod pyproject;
 pub mod runtime;
 pub mod settings;
 pub mod shell_env;
-pub mod telemetry;
+pub mod analytics;
 pub mod trust;
 pub mod typosquat;
 pub mod uv_env;

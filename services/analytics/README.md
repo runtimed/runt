@@ -1,6 +1,6 @@
-# Runt Telemetry Service
+# Runt Analytics Service
 
-A Cloudflare Worker + D1 service for collecting anonymous telemetry from Runt installations.
+A Cloudflare Worker + D1 service for collecting anonymous analytics from Runt installations.
 
 ## Security Model
 
@@ -20,7 +20,7 @@ This means:
 
 1. Install dependencies:
    ```bash
-   cd services/telemetry
+   cd services/analytics
    pnpm install
    ```
 
@@ -55,9 +55,9 @@ This starts a local Worker with a local D1 database.
 
 ## API
 
-### POST /telemetry
+### POST /events
 
-Submit telemetry events.
+Submit analytics events.
 
 **Request:**
 ```json
@@ -80,16 +80,16 @@ Submit telemetry events.
 ```
 
 **Keypair storage:** Platform config dir (32-byte Ed25519 seed)
-- macOS: `~/Library/Application Support/runt/telemetry-key`
-- Linux: `~/.config/runt/telemetry-key`
-- Windows: `%APPDATA%\runt\telemetry-key`
+- macOS: `~/Library/Application Support/runt/analytics-key`
+- Linux: `~/.config/runt/analytics-key`
+- Windows: `%APPDATA%\runt\analytics-key`
 
 **Signature computation (Rust):**
 ```rust
 use ed25519_dalek::{SigningKey, Signer};
 
-// Load or generate keypair from ~/.runt/telemetry-key
-let signing_key = load_or_create_telemetry_key()?;
+// Load or generate keypair
+let signing_key = load_or_create_analytics_key()?;
 
 let events_json = serde_json::to_string(&events)?;
 let signature = signing_key.sign(events_json.as_bytes());

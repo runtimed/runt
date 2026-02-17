@@ -1,7 +1,7 @@
 /**
- * Runt Telemetry Worker
+ * Runt Analytics Worker
  *
- * Accepts telemetry events from Runt installations, validates them via Ed25519
+ * Accepts analytics events from Runt installations, validates them via Ed25519
  * signatures, and stores them in D1 for analysis.
  *
  * No shared secrets - each install generates its own keypair. The public key
@@ -12,18 +12,18 @@ export interface Env {
   DB: D1Database;
 }
 
-interface TelemetryEvent {
+interface AnalyticsEvent {
   event_type: string;
   data?: Record<string, unknown>;
   timestamp?: string;
 }
 
-interface TelemetryPayload {
+interface AnalyticsPayload {
   // Public key (hex-encoded) - serves as the install identifier
   public_key: string;
   // Ed25519 signature over the events JSON (hex-encoded)
   signature: string;
-  events: TelemetryEvent[];
+  events: AnalyticsEvent[];
 }
 
 // Verify Ed25519 signature using WebCrypto
@@ -82,15 +82,15 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // Only accept POST to /telemetry
+    // Only accept POST to /events
     const url = new URL(request.url);
-    if (request.method !== "POST" || url.pathname !== "/telemetry") {
+    if (request.method !== "POST" || url.pathname !== "/events") {
       return new Response("Not Found", { status: 404 });
     }
 
     try {
       const body = await request.text();
-      const payload: TelemetryPayload = JSON.parse(body);
+      const payload: AnalyticsPayload = JSON.parse(body);
 
       // Validate required fields
       if (!payload.public_key || !payload.signature || !payload.events) {
@@ -153,7 +153,7 @@ export default {
       );
 
     } catch (e) {
-      console.error("Telemetry error:", e);
+      console.error("Analytics error:", e);
       return new Response(
         JSON.stringify({ error: "Internal error" }),
         { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }

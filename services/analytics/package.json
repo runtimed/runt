@@ -1,0 +1,17 @@
+{
+  "name": "runt-analytics",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create runt-analytics",
+    "db:migrate": "wrangler d1 execute runt-analytics --file=./schema.sql",
+    "db:migrate:local": "wrangler d1 execute runt-analytics --local --file=./schema.sql",
+    "db:query": "wrangler d1 execute runt-analytics --command"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240129.0",
+    "wrangler": "^3.28.0"
+  }
+}
