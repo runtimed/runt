@@ -71,7 +71,6 @@ export function useCellKeyboardNavigation({
             key: "Mod-Enter",
             run: () => {
               onExecute();
-              onFocusNext("start");
               return true;
             },
           },
