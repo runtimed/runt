@@ -1759,9 +1759,13 @@ fn spawn_new_notebook(runtime: Runtime) {
 ///
 /// If `notebook_path` is Some, opens that file. If None, creates a new empty notebook.
 /// The `runtime` parameter specifies which runtime to use for new notebooks.
-pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<()> {
+/// If None, falls back to user's default runtime from settings.
+pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::Result<()> {
     env_logger::init();
     shell_env::load_shell_environment();
+
+    // Use provided runtime or fall back to user's default from settings
+    let runtime = runtime.unwrap_or_else(|| settings::load_settings().default_runtime);
 
     let initial_state = match notebook_path {
         Some(ref path) if path.exists() => {

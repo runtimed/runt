@@ -8,9 +8,9 @@ struct Args {
     /// Path to notebook file to open or create
     path: Option<PathBuf>,
 
-    /// Runtime for new notebooks (python, deno)
-    #[arg(long, short, default_value = "python")]
-    runtime: Runtime,
+    /// Runtime for new notebooks (python, deno). Falls back to user settings if not specified.
+    #[arg(long, short)]
+    runtime: Option<Runtime>,
 }
 
 fn main() {
