@@ -89,8 +89,6 @@ export class CommBridgeManager {
     this.sendCustomToKernel = options.sendCustom;
     this.closeCommWithKernel = options.closeComm;
 
-    console.log("[CommBridge] Creating bridge, store has", this.store.getSnapshot().size, "models");
-
     // Subscribe to store changes to forward to iframe
     this.storeUnsubscribe = this.store.subscribe(() => {
       if (!this.isWidgetReady) return;
@@ -101,7 +99,6 @@ export class CommBridgeManager {
 
     // Signal to iframe that parent bridge is ready
     // Iframe will respond with widget_ready to trigger comm_sync
-    console.log("[CommBridge] Sending bridge_ready");
     this.frame.send({ type: "bridge_ready" });
   }
 
@@ -110,7 +107,6 @@ export class CommBridgeManager {
    * Call this from the IsolatedFrame's onMessage callback.
    */
   handleIframeMessage(message: IframeToParentMessage): void {
-    console.log("[CommBridge] Received iframe message:", message.type);
     switch (message.type) {
       case "widget_ready":
         this.handleWidgetReady();
@@ -221,16 +217,13 @@ export class CommBridgeManager {
   // --- Private Methods ---
 
   private handleWidgetReady(): void {
-    console.log("[CommBridge] Widget ready, syncing models");
     this.isWidgetReady = true;
 
     // Send comm_sync with all existing models
     const models = this.store.getSnapshot();
     const modelArray: CommSyncMessage["payload"]["models"] = [];
 
-    console.log("[CommBridge] Parent store has", models.size, "models");
     for (const [commId, model] of models) {
-      console.log("[CommBridge] Syncing model:", commId, model.modelName);
       modelArray.push({
         commId,
         targetName: model.modelModule || "jupyter.widget",
@@ -249,21 +242,14 @@ export class CommBridgeManager {
         type: "comm_sync",
         payload: { models: modelArray },
       };
-      console.log("[CommBridge] Sending comm_sync with", modelArray.length, "models");
       try {
         this.frame.send(syncMsg);
-        console.log("[CommBridge] comm_sync sent successfully");
       } catch (e) {
         console.error("[CommBridge] Error sending comm_sync:", e);
       }
-    } else {
-      console.log("[CommBridge] No models to sync");
     }
 
     // Flush buffered messages
-    if (this.messageBuffer.length > 0) {
-      console.log("[CommBridge] Flushing", this.messageBuffer.length, "buffered messages");
-    }
     for (const msg of this.messageBuffer) {
       this.frame.send(msg);
       if (msg.type === "comm_open") {

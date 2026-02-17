@@ -86,19 +86,12 @@ export function createWidgetBridgeClient(): WidgetBridgeClient {
     const message = event.data;
     if (!message || typeof message.type !== "string") return;
 
-    // Log all widget-related messages
-    if (["bridge_ready", "comm_open", "comm_msg", "comm_close", "comm_sync"].includes(message.type)) {
-      console.log("[WidgetBridge] handleMessage received:", message.type);
-    }
-
     switch (message.type) {
       case "bridge_ready":
         // Parent's comm bridge is ready, re-send widget_ready to trigger sync
-        console.log("[WidgetBridge] Received bridge_ready, sending widget_ready");
         sendWidgetReady();
         break;
       case "comm_open":
-        console.log("[WidgetBridge] Received comm_open:", (message as CommOpenMessage).payload.commId);
         handleCommOpen(message as CommOpenMessage);
         break;
       case "comm_msg":
@@ -108,14 +101,12 @@ export function createWidgetBridgeClient(): WidgetBridgeClient {
         handleCommClose(message as CommCloseMessage);
         break;
       case "comm_sync":
-        console.log("[WidgetBridge] Received comm_sync with", (message as CommSyncMessage).payload.models.length, "models");
         handleCommSync(message as CommSyncMessage);
         break;
     }
   }
 
   function sendWidgetReady() {
-    console.log("[WidgetBridge] Sending widget_ready");
     window.parent.postMessage({ type: "widget_ready" }, "*");
   }
 
@@ -144,13 +135,9 @@ export function createWidgetBridgeClient(): WidgetBridgeClient {
   function handleCommSync(msg: CommSyncMessage) {
     const { models } = msg.payload;
 
-    // Create all models from sync
-    console.log("[WidgetBridge] Creating", models.length, "models from sync");
     for (const model of models) {
-      console.log("[WidgetBridge] Creating model:", model.commId);
       store.createModel(model.commId, model.state, model.buffers);
     }
-    console.log("[WidgetBridge] Store now has", store.getSnapshot().size, "models");
   }
 
   // Set up message listener
