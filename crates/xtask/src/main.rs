@@ -11,6 +11,13 @@ fn main() {
     }
 
     match args[0].as_str() {
+        "dev" => cmd_dev(),
+        "build" => cmd_build(),
+        "run" => {
+            let notebook = args.get(1).map(String::as_str);
+            cmd_run(notebook);
+        }
+        "watch-isolated" => cmd_watch_isolated(),
         "icons" => {
             let source = args.get(1).map(String::as_str);
             cmd_icons(source);
@@ -31,14 +38,76 @@ fn print_help() {
     eprintln!(
         "Usage: cargo xtask <COMMAND>
 
-Commands:
-  icons [source.png]  Generate icon variants from source image
-                      Default source: crates/notebook/icons/source.png
-  build-dmg           Build DMG with icons (runs icons, pnpm build, tauri build)
-  build-app           Build .app bundle with icons
-  help                Show this help message
+Development:
+  dev                   Start hot-reload dev server
+  build                 Quick debug build (no DMG)
+  run [notebook.ipynb]  Build and run debug app
+  watch-isolated        Watch and rebuild isolated renderer
+
+Release:
+  build-app             Build .app bundle with icons
+  build-dmg             Build DMG with icons (for CI)
+
+Other:
+  icons [source.png]    Generate icon variants
+  help                  Show this help
 "
     );
+}
+
+fn cmd_dev() {
+    // Build isolated renderer first (separate IIFE bundle, not part of Vite dev server)
+    println!("Building isolated renderer...");
+    run_cmd("pnpm", &["run", "isolated-renderer:build"]);
+
+    println!("Starting dev server with hot reload...");
+    run_cmd("cargo", &["tauri", "dev", "--", "-p", "notebook"]);
+}
+
+fn cmd_watch_isolated() {
+    println!("Watching isolated renderer for changes...");
+    println!("Reload app or open new notebook to see changes.");
+    run_cmd(
+        "pnpm",
+        &[
+            "vite",
+            "build",
+            "--watch",
+            "--config",
+            "src/isolated-renderer/vite.config.ts",
+        ],
+    );
+}
+
+fn cmd_build() {
+    // pnpm build runs: isolated-renderer + sidecar + notebook
+    println!("Building frontend (isolated-renderer, sidecar, notebook)...");
+    run_cmd("pnpm", &["build"]);
+
+    println!("Building debug binary (no bundle)...");
+    run_cmd(
+        "cargo",
+        &[
+            "tauri",
+            "build",
+            "--debug",
+            "--no-bundle",
+            "--config",
+            r#"{"build":{"beforeBuildCommand":""}}"#,
+        ],
+    );
+
+    println!("Build complete: ./target/debug/notebook");
+}
+
+fn cmd_run(notebook: Option<&str>) {
+    cmd_build();
+
+    println!("Running notebook app...");
+    match notebook {
+        Some(path) => run_cmd("./target/debug/notebook", &[path]),
+        None => run_cmd("./target/debug/notebook", &[]),
+    }
 }
 
 fn cmd_icons(source: Option<&str>) {

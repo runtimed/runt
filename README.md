@@ -92,33 +92,30 @@ pnpm build
 cargo build --release
 ```
 
-### UI development
+### Development workflows
 
-Both apps share components from `src/`. Changes there are reflected in both.
+| Workflow | Command | Use when |
+|----------|---------|----------|
+| Hot reload | `cargo xtask dev` | Iterating on React UI |
+| Debug build | `cargo xtask build` | Testing without dev server |
+| Build and run | `cargo xtask run notebook.ipynb` | Quick manual testing |
+| Release .app | `cargo xtask build-app` | Testing app bundle locally |
+| Release DMG | `cargo xtask build-dmg` | Distribution (usually CI) |
+
+**Hot reload** connects to Vite dev server (port 5174) for instant UI updates.
+
+**Debug builds** skip DMG creation for fast iteration. Ideal when:
+- Working with multiple worktrees (avoids port conflicts)
+- Testing Rust changes
+- Don't need hot reload
+
+### Sidecar UI development
 
 ```bash
-# Notebook UI with hot reload (runs Vite dev server + Tauri)
-cargo tauri dev -- -p notebook
-
-# Sidecar UI dev server (for styling/component work)
 pnpm --dir apps/sidecar dev
 ```
 
-### Running without the dev server
-
-When working with multiple worktrees or when you don't need Vite hot reload, build the frontend and run a debug Tauri build:
-
-```bash
-pnpm notebook:build && cargo tauri build --debug && ./target/debug/notebook
-```
-
-This avoids port conflicts since `cargo tauri dev` binds to a fixed port (5174) for the Vite dev server. The debug build uses the pre-built assets from `apps/notebook/dist/` instead of connecting to a dev server.
-
-To open a specific notebook:
-
-```bash
-./target/debug/notebook path/to/notebook.ipynb
-```
+Both apps share components from `src/`. Changes there are reflected in both.
 
 ### Adding shadcn components
 
