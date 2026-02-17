@@ -48,7 +48,8 @@ type PendingHistory = Arc<StdMutex<HashMap<String, tokio::sync::oneshot::Sender<
 /// Get the working directory for kernel processes.
 /// - If notebook_path is provided, uses its parent directory
 /// - If running from CLI (cwd is not `/`), uses the current working directory
-/// - Otherwise falls back to home directory, then temp directory
+/// - Otherwise falls back to ~/notebooks (creating it if needed)
+/// - If ~/notebooks creation fails, falls back to home directory, then temp directory
 fn kernel_cwd(notebook_path: Option<&std::path::Path>) -> std::path::PathBuf {
     // If notebook has a path, use its parent directory
     if let Some(parent) = notebook_path.and_then(|p| p.parent()) {
@@ -63,8 +64,17 @@ fn kernel_cwd(notebook_path: Option<&std::path::Path>) -> std::path::PathBuf {
         }
     }
 
-    // Fall back to home directory, then temp directory
-    dirs::home_dir().unwrap_or_else(std::env::temp_dir)
+    // Fall back to ~/notebooks, creating it if needed
+    if let Some(home) = dirs::home_dir() {
+        let notebooks_dir = home.join("notebooks");
+        match std::fs::create_dir(&notebooks_dir) {
+            Ok(()) => return notebooks_dir,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return notebooks_dir,
+            Err(_) => return home,
+        }
+    }
+
+    std::env::temp_dir()
 }
 
 #[derive(Serialize, Clone)]
