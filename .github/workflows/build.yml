@@ -106,8 +106,19 @@ jobs:
           pnpm run isolated-renderer:build
           pnpm --dir apps/notebook build
 
+      - name: Cache cargo bin
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: cargo-bin-ubuntu-tauri-cli-tauri-driver-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-bin-ubuntu-tauri-cli-tauri-driver-
+
       - name: Install tauri-cli and tauri-driver
-        run: cargo install tauri-cli tauri-driver --locked
+        run: |
+          if ! command -v cargo-tauri &> /dev/null || ! command -v tauri-driver &> /dev/null; then
+            cargo install tauri-cli tauri-driver --locked
+          fi
 
       - name: Build Tauri app
         run: cd crates/notebook && cargo tauri build --ci --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
