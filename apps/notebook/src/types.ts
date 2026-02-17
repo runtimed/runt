@@ -78,6 +78,21 @@ export type EnvProgressPhase =
   | { phase: "solving"; spec_count: number }
   | { phase: "solve_complete"; package_count: number; elapsed_ms: number }
   | { phase: "installing"; total: number }
+  | {
+      phase: "download_progress";
+      completed: number;
+      total: number;
+      current_package: string;
+      bytes_downloaded: number;
+      bytes_total: number | null;
+      bytes_per_second: number;
+    }
+  | {
+      phase: "link_progress";
+      completed: number;
+      total: number;
+      current_package: string;
+    }
   | { phase: "install_complete"; elapsed_ms: number }
   | { phase: "ready"; env_path: string; python_path: string }
   | { phase: "error"; message: string };
@@ -85,3 +100,16 @@ export type EnvProgressPhase =
 export type EnvProgressEvent = EnvProgressPhase & {
   env_type: "conda" | "uv";
 };
+
+// pixi.toml detection info
+export interface PixiInfo {
+  path: string;
+  relative_path: string;
+  workspace_name: string | null;
+  has_dependencies: boolean;
+  dependency_count: number;
+  has_pypi_dependencies: boolean;
+  pypi_dependency_count: number;
+  python: string | null;
+  channels: string[];
+}

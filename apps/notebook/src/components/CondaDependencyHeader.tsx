@@ -1,5 +1,7 @@
 import { useState, useCallback, type KeyboardEvent } from "react";
-import { X, Plus, Info } from "lucide-react";
+import { X, Plus, Info, AlertCircle } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import type { EnvProgressState } from "../hooks/useEnvProgress";
 
 interface CondaDependencyHeaderProps {
   dependencies: string[];
@@ -12,6 +14,10 @@ interface CondaDependencyHeaderProps {
   onRemove: (pkg: string) => Promise<void>;
   onSetChannels: (channels: string[]) => Promise<void>;
   onSetPython: (python: string | null) => Promise<void>;
+  /** Environment preparation progress state */
+  envProgress?: EnvProgressState | null;
+  /** Callback to reset/dismiss error state */
+  onResetProgress?: () => void;
 }
 
 export function CondaDependencyHeader({
@@ -25,6 +31,8 @@ export function CondaDependencyHeader({
   onRemove,
   onSetChannels,
   onSetPython,
+  envProgress,
+  onResetProgress,
 }: CondaDependencyHeaderProps) {
   const [newDep, setNewDep] = useState("");
   const [newChannel, setNewChannel] = useState("");
@@ -75,6 +83,12 @@ export function CondaDependencyHeader({
   // Default channels if none specified
   const displayChannels = channels.length > 0 ? channels : ["conda-forge"];
 
+  // Calculate progress percentage
+  const progressPercent =
+    envProgress?.progress && envProgress.progress.total > 0
+      ? (envProgress.progress.completed / envProgress.progress.total) * 100
+      : 0;
+
   return (
     <div className="border-b bg-emerald-50/50 dark:bg-emerald-950/20">
       <div className="px-3 py-3">
@@ -84,6 +98,53 @@ export function CondaDependencyHeader({
             conda
           </span>
         </div>
+
+        {/* Environment preparation progress */}
+        {envProgress?.isActive && (
+          <div className="mb-3 rounded bg-emerald-500/10 px-2 py-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-emerald-700 dark:text-emerald-400 truncate">
+                {envProgress.statusText}
+              </span>
+              {envProgress.progress && (
+                <span className="text-xs text-emerald-600 dark:text-emerald-500 ml-2 shrink-0">
+                  {envProgress.progress.completed}/{envProgress.progress.total}
+                </span>
+              )}
+            </div>
+            {envProgress.progress && (
+              <Progress
+                value={progressPercent}
+                className="h-1.5 bg-emerald-200 dark:bg-emerald-900"
+              />
+            )}
+          </div>
+        )}
+
+        {/* Error banner - persists until dismissed */}
+        {envProgress?.error && (
+          <div className="mb-3 rounded bg-red-500/10 border border-red-200 dark:border-red-900 px-2 py-2">
+            <div className="flex items-start gap-2 text-xs text-red-700 dark:text-red-400">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="font-medium">Environment creation failed</div>
+                <pre className="mt-1 whitespace-pre-wrap font-mono text-[10px] opacity-80 overflow-x-auto">
+                  {envProgress.error}
+                </pre>
+              </div>
+              {onResetProgress && (
+                <button
+                  type="button"
+                  onClick={onResetProgress}
+                  className="text-red-500 hover:text-red-700 dark:hover:text-red-300 shrink-0"
+                  title="Dismiss"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Sync notice */}
         {syncedWhileRunning && (

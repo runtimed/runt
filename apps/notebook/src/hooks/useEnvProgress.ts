@@ -15,6 +15,23 @@ export interface EnvProgressState {
   statusText: string;
   /** Elapsed time for current/last operation in ms */
   elapsedMs: number | null;
+  /** Progress tracking for download/install phases */
+  progress: { completed: number; total: number } | null;
+  /** Download speed in bytes per second */
+  bytesPerSecond: number | null;
+  /** Current package being processed */
+  currentPackage: string | null;
+}
+
+/** Format bytes as human-readable string */
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  }
+  if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(1)} KiB`;
+  }
+  return `${bytes} B`;
 }
 
 function getStatusText(event: EnvProgressEvent): string {
@@ -44,6 +61,21 @@ function getStatusText(event: EnvProgressEvent): string {
       const e = event as Extract<EnvProgressPhase, { phase: "installing" }>;
       return `Installing ${e.total} packages...`;
     }
+    case "download_progress": {
+      const e = event as Extract<EnvProgressPhase, { phase: "download_progress" }>;
+      const speed = formatBytes(e.bytes_per_second) + "/s";
+      if (e.current_package) {
+        return `Downloading ${e.completed}/${e.total} ${e.current_package} @ ${speed}`;
+      }
+      return `Downloading ${e.completed}/${e.total} @ ${speed}`;
+    }
+    case "link_progress": {
+      const e = event as Extract<EnvProgressPhase, { phase: "link_progress" }>;
+      if (e.current_package) {
+        return `Installing ${e.completed}/${e.total} ${e.current_package}`;
+      }
+      return `Installing ${e.completed}/${e.total}`;
+    }
     case "install_complete":
       return "Installation complete";
     case "ready":
@@ -57,6 +89,21 @@ function getStatusText(event: EnvProgressEvent): string {
   }
 }
 
+function extractProgress(
+  event: EnvProgressEvent
+): { completed: number; total: number } | null {
+  const phase = event.phase;
+  if (phase === "download_progress") {
+    const e = event as Extract<EnvProgressPhase, { phase: "download_progress" }>;
+    return { completed: e.completed, total: e.total };
+  }
+  if (phase === "link_progress") {
+    const e = event as Extract<EnvProgressPhase, { phase: "link_progress" }>;
+    return { completed: e.completed, total: e.total };
+  }
+  return null;
+}
+
 export function useEnvProgress() {
   const [state, setState] = useState<EnvProgressState>({
     isActive: false,
@@ -65,6 +112,9 @@ export function useEnvProgress() {
     error: null,
     statusText: "",
     elapsedMs: null,
+    progress: null,
+    bytesPerSecond: null,
+    currentPackage: null,
   });
 
   useEffect(() => {
@@ -75,8 +125,11 @@ export function useEnvProgress() {
 
       const payload = event.payload;
       const phase = payload.phase;
-      const isTerminal = phase === "ready" || phase === "error" || phase === "cache_hit";
-      const error = phase === "error"
+      // Only "ready" and "cache_hit" are terminal success states
+      // "error" is terminal but we keep error visible
+      const isTerminalSuccess = phase === "ready" || phase === "cache_hit";
+      const isError = phase === "error";
+      const error = isError
         ? (payload as Extract<EnvProgressPhase, { phase: "error" }>).message
         : null;
 
@@ -86,14 +139,39 @@ export function useEnvProgress() {
         elapsedMs = payload.elapsed_ms;
       }
 
-      setState({
-        isActive: !isTerminal,
+      // Extract progress from download/link phases
+      const progress = extractProgress(payload);
+
+      // Extract bytes per second from download phase
+      let bytesPerSecond: number | null = null;
+      if (phase === "download_progress") {
+        const e = payload as Extract<EnvProgressPhase, { phase: "download_progress" }>;
+        bytesPerSecond = e.bytes_per_second;
+      }
+
+      // Extract current package
+      let currentPackage: string | null = null;
+      if (phase === "download_progress") {
+        const e = payload as Extract<EnvProgressPhase, { phase: "download_progress" }>;
+        currentPackage = e.current_package || null;
+      } else if (phase === "link_progress") {
+        const e = payload as Extract<EnvProgressPhase, { phase: "link_progress" }>;
+        currentPackage = e.current_package || null;
+      }
+
+      setState((prev) => ({
+        // Keep active until success; errors stay visible until reset
+        isActive: !isTerminalSuccess && !isError,
         phase,
         envType: payload.env_type,
-        error,
+        // Keep previous error if we're in error state and don't have a new error
+        error: error ?? (isError ? prev.error : null),
         statusText: getStatusText(payload),
         elapsedMs,
-      });
+        progress,
+        bytesPerSecond,
+        currentPackage,
+      }));
     });
 
     return () => {
@@ -110,6 +188,9 @@ export function useEnvProgress() {
       error: null,
       statusText: "",
       elapsedMs: null,
+      progress: null,
+      bytesPerSecond: null,
+      currentPackage: null,
     });
   }, []);
 

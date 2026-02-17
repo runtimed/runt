@@ -431,6 +431,8 @@ onKernelStarted: loadCondaDependencies,
           onRemove={removeCondaDependency}
           onSetChannels={setCondaChannels}
           onSetPython={setCondaPython}
+          envProgress={envProgress.envType === "conda" ? envProgress : null}
+          onResetProgress={envProgress.reset}
         />
       )}
       {dependencyHeaderOpen && runtime === "python" && envType !== "conda" && (

@@ -7,18 +7,21 @@ use anyhow::{anyhow, Result};
 use log::info;
 use rattler::{
     default_cache_dir,
-    install::Installer,
+    install::{Installer, Reporter, Transaction},
     package_cache::PackageCache,
 };
 use rattler_conda_types::{
     Channel, ChannelConfig, GenericVirtualPackage, MatchSpec, ParseMatchSpecOptions, Platform,
-    PrefixRecord,
+    PrefixRecord, RepoDataRecord,
 };
 use rattler_repodata_gateway::Gateway;
 use rattler_solve::{resolvo, SolverImpl, SolverTask};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::RwLock;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
@@ -39,8 +42,32 @@ pub enum EnvProgressPhase {
     Solving { spec_count: usize },
     /// Solve complete
     SolveComplete { package_count: usize, elapsed_ms: u64 },
-    /// Installing packages
+    /// Installing packages (legacy phase, kept for backward compat)
     Installing { total: usize },
+    /// Download progress for individual packages
+    DownloadProgress {
+        /// Number of packages fully downloaded
+        completed: usize,
+        /// Total number of packages to download
+        total: usize,
+        /// Name of the package currently being downloaded
+        current_package: String,
+        /// Total bytes downloaded so far
+        bytes_downloaded: u64,
+        /// Total bytes to download (if known)
+        bytes_total: Option<u64>,
+        /// Current download speed in bytes per second
+        bytes_per_second: f64,
+    },
+    /// Linking/installing packages into the environment
+    LinkProgress {
+        /// Number of packages fully linked
+        completed: usize,
+        /// Total number of packages to link
+        total: usize,
+        /// Name of the package currently being linked
+        current_package: String,
+    },
     /// Installation complete
     InstallComplete { elapsed_ms: u64 },
     /// Environment is ready
@@ -67,6 +94,244 @@ fn emit_progress(app: Option<&AppHandle>, phase: EnvProgressPhase) {
         if let Err(e) = app.emit("env:progress", &event) {
             log::warn!("Failed to emit env:progress event: {}", e);
         }
+    }
+}
+
+/// Reporter implementation for tracking installation progress.
+///
+/// This implements the rattler Reporter trait to provide granular progress
+/// updates during package download and installation.
+pub struct ProgressReporter {
+    app: Option<AppHandle>,
+    /// Total packages to download
+    total_downloads: AtomicUsize,
+    /// Number of packages fully downloaded
+    downloaded_packages: AtomicUsize,
+    /// Total bytes downloaded across all packages
+    bytes_downloaded: AtomicU64,
+    /// Total bytes to download (if known)
+    bytes_total: AtomicU64,
+    /// When downloading started
+    download_start: RwLock<Option<Instant>>,
+    /// Total packages to link
+    total_to_link: AtomicUsize,
+    /// Number of packages fully linked
+    linked_packages: AtomicUsize,
+    /// Package names indexed by operation/cache index
+    package_names: RwLock<HashMap<usize, String>>,
+    /// Current package being downloaded
+    current_download: RwLock<Option<String>>,
+    /// Last time we emitted a download progress event (for throttling)
+    last_download_emit: RwLock<Option<Instant>>,
+}
+
+impl ProgressReporter {
+    /// Create a new progress reporter.
+    pub fn new(app: Option<AppHandle>) -> Self {
+        Self {
+            app,
+            total_downloads: AtomicUsize::new(0),
+            downloaded_packages: AtomicUsize::new(0),
+            bytes_downloaded: AtomicU64::new(0),
+            bytes_total: AtomicU64::new(0),
+            download_start: RwLock::new(None),
+            total_to_link: AtomicUsize::new(0),
+            linked_packages: AtomicUsize::new(0),
+            package_names: RwLock::new(HashMap::new()),
+            current_download: RwLock::new(None),
+            last_download_emit: RwLock::new(None),
+        }
+    }
+
+    /// Emit download progress (throttled to avoid flooding)
+    fn emit_download_progress(&self) {
+        // Throttle to at most once per 100ms
+        {
+            let mut last_emit = self.last_download_emit.write().unwrap();
+            if let Some(last) = *last_emit {
+                if last.elapsed().as_millis() < 100 {
+                    return;
+                }
+            }
+            *last_emit = Some(Instant::now());
+        }
+
+        let completed = self.downloaded_packages.load(Ordering::SeqCst);
+        let total = self.total_downloads.load(Ordering::SeqCst);
+        let bytes_downloaded = self.bytes_downloaded.load(Ordering::SeqCst);
+        let bytes_total = self.bytes_total.load(Ordering::SeqCst);
+
+        let current_package = self
+            .current_download
+            .read()
+            .unwrap()
+            .clone()
+            .unwrap_or_default();
+
+        // Calculate speed
+        let bytes_per_second = {
+            let start = self.download_start.read().unwrap();
+            match *start {
+                Some(s) => {
+                    let elapsed = s.elapsed().as_secs_f64();
+                    if elapsed > 0.0 {
+                        bytes_downloaded as f64 / elapsed
+                    } else {
+                        0.0
+                    }
+                }
+                None => 0.0,
+            }
+        };
+
+        emit_progress(
+            self.app.as_ref(),
+            EnvProgressPhase::DownloadProgress {
+                completed,
+                total,
+                current_package,
+                bytes_downloaded,
+                bytes_total: if bytes_total > 0 {
+                    Some(bytes_total)
+                } else {
+                    None
+                },
+                bytes_per_second,
+            },
+        );
+    }
+
+    /// Emit link progress
+    fn emit_link_progress(&self, current_package: String) {
+        let completed = self.linked_packages.load(Ordering::SeqCst);
+        let total = self.total_to_link.load(Ordering::SeqCst);
+
+        emit_progress(
+            self.app.as_ref(),
+            EnvProgressPhase::LinkProgress {
+                completed,
+                total,
+                current_package,
+            },
+        );
+    }
+}
+
+impl Reporter for ProgressReporter {
+    fn on_transaction_start(&self, transaction: &Transaction<PrefixRecord, RepoDataRecord>) {
+        let total = transaction.operations.len();
+        self.total_to_link.store(total, Ordering::SeqCst);
+
+        // Count how many packages need to be downloaded (rough estimate)
+        // The actual count may be less if packages are cached
+        self.total_downloads.store(total, Ordering::SeqCst);
+
+        // Initialize download start time
+        *self.download_start.write().unwrap() = Some(Instant::now());
+    }
+
+    fn on_transaction_operation_start(&self, _operation: usize) {
+        // Called when an operation (unlink or link) starts
+    }
+
+    fn on_populate_cache_start(&self, cache_entry: usize, record: &RepoDataRecord) -> usize {
+        // Store the package name for later reference
+        let name = record.package_record.name.as_source().to_string();
+        self.package_names.write().unwrap().insert(cache_entry, name);
+        cache_entry
+    }
+
+    fn on_validate_start(&self, cache_entry: usize) -> usize {
+        cache_entry
+    }
+
+    fn on_validate_complete(&self, _validate_idx: usize) {
+        // Validation complete - package was already in cache
+    }
+
+    fn on_download_start(&self, cache_entry: usize) -> usize {
+        // Set current download package
+        let name = self
+            .package_names
+            .read()
+            .unwrap()
+            .get(&cache_entry)
+            .cloned()
+            .unwrap_or_default();
+        *self.current_download.write().unwrap() = Some(name);
+        cache_entry
+    }
+
+    fn on_download_progress(&self, _download_idx: usize, progress: u64, total: Option<u64>) {
+        self.bytes_downloaded.fetch_add(progress, Ordering::SeqCst);
+        if let Some(t) = total {
+            // Update total if provided (first call usually has it)
+            let current_total = self.bytes_total.load(Ordering::SeqCst);
+            if current_total == 0 {
+                self.bytes_total.store(t, Ordering::SeqCst);
+            }
+        }
+        self.emit_download_progress();
+    }
+
+    fn on_download_completed(&self, _download_idx: usize) {
+        self.downloaded_packages.fetch_add(1, Ordering::SeqCst);
+        self.emit_download_progress();
+    }
+
+    fn on_populate_cache_complete(&self, _cache_entry: usize) {
+        // Cache population complete (either validated or downloaded)
+    }
+
+    fn on_unlink_start(&self, operation: usize, _record: &PrefixRecord) -> usize {
+        operation
+    }
+
+    fn on_unlink_complete(&self, _index: usize) {
+        // Unlink complete
+    }
+
+    fn on_link_start(&self, operation: usize, record: &RepoDataRecord) -> usize {
+        let name = record.package_record.name.as_source().to_string();
+        self.package_names.write().unwrap().insert(operation, name.clone());
+        self.emit_link_progress(name);
+        operation
+    }
+
+    fn on_link_complete(&self, index: usize) {
+        self.linked_packages.fetch_add(1, Ordering::SeqCst);
+        let name = self
+            .package_names
+            .read()
+            .unwrap()
+            .get(&index)
+            .cloned()
+            .unwrap_or_default();
+        self.emit_link_progress(name);
+    }
+
+    fn on_transaction_operation_complete(&self, _operation: usize) {
+        // Operation complete
+    }
+
+    fn on_transaction_complete(&self) {
+        // Transaction complete - all packages installed
+    }
+
+    fn on_post_link_start(&self, _package_name: &str, _script_path: &str) -> usize {
+        0
+    }
+
+    fn on_post_link_complete(&self, _index: usize, _success: bool) {
+        // Post-link script complete
+    }
+
+    fn on_pre_unlink_start(&self, _package_name: &str, _script_path: &str) -> usize {
+        0
+    }
+
+    fn on_pre_unlink_complete(&self, _index: usize, _success: bool) {
+        // Pre-unlink script complete
     }
 }
 
@@ -391,10 +656,14 @@ pub async fn prepare_environment(
     info!("Installing packages to {:?}", env_path);
     emit_progress(app, EnvProgressPhase::Installing { total: required_packages.len() });
 
+    // Create progress reporter for granular progress updates
+    let reporter = ProgressReporter::new(app.cloned());
+
     let install_start = Instant::now();
     let _result = match Installer::new()
         .with_download_client(download_client)
         .with_target_platform(install_platform)
+        .with_reporter(reporter)
         .install(&env_path, required_packages)
         .await
     {

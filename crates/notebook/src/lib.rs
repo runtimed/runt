@@ -5,6 +5,7 @@ pub mod execution_queue;
 pub mod kernel;
 pub mod menu;
 pub mod notebook_state;
+pub mod pixi;
 pub mod pyproject;
 pub mod runtime;
 pub mod settings;
@@ -1559,6 +1560,92 @@ async fn start_kernel_with_pyproject(
         .map_err(|e| e.to_string())
 }
 
+// ============================================================================
+// pixi.toml Discovery and Environment Commands
+// ============================================================================
+
+/// Detect pixi.toml near the notebook and return info about it.
+#[tauri::command]
+async fn detect_pixi_toml(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<Option<pixi::PixiInfo>, String> {
+    let notebook_path = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        state.path.clone()
+    };
+
+    // Need a notebook path to search from
+    let Some(notebook_path) = notebook_path else {
+        return Ok(None);
+    };
+
+    // Find pixi.toml walking up from notebook directory
+    let Some(pixi_path) = pixi::find_pixi_toml(&notebook_path) else {
+        return Ok(None);
+    };
+
+    // Parse and create info
+    let config = pixi::parse_pixi_toml(&pixi_path).map_err(|e| e.to_string())?;
+    let info = pixi::create_pixi_info(&config, &notebook_path);
+
+    info!(
+        "Detected pixi.toml at {} with {} dependencies",
+        info.relative_path, info.dependency_count
+    );
+
+    Ok(Some(info))
+}
+
+/// Full pixi dependencies for display in the UI.
+#[derive(Serialize)]
+struct PixiDepsJson {
+    path: String,
+    relative_path: String,
+    workspace_name: Option<String>,
+    dependencies: Vec<String>,
+    pypi_dependencies: Vec<String>,
+    python: Option<String>,
+    channels: Vec<String>,
+}
+
+/// Get full parsed dependencies from the detected pixi.toml.
+#[tauri::command]
+async fn get_pixi_dependencies(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<Option<PixiDepsJson>, String> {
+    let notebook_path = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        state.path.clone()
+    };
+
+    let Some(notebook_path) = notebook_path else {
+        return Ok(None);
+    };
+
+    let Some(pixi_path) = pixi::find_pixi_toml(&notebook_path) else {
+        return Ok(None);
+    };
+
+    let config = pixi::parse_pixi_toml(&pixi_path).map_err(|e| e.to_string())?;
+
+    let relative_path = pathdiff::diff_paths(
+        &config.path,
+        notebook_path.parent().unwrap_or(&notebook_path),
+    )
+    .map(|p| p.display().to_string())
+    .unwrap_or_else(|| config.path.display().to_string());
+
+    Ok(Some(PixiDepsJson {
+        path: config.path.display().to_string(),
+        relative_path,
+        workspace_name: config.workspace_name,
+        dependencies: config.dependencies,
+        pypi_dependencies: config.pypi_dependencies,
+        python: config.python,
+        channels: config.channels,
+    }))
+}
+
 // ========== Deno kernel support ==========
 
 /// Check if Deno is available on the system
@@ -1885,6 +1972,9 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
             get_pyproject_dependencies,
             import_pyproject_dependencies,
             start_kernel_with_pyproject,
+            // pixi.toml support
+            detect_pixi_toml,
+            get_pixi_dependencies,
             // Trust verification
             verify_notebook_trust,
             approve_notebook_trust,
