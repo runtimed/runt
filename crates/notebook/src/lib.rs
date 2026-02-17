@@ -23,6 +23,7 @@ use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, RunEvent};
 use tokio::sync::mpsc;
@@ -633,6 +634,27 @@ async fn is_kernel_running(
 ) -> Result<bool, String> {
     let kernel = kernel_state.lock().await;
     Ok(kernel.is_running())
+}
+
+/// Get the current kernel lifecycle state for frontend status display.
+/// Returns "launching" if auto-launch is in progress, "running" if kernel is running,
+/// or "not_started" otherwise.
+#[tauri::command]
+async fn get_kernel_lifecycle(
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
+    auto_launch_in_progress: tauri::State<'_, Arc<AtomicBool>>,
+) -> Result<String, String> {
+    // Check if auto-launch is in progress first
+    if auto_launch_in_progress.load(Ordering::SeqCst) {
+        return Ok("launching".to_string());
+    }
+    // Then check if kernel is running
+    let kernel = kernel_state.lock().await;
+    if kernel.is_running() {
+        Ok("running".to_string())
+    } else {
+        Ok("not_started".to_string())
+    }
 }
 
 /// Check if the running kernel has a uv-managed environment.
@@ -1780,6 +1802,9 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
     let env_pool: env_pool::SharedEnvPool =
         Arc::new(tokio::sync::Mutex::new(env_pool::EnvPool::new(env_pool::PoolConfig::default())));
 
+    // Track auto-launch state for frontend to query
+    let auto_launch_in_progress = Arc::new(AtomicBool::new(false));
+
     // Clone for setup closure
     let queue_for_processor = queue.clone();
     let notebook_for_processor = notebook_state.clone();
@@ -1790,6 +1815,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
     let notebook_for_autolaunch = notebook_state.clone();
     let kernel_for_autolaunch = kernel_state.clone();
     let pool_for_autolaunch = env_pool.clone();
+    let auto_launch_flag = auto_launch_in_progress.clone();
 
     // Clone for lifecycle event handlers
     let kernel_for_window_event = kernel_state.clone();
@@ -1803,6 +1829,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
         .manage(kernel_state)
         .manage(queue)
         .manage(env_pool)
+        .manage(auto_launch_in_progress)
         .invoke_handler(tauri::generate_handler![
             load_notebook,
             has_notebook_path,
@@ -1835,6 +1862,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
             start_kernel_with_uv,
             start_default_uv_kernel,
             is_kernel_running,
+            get_kernel_lifecycle,
             kernel_has_uv_env,
             get_env_sync_state,
             sync_kernel_dependencies,
@@ -1949,6 +1977,9 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
                     }
                 }
 
+                // Set auto-launch flag so frontend can query state
+                auto_launch_flag.store(true, Ordering::SeqCst);
+
                 // Emit lifecycle event so frontend can show "Starting" status
                 let lifecycle_event = KernelLifecycleEvent {
                     state: "launching".to_string(),
@@ -1987,6 +2018,9 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
                         }
                     }
                 }
+
+                // Clear auto-launch flag when done
+                auto_launch_flag.store(false, Ordering::SeqCst);
             });
 
             Ok(())

@@ -81,6 +81,17 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
   useEffect(() => {
     let cancelled = false;
 
+    // Query initial kernel lifecycle state to handle race condition
+    // where backend may have already started launching before we set up listeners
+    invoke<string>("get_kernel_lifecycle").then((state) => {
+      if (cancelled) return;
+      if (state === "launching") {
+        setKernelStatus("starting");
+      } else if (state === "running") {
+        setKernelStatus("idle");
+      }
+    });
+
     // Listen for page payloads from introspection (? and ??)
     const pageUnlisten = listen<PagePayloadEvent>("kernel:page_payload", (event) => {
       if (cancelled) return;
