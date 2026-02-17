@@ -157,13 +157,51 @@ function AppContent() {
     : hasUvDependencies || hasCondaDependencies;
 
   // Get widget store handler for routing comm messages
-  const { handleMessage: handleWidgetMessage } = useWidgetStoreRequired();
+  const {
+    handleMessage: handleWidgetMessage,
+    store: widgetStore,
+    sendUpdate: sendWidgetUpdate,
+  } = useWidgetStoreRequired();
 
   const handleOutput = useCallback(
-    (cellId: string, output: JupyterOutput) => {
+    (
+      cellId: string,
+      output: JupyterOutput,
+      meta?: { parentMsgId?: string }
+    ) => {
+      const parentMsgId = meta?.parentMsgId;
+      let capturedByOutputWidget = false;
+
+      // ipywidgets OutputModel uses `msg_id` to capture regular IOPub outputs.
+      // Route matching outputs into OutputModel.state.outputs and sync to kernel.
+      if (parentMsgId) {
+        for (const [commId, model] of widgetStore.getSnapshot()) {
+          const isOutputModel =
+            model.modelName === "OutputModel" ||
+            model.modelModule === "@jupyter-widgets/output";
+          if (!isOutputModel) continue;
+
+          const modelMsgId =
+            typeof model.state.msg_id === "string" ? model.state.msg_id : undefined;
+          if (modelMsgId !== parentMsgId) continue;
+
+          const currentOutputs = Array.isArray(model.state.outputs)
+            ? (model.state.outputs as JupyterOutput[])
+            : [];
+          const nextOutputs = [...currentOutputs, output];
+
+          sendWidgetUpdate(commId, { outputs: nextOutputs });
+          capturedByOutputWidget = true;
+        }
+      }
+
+      if (capturedByOutputWidget) {
+        return;
+      }
+
       appendOutput(cellId, output);
     },
-    [appendOutput]
+    [appendOutput, sendWidgetUpdate, widgetStore]
   );
 
   const handleExecutionCount = useCallback(

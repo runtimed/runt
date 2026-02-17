@@ -75,7 +75,6 @@ export interface WidgetBridgeClient {
  * - Methods to send iframe → parent messages
  */
 export function createWidgetBridgeClient(): WidgetBridgeClient {
-  const ENABLE_OUTPUT_DEBUG = true;
   // Create local widget store
   const store = createWidgetStore();
 
@@ -114,37 +113,10 @@ export function createWidgetBridgeClient(): WidgetBridgeClient {
   function handleCommOpen(msg: CommOpenMessage) {
     const { commId, state, buffers } = msg.payload;
     store.createModel(commId, state, buffers);
-    if (
-      ENABLE_OUTPUT_DEBUG &&
-      ((state._model_name as string | undefined) === "OutputModel" ||
-        (state._model_module as string | undefined) === "@jupyter-widgets/output")
-    ) {
-      console.log("[OutputDebug TEMP][WidgetBridge iframe] comm_open OutputModel", {
-        commId,
-        stateKeys: Object.keys(state),
-      });
-    }
   }
 
   function handleCommMsg(msg: CommMsgMessage) {
     const { commId, method, data, buffers } = msg.payload;
-    const model = store.getModel(commId);
-    const isOutputModel =
-      model?.modelName === "OutputModel" ||
-      model?.modelModule === "@jupyter-widgets/output";
-    if (ENABLE_OUTPUT_DEBUG && isOutputModel) {
-      console.log("[OutputDebug TEMP][WidgetBridge iframe] comm_msg", {
-        commId,
-        method,
-        dataKeys: Object.keys(data),
-        hasOutputs: "outputs" in data,
-        customMethod:
-          method === "custom" && typeof data.method === "string"
-            ? data.method
-            : null,
-        bufferCount: buffers?.length ?? 0,
-      });
-    }
 
     if (method === "update") {
       // State update from kernel

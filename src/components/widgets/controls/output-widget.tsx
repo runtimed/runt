@@ -17,7 +17,6 @@ import {
   useWidgetModelValue,
   useWidgetStoreRequired,
 } from "../widget-store-context";
-const ENABLE_OUTPUT_DEBUG = true;
 
 interface OutputCustomMessage {
   method?: unknown;
@@ -37,7 +36,7 @@ function isJupyterOutput(value: unknown): value is JupyterOutput {
 }
 
 export function OutputWidget({ modelId, className }: WidgetComponentProps) {
-  const { store } = useWidgetStoreRequired();
+  const { store, sendUpdate } = useWidgetStoreRequired();
   const stateOutputs =
     useWidgetModelValue<JupyterOutput[]>(modelId, "outputs") ?? [];
   const stateOutputsRef = useRef(stateOutputs);
@@ -45,17 +44,17 @@ export function OutputWidget({ modelId, className }: WidgetComponentProps) {
   const [renderedOutputs, setRenderedOutputs] = useState<JupyterOutput[]>(
     stateOutputs
   );
+  const renderedOutputsRef = useRef(renderedOutputs);
 
   useEffect(() => {
     stateOutputsRef.current = stateOutputs;
+    renderedOutputsRef.current = stateOutputs;
     setRenderedOutputs(stateOutputs);
-    if (ENABLE_OUTPUT_DEBUG) {
-      console.log("[OutputDebug TEMP][OutputWidget] state.outputs sync", {
-        modelId,
-        stateOutputsLength: stateOutputs.length,
-      });
-    }
   }, [stateOutputs]);
+
+  useEffect(() => {
+    renderedOutputsRef.current = renderedOutputs;
+  }, [renderedOutputs]);
 
   useEffect(() => {
     let replayingBufferedMessages = true;
@@ -72,18 +71,15 @@ export function OutputWidget({ modelId, className }: WidgetComponentProps) {
       }
 
       if (method === "clear_output") {
-        if (ENABLE_OUTPUT_DEBUG) {
-          console.log("[OutputDebug TEMP][OutputWidget] custom clear_output", {
-            modelId,
-            wait: Boolean(message.wait),
-          });
-        }
         const wait = Boolean(message.wait);
         if (wait) {
           shouldClearOnNextOutputRef.current = true;
         } else {
           shouldClearOnNextOutputRef.current = false;
+          renderedOutputsRef.current = [];
           setRenderedOutputs([]);
+          // Keep Python-side `out.outputs` in sync with displayed output state.
+          sendUpdate(modelId, { outputs: [] });
         }
         return;
       }
@@ -92,26 +88,21 @@ export function OutputWidget({ modelId, className }: WidgetComponentProps) {
         return;
       }
       const nextOutput: JupyterOutput = message.output;
-      if (ENABLE_OUTPUT_DEBUG) {
-        console.log("[OutputDebug TEMP][OutputWidget] custom output", {
-          modelId,
-          outputType: nextOutput.output_type,
-          clearOnNext: shouldClearOnNextOutputRef.current,
-        });
-      }
 
-      setRenderedOutputs((prev) => {
-        if (shouldClearOnNextOutputRef.current) {
-          shouldClearOnNextOutputRef.current = false;
-          return [nextOutput];
-        }
-        return [...prev, nextOutput];
-      });
+      const prev = renderedOutputsRef.current;
+      const next = shouldClearOnNextOutputRef.current
+        ? [nextOutput]
+        : [...prev, nextOutput];
+      shouldClearOnNextOutputRef.current = false;
+      renderedOutputsRef.current = next;
+      setRenderedOutputs(next);
+      // Keep Python-side `out.outputs` in sync with displayed output state.
+      sendUpdate(modelId, { outputs: next });
     });
 
     replayingBufferedMessages = false;
     return unsubscribe;
-  }, [modelId, store]);
+  }, [modelId, sendUpdate, store]);
 
   if (renderedOutputs.length === 0) {
     return null;
