@@ -41,6 +41,14 @@ jobs:
       - name: Enable corepack
         run: corepack enable
 
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
       - name: Install JS dependencies
         run: pnpm install
 
@@ -103,6 +111,14 @@ jobs:
       - name: Enable corepack
         run: corepack enable
 
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
       - name: Install JS dependencies
         run: pnpm install
 
@@ -163,14 +179,33 @@ jobs:
       - name: Enable corepack
         run: corepack enable
 
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
       - name: Install JS dependencies
         run: pnpm install
 
       - name: Build frontend
         run: pnpm build
 
+      - name: Cache cargo bin
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: cargo-bin-macos-arm64-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-bin-macos-arm64-tauri-cli-
+
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --locked
+        run: |
+          if ! command -v cargo-tauri &> /dev/null; then
+            cargo install tauri-cli --locked
+          fi
 
       - name: Import Apple signing certificate
         env:
@@ -262,14 +297,33 @@ jobs:
       - name: Enable corepack
         run: corepack enable
 
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
       - name: Install JS dependencies
         run: pnpm install
 
       - name: Build frontend
         run: pnpm build
 
+      - name: Cache cargo bin
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: cargo-bin-macos-x64-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-bin-macos-x64-tauri-cli-
+
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --locked
+        run: |
+          if ! command -v cargo-tauri &> /dev/null; then
+            cargo install tauri-cli --locked
+          fi
 
       - name: Import Apple signing certificate
         env:
