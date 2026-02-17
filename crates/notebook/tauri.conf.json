@@ -36,7 +36,8 @@
         "ext": ["ipynb"],
         "mimeType": "application/x-ipynb+json",
         "name": "Jupyter Notebook",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "icons/icon.icns"
       }
     ]
   }
