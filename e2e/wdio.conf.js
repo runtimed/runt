@@ -33,7 +33,7 @@ export const config = {
   hostname: process.env.WEBDRIVER_HOST || "localhost",
   port: parseInt(process.env.WEBDRIVER_PORT || "4444", 10),
 
-  logLevel: "info",
+  logLevel: "warn",
 
   // Timeouts
   waitforTimeout: 10000,
