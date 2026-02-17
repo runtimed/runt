@@ -47,3 +47,11 @@ __pycache__/
 
 # E2E test screenshots
 e2e-screenshots/
+
+# Generated Tauri icons (keep source + build-required files)
+# Ignore platform-specific icons not needed for macOS/Linux/Windows build
+crates/notebook/icons/64x64.png
+crates/notebook/icons/Square*.png
+crates/notebook/icons/StoreLogo.png
+crates/notebook/icons/android/
+crates/notebook/icons/ios/
