@@ -925,7 +925,7 @@ describe("CommBridgeManager", () => {
       expect(commMsg.payload.data).toHaveProperty("value", 999);
     });
 
-    it("detects changed object references (shallow comparison)", () => {
+    it("does not send update for object-only reference changes with same content", () => {
       const obj1 = { nested: 1 };
       const models = new Map<string, WidgetModel>([
         ["comm-1", createModel("comm-1", { obj: obj1 })],
@@ -956,9 +956,7 @@ describe("CommBridgeManager", () => {
         payload: { data: Record<string, unknown> };
       };
 
-      // Shallow comparison: different reference = change detected
-      expect(commMsg).toBeDefined();
-      expect(commMsg.payload.data).toHaveProperty("obj");
+      expect(commMsg).toBeUndefined();
     });
 
     it("returns empty array when no changes (same reference)", () => {
@@ -991,6 +989,43 @@ describe("CommBridgeManager", () => {
         .filter((msg: unknown) => (msg as { type: string }).type === "comm_msg");
 
       expect(commMsgs).toHaveLength(0);
+    });
+
+    it("detects in-place mutations on nested state values", () => {
+      const outputs: Array<Record<string, unknown>> = [];
+      const model = createModel("comm-1", { outputs });
+      const models = new Map<string, WidgetModel>([["comm-1", model]]);
+      const storeWithModels = createMockStore(models);
+      const manager = new CommBridgeManager({
+        frame: mockFrame.frame,
+        store: storeWithModels.store,
+        sendUpdate,
+        sendCustom,
+        closeComm,
+      });
+
+      manager.handleIframeMessage({ type: "widget_ready" });
+      const callsAfterReady = mockFrame.sendCalls.length;
+
+      // Mutate outputs in-place (same array reference)
+      outputs.push({
+        output_type: "stream",
+        name: "stdout",
+        text: "clicked",
+      });
+      storeWithModels.triggerChange();
+
+      const commMsg = mockFrame.sendCalls
+        .slice(callsAfterReady)
+        .find((msg: unknown) => (msg as { type: string }).type === "comm_msg") as {
+        type: string;
+        payload: { commId: string; method: string; data: Record<string, unknown> };
+      } | undefined;
+
+      expect(commMsg).toBeDefined();
+      expect(commMsg.payload.commId).toBe("comm-1");
+      expect(commMsg.payload.method).toBe("update");
+      expect(commMsg.payload.data.outputs).toBeDefined();
     });
   });
 
