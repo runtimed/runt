@@ -141,8 +141,8 @@ jobs:
 
       - name: Run E2E security tests
         run: |
-          # Start Xvfb
-          Xvfb :99 -screen 0 1920x1080x24 &
+          # Start Xvfb (suppress xkbcomp keysym warnings)
+          Xvfb :99 -screen 0 1920x1080x24 2>/dev/null &
           export DISPLAY=:99
           sleep 2
 
@@ -160,3 +160,7 @@ jobs:
           exit ${TEST_EXIT:-0}
         env:
           TAURI_APP_PATH: ./target/release/notebook
+          # Suppress accessibility bus warnings in headless CI
+          NO_AT_BRIDGE: 1
+          # Use software rendering to suppress GPU/EGL warnings
+          LIBGL_ALWAYS_SOFTWARE: 1
