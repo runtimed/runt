@@ -165,13 +165,14 @@ pub async fn prepare_environment(
         return Err(anyhow!("Failed to create virtual environment"));
     }
 
-    // Install ipykernel and dependencies
+    // Install ipykernel, ipywidgets, and dependencies
     let mut install_args = vec![
         "pip".to_string(),
         "install".to_string(),
         "--python".to_string(),
         python_path.to_string_lossy().to_string(),
         "ipykernel".to_string(),
+        "ipywidgets".to_string(),
     ];
 
     for dep in &deps.dependencies {
@@ -414,7 +415,7 @@ pub async fn create_prewarmed_environment() -> Result<UvEnvironment> {
         return Err(anyhow!("Failed to create prewarmed virtual environment"));
     }
 
-    // Install only ipykernel (no other dependencies)
+    // Install ipykernel and ipywidgets (no other dependencies)
     let install_status = tokio::process::Command::new("uv")
         .args([
             "pip",
@@ -422,6 +423,7 @@ pub async fn create_prewarmed_environment() -> Result<UvEnvironment> {
             "--python",
             &python_path.to_string_lossy(),
             "ipykernel",
+            "ipywidgets",
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
