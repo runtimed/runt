@@ -42,6 +42,13 @@ struct GitInfo {
     description: Option<String>,
 }
 
+/// Kernel lifecycle event for frontend status updates.
+#[derive(Debug, Clone, Serialize)]
+struct KernelLifecycleEvent {
+    state: String,
+    runtime: String,
+}
+
 /// Environment sync state for dirty detection.
 #[derive(Serialize)]
 #[serde(tag = "status")]
@@ -1941,6 +1948,16 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Runtime) -> anyhow::Result<(
                         return;
                     }
                 }
+
+                // Emit lifecycle event so frontend can show "Starting" status
+                let lifecycle_event = KernelLifecycleEvent {
+                    state: "launching".to_string(),
+                    runtime: match runtime {
+                        Runtime::Python => "python".to_string(),
+                        Runtime::Deno => "deno".to_string(),
+                    },
+                };
+                let _ = app_for_autolaunch.emit("kernel:lifecycle", &lifecycle_event);
 
                 match runtime {
                     Runtime::Python => {

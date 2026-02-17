@@ -91,6 +91,17 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
       }
     });
 
+    // Listen for kernel lifecycle events (auto-launch starting)
+    const lifecycleUnlisten = listen<{ state: string; runtime: string }>(
+      "kernel:lifecycle",
+      (event) => {
+        if (cancelled) return;
+        if (event.payload.state === "launching") {
+          setKernelStatus("starting");
+        }
+      }
+    );
+
     const unlisten = listen<JupyterMessage>("kernel:iopub", (event) => {
       if (cancelled) return;
 
@@ -183,6 +194,7 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
       cancelled = true;
       unlisten.then((fn) => fn());
       pageUnlisten.then((fn) => fn());
+      lifecycleUnlisten.then((fn) => fn());
     };
   }, []); // Empty deps - callbacks accessed via ref
 
