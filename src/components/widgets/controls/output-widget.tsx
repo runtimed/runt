@@ -17,6 +17,7 @@ import {
   useWidgetModelValue,
   useWidgetStoreRequired,
 } from "../widget-store-context";
+const ENABLE_OUTPUT_DEBUG = true;
 
 interface OutputCustomMessage {
   method?: unknown;
@@ -48,6 +49,12 @@ export function OutputWidget({ modelId, className }: WidgetComponentProps) {
   useEffect(() => {
     stateOutputsRef.current = stateOutputs;
     setRenderedOutputs(stateOutputs);
+    if (ENABLE_OUTPUT_DEBUG) {
+      console.log("[OutputDebug TEMP][OutputWidget] state.outputs sync", {
+        modelId,
+        stateOutputsLength: stateOutputs.length,
+      });
+    }
   }, [stateOutputs]);
 
   useEffect(() => {
@@ -65,6 +72,12 @@ export function OutputWidget({ modelId, className }: WidgetComponentProps) {
       }
 
       if (method === "clear_output") {
+        if (ENABLE_OUTPUT_DEBUG) {
+          console.log("[OutputDebug TEMP][OutputWidget] custom clear_output", {
+            modelId,
+            wait: Boolean(message.wait),
+          });
+        }
         const wait = Boolean(message.wait);
         if (wait) {
           shouldClearOnNextOutputRef.current = true;
@@ -79,6 +92,13 @@ export function OutputWidget({ modelId, className }: WidgetComponentProps) {
         return;
       }
       const nextOutput: JupyterOutput = message.output;
+      if (ENABLE_OUTPUT_DEBUG) {
+        console.log("[OutputDebug TEMP][OutputWidget] custom output", {
+          modelId,
+          outputType: nextOutput.output_type,
+          clearOnNext: shouldClearOnNextOutputRef.current,
+        });
+      }
 
       setRenderedOutputs((prev) => {
         if (shouldClearOnNextOutputRef.current) {

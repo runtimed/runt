@@ -128,6 +128,7 @@ export interface UseCommRouterReturn {
 
 // Session ID for this frontend instance (stable across messages)
 const SESSION_ID = crypto.randomUUID();
+const ENABLE_OUTPUT_DEBUG = true;
 
 /**
  * Create a complete Jupyter message header with all fields.
@@ -254,6 +255,15 @@ export function useCommRouter({
   const storeRef = useRef(store);
   const usernameRef = useRef(username);
 
+  const isOutputModelComm = useCallback((commId: string): boolean => {
+    const model = storeRef.current.getModel(commId);
+    if (!model) return false;
+    return (
+      model.modelName === "OutputModel" ||
+      model.modelModule === "@jupyter-widgets/output"
+    );
+  }, []);
+
   // Keep refs up-to-date without changing function identities
   useEffect(() => {
     sendMessageRef.current = sendMessage;
@@ -283,6 +293,17 @@ export function useCommRouter({
         }
 
         storeRef.current.createModel(commId, state, msg.buffers);
+        if (
+          ENABLE_OUTPUT_DEBUG &&
+          ((state._model_name as string | undefined) === "OutputModel" ||
+            (state._model_module as string | undefined) ===
+              "@jupyter-widgets/output")
+        ) {
+          console.log("[OutputDebug TEMP][useCommRouter] comm_open OutputModel", {
+            commId,
+            stateKeys: Object.keys(state),
+          });
+        }
         break;
       }
 
@@ -301,10 +322,31 @@ export function useCommRouter({
           }
 
           storeRef.current.updateModel(commId, state, msg.buffers);
+          if (ENABLE_OUTPUT_DEBUG && isOutputModelComm(commId)) {
+            console.log(
+              "[OutputDebug TEMP][useCommRouter] comm_msg update OutputModel",
+              {
+                commId,
+                stateKeys: Object.keys(state),
+                hasOutputs: "outputs" in state,
+              },
+            );
+          }
         } else if (method === "custom") {
           // Dispatch custom message to widget handlers
           const content = (data?.content as Record<string, unknown>) || {};
           storeRef.current.emitCustomMessage(commId, content, msg.buffers);
+          if (ENABLE_OUTPUT_DEBUG && isOutputModelComm(commId)) {
+            console.log(
+              "[OutputDebug TEMP][useCommRouter] comm_msg custom OutputModel",
+              {
+                commId,
+                customMethod:
+                  typeof content.method === "string" ? content.method : null,
+                contentKeys: Object.keys(content),
+              },
+            );
+          }
         }
         break;
       }

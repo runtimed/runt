@@ -60,6 +60,7 @@ interface CommBridgeManagerOptions {
  * 4. Dispose when iframe is unmounted
  */
 export class CommBridgeManager {
+  private static readonly ENABLE_OUTPUT_DEBUG = true;
   private frame: IsolatedFrameHandle;
   private store: WidgetStore;
   private sendUpdateToKernel: SendUpdate;
@@ -160,6 +161,23 @@ export class CommBridgeManager {
     data: Record<string, unknown>,
     buffers?: ArrayBuffer[]
   ): void {
+    const model = this.store.getModel(commId);
+    const isOutputModel =
+      model?.modelName === "OutputModel" ||
+      model?.modelModule === "@jupyter-widgets/output";
+    if (CommBridgeManager.ENABLE_OUTPUT_DEBUG && isOutputModel) {
+      console.log("[OutputDebug TEMP][CommBridge] sendCommMsg -> iframe", {
+        commId,
+        method,
+        dataKeys: Object.keys(data),
+        customMethod:
+          method === "custom" && typeof data.method === "string"
+            ? data.method
+            : null,
+        hasOutputs: "outputs" in data,
+      });
+    }
+
     const msg: CommMsgMessage = {
       type: "comm_msg",
       payload: {
@@ -269,6 +287,23 @@ export class CommBridgeManager {
     buffers?: ArrayBuffer[];
   }): void {
     const { commId, method, data, buffers } = payload;
+    const model = this.store.getModel(commId);
+    const isOutputModel =
+      model?.modelName === "OutputModel" ||
+      model?.modelModule === "@jupyter-widgets/output";
+    if (CommBridgeManager.ENABLE_OUTPUT_DEBUG && isOutputModel) {
+      console.log("[OutputDebug TEMP][CommBridge] widget_comm_msg <- iframe", {
+        commId,
+        method,
+        dataKeys: Object.keys(data),
+        customMethod:
+          method === "custom" && typeof data.method === "string"
+            ? data.method
+            : null,
+        hasOutputs: "outputs" in data,
+        bufferCount: buffers?.length ?? 0,
+      });
+    }
 
     if (method === "update") {
       // Set flag to prevent echoing this update back to iframe
