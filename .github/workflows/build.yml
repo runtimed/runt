@@ -110,7 +110,7 @@ jobs:
         run: cargo install tauri-cli tauri-driver --locked
 
       - name: Build Tauri app
-        run: cd crates/notebook && cargo tauri build --ci --config '{"build":{"beforeBuildCommand":""}}'
+        run: cd crates/notebook && cargo tauri build --ci --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: Run E2E security tests
         run: |
