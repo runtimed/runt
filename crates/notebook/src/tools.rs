@@ -212,8 +212,10 @@ pub async fn get_ruff_path() -> Result<PathBuf> {
                 .await
             {
                 if output.status.success() {
-                    info!("Using system ruff");
-                    return Arc::new(Ok(PathBuf::from("ruff")));
+                    // Resolve to absolute path to avoid PATH-dependency issues in tests
+                    let path = which::which("ruff").unwrap_or_else(|_| PathBuf::from("ruff"));
+                    info!("Using system ruff at {:?}", path);
+                    return Arc::new(Ok(path));
                 }
             }
 
@@ -254,8 +256,10 @@ pub async fn get_deno_path() -> Result<PathBuf> {
                 .await
             {
                 if output.status.success() {
-                    info!("Using system deno");
-                    return Arc::new(Ok(PathBuf::from("deno")));
+                    // Resolve to absolute path to avoid PATH-dependency issues in tests
+                    let path = which::which("deno").unwrap_or_else(|_| PathBuf::from("deno"));
+                    info!("Using system deno at {:?}", path);
+                    return Arc::new(Ok(path));
                 }
             }
 
@@ -296,8 +300,10 @@ pub async fn get_uv_path() -> Result<PathBuf> {
                 .await
             {
                 if output.status.success() {
-                    info!("Using system uv");
-                    return Arc::new(Ok(PathBuf::from("uv")));
+                    // Resolve to absolute path to avoid PATH-dependency issues in tests
+                    let path = which::which("uv").unwrap_or_else(|_| PathBuf::from("uv"));
+                    info!("Using system uv at {:?}", path);
+                    return Arc::new(Ok(path));
                 }
             }
 
