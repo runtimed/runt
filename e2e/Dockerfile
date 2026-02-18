@@ -33,6 +33,9 @@ RUN pnpm --dir apps/notebook build
 # Install tauri-cli for building
 RUN cargo install tauri-cli --locked
 
+# Generate icons (needed for bundling)
+RUN cargo xtask icons
+
 # Build Tauri app for Linux using tauri-cli
 # This ensures frontend is properly embedded (not using devUrl)
 # Use --config to disable beforeBuildCommand since we already built the frontend
