@@ -103,26 +103,34 @@ impl EnvPool {
     /// Take a prewarmed environment from the pool.
     ///
     /// Returns `None` if no environments are available.
-    /// Automatically prunes stale environments before returning.
+    /// Automatically prunes stale environments and validates paths before returning.
     pub fn take(&mut self) -> Option<PrewarmedEnv> {
         self.prune_stale();
-        let result = self.pool.pop();
 
-        if result.is_some() {
-            info!(
-                "[prewarm:uv] Pool HIT - took env (remaining: {})",
-                self.pool.len()
-            );
-        } else {
-            info!(
-                "[prewarm:uv] Pool MISS - no env available (available: {}, creating: {}, target: {})",
-                self.pool.len(),
-                self.creating,
-                self.config.pool_size
+        // Try to get a valid environment, skipping any that no longer exist on disk.
+        // This provides defense against race conditions where another process may have
+        // claimed or deleted an environment.
+        while let Some(env) = self.pool.pop() {
+            if env.venv_path.exists() && env.python_path.exists() {
+                info!(
+                    "[prewarm:uv] Pool HIT - took env (remaining: {})",
+                    self.pool.len()
+                );
+                return Some(env);
+            }
+            warn!(
+                "[prewarm:uv] Skipping env with missing path: {:?}",
+                env.venv_path
             );
         }
 
-        result
+        info!(
+            "[prewarm:uv] Pool MISS - no env available (available: {}, creating: {}, target: {})",
+            self.pool.len(),
+            self.creating,
+            self.config.pool_size
+        );
+        None
     }
 
     /// Add a newly created prewarmed environment to the pool.
@@ -210,22 +218,22 @@ pub fn spawn_replenishment(pool: SharedEnvPool) {
 
 /// Recover any existing prewarmed environments from disk.
 ///
-/// This scans the cache directory for `prewarm-*` directories left over
-/// from previous sessions and adds valid ones to the pool. This allows
-/// the pool to start with environments already available, providing
-/// instant kernel startup even on first notebook open after app launch.
+/// Scans the cache directory for `prewarm-*` directories and adds valid ones
+/// to this process's pool. Multiple processes may have the same environments
+/// in their pools - when one claims it (via rename), others will find it
+/// missing and skip it (handled by validation in take()).
 ///
 /// Returns the number of environments recovered.
 pub async fn recover_existing_prewarmed(pool: &SharedEnvPool) -> usize {
     let recovered = crate::uv_env::find_existing_prewarmed_environments().await;
 
     if recovered.is_empty() {
-        info!("[prewarm:uv] No existing prewarmed environments found");
+        info!("[prewarm:uv] No existing prewarmed environments found/claimed");
         return 0;
     }
 
     info!(
-        "[prewarm:uv] Recovered {} existing prewarmed environments",
+        "[prewarm:uv] Claimed {} existing prewarmed environments",
         recovered.len()
     );
 
@@ -432,26 +440,34 @@ impl CondaEnvPool {
     /// Take a prewarmed conda environment from the pool.
     ///
     /// Returns `None` if no environments are available.
-    /// Automatically prunes stale environments before returning.
+    /// Automatically prunes stale environments and validates paths before returning.
     pub fn take(&mut self) -> Option<PrewarmedCondaEnv> {
         self.prune_stale();
-        let result = self.pool.pop();
 
-        if result.is_some() {
-            info!(
-                "[prewarm:conda] Pool HIT - took env (remaining: {})",
-                self.pool.len()
-            );
-        } else {
-            info!(
-                "[prewarm:conda] Pool MISS - no env available (available: {}, creating: {}, target: {})",
-                self.pool.len(),
-                self.creating,
-                self.config.pool_size
+        // Try to get a valid environment, skipping any that no longer exist on disk.
+        // This provides defense against race conditions where another process may have
+        // claimed or deleted an environment.
+        while let Some(env) = self.pool.pop() {
+            if env.env_path.exists() && env.python_path.exists() {
+                info!(
+                    "[prewarm:conda] Pool HIT - took env (remaining: {})",
+                    self.pool.len()
+                );
+                return Some(env);
+            }
+            warn!(
+                "[prewarm:conda] Skipping env with missing path: {:?}",
+                env.env_path
             );
         }
 
-        result
+        info!(
+            "[prewarm:conda] Pool MISS - no env available (available: {}, creating: {}, target: {})",
+            self.pool.len(),
+            self.creating,
+            self.config.pool_size
+        );
+        None
     }
 
     /// Add a newly created prewarmed conda environment to the pool.
@@ -536,19 +552,22 @@ pub fn spawn_conda_replenishment(pool: SharedCondaEnvPool) {
 
 /// Recover any existing prewarmed conda environments from disk.
 ///
+/// Scans the cache directory for `prewarm-*` directories and adds valid ones
+/// to this process's pool. Multiple processes may have the same environments
+/// in their pools - when one claims it (via rename), others will find it
+/// missing and skip it (handled by validation in take()).
+///
 /// Returns the number of environments recovered.
-/// Only fully warmed environments are added to the pool. Unwarmed environments
-/// (from incomplete creation or crashes) are skipped and cleaned up.
 pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) -> usize {
     let recovered = crate::conda_env::find_existing_prewarmed_conda_environments().await;
 
     if recovered.is_empty() {
-        info!("[prewarm:conda] No existing prewarmed conda environments found");
+        info!("[prewarm:conda] No existing prewarmed conda environments found/claimed");
         return 0;
     }
 
     info!(
-        "[prewarm:conda] Recovered {} existing prewarmed conda environments",
+        "[prewarm:conda] Claimed {} existing prewarmed conda environments",
         recovered.len()
     );
 
@@ -568,8 +587,6 @@ pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) -> usiz
         }
 
         // Only add environments that have been fully warmed
-        // Unwarmed environments are from incomplete creation (e.g., crash during warmup)
-        // and will be recreated fresh by the prewarming loop
         if !crate::conda_env::is_environment_warmed(&env) {
             info!(
                 "[prewarm:conda] Skipping unwarmed env (will be recreated): {:?}",
@@ -685,10 +702,17 @@ mod tests {
         };
         let mut pool = EnvPool::new(config);
 
+        // Create a real temp directory for the test (take() validates paths exist)
+        let temp_dir = std::env::temp_dir().join(format!("test-env-pool-{}", std::process::id()));
+        let python_dir = temp_dir.join("bin");
+        std::fs::create_dir_all(&python_dir).unwrap();
+        let python_path = python_dir.join("python");
+        std::fs::write(&python_path, "").unwrap(); // Create empty file
+
         // Add an env
         let env = PrewarmedEnv {
-            venv_path: PathBuf::from("/test/path"),
-            python_path: PathBuf::from("/test/path/bin/python"),
+            venv_path: temp_dir.clone(),
+            python_path,
             created_at: Instant::now(),
         };
         pool.creating = 1; // Simulate marking as creating
@@ -702,6 +726,9 @@ mod tests {
         assert!(taken.is_some());
         assert_eq!(pool.status().available, 0);
         assert_eq!(pool.deficit(), 3);
+
+        // Clean up
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]
@@ -725,10 +752,17 @@ mod tests {
         };
         let mut pool = EnvPool::new(config);
 
-        // Add an env
+        // Create a real temp directory
+        let temp_dir = std::env::temp_dir().join(format!("test-env-pool-stale-{}", std::process::id()));
+        let python_dir = temp_dir.join("bin");
+        std::fs::create_dir_all(&python_dir).unwrap();
+        let python_path = python_dir.join("python");
+        std::fs::write(&python_path, "").unwrap();
+
+        // Add an env with max_age_secs=0, so it's immediately stale
         let env = PrewarmedEnv {
-            venv_path: PathBuf::from("/test/path"),
-            python_path: PathBuf::from("/test/path/bin/python"),
+            venv_path: temp_dir.clone(),
+            python_path,
             created_at: Instant::now(),
         };
         pool.pool.push(env); // Direct push to avoid creating count
@@ -736,5 +770,30 @@ mod tests {
         // It should be pruned when we take
         let taken = pool.take();
         assert!(taken.is_none());
+
+        // Clean up
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_pool_take_skips_missing_paths() {
+        let config = PoolConfig {
+            pool_size: 3,
+            max_age_secs: 3600,
+        };
+        let mut pool = EnvPool::new(config);
+
+        // Add an env with paths that don't exist
+        let env = PrewarmedEnv {
+            venv_path: PathBuf::from("/nonexistent/path"),
+            python_path: PathBuf::from("/nonexistent/path/bin/python"),
+            created_at: Instant::now(),
+        };
+        pool.pool.push(env);
+
+        // take() should return None because the path doesn't exist
+        let taken = pool.take();
+        assert!(taken.is_none());
+        assert_eq!(pool.status().available, 0); // Env was removed from pool
     }
 }

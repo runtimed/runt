@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::RwLock;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 /// Progress phases during environment preparation.
@@ -887,16 +887,109 @@ pub async fn clear_cache() -> Result<()> {
 // Prewarming support
 // =============================================================================
 
+/// Guard for a warming lock file. Automatically releases the lock when dropped.
+struct WarmingLock {
+    lock_path: PathBuf,
+}
+
+/// Maximum age for a lock file before it's considered stale (5 minutes).
+const STALE_LOCK_SECS: u64 = 300;
+
+impl WarmingLock {
+    /// Try to acquire the warming lock. Returns None if another process holds it.
+    /// Automatically cleans up stale locks from crashed processes.
+    async fn try_acquire(cache_dir: &std::path::Path) -> Option<Self> {
+        let lock_path = cache_dir.join(".warming-conda.lock");
+
+        // Check for and clean up stale locks
+        if lock_path.exists() {
+            if let Ok(metadata) = std::fs::metadata(&lock_path) {
+                if let Ok(modified) = metadata.modified() {
+                    if let Ok(age) = modified.elapsed() {
+                        if age.as_secs() > STALE_LOCK_SECS {
+                            warn!(
+                                "[prewarm] Removing stale conda warming lock (age: {}s)",
+                                age.as_secs()
+                            );
+                            std::fs::remove_file(&lock_path).ok();
+                        }
+                    }
+                }
+            }
+        }
+
+        let lock_path_clone = lock_path.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path_clone)
+        })
+        .await
+        .ok()?;
+
+        match result {
+            Ok(_file) => {
+                info!("[prewarm] Acquired conda warming lock");
+                Some(Self { lock_path })
+            }
+            Err(_) => None,
+        }
+    }
+
+    /// Wait to acquire the warming lock with timeout.
+    async fn acquire_with_timeout(cache_dir: &std::path::Path, timeout: Duration) -> Option<Self> {
+        let start = Instant::now();
+
+        loop {
+            if let Some(lock) = Self::try_acquire(cache_dir).await {
+                return Some(lock);
+            }
+
+            if start.elapsed() >= timeout {
+                warn!("[prewarm] Timeout waiting for conda warming lock");
+                return None;
+            }
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+}
+
+impl Drop for WarmingLock {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_file(&self.lock_path) {
+            warn!("[prewarm] Failed to release conda warming lock: {}", e);
+        } else {
+            info!("[prewarm] Released conda warming lock");
+        }
+    }
+}
+
 /// Create a prewarmed conda environment with just ipykernel installed.
 ///
 /// This creates a generic environment at a temporary path (`prewarm-{uuid}`)
 /// that can later be claimed by a notebook using `claim_prewarmed_conda_environment`.
 /// The environment has no `env_id` in its hash, allowing it to be reused by any notebook.
+///
+/// Uses a file-based lock to prevent multiple processes from creating
+/// environments simultaneously, which can cause resource contention.
 pub async fn create_prewarmed_conda_environment(
     app: Option<&AppHandle>,
 ) -> Result<CondaEnvironment> {
-    let temp_id = format!("prewarm-{}", uuid::Uuid::new_v4());
     let cache_dir = get_cache_dir();
+
+    // Ensure cache directory exists before trying to acquire lock
+    tokio::fs::create_dir_all(&cache_dir).await?;
+
+    // Acquire warming lock to serialize environment creation across processes.
+    // This prevents multiple windows from overwhelming the system with parallel
+    // conda/rattler operations when many notebooks are created simultaneously.
+    let _lock = WarmingLock::acquire_with_timeout(&cache_dir, Duration::from_secs(120))
+        .await
+        .ok_or_else(|| anyhow!("Timeout waiting for conda warming lock"))?;
+
+    let temp_id = format!("prewarm-{}", uuid::Uuid::new_v4());
     let env_path = cache_dir.join(&temp_id);
 
     // Determine python path based on platform
@@ -906,9 +999,6 @@ pub async fn create_prewarmed_conda_environment(
     let python_path = env_path.join("bin").join("python");
 
     info!("[prewarm] Creating prewarmed conda environment at {:?}", env_path);
-
-    // Ensure cache directory exists
-    tokio::fs::create_dir_all(&cache_dir).await?;
 
     // Create minimal dependencies (just ipykernel)
     let deps = CondaDependencies {
@@ -1348,6 +1438,90 @@ pub async fn find_existing_prewarmed_conda_environments() -> Vec<CondaEnvironmen
     }
 
     found
+}
+
+/// Find and atomically claim prewarmed conda environments from disk.
+///
+/// This scans for `prewarm-*` directories and attempts to claim each one
+/// using an atomic lock file. Only environments successfully claimed by
+/// this process are returned. This allows multiple processes to safely
+/// share prewarmed environments from disk without race conditions.
+pub async fn find_and_claim_prewarmed_conda_environments() -> Vec<CondaEnvironment> {
+    let cache_dir = get_cache_dir();
+    let mut claimed = Vec::new();
+
+    let Ok(mut entries) = tokio::fs::read_dir(&cache_dir).await else {
+        return claimed;
+    };
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("prewarm-") {
+            continue;
+        }
+
+        // Skip entries that are lock files themselves
+        if name.ends_with(".lock") {
+            continue;
+        }
+
+        let env_path = entry.path();
+
+        // Try to atomically claim this environment using a lock file
+        let lock_path = env_path.with_extension("lock");
+        let lock_path_clone = lock_path.clone();
+        let claim_result = tokio::task::spawn_blocking(move || {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true) // Fails atomically if file exists
+                .open(&lock_path_clone)
+        })
+        .await;
+
+        let lock_created = match claim_result {
+            Ok(Ok(_)) => true,
+            _ => false,
+        };
+
+        if !lock_created {
+            // Another process already claimed this environment
+            info!(
+                "[prewarm] Skipping already-claimed prewarmed conda env: {:?}",
+                env_path
+            );
+            continue;
+        }
+
+        // We successfully claimed this environment
+        info!(
+            "[prewarm] Atomically claimed prewarmed conda environment: {:?}",
+            env_path
+        );
+
+        // Determine python path based on platform
+        #[cfg(target_os = "windows")]
+        let python_path = env_path.join("python.exe");
+        #[cfg(not(target_os = "windows"))]
+        let python_path = env_path.join("bin").join("python");
+
+        // Validate Python exists
+        if !python_path.exists() {
+            info!(
+                "[prewarm] Removing invalid conda env (no python): {:?}",
+                env_path
+            );
+            tokio::fs::remove_dir_all(&env_path).await.ok();
+            tokio::fs::remove_file(&lock_path).await.ok();
+            continue;
+        }
+
+        claimed.push(CondaEnvironment {
+            env_path,
+            python_path,
+        });
+    }
+
+    claimed
 }
 
 /// Check if a conda environment has been warmed up.

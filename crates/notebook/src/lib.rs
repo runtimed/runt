@@ -2423,18 +2423,18 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                 let app_settings = settings::load_settings();
                 let prefer_conda = matches!(app_settings.default_python_env, settings::PythonEnvType::Conda);
 
-                // Wait for the PREFERRED pool recovery to complete (with timeout)
-                // This ensures prewarmed environments are available before auto-launch
+                // Wait for recovery to complete (with timeout).
+                // Recovery scans disk for prewarmed environments from previous sessions.
+                // After recovery, we proceed immediately - kernel startup handles empty pools
+                // gracefully by creating fresh environments.
                 let recovery_timeout = tokio::time::timeout(
                     std::time::Duration::from_secs(2),
                     async {
                         if prefer_conda {
-                            // Wait for conda recovery specifically
                             while !conda_recovery_for_autolaunch.load(std::sync::atomic::Ordering::SeqCst) {
                                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                             }
                         } else {
-                            // Wait for UV recovery specifically
                             while !uv_recovery_for_autolaunch.load(std::sync::atomic::Ordering::SeqCst) {
                                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                             }
@@ -2447,11 +2447,9 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                 let preferred_type = if prefer_conda { "conda" } else { "uv" };
                 if recovery_timeout.is_err() {
                     log::info!(
-                        "[autolaunch] Recovery timeout after {}ms (preferred: {}), UV: {}, Conda: {}",
+                        "[autolaunch] Recovery timeout after {}ms (preferred: {}), proceeding anyway",
                         recovery_wait_ms,
-                        preferred_type,
-                        uv_recovery_for_autolaunch.load(std::sync::atomic::Ordering::SeqCst),
-                        conda_recovery_for_autolaunch.load(std::sync::atomic::Ordering::SeqCst)
+                        preferred_type
                     );
                 } else {
                     log::info!(
