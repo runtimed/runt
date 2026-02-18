@@ -300,17 +300,18 @@ async fn process_next(
         emit_queue_state(app, &q);
     }
 
-    // Get code from notebook state
-    let code = {
+    // Get code and runtime from notebook state
+    let (code, runtime) = {
         let mut nb = notebook_state.lock().unwrap();
         let src = nb.get_cell_source(&cell_id);
+        let rt = nb.get_runtime();
         if src.is_some() {
             nb.clear_cell_outputs(&cell_id);
         }
-        src
+        (src, rt)
     };
 
-    let Some(code) = code else {
+    let Some(mut code) = code else {
         // Cell was deleted, skip it
         info!("[queue] Cell {} not found, skipping", cell_id);
         let mut q = queue.lock().unwrap();
@@ -318,6 +319,41 @@ async fn process_next(
         emit_queue_state(app, &q);
         return;
     };
+
+    // Format the code before execution (best-effort)
+    if !code.trim().is_empty() {
+        let format_result = match runtime {
+            crate::Runtime::Python => crate::format::format_python(&code).await,
+            crate::Runtime::Deno => crate::format::format_deno(&code, "typescript").await,
+        };
+
+        match format_result {
+            Ok(result) if result.changed => {
+                info!("[queue] Formatted cell {}", cell_id);
+                code = result.source.clone();
+                // Update notebook state with formatted code
+                {
+                    let mut nb = notebook_state.lock().unwrap();
+                    nb.update_cell_source(&cell_id, &result.source);
+                }
+                // Emit event to sync frontend
+                let _ = app.emit(
+                    "cell:source_updated",
+                    serde_json::json!({
+                        "cell_id": cell_id,
+                        "source": result.source,
+                    }),
+                );
+            }
+            Ok(_) => {
+                // No change needed
+            }
+            Err(e) => {
+                // Formatting failed, continue with original code
+                info!("[queue] Format failed for cell {}: {}", cell_id, e);
+            }
+        }
+    }
 
     // Check if kernel is running
     let mut k = kernel.lock().await;

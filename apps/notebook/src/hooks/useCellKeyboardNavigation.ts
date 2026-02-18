@@ -6,6 +6,7 @@ interface UseCellKeyboardNavigationOptions {
   onExecute?: () => void;
   onExecuteAndInsert?: () => void;
   onDelete?: () => void;
+  onFormat?: () => void;
 }
 
 export function useCellKeyboardNavigation({
@@ -14,6 +15,7 @@ export function useCellKeyboardNavigation({
   onExecute,
   onExecuteAndInsert,
   onDelete,
+  onFormat,
 }: UseCellKeyboardNavigationOptions): KeyBinding[] {
   return [
     {
@@ -89,6 +91,17 @@ export function useCellKeyboardNavigation({
             key: "Alt-Enter",
             run: () => {
               onExecuteAndInsert();
+              return true;
+            },
+          },
+        ]
+      : []),
+    ...(onFormat
+      ? [
+          {
+            key: "Mod-Shift-f",
+            run: () => {
+              onFormat();
               return true;
             },
           },

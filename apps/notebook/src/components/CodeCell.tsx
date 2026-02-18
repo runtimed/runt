@@ -71,6 +71,7 @@ interface CodeCellProps {
   onFocusNext?: (cursorPosition: "start" | "end") => void;
   onInsertCellAfter?: () => void;
   onClearPagePayload?: () => void;
+  onFormat?: () => void;
   isLastCell?: boolean;
 }
 
@@ -89,6 +90,7 @@ export function CodeCell({
   onFocusNext,
   onInsertCellAfter,
   onClearPagePayload,
+  onFormat,
   isLastCell = false,
 }: CodeCellProps) {
   const editorRef = useRef<CodeMirrorEditorRef>(null);
@@ -152,6 +154,7 @@ export function CodeCell({
         }
       : undefined,
     onDelete,
+    onFormat,
   });
 
   // Ctrl+R to open history search

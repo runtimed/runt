@@ -62,6 +62,7 @@ function AppContent() {
     appendOutput,
     setExecutionCount,
     clearCellOutputs,
+    formatCell,
   } = useNotebook();
 
   const { theme, setTheme } = useTheme("notebook-theme");
@@ -256,7 +257,7 @@ function AppContent() {
     onExecutionCount: handleExecutionCount,
     onExecutionDone: handleExecutionDone,
     onCommMessage: handleCommMessage,
-onKernelStarted: loadCondaDependencies,
+    onKernelStarted: loadCondaDependencies,
     onPagePayload: handlePagePayload,
   });
 
@@ -513,6 +514,7 @@ onKernelStarted: loadCondaDependencies,
         onDeleteCell={deleteCell}
         onAddCell={handleAddCell}
         onClearPagePayload={clearPagePayload}
+        onFormatCell={formatCell}
       />
     </div>
   );
