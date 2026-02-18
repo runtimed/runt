@@ -26,6 +26,9 @@ COPY . .
 RUN pnpm run isolated-renderer:build
 RUN pnpm --dir apps/notebook build
 
+# Generate icons (needed for bundling)
+RUN cargo xtask icons
+
 # Build Tauri app (incremental, uses cached deps from base image)
 WORKDIR /app/crates/notebook
 RUN cargo tauri build --ci --config '{"build":{"beforeBuildCommand":""}}'
