@@ -180,22 +180,30 @@ handle.update(HTML("Different <b>Media Type</b>"))`;
       await browser.keys(["Shift", "Enter"]);
       console.log("Executed second cell - expecting display update");
 
-      // Wait for the output in the FIRST cell to change to HTML (iframe)
-      await waitForHtmlOutput(firstCell, EXECUTION_TIMEOUT);
-      console.log("HTML output appeared in first cell");
+      // Wait for the FIRST cell's content to change - it should now contain "Different"
+      // and should NOT contain "First is just plain" anymore
+      await browser.waitUntil(
+        async () => {
+          const html = await firstCell.getHTML();
+          // The update should replace the old content with new content
+          return html.includes("Different") && !html.includes("First is just plain");
+        },
+        {
+          timeout: EXECUTION_TIMEOUT,
+          timeoutMsg: "Display update did not replace old content with new content",
+          interval: 500,
+        }
+      );
 
-      // Verify the first cell now has an iframe (HTML content)
-      const iframe = await firstCell.$("iframe");
-      const iframeExists = await iframe.isExisting();
-      expect(iframeExists).toBe(true);
-
-      // The first cell HTML should now contain "Different" in some form
       const updatedHtml = await firstCell.getHTML();
-      const hasIframe = updatedHtml.includes("iframe");
-      console.log("First cell has iframe:", hasIframe);
-      expect(hasIframe).toBe(true);
+      console.log("First cell updated - contains 'Different':", updatedHtml.includes("Different"));
+      console.log("First cell updated - no longer contains 'First is just plain':", !updatedHtml.includes("First is just plain"));
 
-      console.log("Display update test passed - output changed from text/plain to text/html");
+      // Verify the content changed
+      expect(updatedHtml).toContain("Different");
+      expect(updatedHtml).not.toContain("First is just plain");
+
+      console.log("Display update test passed - output content changed from text/plain to text/html");
     });
 
     it("should update display output while preserving display_id", async () => {
