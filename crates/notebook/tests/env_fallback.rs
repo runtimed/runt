@@ -6,6 +6,13 @@
 //! - Environment creation works correctly for both backends
 //!
 //! Tests that modify PATH are marked with `#[serial]` to prevent race conditions.
+//!
+//! Note: These tests are disabled on Windows CI due to rattler DLL dependencies
+//! that may not be available in the test environment.
+
+// Skip this entire test module on Windows - rattler has DLL dependencies that
+// cause STATUS_ENTRYPOINT_NOT_FOUND when the test binary loads in CI
+#![cfg(not(target_os = "windows"))]
 
 use notebook::{conda_env, uv_env};
 use serial_test::serial;
