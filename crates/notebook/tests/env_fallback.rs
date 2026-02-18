@@ -11,9 +11,6 @@ use notebook::{conda_env, uv_env};
 use serial_test::serial;
 use std::path::PathBuf;
 
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-
 // =============================================================================
 // UV Availability Detection Tests
 // =============================================================================
@@ -35,37 +32,6 @@ async fn test_uv_available_returns_true_with_bootstrap() {
 
     // uv is now always available because it can be bootstrapped via rattler
     assert!(result, "check_uv_available should return true (bootstrap available)");
-}
-
-/// Test that check_uv_available returns true when a fake uv script is in PATH.
-///
-/// NOTE: This test is ignored because it pollutes the global UV_PATH OnceCell cache
-/// with a path to a temporary directory that gets deleted after the test. With
-/// bootstrap support, uv is always available anyway, making this test redundant.
-#[tokio::test]
-#[serial]
-#[cfg(unix)]
-#[ignore = "pollutes global UV_PATH cache with temp path that gets deleted"]
-async fn test_uv_available_with_fake_uv_script() {
-    let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
-    let fake_uv = temp_dir.path().join("uv");
-
-    // Create a fake uv script that outputs a version string
-    std::fs::write(&fake_uv, "#!/bin/sh\necho 'uv 0.1.0'").expect("Failed to write fake uv");
-    std::fs::set_permissions(&fake_uv, std::fs::Permissions::from_mode(0o755))
-        .expect("Failed to set permissions");
-
-    let original_path = std::env::var("PATH").unwrap_or_default();
-
-    // Set PATH to only include our temp directory
-    std::env::set_var("PATH", temp_dir.path().to_str().unwrap());
-
-    let result = uv_env::check_uv_available().await;
-
-    // Restore PATH
-    std::env::set_var("PATH", &original_path);
-
-    assert!(result, "check_uv_available should return true with fake uv in PATH");
 }
 
 /// Test that check_uv_available returns true when real uv is installed.
@@ -258,39 +224,6 @@ async fn test_selects_uv_with_bootstrap() {
     // With bootstrap, uv is always selected
     let selected = if uv_available { "uv" } else { "conda" };
     assert_eq!(selected, "uv", "Should select uv when bootstrap available");
-}
-
-/// Test that UV IS selected when a fake uv is in PATH.
-///
-/// NOTE: This test is ignored because it pollutes the global UV_PATH OnceCell cache
-/// with a path to a temporary directory that gets deleted after the test. With
-/// bootstrap support, uv is always available anyway, making this test redundant.
-#[tokio::test]
-#[serial]
-#[cfg(unix)]
-#[ignore = "pollutes global UV_PATH cache with temp path that gets deleted"]
-async fn test_selects_uv_when_available() {
-    let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
-    let fake_uv = temp_dir.path().join("uv");
-
-    // Create a fake uv script
-    std::fs::write(&fake_uv, "#!/bin/sh\necho 'uv 0.1.0'").expect("Failed to write fake uv");
-    std::fs::set_permissions(&fake_uv, std::fs::Permissions::from_mode(0o755))
-        .expect("Failed to set permissions");
-
-    let original_path = std::env::var("PATH").unwrap_or_default();
-    std::env::set_var("PATH", temp_dir.path().to_str().unwrap());
-
-    let uv_available = uv_env::check_uv_available().await;
-
-    // Restore PATH
-    std::env::set_var("PATH", &original_path);
-
-    assert!(uv_available, "UV should be available with fake uv in PATH");
-
-    // In this scenario, the app would select uv
-    let selected = if uv_available { "uv" } else { "conda" };
-    assert_eq!(selected, "uv", "Should select uv when available");
 }
 
 // =============================================================================

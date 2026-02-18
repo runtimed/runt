@@ -212,15 +212,8 @@ pub async fn get_ruff_path() -> Result<PathBuf> {
                 .await
             {
                 if output.status.success() {
-                    // Resolve to absolute path to avoid PATH-dependency issues in tests
-                    // Use spawn_blocking since which::which does synchronous filesystem I/O
-                    let path = tokio::task::spawn_blocking(|| which::which("ruff"))
-                        .await
-                        .ok()
-                        .and_then(|r| r.ok())
-                        .unwrap_or_else(|| PathBuf::from("ruff"));
-                    info!("Using system ruff at {:?}", path);
-                    return Arc::new(Ok(path));
+                    info!("Using system ruff");
+                    return Arc::new(Ok(PathBuf::from("ruff")));
                 }
             }
 
@@ -261,15 +254,8 @@ pub async fn get_deno_path() -> Result<PathBuf> {
                 .await
             {
                 if output.status.success() {
-                    // Resolve to absolute path to avoid PATH-dependency issues in tests
-                    // Use spawn_blocking since which::which does synchronous filesystem I/O
-                    let path = tokio::task::spawn_blocking(|| which::which("deno"))
-                        .await
-                        .ok()
-                        .and_then(|r| r.ok())
-                        .unwrap_or_else(|| PathBuf::from("deno"));
-                    info!("Using system deno at {:?}", path);
-                    return Arc::new(Ok(path));
+                    info!("Using system deno");
+                    return Arc::new(Ok(PathBuf::from("deno")));
                 }
             }
 
@@ -310,15 +296,8 @@ pub async fn get_uv_path() -> Result<PathBuf> {
                 .await
             {
                 if output.status.success() {
-                    // Resolve to absolute path to avoid PATH-dependency issues in tests
-                    // Use spawn_blocking since which::which does synchronous filesystem I/O
-                    let path = tokio::task::spawn_blocking(|| which::which("uv"))
-                        .await
-                        .ok()
-                        .and_then(|r| r.ok())
-                        .unwrap_or_else(|| PathBuf::from("uv"));
-                    info!("Using system uv at {:?}", path);
-                    return Arc::new(Ok(path));
+                    info!("Using system uv");
+                    return Arc::new(Ok(PathBuf::from("uv")));
                 }
             }
 
