@@ -5094,6 +5094,7 @@ dependencies = [
  "futures",
  "jupyter-protocol",
  "petname",
+ "pool-daemon",
  "rpassword",
  "runtimelib",
  "serde",
