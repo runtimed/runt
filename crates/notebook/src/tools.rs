@@ -213,7 +213,12 @@ pub async fn get_ruff_path() -> Result<PathBuf> {
             {
                 if output.status.success() {
                     // Resolve to absolute path to avoid PATH-dependency issues in tests
-                    let path = which::which("ruff").unwrap_or_else(|_| PathBuf::from("ruff"));
+                    // Use spawn_blocking since which::which does synchronous filesystem I/O
+                    let path = tokio::task::spawn_blocking(|| which::which("ruff"))
+                        .await
+                        .ok()
+                        .and_then(|r| r.ok())
+                        .unwrap_or_else(|| PathBuf::from("ruff"));
                     info!("Using system ruff at {:?}", path);
                     return Arc::new(Ok(path));
                 }
@@ -257,7 +262,12 @@ pub async fn get_deno_path() -> Result<PathBuf> {
             {
                 if output.status.success() {
                     // Resolve to absolute path to avoid PATH-dependency issues in tests
-                    let path = which::which("deno").unwrap_or_else(|_| PathBuf::from("deno"));
+                    // Use spawn_blocking since which::which does synchronous filesystem I/O
+                    let path = tokio::task::spawn_blocking(|| which::which("deno"))
+                        .await
+                        .ok()
+                        .and_then(|r| r.ok())
+                        .unwrap_or_else(|| PathBuf::from("deno"));
                     info!("Using system deno at {:?}", path);
                     return Arc::new(Ok(path));
                 }
@@ -301,7 +311,12 @@ pub async fn get_uv_path() -> Result<PathBuf> {
             {
                 if output.status.success() {
                     // Resolve to absolute path to avoid PATH-dependency issues in tests
-                    let path = which::which("uv").unwrap_or_else(|_| PathBuf::from("uv"));
+                    // Use spawn_blocking since which::which does synchronous filesystem I/O
+                    let path = tokio::task::spawn_blocking(|| which::which("uv"))
+                        .await
+                        .ok()
+                        .and_then(|r| r.ok())
+                        .unwrap_or_else(|| PathBuf::from("uv"));
                     info!("Using system uv at {:?}", path);
                     return Arc::new(Ok(path));
                 }
