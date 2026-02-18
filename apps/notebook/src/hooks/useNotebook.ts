@@ -207,6 +207,30 @@ export function useNotebook() {
     []
   );
 
+  const updateOutputByDisplayId = useCallback(
+    (displayId: string, newData: Record<string, unknown>, newMetadata?: Record<string, unknown>) => {
+      setCells((prev) =>
+        prev.map((c) => {
+          if (c.cell_type !== "code") return c;
+          let changed = false;
+          const updatedOutputs = c.outputs.map((output) => {
+            if (
+              (output.output_type === "display_data" ||
+                output.output_type === "execute_result") &&
+              output.display_id === displayId
+            ) {
+              changed = true;
+              return { ...output, data: newData, metadata: newMetadata };
+            }
+            return output;
+          });
+          return changed ? { ...c, outputs: updatedOutputs } : c;
+        })
+      );
+    },
+    []
+  );
+
   const setExecutionCount = useCallback(
     (cellId: string, count: number) => {
       setCells((prev) =>
@@ -235,6 +259,7 @@ export function useNotebook() {
     cloneNotebook,
     dirty,
     appendOutput,
+    updateOutputByDisplayId,
     setExecutionCount,
   };
 }
