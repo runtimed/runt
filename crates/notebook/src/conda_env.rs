@@ -948,6 +948,7 @@ pub async fn warmup_conda_environment(env: &CondaEnvironment) -> Result<()> {
 import sys
 import ipykernel
 import IPython
+import ipywidgets
 import traitlets
 import zmq
 

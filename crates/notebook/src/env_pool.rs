@@ -243,6 +243,18 @@ pub async fn recover_existing_prewarmed(pool: &SharedEnvPool) -> usize {
             continue;
         }
 
+        // Only add environments that have been fully warmed
+        // Unwarmed environments are from incomplete creation (e.g., crash during warmup)
+        // and will be recreated fresh by the prewarming loop
+        if !crate::uv_env::is_environment_warmed(&env) {
+            info!(
+                "[prewarm:uv] Skipping unwarmed env (will be recreated): {:?}",
+                env.venv_path
+            );
+            tokio::fs::remove_dir_all(&env.venv_path).await.ok();
+            continue;
+        }
+
         let prewarmed = PrewarmedEnv {
             venv_path: env.venv_path,
             python_path: env.python_path,

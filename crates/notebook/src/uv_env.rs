@@ -444,10 +444,15 @@ pub async fn create_prewarmed_environment() -> Result<UvEnvironment> {
 
     info!("[prewarm] Prewarmed environment ready at {:?}", venv_path);
 
-    Ok(UvEnvironment {
+    let env = UvEnvironment {
         venv_path,
         python_path,
-    })
+    };
+
+    // Warm up the environment by running Python to trigger .pyc compilation
+    warmup_uv_environment(&env).await?;
+
+    Ok(env)
 }
 
 /// Claim a prewarmed environment for a specific notebook.
@@ -512,6 +517,70 @@ pub async fn claim_prewarmed_environment(
         venv_path: dest_path,
         python_path,
     })
+}
+
+/// Warm up a UV environment by running Python to trigger initialization.
+///
+/// This compiles .pyc files and runs first-time setup for ipykernel,
+/// dramatically reducing kernel startup time on subsequent use.
+pub async fn warmup_uv_environment(env: &UvEnvironment) -> Result<()> {
+    let warmup_start = std::time::Instant::now();
+    info!("[prewarm] Warming up UV environment at {:?}", env.venv_path);
+
+    // Script that imports key packages to trigger .pyc compilation
+    let warmup_script = r#"
+# Warmup script - triggers .pyc compilation and initialization
+import sys
+import ipykernel
+import IPython
+import ipywidgets
+import traitlets
+import zmq
+
+# Force ipykernel to initialize key components
+from ipykernel.kernelbase import Kernel
+from ipykernel.ipkernel import IPythonKernel
+
+# Import comm for widget support
+from ipykernel.comm import CommManager
+
+print("warmup complete")
+"#;
+
+    let output = tokio::process::Command::new(&env.python_path)
+        .args(["-c", warmup_script])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log::warn!(
+            "[prewarm] UV warmup failed for {:?}: {}",
+            env.venv_path,
+            stderr
+        );
+        // Don't fail the whole operation - environment is still usable
+        return Ok(());
+    }
+
+    // Create marker file to indicate this env has been warmed
+    let marker_path = env.venv_path.join(".warmed");
+    tokio::fs::write(&marker_path, "").await.ok();
+
+    info!(
+        "[prewarm] UV warmup complete for {:?} in {}ms",
+        env.venv_path,
+        warmup_start.elapsed().as_millis()
+    );
+
+    Ok(())
+}
+
+/// Check if a UV environment has been warmed up.
+///
+/// Looks for a `.warmed` marker file in the environment directory.
+pub fn is_environment_warmed(env: &UvEnvironment) -> bool {
+    env.venv_path.join(".warmed").exists()
 }
 
 #[cfg(test)]
