@@ -10,6 +10,7 @@ import {
   type IsolatedFrameHandle,
 } from "@/components/outputs/isolated";
 import { isDarkMode as detectDarkMode } from "@/components/themes";
+import { cn } from "@/lib/utils";
 import { Trash2, Pencil } from "lucide-react";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
 import { useEditorRegistry } from "../hooks/useEditorRegistry";
@@ -91,6 +92,7 @@ export function MarkdownCell({
   // Re-render when source changes and not editing
   useEffect(() => {
     if (!editing && frameRef.current?.isReady && cell.source) {
+      frameRef.current.clear();
       frameRef.current.render({
         mimeType: "text/markdown",
         data: cell.source,
@@ -144,6 +146,20 @@ export function MarkdownCell({
     [navigationKeyMap, cell.source]
   );
 
+  // Focus editor when entering edit mode (after initial mount)
+  const initialMountRef = useRef(true);
+  useEffect(() => {
+    if (initialMountRef.current) {
+      initialMountRef.current = false;
+      return;
+    }
+    if (editing) {
+      requestAnimationFrame(() => {
+        editorRef.current?.focus();
+      });
+    }
+  }, [editing]);
+
   return (
     <CellContainer
       id={cell.id}
@@ -151,69 +167,72 @@ export function MarkdownCell({
       isFocused={isFocused}
       onFocus={onFocus}
     >
-      {editing ? (
-        <>
-          <div className="flex items-center gap-1 py-1">
-            <span className="text-xs text-muted-foreground font-mono">md</span>
-            <div className="flex-1" />
-            <div className="cell-controls opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                type="button"
-                onClick={onDelete}
-                className="flex items-center justify-center rounded p-1 text-muted-foreground/40 transition-colors hover:text-destructive"
-                title="Delete cell"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
+      {/* Editor section - hidden when not editing */}
+      <div className={editing ? "block" : "hidden"}>
+        <div className="flex items-center gap-1 py-1">
+          <span className="text-xs text-muted-foreground font-mono">md</span>
+          <div className="flex-1" />
+          <div className="cell-controls opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              type="button"
+              onClick={onDelete}
+              className="flex items-center justify-center rounded p-1 text-muted-foreground/40 transition-colors hover:text-destructive"
+              title="Delete cell"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
           </div>
-          <div>
-            <CodeMirrorEditor
-              ref={editorRef}
-              value={cell.source}
-              language="markdown"
-              onValueChange={onUpdateSource}
-              onBlur={handleBlur}
-              keyMap={keyMap}
-              placeholder="Enter markdown..."
-              className="min-h-[2rem]"
-              autoFocus
-            />
-          </div>
-        </>
-      ) : (
-        <div
-          className="py-2 cursor-text relative group/md"
-          onDoubleClick={handleDoubleClick}
-        >
-          {cell.source ? (
-            <IsolatedFrame
-              ref={frameRef}
-              darkMode={darkMode}
-              useReactRenderer={true}
-              minHeight={24}
-              maxHeight={2000}
-              onReady={handleFrameReady}
-              onLinkClick={handleLinkClick}
-              onDoubleClick={handleDoubleClick}
-              onError={(err) => console.error("[MarkdownCell] iframe error:", err)}
-              className="w-full"
-            />
-          ) : (
-            <p className="text-muted-foreground italic">
-              Double-click to edit
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="absolute top-2 right-2 opacity-0 group-hover/md:opacity-100 rounded p-1 text-muted-foreground transition-opacity hover:text-foreground"
-            title="Edit"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
         </div>
-      )}
+        <div>
+          <CodeMirrorEditor
+            ref={editorRef}
+            value={cell.source}
+            language="markdown"
+            onValueChange={onUpdateSource}
+            onBlur={handleBlur}
+            keyMap={keyMap}
+            placeholder="Enter markdown..."
+            className="min-h-[2rem]"
+            autoFocus={editing}
+          />
+        </div>
+      </div>
+
+      {/* View section - hidden when editing */}
+      <div
+        className={cn(
+          "py-2 cursor-text relative group/md",
+          editing && "hidden"
+        )}
+        onDoubleClick={handleDoubleClick}
+      >
+        {cell.source ? (
+          <IsolatedFrame
+            ref={frameRef}
+            darkMode={darkMode}
+            useReactRenderer={true}
+            minHeight={24}
+            maxHeight={2000}
+            onReady={handleFrameReady}
+            onLinkClick={handleLinkClick}
+            onDoubleClick={handleDoubleClick}
+            onError={(err) => console.error("[MarkdownCell] iframe error:", err)}
+            className="w-full"
+          />
+        ) : (
+          <p className="text-muted-foreground italic">
+            Double-click to edit
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="absolute top-2 right-2 opacity-0 group-hover/md:opacity-100 rounded p-1 text-muted-foreground transition-opacity hover:text-foreground"
+          title="Edit"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </CellContainer>
   );
 }
