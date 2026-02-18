@@ -46,19 +46,27 @@ describe("Markdown Cell", () => {
   }
 
   /**
-   * Helper to check if cell is in edit mode (has CodeMirror editor)
+   * Helper to check if cell is in edit mode (editor is visible)
+   * Note: Both editor and iframe are always rendered, but hidden via CSS
    */
   async function isInEditMode(cell) {
     const editor = await cell.$('.cm-content[contenteditable="true"]');
-    return editor.isExisting();
+    if (!(await editor.isExisting())) {
+      return false;
+    }
+    return editor.isDisplayed();
   }
 
   /**
-   * Helper to check if cell has an iframe (rendered mode with isolation)
+   * Helper to check if cell has a visible iframe (rendered mode with isolation)
+   * Note: Both editor and iframe are always rendered, but hidden via CSS
    */
   async function hasIsolatedFrame(cell) {
     const iframe = await cell.$("iframe");
-    return iframe.isExisting();
+    if (!(await iframe.isExisting())) {
+      return false;
+    }
+    return iframe.isDisplayed();
   }
 
   describe("Creating and editing markdown cells", () => {
