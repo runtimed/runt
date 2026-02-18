@@ -180,6 +180,24 @@ handle.update(HTML("Different <b>Media Type</b>"))`;
       await browser.keys(["Shift", "Enter"]);
       console.log("Executed second cell - expecting display update");
 
+      // Wait for second cell's execution to complete (wait for output or timeout)
+      // This ensures the kernel has processed the update before we check
+      await browser.pause(3000);
+
+      // Check if second cell has an error (would indicate handle is not defined)
+      const secondCellHtml = await secondCell.getHTML();
+      console.log("Second cell HTML:", secondCellHtml.substring(0, 500));
+      if (secondCellHtml.includes("NameError") || secondCellHtml.includes("Error")) {
+        console.log("ERROR: Second cell has an error - handle might not be defined!");
+        throw new Error("Second cell execution failed - check if handle variable persists across cells");
+      }
+
+      // Log first cell's current content for debugging
+      const firstCellHtmlBefore = await firstCell.getHTML();
+      console.log("First cell HTML (before wait):", firstCellHtmlBefore.substring(0, 500));
+      console.log("Contains 'First is just plain':", firstCellHtmlBefore.includes("First is just plain"));
+      console.log("Contains 'Different':", firstCellHtmlBefore.includes("Different"));
+
       // Wait for the FIRST cell's content to change - it should now contain "Different"
       // and should NOT contain "First is just plain" anymore
       await browser.waitUntil(
