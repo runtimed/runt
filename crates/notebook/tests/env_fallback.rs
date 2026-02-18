@@ -18,10 +18,11 @@ use std::os::unix::fs::PermissionsExt;
 // UV Availability Detection Tests
 // =============================================================================
 
-/// Test that check_uv_available returns false when PATH excludes uv.
+/// Test that check_uv_available returns true even when PATH excludes uv.
+/// This is because uv can be bootstrapped via rattler from conda-forge.
 #[tokio::test]
 #[serial]
-async fn test_uv_available_returns_false_with_empty_path() {
+async fn test_uv_available_returns_true_with_bootstrap() {
     let original_path = std::env::var("PATH").unwrap_or_default();
 
     // Set PATH to a nonexistent directory
@@ -32,7 +33,8 @@ async fn test_uv_available_returns_false_with_empty_path() {
     // Restore PATH before assertion (in case assertion fails)
     std::env::set_var("PATH", &original_path);
 
-    assert!(!result, "check_uv_available should return false when uv is not in PATH");
+    // uv is now always available because it can be bootstrapped via rattler
+    assert!(result, "check_uv_available should return true (bootstrap available)");
 }
 
 /// Test that check_uv_available returns true when a fake uv script is in PATH.
@@ -230,10 +232,11 @@ async fn test_environment_selection_logic() {
     );
 }
 
-/// Test that UV is NOT selected when PATH excludes uv.
+/// Test that UV is selected even when PATH excludes uv (because bootstrap is available).
+/// With rattler bootstrap, uv is always available, so it will always be selected over conda.
 #[tokio::test]
 #[serial]
-async fn test_selects_conda_when_uv_unavailable() {
+async fn test_selects_uv_with_bootstrap() {
     let original_path = std::env::var("PATH").unwrap_or_default();
 
     // Remove uv from PATH
@@ -244,11 +247,12 @@ async fn test_selects_conda_when_uv_unavailable() {
     // Restore PATH
     std::env::set_var("PATH", &original_path);
 
-    assert!(!uv_available, "UV should not be available with empty PATH");
+    // uv is now always available because it can be bootstrapped via rattler
+    assert!(uv_available, "UV should be available with bootstrap");
 
-    // In this scenario, the app would select conda
+    // With bootstrap, uv is always selected
     let selected = if uv_available { "uv" } else { "conda" };
-    assert_eq!(selected, "conda", "Should select conda when uv unavailable");
+    assert_eq!(selected, "uv", "Should select uv when bootstrap available");
 }
 
 /// Test that UV IS selected when a fake uv is in PATH.

@@ -1,6 +1,6 @@
 //! Tool bootstrapping via rattler.
 //!
-//! This module provides a way to automatically install CLI tools (like `ruff`, `deno`)
+//! This module provides a way to automatically install CLI tools (like `ruff`, `deno`, `uv`)
 //! from conda-forge on demand. Tools are cached in `~/.cache/runt/tools/`.
 
 use anyhow::{anyhow, Result};
@@ -274,6 +274,48 @@ pub async fn get_deno_path() -> Result<PathBuf> {
     }
 }
 
+/// Global cache for the uv binary path.
+/// This avoids repeated lookups once uv is bootstrapped.
+static UV_PATH: OnceCell<Arc<Result<PathBuf, String>>> = OnceCell::const_new();
+
+/// Get the path to uv, bootstrapping it if necessary.
+///
+/// This function:
+/// 1. First checks if uv is available on PATH (fast path)
+/// 2. If not, bootstraps it via rattler from conda-forge
+/// 3. Caches the result for subsequent calls
+///
+/// Returns the path to the uv binary, or an error if it can't be obtained.
+pub async fn get_uv_path() -> Result<PathBuf> {
+    let result = UV_PATH
+        .get_or_init(|| async {
+            // First, check if uv is on PATH
+            if let Ok(output) = tokio::process::Command::new("uv")
+                .arg("--version")
+                .output()
+                .await
+            {
+                if output.status.success() {
+                    info!("Using system uv");
+                    return Arc::new(Ok(PathBuf::from("uv")));
+                }
+            }
+
+            // Not on PATH, bootstrap via rattler
+            info!("uv not found on PATH, bootstrapping via rattler...");
+            match bootstrap_tool("uv", None).await {
+                Ok(tool) => Arc::new(Ok(tool.binary_path)),
+                Err(e) => Arc::new(Err(e.to_string())),
+            }
+        })
+        .await;
+
+    match result.as_ref() {
+        Ok(path) => Ok(path.clone()),
+        Err(e) => Err(anyhow!("{}", e)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,6 +351,22 @@ mod tests {
 
         // Same tool/version should produce same hash
         assert_eq!(hash1, compute_tool_hash("deno", None));
+
+        // Different versions should produce different hashes
+        assert_ne!(hash1, hash2);
+
+        // Different tools should produce different hashes
+        assert_ne!(hash1, hash_ruff);
+    }
+
+    #[test]
+    fn test_compute_tool_hash_uv() {
+        let hash1 = compute_tool_hash("uv", None);
+        let hash2 = compute_tool_hash("uv", Some("0.10"));
+        let hash_ruff = compute_tool_hash("ruff", None);
+
+        // Same tool/version should produce same hash
+        assert_eq!(hash1, compute_tool_hash("uv", None));
 
         // Different versions should produce different hashes
         assert_ne!(hash1, hash2);
