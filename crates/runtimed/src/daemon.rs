@@ -444,44 +444,73 @@ impl Daemon {
             return;
         }
 
-        // Create venv
-        let venv_status = tokio::process::Command::new("uv")
-            .arg("venv")
-            .arg(&venv_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .status()
-            .await;
+        // Create venv (60 second timeout)
+        let venv_result = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            tokio::process::Command::new("uv")
+                .arg("venv")
+                .arg(&venv_path)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .status(),
+        )
+        .await;
 
-        if !matches!(venv_status, Ok(s) if s.success()) {
-            error!("[runtimed] Failed to create venv");
-            self.uv_pool.lock().await.warming_failed();
-            return;
+        match venv_result {
+            Ok(Ok(status)) if status.success() => {}
+            Ok(Ok(_)) => {
+                error!("[runtimed] Failed to create venv");
+                self.uv_pool.lock().await.warming_failed();
+                return;
+            }
+            Ok(Err(e)) => {
+                error!("[runtimed] Failed to create venv: {}", e);
+                self.uv_pool.lock().await.warming_failed();
+                return;
+            }
+            Err(_) => {
+                error!("[runtimed] Timeout creating venv");
+                tokio::fs::remove_dir_all(&venv_path).await.ok();
+                self.uv_pool.lock().await.warming_failed();
+                return;
+            }
         }
 
-        // Install ipykernel
-        let install_status = tokio::process::Command::new("uv")
-            .args([
-                "pip",
-                "install",
-                "--python",
-                &python_path.to_string_lossy(),
-                "ipykernel",
-                "ipywidgets",
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .status()
-            .await;
+        // Install ipykernel (120 second timeout)
+        let install_result = tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            tokio::process::Command::new("uv")
+                .args([
+                    "pip",
+                    "install",
+                    "--python",
+                    &python_path.to_string_lossy(),
+                    "ipykernel",
+                    "ipywidgets",
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .status(),
+        )
+        .await;
 
-        if !matches!(install_status, Ok(s) if s.success()) {
-            error!("[runtimed] Failed to install ipykernel");
-            tokio::fs::remove_dir_all(&venv_path).await.ok();
-            self.uv_pool.lock().await.warming_failed();
-            return;
+        match install_result {
+            Ok(Ok(status)) if status.success() => {}
+            Ok(Ok(_)) | Ok(Err(_)) => {
+                error!("[runtimed] Failed to install ipykernel");
+                tokio::fs::remove_dir_all(&venv_path).await.ok();
+                self.uv_pool.lock().await.warming_failed();
+                return;
+            }
+            Err(_) => {
+                error!("[runtimed] Timeout installing packages");
+                tokio::fs::remove_dir_all(&venv_path).await.ok();
+                self.uv_pool.lock().await.warming_failed();
+                return;
+            }
         }
 
-        // Warm up the environment
+        // Warm up the environment (30 second timeout)
         let warmup_script = r#"
 import ipykernel
 import IPython
@@ -491,15 +520,24 @@ from ipykernel.ipkernel import IPythonKernel
 print("warmup complete")
 "#;
 
-        let warmup_result = tokio::process::Command::new(&python_path)
-            .args(["-c", warmup_script])
-            .output()
-            .await;
+        let warmup_result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            tokio::process::Command::new(&python_path)
+                .args(["-c", warmup_script])
+                .output(),
+        )
+        .await;
 
-        if let Ok(output) = warmup_result {
-            if output.status.success() {
+        match warmup_result {
+            Ok(Ok(output)) if output.status.success() => {
                 // Create marker file
                 tokio::fs::write(venv_path.join(".warmed"), "").await.ok();
+            }
+            Ok(_) => {
+                warn!("[runtimed] Warmup script failed, continuing anyway");
+            }
+            Err(_) => {
+                warn!("[runtimed] Warmup script timed out, continuing anyway");
             }
         }
 
