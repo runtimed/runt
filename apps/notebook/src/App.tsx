@@ -46,7 +46,7 @@ async function sendMessage(message: unknown): Promise<void> {
 
 function AppContent() {
   const gitInfo = useGitInfo();
-  const poolStatus = usePrewarmStatus();
+  const prewarmStatus = usePrewarmStatus();
 
   const {
     cells,
@@ -433,7 +433,8 @@ function AppContent() {
           branch={gitInfo.branch}
           commit={gitInfo.commit}
           description={gitInfo.description}
-          poolStatus={poolStatus}
+          uvPoolStatus={prewarmStatus.uv}
+          condaPoolStatus={prewarmStatus.conda}
         />
       )}
       <NotebookToolbar

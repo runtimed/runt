@@ -100,12 +100,30 @@ async fn get_git_info() -> Option<GitInfo> {
     }
 }
 
-/// Get the current status of the prewarming environment pool.
+/// Get the current status of the prewarming UV environment pool.
 /// Returns None in release builds.
 #[tauri::command]
 async fn get_prewarm_status(
     pool: tauri::State<'_, env_pool::SharedEnvPool>,
 ) -> Result<Option<env_pool::PoolStatus>, String> {
+    #[cfg(debug_assertions)]
+    {
+        let p = pool.lock().await;
+        Ok(Some(p.status()))
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = pool; // Silence unused warning
+        Ok(None)
+    }
+}
+
+/// Get the current status of the prewarming conda environment pool.
+/// Returns None in release builds.
+#[tauri::command]
+async fn get_conda_pool_status(
+    pool: tauri::State<'_, env_pool::SharedCondaEnvPool>,
+) -> Result<Option<env_pool::CondaPoolStatus>, String> {
     #[cfg(debug_assertions)]
     {
         let p = pool.lock().await;
@@ -1236,6 +1254,8 @@ async fn start_default_python_kernel_impl(
     pool: &env_pool::SharedEnvPool,
     conda_pool: &env_pool::SharedCondaEnvPool,
 ) -> Result<String, String> {
+    let kernel_start = std::time::Instant::now();
+
     // Load user's preferred Python environment type from settings
     let app_settings = settings::load_settings();
     let preferred_env = app_settings.default_python_env;
@@ -1321,7 +1341,13 @@ async fn start_default_python_kernel_impl(
 
                             let mut kernel = kernel_state.lock().await;
                             match kernel.start_with_prewarmed_uv(app.clone(), env, notebook_path.as_deref()).await {
-                                Ok(()) => return Ok("uv".to_string()),
+                                Ok(()) => {
+                                    info!(
+                                        "[kernel-ready] Started UV kernel in {}ms | Source: prewarmed",
+                                        kernel_start.elapsed().as_millis()
+                                    );
+                                    return Ok("uv".to_string());
+                                }
                                 Err(e) => {
                                     log::warn!(
                                         "[prewarm] Failed to start kernel with prewarmed env, falling back: {}",
@@ -1349,7 +1375,7 @@ async fn start_default_python_kernel_impl(
         }
 
         // No prewarmed env available, create one normally
-        info!("No prewarmed environment available, creating fresh");
+        info!("[prewarm:uv] No prewarmed environment available, creating fresh");
         let deps = uv_env::NotebookDependencies {
             dependencies: vec![],
             requires_python: None,
@@ -1361,6 +1387,10 @@ async fn start_default_python_kernel_impl(
             .await
             .map_err(|e| e.to_string())?;
 
+        info!(
+            "[kernel-ready] Started UV kernel in {}ms | Source: fresh",
+            kernel_start.elapsed().as_millis()
+        );
         Ok("uv".to_string())
     } else {
         info!("Using conda/rattler for default kernel (preferred: {:?})", preferred_env);
@@ -1454,6 +1484,10 @@ async fn start_default_python_kernel_impl(
                             Ok(()) => {
                                 // Trigger replenishment of the pool
                                 env_pool::spawn_conda_replenishment(conda_pool.clone());
+                                info!(
+                                    "[kernel-ready] Started Conda kernel in {}ms | Source: prewarmed",
+                                    kernel_start.elapsed().as_millis()
+                                );
                                 return Ok("conda".to_string());
                             }
                             Err(e) => {
@@ -1480,7 +1514,7 @@ async fn start_default_python_kernel_impl(
         }
 
         // No prewarmed env available (or prewarmed failed), create one normally
-        info!("No prewarmed conda environment available, creating fresh");
+        info!("[prewarm:conda] No prewarmed conda environment available, creating fresh");
 
         // Create minimal deps with just ipykernel and the unique env_id
         let deps = conda_env::CondaDependencies {
@@ -1496,6 +1530,10 @@ async fn start_default_python_kernel_impl(
             .await
             .map_err(|e| e.to_string())?;
 
+        info!(
+            "[kernel-ready] Started Conda kernel in {}ms | Source: fresh",
+            kernel_start.elapsed().as_millis()
+        );
         Ok("conda".to_string())
     }
 }
@@ -2217,12 +2255,18 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
     // Track auto-launch state for frontend to query
     let auto_launch_in_progress = Arc::new(AtomicBool::new(false));
 
+    // Recovery completion flags - set when prewarming loops finish recovery
+    let uv_recovery_complete = Arc::new(AtomicBool::new(false));
+    let conda_recovery_complete = Arc::new(AtomicBool::new(false));
+
     // Clone for setup closure
     let queue_for_processor = queue.clone();
     let notebook_for_processor = notebook_state.clone();
     let kernel_for_processor = kernel_state.clone();
     let pool_for_prewarm = env_pool.clone();
     let conda_pool_for_prewarm = conda_env_pool.clone();
+    let uv_recovery_for_prewarm = uv_recovery_complete.clone();
+    let conda_recovery_for_prewarm = conda_recovery_complete.clone();
 
     // Clone for auto-launch kernel task
     let notebook_for_autolaunch = notebook_state.clone();
@@ -2230,6 +2274,8 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
     let pool_for_autolaunch = env_pool.clone();
     let conda_pool_for_autolaunch = conda_env_pool.clone();
     let auto_launch_flag = auto_launch_in_progress.clone();
+    let uv_recovery_for_autolaunch = uv_recovery_complete.clone();
+    let conda_recovery_for_autolaunch = conda_recovery_complete.clone();
 
     // Clone for lifecycle event handlers
     let kernel_for_window_event = kernel_state.clone();
@@ -2323,8 +2369,12 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
             // Debug info
             get_git_info,
             get_prewarm_status,
+            get_conda_pool_status,
         ])
         .setup(move |app| {
+            let setup_start = std::time::Instant::now();
+            log::info!("[startup] App setup starting");
+
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title(&window_title);
             }
@@ -2355,19 +2405,70 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
             // Spawn the UV environment prewarming loop
             let app_for_prewarm = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                env_pool::run_prewarming_loop(pool_for_prewarm, app_for_prewarm).await;
+                env_pool::run_prewarming_loop(pool_for_prewarm, app_for_prewarm, uv_recovery_for_prewarm).await;
             });
 
             // Spawn the conda environment prewarming loop
             tauri::async_runtime::spawn(async move {
-                env_pool::run_conda_prewarming_loop(conda_pool_for_prewarm).await;
+                env_pool::run_conda_prewarming_loop(conda_pool_for_prewarm, conda_recovery_for_prewarm).await;
             });
 
             // Auto-launch kernel for faster startup (only if trusted)
+            log::info!("[startup] Setup complete in {}ms, spawning auto-launch task", setup_start.elapsed().as_millis());
             let app_for_autolaunch = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                // Small delay to let prewarming recover existing envs
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                let autolaunch_start = std::time::Instant::now();
+
+                // Load user's preferred Python environment type
+                let app_settings = settings::load_settings();
+                let prefer_conda = matches!(app_settings.default_python_env, settings::PythonEnvType::Conda);
+
+                // Wait for the PREFERRED pool recovery to complete (with timeout)
+                // This ensures prewarmed environments are available before auto-launch
+                let recovery_timeout = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    async {
+                        if prefer_conda {
+                            // Wait for conda recovery specifically
+                            while !conda_recovery_for_autolaunch.load(std::sync::atomic::Ordering::SeqCst) {
+                                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                            }
+                        } else {
+                            // Wait for UV recovery specifically
+                            while !uv_recovery_for_autolaunch.load(std::sync::atomic::Ordering::SeqCst) {
+                                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                            }
+                        }
+                    },
+                )
+                .await;
+
+                let recovery_wait_ms = autolaunch_start.elapsed().as_millis();
+                let preferred_type = if prefer_conda { "conda" } else { "uv" };
+                if recovery_timeout.is_err() {
+                    log::info!(
+                        "[autolaunch] Recovery timeout after {}ms (preferred: {}), UV: {}, Conda: {}",
+                        recovery_wait_ms,
+                        preferred_type,
+                        uv_recovery_for_autolaunch.load(std::sync::atomic::Ordering::SeqCst),
+                        conda_recovery_for_autolaunch.load(std::sync::atomic::Ordering::SeqCst)
+                    );
+                } else {
+                    log::info!(
+                        "[autolaunch] {} recovery complete in {}ms, proceeding with auto-launch",
+                        preferred_type,
+                        recovery_wait_ms
+                    );
+                }
+
+                // Log pool status before attempting to get prewarmed env
+                let uv_status = pool_for_autolaunch.lock().await.status();
+                let conda_status = conda_pool_for_autolaunch.lock().await.status();
+                log::info!(
+                    "[autolaunch] Pool status - UV: {}/{} ready ({} creating), Conda: {}/{} ready ({} creating)",
+                    uv_status.available, uv_status.target, uv_status.creating,
+                    conda_status.available, conda_status.target, conda_status.creating
+                );
 
                 // Get runtime and verify trust before launching
                 let (runtime, trust_status) = {

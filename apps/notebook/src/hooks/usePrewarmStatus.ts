@@ -7,28 +7,37 @@ export interface PoolStatus {
   target: number;
 }
 
-export function usePrewarmStatus() {
-  const [status, setStatus] = useState<PoolStatus | null>(null);
+export interface PrewarmStatus {
+  uv: PoolStatus | null;
+  conda: PoolStatus | null;
+}
+
+export function usePrewarmStatus(): PrewarmStatus {
+  const [uvStatus, setUvStatus] = useState<PoolStatus | null>(null);
+  const [condaStatus, setCondaStatus] = useState<PoolStatus | null>(null);
 
   useEffect(() => {
-    // Initial fetch
-    invoke<PoolStatus | null>("get_prewarm_status")
-      .then(setStatus)
-      .catch((e) => {
+    const fetchBoth = async () => {
+      try {
+        const [uv, conda] = await Promise.all([
+          invoke<PoolStatus | null>("get_prewarm_status"),
+          invoke<PoolStatus | null>("get_conda_pool_status"),
+        ]);
+        setUvStatus(uv);
+        setCondaStatus(conda);
+      } catch (e) {
         console.error("Failed to get prewarm status:", e);
-      });
+      }
+    };
+
+    // Initial fetch
+    fetchBoth();
 
     // Poll every 5 seconds to update the status
-    const interval = setInterval(() => {
-      invoke<PoolStatus | null>("get_prewarm_status")
-        .then(setStatus)
-        .catch((e) => {
-          console.error("Failed to get prewarm status:", e);
-        });
-    }, 5000);
+    const interval = setInterval(fetchBoth, 5000);
 
     return () => clearInterval(interval);
   }, []);
 
-  return status;
+  return { uv: uvStatus, conda: condaStatus };
 }
