@@ -195,6 +195,96 @@ pub async fn try_get_pooled_env(env_type: EnvType) -> Option<PooledEnv> {
     }
 }
 
+/// Ensure the pool daemon is running, installing and starting it if needed.
+///
+/// This function:
+/// 1. Checks if the daemon responds to ping
+/// 2. If not responding, checks if the service is installed
+/// 3. If not installed, installs the service using the provided binary path
+/// 4. Starts the service if not running
+/// 5. Waits for the daemon to be ready
+///
+/// Returns Ok(endpoint) if daemon is running, Err if it couldn't be started.
+pub async fn ensure_daemon_running(
+    daemon_binary: Option<std::path::PathBuf>,
+) -> Result<String, EnsureDaemonError> {
+    use crate::service::ServiceManager;
+    use crate::singleton::get_running_daemon_info;
+
+    let client = PoolClient::default();
+
+    // First, try to ping the daemon
+    if client.ping().await.is_ok() {
+        if let Some(info) = get_running_daemon_info() {
+            info!("[pool-client] Daemon already running at {}", info.endpoint);
+            return Ok(info.endpoint);
+        }
+    }
+
+    info!("[pool-client] Daemon not responding, checking service...");
+
+    let manager = ServiceManager::default();
+
+    // Install if not already installed
+    if !manager.is_installed() {
+        info!("[pool-client] Service not installed, installing...");
+
+        let binary_path = daemon_binary.ok_or(EnsureDaemonError::NoBinaryPath)?;
+
+        if !binary_path.exists() {
+            return Err(EnsureDaemonError::BinaryNotFound(binary_path));
+        }
+
+        manager
+            .install(&binary_path)
+            .map_err(|e| EnsureDaemonError::InstallFailed(e.to_string()))?;
+    }
+
+    // Start the service
+    info!("[pool-client] Starting service...");
+    manager
+        .start()
+        .map_err(|e| EnsureDaemonError::StartFailed(e.to_string()))?;
+
+    // Wait for daemon to be ready (up to 10 seconds)
+    info!("[pool-client] Waiting for daemon to be ready...");
+    for i in 0..20 {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        if client.ping().await.is_ok() {
+            if let Some(info) = get_running_daemon_info() {
+                info!(
+                    "[pool-client] Daemon ready at {} (waited {}ms)",
+                    info.endpoint,
+                    (i + 1) * 500
+                );
+                return Ok(info.endpoint);
+            }
+        }
+    }
+
+    Err(EnsureDaemonError::Timeout)
+}
+
+/// Errors that can occur when ensuring the daemon is running.
+#[derive(Debug, thiserror::Error)]
+pub enum EnsureDaemonError {
+    #[error("No daemon binary path provided for installation")]
+    NoBinaryPath,
+
+    #[error("Daemon binary not found at {0}")]
+    BinaryNotFound(std::path::PathBuf),
+
+    #[error("Failed to install daemon service: {0}")]
+    InstallFailed(String),
+
+    #[error("Failed to start daemon service: {0}")]
+    StartFailed(String),
+
+    #[error("Daemon did not become ready within timeout")]
+    Timeout,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

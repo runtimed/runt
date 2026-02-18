@@ -3115,6 +3115,7 @@ dependencies = [
  "nix",
  "pathdiff",
  "petname",
+ "pool-daemon",
  "pyproject-toml",
  "rand 0.8.5",
  "rattler",
@@ -4006,12 +4007,14 @@ dependencies = [
  "clap",
  "dirs 5.0.1",
  "env_logger",
+ "libc",
  "log",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
  "uuid",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

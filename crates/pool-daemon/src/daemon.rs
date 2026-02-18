@@ -12,9 +12,10 @@ use std::time::Instant;
 use log::{error, info, warn};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 
 use crate::protocol::{Request, Response};
+use crate::singleton::{DaemonInfo, DaemonLock};
 use crate::{default_cache_dir, default_socket_path, EnvType, PoolStats, PooledEnv};
 
 /// Configuration for the pool daemon.
@@ -138,17 +139,35 @@ pub struct Daemon {
     uv_pool: Mutex<Pool>,
     conda_pool: Mutex<Pool>,
     shutdown: Mutex<bool>,
+    /// Notifier to wake up accept loop on shutdown.
+    shutdown_notify: Notify,
+    /// Singleton lock - kept alive while daemon is running.
+    _lock: DaemonLock,
+}
+
+/// Error returned when another daemon is already running.
+#[derive(Debug, thiserror::Error)]
+#[error("Another daemon is already running: {info:?}")]
+pub struct DaemonAlreadyRunning {
+    pub info: DaemonInfo,
 }
 
 impl Daemon {
     /// Create a new daemon with the given configuration.
-    pub fn new(config: DaemonConfig) -> Arc<Self> {
-        Arc::new(Self {
+    ///
+    /// Returns an error if another daemon is already running.
+    pub fn new(config: DaemonConfig) -> Result<Arc<Self>, DaemonAlreadyRunning> {
+        // Try to acquire the singleton lock
+        let lock = DaemonLock::try_acquire().map_err(|info| DaemonAlreadyRunning { info })?;
+
+        Ok(Arc::new(Self {
             uv_pool: Mutex::new(Pool::new(config.uv_pool_size, config.max_age_secs)),
             conda_pool: Mutex::new(Pool::new(config.conda_pool_size, config.max_age_secs)),
             config,
             shutdown: Mutex::new(false),
-        })
+            shutdown_notify: Notify::new(),
+            _lock: lock,
+        }))
     }
 
     /// Run the daemon server.
@@ -170,6 +189,11 @@ impl Daemon {
             self.config.socket_path
         );
 
+        // Write daemon info so clients can discover us
+        if let Err(e) = self._lock.write_info(&self.config.socket_path.to_string_lossy()) {
+            error!("[pool-daemon] Failed to write daemon info: {}", e);
+        }
+
         // Spawn the warming loops
         let uv_daemon = self.clone();
         tokio::spawn(async move {
@@ -183,22 +207,27 @@ impl Daemon {
 
         // Accept connections
         loop {
-            if *self.shutdown.lock().await {
-                info!("[pool-daemon] Shutting down");
-                break;
-            }
-
-            match listener.accept().await {
-                Ok((stream, _)) => {
-                    let daemon = self.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = daemon.handle_connection(stream).await {
-                            error!("[pool-daemon] Connection error: {}", e);
+            tokio::select! {
+                // Wait for a new connection
+                accept_result = listener.accept() => {
+                    match accept_result {
+                        Ok((stream, _)) => {
+                            let daemon = self.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = daemon.handle_connection(stream).await {
+                                    error!("[pool-daemon] Connection error: {}", e);
+                                }
+                            });
                         }
-                    });
+                        Err(e) => {
+                            error!("[pool-daemon] Accept error: {}", e);
+                        }
+                    }
                 }
-                Err(e) => {
-                    error!("[pool-daemon] Accept error: {}", e);
+                // Wait for shutdown signal
+                _ = self.shutdown_notify.notified() => {
+                    info!("[pool-daemon] Shutting down");
+                    break;
                 }
             }
         }
@@ -328,6 +357,7 @@ impl Daemon {
 
             Request::Shutdown => {
                 *self.shutdown.lock().await = true;
+                self.shutdown_notify.notify_one();
                 Response::ShuttingDown
             }
         }

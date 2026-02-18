@@ -24,5 +24,11 @@ uuid = { workspace = true }
 log = "0.4"
 env_logger = "0.11"
 dirs = "5"
-chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
 clap = { version = "4", features = ["derive"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }

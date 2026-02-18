@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 pub mod client;
 pub mod daemon;
 pub mod protocol;
+pub mod service;
+pub mod singleton;
 
 /// Environment types supported by the pool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
