@@ -537,6 +537,7 @@ pub fn spawn_conda_replenishment(pool: SharedCondaEnvPool) {
 /// Recover any existing prewarmed conda environments from disk.
 ///
 /// Returns the number of environments recovered.
+/// Environments that haven't been warmed will be warmed in the background.
 pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) -> usize {
     let recovered = crate::conda_env::find_existing_prewarmed_conda_environments().await;
 
@@ -551,7 +552,9 @@ pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) -> usiz
     );
 
     let mut added = 0;
+    let mut envs_to_warm = Vec::new();
     let mut p = pool.lock().await;
+
     for env in recovered {
         // Only add up to the pool size
         if p.pool.len() >= p.config.pool_size {
@@ -564,6 +567,12 @@ pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) -> usiz
             continue;
         }
 
+        // Check if this environment needs warming
+        let needs_warming = !crate::conda_env::is_environment_warmed(&env);
+        if needs_warming {
+            envs_to_warm.push(env.clone());
+        }
+
         let prewarmed = PrewarmedCondaEnv {
             env_path: env.env_path,
             python_path: env.python_path,
@@ -573,9 +582,26 @@ pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) -> usiz
         added += 1;
     }
 
+    drop(p); // Release lock before spawning warmup tasks
+
+    // Spawn background warmup tasks for unwarmed environments
+    if !envs_to_warm.is_empty() {
+        info!(
+            "[prewarm:conda] {} recovered environments need warming",
+            envs_to_warm.len()
+        );
+        for env in envs_to_warm {
+            tokio::spawn(async move {
+                if let Err(e) = crate::conda_env::warmup_conda_environment(&env).await {
+                    warn!("[prewarm:conda] Background warmup failed: {}", e);
+                }
+            });
+        }
+    }
+
     info!(
         "[prewarm:conda] Conda pool initialized with {} environments",
-        p.pool.len()
+        added
     );
     added
 }
