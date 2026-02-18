@@ -70,20 +70,18 @@ function updateDocumentTheme(isDark: boolean) {
   // Some widgets (like drawdata) use @media (prefers-color-scheme: dark)
   root.style.colorScheme = isDark ? "dark" : "light";
 
-  // Update CSS variables for base styles
+  // Update CSS variables for base styles (background kept transparent for cell focus colors to show through)
   if (isDark) {
     root.style.setProperty("--bg-primary", "#0a0a0a");
     root.style.setProperty("--bg-secondary", "#1a1a1a");
     root.style.setProperty("--text-primary", "#e0e0e0");
     root.style.setProperty("--text-secondary", "#a0a0a0");
-    root.style.setProperty("--background", "#0a0a0a");
     root.style.setProperty("--foreground", "#e0e0e0");
   } else {
     root.style.setProperty("--bg-primary", "#ffffff");
     root.style.setProperty("--bg-secondary", "#f5f5f5");
     root.style.setProperty("--text-primary", "#1a1a1a");
     root.style.setProperty("--text-secondary", "#666666");
-    root.style.setProperty("--background", "#ffffff");
     root.style.setProperty("--foreground", "#1a1a1a");
   }
 }
