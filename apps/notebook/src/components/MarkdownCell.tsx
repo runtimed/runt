@@ -89,16 +89,16 @@ export function MarkdownCell({
     });
   }, [cell.source]);
 
-  // Re-render when source changes and not editing
+  // Sync markdown to iframe whenever source changes (supports RTC updates)
   useEffect(() => {
-    if (!editing && frameRef.current?.isReady && cell.source) {
+    if (frameRef.current?.isReady && cell.source) {
       frameRef.current.clear();
       frameRef.current.render({
         mimeType: "text/markdown",
         data: cell.source,
       });
     }
-  }, [editing, cell.source]);
+  }, [cell.source]);
 
   // Handle link clicks from iframe
   const handleLinkClick = useCallback((url: string) => {
