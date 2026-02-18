@@ -1,4 +1,5 @@
 use crate::runtime::Runtime;
+use crate::settings::{self, PythonEnvType};
 use nbformat::v4::{Cell, CellId, CellMetadata, Notebook, Output};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -81,14 +82,32 @@ impl NotebookState {
         // Generate unique environment ID for this notebook
         let env_id = Uuid::new_v4().to_string();
 
-        // Set up default uv metadata for PyPI-based dependencies
+        // Load user's preferred Python environment type from settings
+        let app_settings = settings::load_settings();
         let mut additional = HashMap::new();
-        additional.insert(
-            "uv".to_string(),
-            serde_json::json!({
-                "dependencies": Vec::<String>::new(),
-            }),
-        );
+
+        // Set up environment metadata based on user's preference
+        match app_settings.default_python_env {
+            PythonEnvType::Uv => {
+                additional.insert(
+                    "uv".to_string(),
+                    serde_json::json!({
+                        "dependencies": Vec::<String>::new(),
+                    }),
+                );
+            }
+            PythonEnvType::Conda => {
+                additional.insert(
+                    "conda".to_string(),
+                    serde_json::json!({
+                        "dependencies": Vec::<String>::new(),
+                        "channels": vec!["conda-forge"],
+                        "env_id": env_id.clone(),
+                    }),
+                );
+            }
+        }
+
         additional.insert(
             "runt".to_string(),
             serde_json::json!({
@@ -127,13 +146,28 @@ impl NotebookState {
         // Set runtime-specific metadata
         match runtime {
             Runtime::Python => {
-                // Default Python setup with uv
-                additional.insert(
-                    "uv".to_string(),
-                    serde_json::json!({
-                        "dependencies": Vec::<String>::new(),
-                    }),
-                );
+                // Load user's preferred Python environment type from settings
+                let app_settings = settings::load_settings();
+                match app_settings.default_python_env {
+                    PythonEnvType::Uv => {
+                        additional.insert(
+                            "uv".to_string(),
+                            serde_json::json!({
+                                "dependencies": Vec::<String>::new(),
+                            }),
+                        );
+                    }
+                    PythonEnvType::Conda => {
+                        additional.insert(
+                            "conda".to_string(),
+                            serde_json::json!({
+                                "dependencies": Vec::<String>::new(),
+                                "channels": vec!["conda-forge"],
+                                "env_id": env_id.clone(),
+                            }),
+                        );
+                    }
+                }
                 additional.insert(
                     "runt".to_string(),
                     serde_json::json!({
@@ -367,10 +401,13 @@ mod tests {
     }
 
     #[test]
-    fn test_new_empty_sets_uv_metadata() {
+    fn test_new_empty_sets_env_metadata() {
         let state = NotebookState::new_empty();
 
-        assert!(state.notebook.metadata.additional.contains_key("uv"));
+        // Should have either uv or conda metadata based on default settings (Conda is default)
+        let has_env = state.notebook.metadata.additional.contains_key("uv")
+            || state.notebook.metadata.additional.contains_key("conda");
+        assert!(has_env);
         assert!(state.notebook.metadata.additional.contains_key("runt"));
     }
 
@@ -378,7 +415,10 @@ mod tests {
     fn test_new_empty_with_runtime_python() {
         let state = NotebookState::new_empty_with_runtime(Runtime::Python);
 
-        assert!(state.notebook.metadata.additional.contains_key("uv"));
+        // Should have either uv or conda metadata based on default settings
+        let has_env = state.notebook.metadata.additional.contains_key("uv")
+            || state.notebook.metadata.additional.contains_key("conda");
+        assert!(has_env);
         let runt = state.notebook.metadata.additional.get("runt").unwrap();
         assert_eq!(runt.get("runtime").unwrap(), "python");
     }
