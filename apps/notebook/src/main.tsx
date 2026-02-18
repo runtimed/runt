@@ -7,13 +7,11 @@ import "./index.css";
 import "@/components/widgets/controls";
 import "@/components/widgets/ipycanvas";
 
-// Eagerly preload lazy-loaded output components so they're warm
-// by the time the user renders markdown or gets execution output.
+// Preload output components used in main bundle (via MediaRouter).
+// Note: markdown-output, html-output, svg-output are isolated-only
+// and bundled separately in src/isolated-renderer/ - no need to preload here.
 import("@/components/outputs/ansi-output");
-import("@/components/outputs/markdown-output");
-import("@/components/outputs/html-output");
 import("@/components/outputs/image-output");
-import("@/components/outputs/svg-output");
 import("@/components/outputs/json-output");
 
 createRoot(document.getElementById("root")!).render(
