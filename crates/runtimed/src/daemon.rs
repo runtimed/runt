@@ -31,6 +31,8 @@ pub struct DaemonConfig {
     pub conda_pool_size: usize,
     /// Maximum age (in seconds) before an environment is considered stale.
     pub max_age_secs: u64,
+    /// Optional custom directory for lock files (used in tests).
+    pub lock_dir: Option<PathBuf>,
 }
 
 impl Default for DaemonConfig {
@@ -41,6 +43,7 @@ impl Default for DaemonConfig {
             uv_pool_size: 3,
             conda_pool_size: 3,
             max_age_secs: 172800, // 2 days
+            lock_dir: None,
         }
     }
 }
@@ -158,7 +161,8 @@ impl Daemon {
     /// Returns an error if another daemon is already running.
     pub fn new(config: DaemonConfig) -> Result<Arc<Self>, DaemonAlreadyRunning> {
         // Try to acquire the singleton lock
-        let lock = DaemonLock::try_acquire().map_err(|info| DaemonAlreadyRunning { info })?;
+        let lock = DaemonLock::try_acquire(config.lock_dir.as_ref())
+            .map_err(|info| DaemonAlreadyRunning { info })?;
 
         Ok(Arc::new(Self {
             uv_pool: Mutex::new(Pool::new(config.uv_pool_size, config.max_age_secs)),
@@ -555,5 +559,188 @@ print("warmup complete")
     async fn create_conda_env(&self) {
         // TODO: Implement conda environment creation
         self.conda_pool.lock().await.warming_failed();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    fn create_test_env(temp_dir: &TempDir, name: &str) -> PooledEnv {
+        let venv_path = temp_dir.path().join(name);
+        std::fs::create_dir_all(&venv_path).unwrap();
+
+        #[cfg(windows)]
+        let python_path = venv_path.join("Scripts").join("python.exe");
+        #[cfg(not(windows))]
+        let python_path = venv_path.join("bin").join("python");
+
+        // Create the python file so it "exists"
+        if let Some(parent) = python_path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&python_path, "").unwrap();
+
+        PooledEnv {
+            env_type: EnvType::Uv,
+            venv_path,
+            python_path,
+        }
+    }
+
+    #[test]
+    fn test_pool_new() {
+        let pool = Pool::new(3, 3600);
+        assert_eq!(pool.target, 3);
+        assert_eq!(pool.max_age_secs, 3600);
+        assert_eq!(pool.available.len(), 0);
+        assert_eq!(pool.warming, 0);
+    }
+
+    #[test]
+    fn test_pool_add_and_take() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut pool = Pool::new(3, 3600);
+
+        let env = create_test_env(&temp_dir, "test-env");
+        pool.add(env.clone());
+
+        assert_eq!(pool.available.len(), 1);
+
+        let taken = pool.take();
+        assert!(taken.is_some());
+        assert_eq!(taken.unwrap().venv_path, env.venv_path);
+        assert_eq!(pool.available.len(), 0);
+    }
+
+    #[test]
+    fn test_pool_take_empty() {
+        let mut pool = Pool::new(3, 3600);
+        let taken = pool.take();
+        assert!(taken.is_none());
+    }
+
+    #[test]
+    fn test_pool_take_skips_missing_paths() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut pool = Pool::new(3, 3600);
+
+        // Add an env with a path that doesn't exist
+        let missing_env = PooledEnv {
+            env_type: EnvType::Uv,
+            venv_path: PathBuf::from("/nonexistent/path"),
+            python_path: PathBuf::from("/nonexistent/path/bin/python"),
+        };
+        pool.available.push_back(PoolEntry {
+            env: missing_env,
+            created_at: Instant::now(),
+        });
+
+        // Add a valid env
+        let valid_env = create_test_env(&temp_dir, "valid-env");
+        pool.add(valid_env.clone());
+
+        // Take should skip the missing one and return the valid one
+        let taken = pool.take();
+        assert!(taken.is_some());
+        assert_eq!(taken.unwrap().venv_path, valid_env.venv_path);
+    }
+
+    #[test]
+    fn test_pool_deficit() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut pool = Pool::new(3, 3600);
+
+        // Initially, deficit is 3 (need 3, have 0)
+        assert_eq!(pool.deficit(), 3);
+
+        // Add one env directly, deficit is 2
+        let env1 = create_test_env(&temp_dir, "env1");
+        pool.add(env1);
+        // Note: add() decrements warming, but it was 0 so stays 0
+        assert_eq!(pool.available.len(), 1);
+        assert_eq!(pool.warming, 0);
+        assert_eq!(pool.deficit(), 2);
+
+        // Mark that we're warming 1 more, deficit is 1
+        pool.mark_warming(1);
+        assert_eq!(pool.warming, 1);
+        assert_eq!(pool.deficit(), 1); // 1 available + 1 warming = 2, need 1 more
+
+        // Add another (simulating warming completion), deficit is 1
+        // add() decrements warming: 1 -> 0
+        let env2 = create_test_env(&temp_dir, "env2");
+        pool.add(env2);
+        assert_eq!(pool.available.len(), 2);
+        assert_eq!(pool.warming, 0);
+        assert_eq!(pool.deficit(), 1); // 2 available, need 1 more
+
+        // Mark warming for the last one
+        pool.mark_warming(1);
+        assert_eq!(pool.deficit(), 0); // 2 available + 1 warming = 3 = target
+
+        // Add the last one
+        let env3 = create_test_env(&temp_dir, "env3");
+        pool.add(env3);
+        assert_eq!(pool.available.len(), 3);
+        assert_eq!(pool.warming, 0);
+        assert_eq!(pool.deficit(), 0); // 3 available = target
+
+        // Taking one should increase deficit
+        pool.take();
+        assert_eq!(pool.available.len(), 2);
+        assert_eq!(pool.deficit(), 1);
+    }
+
+    #[test]
+    fn test_pool_warming_failed() {
+        let mut pool = Pool::new(3, 3600);
+
+        pool.mark_warming(2);
+        assert_eq!(pool.warming, 2);
+
+        pool.warming_failed();
+        assert_eq!(pool.warming, 1);
+
+        pool.warming_failed();
+        assert_eq!(pool.warming, 0);
+
+        // Should not go negative
+        pool.warming_failed();
+        assert_eq!(pool.warming, 0);
+    }
+
+    #[test]
+    fn test_pool_stats() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut pool = Pool::new(3, 3600);
+
+        let (available, warming) = pool.stats();
+        assert_eq!(available, 0);
+        assert_eq!(warming, 0);
+
+        let env = create_test_env(&temp_dir, "env1");
+        pool.add(env);
+        pool.mark_warming(2);
+
+        let (available, warming) = pool.stats();
+        assert_eq!(available, 1);
+        assert_eq!(warming, 2);
+    }
+
+    #[test]
+    fn test_daemon_config_default() {
+        let config = DaemonConfig::default();
+        assert_eq!(config.uv_pool_size, 3);
+        assert_eq!(config.conda_pool_size, 3);
+        assert!(config.socket_path.to_string_lossy().contains("runtimed.sock"));
+    }
+
+    #[test]
+    fn test_env_type_display() {
+        assert_eq!(format!("{}", EnvType::Uv), "uv");
+        assert_eq!(format!("{}", EnvType::Conda), "conda");
     }
 }

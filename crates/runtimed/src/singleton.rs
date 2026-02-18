@@ -34,9 +34,15 @@ impl DaemonLock {
     ///
     /// Returns `Ok(lock)` if we acquired the lock (we are the singleton).
     /// Returns `Err(info)` if another daemon is running (with its info).
-    pub fn try_acquire() -> Result<Self, DaemonInfo> {
-        let lock_path = daemon_lock_path();
-        let info_path = daemon_info_path();
+    ///
+    /// If `custom_lock_dir` is provided, uses that directory for lock files
+    /// instead of the default. This is primarily for testing.
+    pub fn try_acquire(custom_lock_dir: Option<&PathBuf>) -> Result<Self, DaemonInfo> {
+        let (lock_path, info_path) = if let Some(dir) = custom_lock_dir {
+            (dir.join("daemon.lock"), dir.join("daemon.json"))
+        } else {
+            (daemon_lock_path(), daemon_info_path())
+        };
 
         // Ensure parent directory exists
         if let Some(parent) = lock_path.parent() {
@@ -141,7 +147,7 @@ impl DaemonLock {
         };
 
         let json = serde_json::to_string_pretty(&info)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
 
         std::fs::write(&self.info_path, json)?;
         info!(
