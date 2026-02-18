@@ -29,7 +29,7 @@ bytes = { workspace = true }
 jupyter-protocol = { workspace = true }
 runtimelib = { workspace = true, features = ["tokio-runtime", "ring"] }
 tauri-jupyter = { path = "../tauri-jupyter" }
-pool-daemon = { path = "../pool-daemon" }
+runtimed = { path = "../runtimed" }
 nbformat = "1.0.0"
 petname = "2"
 log = "0.4"

@@ -3115,7 +3115,6 @@ dependencies = [
  "nix",
  "pathdiff",
  "petname",
- "pool-daemon",
  "pyproject-toml",
  "rand 0.8.5",
  "rattler",
@@ -3126,6 +3125,7 @@ dependencies = [
  "rattler_virtual_packages",
  "reqwest",
  "reqwest-middleware",
+ "runtimed",
  "runtimelib",
  "serde",
  "serde_json",
@@ -3996,25 +3996,6 @@ dependencies = [
  "fdeflate",
  "flate2",
  "miniz_oxide",
-]
-
-[[package]]
-name = "pool-daemon"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "dirs 5.0.1",
- "env_logger",
- "libc",
- "log",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "uuid",
- "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5097,8 +5078,8 @@ dependencies = [
  "futures",
  "jupyter-protocol",
  "petname",
- "pool-daemon",
  "rpassword",
+ "runtimed",
  "runtimelib",
  "serde",
  "serde_json",
@@ -5106,6 +5087,25 @@ dependencies = [
  "tabled",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "runtimed"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "dirs 5.0.1",
+ "env_logger",
+ "libc",
+ "log",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

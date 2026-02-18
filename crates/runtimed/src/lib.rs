@@ -1,4 +1,4 @@
-//! Pool daemon for centralized management of prewarmed Python environments.
+//! runtimed - Central daemon for managing Jupyter runtimes and prewarmed environments.
 //!
 //! This crate provides a daemon process that manages a shared pool of prewarmed
 //! Python environments (UV and Conda). Notebook windows communicate with the
@@ -48,12 +48,12 @@ pub struct PoolStats {
     pub conda_warming: usize,
 }
 
-/// Get the default socket path for the pool daemon.
+/// Get the default socket path for runtimed.
 pub fn default_socket_path() -> PathBuf {
     dirs::cache_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("runt")
-        .join("pool-daemon.sock")
+        .join("runtimed.sock")
 }
 
 /// Get the default cache directory for environments.

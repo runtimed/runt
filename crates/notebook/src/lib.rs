@@ -2402,16 +2402,16 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                 kernel.set_queue_tx(tx_for_kernel);
             });
 
-            // Try to ensure the pool daemon is running (non-blocking, optional)
+            // Try to ensure runtimed is running (non-blocking, optional)
             // The daemon provides centralized prewarming across all notebook windows
             tauri::async_runtime::spawn(async move {
-                match pool_daemon::client::ensure_daemon_running(None).await {
+                match runtimed::client::ensure_daemon_running(None).await {
                     Ok(endpoint) => {
-                        log::info!("[startup] Pool daemon running at {}", endpoint);
+                        log::info!("[startup] runtimed running at {}", endpoint);
                     }
                     Err(e) => {
                         // Not critical - in-process prewarming will work as fallback
-                        log::info!("[startup] Pool daemon not available: {}. Using in-process prewarming.", e);
+                        log::info!("[startup] runtimed not available: {}. Using in-process prewarming.", e);
                     }
                 }
             });

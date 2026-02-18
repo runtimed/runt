@@ -801,8 +801,8 @@ async fn execute_code(id: &str, code: Option<&str>) -> Result<()> {
 // =============================================================================
 
 async fn pool_command(command: PoolCommands) -> Result<()> {
-    use pool_daemon::client::PoolClient;
-    use pool_daemon::EnvType;
+    use runtimed::client::PoolClient;
+    use runtimed::EnvType;
 
     let client = PoolClient::default();
 

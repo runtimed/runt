@@ -1,17 +1,17 @@
 [package]
-name = "pool-daemon"
+name = "runtimed"
 version = "0.1.0"
 edition = "2021"
-description = "Central daemon for managing prewarmed Python environment pools"
+description = "Central daemon for managing Jupyter runtimes and prewarmed environments"
 repository = "https://github.com/runtimed/runt"
 license = "BSD-3-Clause"
 
 [lib]
-name = "pool_daemon"
+name = "runtimed"
 path = "src/lib.rs"
 
 [[bin]]
-name = "pool-daemon"
+name = "runtimed"
 path = "src/main.rs"
 
 [dependencies]

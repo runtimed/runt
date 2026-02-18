@@ -1,8 +1,8 @@
-//! Cross-platform service management for the pool daemon.
+//! Cross-platform service management for runtimed.
 //!
 //! Handles installation and management of the daemon as a system service:
-//! - macOS: launchd user agent (`~/Library/LaunchAgents/io.runt.pool-daemon.plist`)
-//! - Linux: systemd user service (`~/.config/systemd/user/runt-pool-daemon.service`)
+//! - macOS: launchd user agent (`~/Library/LaunchAgents/io.runtimed.plist`)
+//! - Linux: systemd user service (`~/.config/systemd/user/runtimed.service`)
 //! - Windows: Startup shortcut
 
 use std::path::PathBuf;
@@ -35,7 +35,7 @@ pub fn default_binary_path() -> PathBuf {
             .unwrap_or_else(|| PathBuf::from("/tmp"))
             .join("runt")
             .join("bin")
-            .join("pool-daemon")
+            .join("runtimed")
     }
 
     #[cfg(target_os = "linux")]
@@ -44,7 +44,7 @@ pub fn default_binary_path() -> PathBuf {
             .unwrap_or_else(|| PathBuf::from("/tmp"))
             .join("runt")
             .join("bin")
-            .join("pool-daemon")
+            .join("runtimed")
     }
 
     #[cfg(target_os = "windows")]
@@ -53,7 +53,7 @@ pub fn default_binary_path() -> PathBuf {
             .unwrap_or_else(|| PathBuf::from("C:\\temp"))
             .join("runt")
             .join("bin")
-            .join("pool-daemon.exe")
+            .join("runtimed.exe")
     }
 }
 
@@ -62,7 +62,7 @@ pub fn default_log_path() -> PathBuf {
     dirs::cache_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("runt")
-        .join("pool-daemon.log")
+        .join("runtimed.log")
 }
 
 /// Result type for service operations.
@@ -93,7 +93,7 @@ pub enum ServiceError {
     UnsupportedPlatform,
 }
 
-/// Service manager for the pool daemon.
+/// Service manager for runtimed.
 pub struct ServiceManager {
     config: ServiceConfig,
 }
@@ -313,7 +313,7 @@ impl ServiceManager {
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>io.runt.pool-daemon</string>
+    <string>io.runtimed</string>
     <key>ProgramArguments</key>
     <array>
         <string>{}</string>
@@ -396,7 +396,7 @@ impl ServiceManager {
     fn create_linux_systemd(&self) -> ServiceResult<()> {
         let service_content = format!(
             r#"[Unit]
-Description=Runt Pool Daemon
+Description=runtimed - Jupyter Runtime Daemon
 After=network.target
 
 [Service]
@@ -427,7 +427,7 @@ WantedBy=default.target
 
         // Enable the service
         std::process::Command::new("systemctl")
-            .args(["--user", "enable", "runt-pool-daemon.service"])
+            .args(["--user", "enable", "runtimed.service"])
             .output()?;
 
         Ok(())
@@ -436,7 +436,7 @@ WantedBy=default.target
     #[cfg(target_os = "linux")]
     fn start_linux(&self) -> ServiceResult<()> {
         let output = std::process::Command::new("systemctl")
-            .args(["--user", "start", "runt-pool-daemon.service"])
+            .args(["--user", "start", "runtimed.service"])
             .output()?;
 
         if !output.status.success() {
@@ -451,7 +451,7 @@ WantedBy=default.target
     #[cfg(target_os = "linux")]
     fn stop_linux(&self) -> ServiceResult<()> {
         let output = std::process::Command::new("systemctl")
-            .args(["--user", "stop", "runt-pool-daemon.service"])
+            .args(["--user", "stop", "runtimed.service"])
             .output()?;
 
         if !output.status.success() {
@@ -506,7 +506,7 @@ Set WshShell = Nothing
     fn stop_windows(&self) -> ServiceResult<()> {
         // Kill the daemon process by name
         std::process::Command::new("taskkill")
-            .args(["/F", "/IM", "pool-daemon.exe"])
+            .args(["/F", "/IM", "runtimed.exe"])
             .output()
             .map_err(|e| ServiceError::StopFailed(e.to_string()))?;
 
@@ -523,7 +523,7 @@ fn plist_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("Library")
         .join("LaunchAgents")
-        .join("io.runt.pool-daemon.plist")
+        .join("io.runtimed.plist")
 }
 
 #[cfg(target_os = "linux")]
@@ -532,7 +532,7 @@ fn systemd_service_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("systemd")
         .join("user")
-        .join("runt-pool-daemon.service")
+        .join("runtimed.service")
 }
 
 #[cfg(target_os = "windows")]
@@ -544,7 +544,7 @@ fn windows_startup_path() -> PathBuf {
         .join("Start Menu")
         .join("Programs")
         .join("Startup")
-        .join("runt-pool-daemon.vbs")
+        .join("runtimed.vbs")
 }
 
 #[cfg(test)]
@@ -557,8 +557,8 @@ mod tests {
         let log = default_log_path();
 
         assert!(binary.to_string_lossy().contains("runt"));
-        assert!(binary.to_string_lossy().contains("pool-daemon"));
-        assert!(log.to_string_lossy().contains("pool-daemon.log"));
+        assert!(binary.to_string_lossy().contains("runtimed"));
+        assert!(log.to_string_lossy().contains("runtimed.log"));
     }
 
     #[test]

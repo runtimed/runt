@@ -80,7 +80,7 @@ impl Pool {
         self.available.retain(|e| e.created_at.elapsed() < max_age);
         let removed = before - self.available.len();
         if removed > 0 {
-            info!("[pool-daemon] Pruned {} stale environments", removed);
+            info!("[runtimed] Pruned {} stale environments", removed);
         }
     }
 
@@ -94,7 +94,7 @@ impl Pool {
                 return Some(entry.env);
             }
             warn!(
-                "[pool-daemon] Skipping env with missing path: {:?}",
+                "[runtimed] Skipping env with missing path: {:?}",
                 entry.env.venv_path
             );
         }
@@ -185,13 +185,13 @@ impl Daemon {
         // Bind to the socket
         let listener = UnixListener::bind(&self.config.socket_path)?;
         info!(
-            "[pool-daemon] Listening on {:?}",
+            "[runtimed] Listening on {:?}",
             self.config.socket_path
         );
 
         // Write daemon info so clients can discover us
         if let Err(e) = self._lock.write_info(&self.config.socket_path.to_string_lossy()) {
-            error!("[pool-daemon] Failed to write daemon info: {}", e);
+            error!("[runtimed] Failed to write daemon info: {}", e);
         }
 
         // Spawn the warming loops
@@ -215,18 +215,18 @@ impl Daemon {
                             let daemon = self.clone();
                             tokio::spawn(async move {
                                 if let Err(e) = daemon.handle_connection(stream).await {
-                                    error!("[pool-daemon] Connection error: {}", e);
+                                    error!("[runtimed] Connection error: {}", e);
                                 }
                             });
                         }
                         Err(e) => {
-                            error!("[pool-daemon] Accept error: {}", e);
+                            error!("[runtimed] Accept error: {}", e);
                         }
                     }
                 }
                 // Wait for shutdown signal
                 _ = self.shutdown_notify.notified() => {
-                    info!("[pool-daemon] Shutting down");
+                    info!("[runtimed] Shutting down");
                     break;
                 }
             }
@@ -282,7 +282,7 @@ impl Daemon {
                 match env {
                     Some(env) => {
                         info!(
-                            "[pool-daemon] Took {} env: {:?}",
+                            "[runtimed] Took {} env: {:?}",
                             env_type, env.venv_path
                         );
                         // Spawn replenishment
@@ -302,7 +302,7 @@ impl Daemon {
                         Response::Env { env }
                     }
                     None => {
-                        info!("[pool-daemon] Pool miss for {}", env_type);
+                        info!("[runtimed] Pool miss for {}", env_type);
                         Response::Empty
                     }
                 }
@@ -318,7 +318,7 @@ impl Daemon {
                                 env: env.clone(),
                                 created_at: Instant::now(),
                             });
-                            info!("[pool-daemon] Returned UV env: {:?}", env.venv_path);
+                            info!("[runtimed] Returned UV env: {:?}", env.venv_path);
                         } else {
                             // Pool is full, clean up
                             tokio::fs::remove_dir_all(&env.venv_path).await.ok();
@@ -331,7 +331,7 @@ impl Daemon {
                                 env: env.clone(),
                                 created_at: Instant::now(),
                             });
-                            info!("[pool-daemon] Returned Conda env: {:?}", env.venv_path);
+                            info!("[runtimed] Returned Conda env: {:?}", env.venv_path);
                         } else {
                             tokio::fs::remove_dir_all(&env.venv_path).await.ok();
                         }
@@ -367,11 +367,11 @@ impl Daemon {
     async fn uv_warming_loop(&self) {
         // Check if uv is available
         if !self.check_uv_available().await {
-            warn!("[pool-daemon] uv not available, UV warming disabled");
+            warn!("[runtimed] uv not available, UV warming disabled");
             return;
         }
 
-        info!("[pool-daemon] Starting UV warming loop");
+        info!("[runtimed] Starting UV warming loop");
 
         loop {
             if *self.shutdown.lock().await {
@@ -388,7 +388,7 @@ impl Daemon {
             };
 
             if deficit > 0 {
-                info!("[pool-daemon] Creating {} UV environments", deficit);
+                info!("[runtimed] Creating {} UV environments", deficit);
                 for _ in 0..deficit {
                     self.create_uv_env().await;
                 }
@@ -397,7 +397,7 @@ impl Daemon {
             // Log status
             let (available, warming) = self.uv_pool.lock().await.stats();
             info!(
-                "[pool-daemon] UV pool: {}/{} available, {} warming",
+                "[runtimed] UV pool: {}/{} available, {} warming",
                 available,
                 self.config.uv_pool_size,
                 warming
@@ -409,7 +409,7 @@ impl Daemon {
 
     /// Conda warming loop - maintains the Conda pool.
     async fn conda_warming_loop(&self) {
-        info!("[pool-daemon] Conda warming loop not implemented yet");
+        info!("[runtimed] Conda warming loop not implemented yet");
         // TODO: Implement conda environment creation
     }
 
@@ -435,11 +435,11 @@ impl Daemon {
         #[cfg(not(target_os = "windows"))]
         let python_path = venv_path.join("bin").join("python");
 
-        info!("[pool-daemon] Creating UV environment at {:?}", venv_path);
+        info!("[runtimed] Creating UV environment at {:?}", venv_path);
 
         // Ensure cache directory exists
         if let Err(e) = tokio::fs::create_dir_all(&self.config.cache_dir).await {
-            error!("[pool-daemon] Failed to create cache dir: {}", e);
+            error!("[runtimed] Failed to create cache dir: {}", e);
             self.uv_pool.lock().await.warming_failed();
             return;
         }
@@ -454,7 +454,7 @@ impl Daemon {
             .await;
 
         if !matches!(venv_status, Ok(s) if s.success()) {
-            error!("[pool-daemon] Failed to create venv");
+            error!("[runtimed] Failed to create venv");
             self.uv_pool.lock().await.warming_failed();
             return;
         }
@@ -475,7 +475,7 @@ impl Daemon {
             .await;
 
         if !matches!(install_status, Ok(s) if s.success()) {
-            error!("[pool-daemon] Failed to install ipykernel");
+            error!("[runtimed] Failed to install ipykernel");
             tokio::fs::remove_dir_all(&venv_path).await.ok();
             self.uv_pool.lock().await.warming_failed();
             return;
@@ -503,7 +503,7 @@ print("warmup complete")
             }
         }
 
-        info!("[pool-daemon] UV environment ready at {:?}", venv_path);
+        info!("[runtimed] UV environment ready at {:?}", venv_path);
 
         // Add to pool
         self.uv_pool.lock().await.add(PooledEnv {

@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn test_client_default() {
         let client = PoolClient::default();
-        assert!(client.socket_path.to_string_lossy().contains("pool-daemon.sock"));
+        assert!(client.socket_path.to_string_lossy().contains("runtimed.sock"));
     }
 
     #[test]

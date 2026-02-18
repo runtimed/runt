@@ -1,20 +1,20 @@
-//! Pool daemon CLI entry point.
+//! runtimed CLI entry point.
 //!
-//! This runs the pool daemon as a standalone process that manages
+//! This runs the runtime daemon as a standalone process that manages
 //! prewarmed Python environments for notebook windows.
 
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use log::info;
-use pool_daemon::client::PoolClient;
-use pool_daemon::daemon::{Daemon, DaemonConfig};
-use pool_daemon::service::ServiceManager;
-use pool_daemon::singleton::get_running_daemon_info;
+use runtimed::client::PoolClient;
+use runtimed::daemon::{Daemon, DaemonConfig};
+use runtimed::service::ServiceManager;
+use runtimed::singleton::get_running_daemon_info;
 
 #[derive(Parser, Debug)]
-#[command(name = "pool-daemon")]
-#[command(about = "Prewarmed Python environment pool daemon")]
+#[command(name = "runtimed")]
+#[command(about = "Runtime daemon for managing Jupyter environments")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -28,7 +28,7 @@ struct Cli {
 enum Commands {
     /// Run the daemon (default if no command specified)
     Run {
-        /// Socket path for IPC (default: ~/.cache/runt/pool-daemon.sock)
+        /// Socket path for IPC (default: ~/.cache/runt/runtimed.sock)
         #[arg(long)]
         socket: Option<PathBuf>,
 
@@ -106,11 +106,11 @@ async fn run_daemon(
     uv_pool_size: usize,
     conda_pool_size: usize,
 ) -> anyhow::Result<()> {
-    info!("Pool daemon starting...");
+    info!("runtimed starting...");
 
     let config = DaemonConfig {
-        socket_path: socket.unwrap_or_else(pool_daemon::default_socket_path),
-        cache_dir: cache_dir.unwrap_or_else(pool_daemon::default_cache_dir),
+        socket_path: socket.unwrap_or_else(runtimed::default_socket_path),
+        cache_dir: cache_dir.unwrap_or_else(runtimed::default_cache_dir),
         uv_pool_size,
         conda_pool_size,
         ..Default::default()
@@ -141,7 +141,7 @@ fn install_service(binary: Option<PathBuf>) -> anyhow::Result<()> {
         std::env::current_exe().expect("Failed to get current executable path")
     });
 
-    println!("Installing pool-daemon service...");
+    println!("Installing runtimed service...");
     println!("Source binary: {}", source_binary.display());
 
     let manager = ServiceManager::default();
@@ -157,15 +157,15 @@ fn install_service(binary: Option<PathBuf>) -> anyhow::Result<()> {
     println!("Service installed successfully!");
     println!("The daemon will start automatically at login.");
     println!();
-    println!("To start now: pool-daemon start");
-    println!("To check status: pool-daemon status");
-    println!("To uninstall: pool-daemon uninstall");
+    println!("To start now: runtimed start");
+    println!("To check status: runtimed status");
+    println!("To uninstall: runtimed uninstall");
 
     Ok(())
 }
 
 fn uninstall_service() -> anyhow::Result<()> {
-    println!("Uninstalling pool-daemon service...");
+    println!("Uninstalling runtimed service...");
 
     let manager = ServiceManager::default();
 
@@ -212,8 +212,8 @@ async fn status(json: bool) -> anyhow::Result<()> {
         });
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        println!("Pool Daemon Status");
-        println!("==================");
+        println!("runtimed Status");
+        println!("===============");
         println!("Service installed: {}", if installed { "yes" } else { "no" });
         println!(
             "Daemon running:    {}",
@@ -244,11 +244,11 @@ fn start_service() -> anyhow::Result<()> {
     let manager = ServiceManager::default();
 
     if !manager.is_installed() {
-        eprintln!("Service not installed. Run 'pool-daemon install' first.");
+        eprintln!("Service not installed. Run 'runtimed install' first.");
         std::process::exit(1);
     }
 
-    println!("Starting pool-daemon service...");
+    println!("Starting runtimed service...");
     manager.start()?;
     println!("Service started.");
 
@@ -263,7 +263,7 @@ fn stop_service() -> anyhow::Result<()> {
         std::process::exit(1);
     }
 
-    println!("Stopping pool-daemon service...");
+    println!("Stopping runtimed service...");
     manager.stop()?;
     println!("Service stopped.");
 
