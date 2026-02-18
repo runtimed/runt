@@ -537,7 +537,8 @@ pub fn spawn_conda_replenishment(pool: SharedCondaEnvPool) {
 /// Recover any existing prewarmed conda environments from disk.
 ///
 /// Returns the number of environments recovered.
-/// Environments that haven't been warmed will be warmed in the background.
+/// Only fully warmed environments are added to the pool. Unwarmed environments
+/// (from incomplete creation or crashes) are skipped and cleaned up.
 pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) -> usize {
     let recovered = crate::conda_env::find_existing_prewarmed_conda_environments().await;
 
@@ -552,7 +553,6 @@ pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) -> usiz
     );
 
     let mut added = 0;
-    let mut envs_to_warm = Vec::new();
     let mut p = pool.lock().await;
 
     for env in recovered {
@@ -567,10 +567,16 @@ pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) -> usiz
             continue;
         }
 
-        // Check if this environment needs warming
-        let needs_warming = !crate::conda_env::is_environment_warmed(&env);
-        if needs_warming {
-            envs_to_warm.push(env.clone());
+        // Only add environments that have been fully warmed
+        // Unwarmed environments are from incomplete creation (e.g., crash during warmup)
+        // and will be recreated fresh by the prewarming loop
+        if !crate::conda_env::is_environment_warmed(&env) {
+            info!(
+                "[prewarm:conda] Skipping unwarmed env (will be recreated): {:?}",
+                env.env_path
+            );
+            tokio::fs::remove_dir_all(&env.env_path).await.ok();
+            continue;
         }
 
         let prewarmed = PrewarmedCondaEnv {
@@ -580,23 +586,6 @@ pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) -> usiz
         };
         p.pool.push(prewarmed);
         added += 1;
-    }
-
-    drop(p); // Release lock before spawning warmup tasks
-
-    // Spawn background warmup tasks for unwarmed environments
-    if !envs_to_warm.is_empty() {
-        info!(
-            "[prewarm:conda] {} recovered environments need warming",
-            envs_to_warm.len()
-        );
-        for env in envs_to_warm {
-            tokio::spawn(async move {
-                if let Err(e) = crate::conda_env::warmup_conda_environment(&env).await {
-                    warn!("[prewarm:conda] Background warmup failed: {}", e);
-                }
-            });
-        }
     }
 
     info!(
