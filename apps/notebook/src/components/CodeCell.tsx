@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect, useMemo, useState } from "react";
+import { useCallback, useRef, useEffect, useMemo, useState, lazy, Suspense } from "react";
 import type { KeyBinding } from "@codemirror/view";
 import { CellContainer } from "@/components/cell/CellContainer";
 import { CompactExecutionButton } from "@/components/cell/CompactExecutionButton";
@@ -13,10 +13,15 @@ import { Trash2, X } from "lucide-react";
 import { kernelCompletionExtension } from "../lib/kernel-completion";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
 import { useEditorRegistry } from "../hooks/useEditorRegistry";
-import { HistorySearchDialog } from "./HistorySearchDialog";
 import type { CodeCell as CodeCellType } from "../types";
 import type { CellPagePayload } from "../App";
 import type { MimeBundle } from "../hooks/useKernel";
+
+// Lazy load HistorySearchDialog - it pulls in react-syntax-highlighter (~800KB)
+// Only loaded when user opens history search (Ctrl+R)
+const HistorySearchDialog = lazy(() =>
+  import("./HistorySearchDialog").then((m) => ({ default: m.HistorySearchDialog }))
+);
 
 /** Page payload display component - Zed REPL style */
 function PagePayloadDisplay({
@@ -248,12 +253,16 @@ export function CodeCell({
         hideOutput={cell.outputs.length === 0}
       />
 
-      {/* History Search Dialog (Ctrl+R) */}
-      <HistorySearchDialog
-        open={historyDialogOpen}
-        onOpenChange={setHistoryDialogOpen}
-        onSelect={handleHistorySelect}
-      />
+      {/* History Search Dialog (Ctrl+R) - lazy loaded */}
+      {historyDialogOpen && (
+        <Suspense fallback={null}>
+          <HistorySearchDialog
+            open={historyDialogOpen}
+            onOpenChange={setHistoryDialogOpen}
+            onSelect={handleHistorySelect}
+          />
+        </Suspense>
+      )}
     </>
   );
 }
