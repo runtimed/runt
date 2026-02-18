@@ -1,7 +1,7 @@
 {
   "name": "runtimed",
   "private": true,
-  "packageManager": "pnpm@10.12.1",
+  "packageManager": "pnpm@10.30.0",
   "scripts": {
     "build": "pnpm run isolated-renderer:build && pnpm --dir apps/sidecar build && pnpm --dir apps/notebook build",
     "sidecar:build": "pnpm --dir apps/sidecar build",
