@@ -67,7 +67,7 @@ export function generateFrameHtml(options: FrameHtmlOptions = {}): string {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       font-size: 14px;
       line-height: 1.5;
-      background: var(--bg-primary);
+      background: transparent;
       color: var(--text-primary);
     }
 
