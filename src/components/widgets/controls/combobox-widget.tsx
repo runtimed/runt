@@ -4,25 +4,14 @@
  * Combobox widget - text input with autocomplete suggestions.
  *
  * Maps to ipywidgets ComboboxModel.
+ *
+ * Uses native HTML <input> with <datalist> instead of Radix UI Popover
+ * because Radix uses Portal which doesn't work in sandboxed iframes
+ * (no allow-same-origin). See: https://github.com/runtimed/runt/issues/62
  */
 
-import { CheckIcon, ChevronsUpDownIcon } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import type { WidgetComponentProps } from "../widget-registry";
 import {
@@ -32,6 +21,7 @@ import {
 
 export function ComboboxWidget({ modelId, className }: WidgetComponentProps) {
   const { sendUpdate, sendCustom } = useWidgetStoreRequired();
+  const datalistId = useId();
 
   // Subscribe to individual state keys
   const value = useWidgetModelValue<string>(modelId, "value") ?? "";
@@ -45,7 +35,6 @@ export function ComboboxWidget({ modelId, className }: WidgetComponentProps) {
   const continuousUpdate =
     useWidgetModelValue<boolean>(modelId, "continuous_update") ?? true;
 
-  const [open, setOpen] = useState(false);
   const [inputValue, setInputValue] = useState(value);
 
   // Sync input value when value changes from kernel
@@ -53,17 +42,9 @@ export function ComboboxWidget({ modelId, className }: WidgetComponentProps) {
     setInputValue(value);
   }, [value]);
 
-  const handleSelect = useCallback(
-    (selectedValue: string) => {
-      setInputValue(selectedValue);
-      sendUpdate(modelId, { value: selectedValue });
-      setOpen(false);
-    },
-    [modelId, sendUpdate],
-  );
-
-  const handleInputChange = useCallback(
-    (newValue: string) => {
+  const handleChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const newValue = event.target.value;
       setInputValue(newValue);
       if (continuousUpdate) {
         // Only update if not enforcing option or value is in options
@@ -96,11 +77,6 @@ export function ComboboxWidget({ modelId, className }: WidgetComponentProps) {
     sendCustom,
   ]);
 
-  // Filter options based on input
-  const filteredOptions = options.filter((option) =>
-    option.toLowerCase().includes(inputValue.toLowerCase()),
-  );
-
   return (
     <div
       className={cn("flex items-center gap-3", className)}
@@ -108,52 +84,33 @@ export function ComboboxWidget({ modelId, className }: WidgetComponentProps) {
       data-widget-type="Combobox"
     >
       {description && <Label className="shrink-0 text-sm">{description}</Label>}
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            disabled={disabled}
-            className="w-48 justify-between font-normal"
-          >
-            <span className="truncate">{inputValue || placeholder}</span>
-            <ChevronsUpDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-48 p-0" align="start">
-          <Command>
-            <CommandInput
-              placeholder={placeholder}
-              value={inputValue}
-              onValueChange={handleInputChange}
-              onBlur={handleBlur}
-            />
-            <CommandList>
-              <CommandEmpty>
-                {ensureOption ? "No matching option" : "Type to add new value"}
-              </CommandEmpty>
-              <CommandGroup>
-                {filteredOptions.map((option) => (
-                  <CommandItem
-                    key={option}
-                    value={option}
-                    onSelect={handleSelect}
-                  >
-                    <CheckIcon
-                      className={cn(
-                        "mr-2 size-4",
-                        value === option ? "opacity-100" : "opacity-0",
-                      )}
-                    />
-                    {option}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
+      <input
+        type="text"
+        list={datalistId}
+        value={inputValue}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        placeholder={placeholder}
+        disabled={disabled}
+        className={cn(
+          // Base styles matching shadcn input
+          "h-9 w-48 rounded-md border border-input px-3 py-2 text-sm",
+          "bg-transparent shadow-xs transition-[color,box-shadow] outline-none",
+          // Dark mode background
+          "dark:bg-input/30 dark:hover:bg-input/50",
+          // Placeholder
+          "placeholder:text-muted-foreground",
+          // Focus styles
+          "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          // Disabled state
+          "disabled:cursor-not-allowed disabled:opacity-50",
+        )}
+      />
+      <datalist id={datalistId}>
+        {options.map((option, idx) => (
+          <option key={idx} value={option} />
+        ))}
+      </datalist>
     </div>
   );
 }
