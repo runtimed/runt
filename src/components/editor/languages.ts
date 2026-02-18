@@ -4,6 +4,7 @@ import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { sql } from "@codemirror/lang-sql";
+import { indentUnit } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 
 /**
@@ -47,6 +48,17 @@ export function getLanguageExtension(language: SupportedLanguage): Extension {
     default:
       return [];
   }
+}
+
+/**
+ * Get the indentation extension for a given language
+ * Python uses 4 spaces (PEP 8), web languages use 2 spaces
+ */
+export function getIndentationExtension(language: SupportedLanguage): Extension {
+  if (language === "python") {
+    return indentUnit.of("    ");
+  }
+  return indentUnit.of("  ");
 }
 
 /**
