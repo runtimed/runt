@@ -5,15 +5,19 @@ interface DebugBannerProps {
   branch: string;
   commit: string;
   description?: string | null;
-  poolStatus?: PoolStatus | null;
+  uvPoolStatus?: PoolStatus | null;
+  condaPoolStatus?: PoolStatus | null;
 }
 
 export function DebugBanner({
   branch,
   commit,
   description,
-  poolStatus,
+  uvPoolStatus,
+  condaPoolStatus,
 }: DebugBannerProps) {
+  const hasPoolStatus = uvPoolStatus || condaPoolStatus;
+
   return (
     <div className="flex items-center justify-center gap-2 bg-violet-600/90 px-3 py-1 text-xs text-white">
       <GitBranch className="h-3 w-3" />
@@ -26,17 +30,31 @@ export function DebugBanner({
           <span className="text-violet-100">{description}</span>
         </>
       )}
-      {poolStatus && (
+      {hasPoolStatus && (
         <>
           <span className="text-violet-300">|</span>
           <Zap className="h-3 w-3 text-yellow-300" />
           <span className="text-violet-100">
-            Pool: {poolStatus.available}/{poolStatus.target}
-            {poolStatus.creating > 0 && (
-              <span className="text-violet-300">
-                {" "}
-                (+{poolStatus.creating})
-              </span>
+            {uvPoolStatus && (
+              <>
+                UV: {uvPoolStatus.available}/{uvPoolStatus.target}
+                {uvPoolStatus.creating > 0 && (
+                  <span className="text-violet-300">
+                    {" "}(+{uvPoolStatus.creating})
+                  </span>
+                )}
+              </>
+            )}
+            {uvPoolStatus && condaPoolStatus && " "}
+            {condaPoolStatus && (
+              <>
+                Conda: {condaPoolStatus.available}/{condaPoolStatus.target}
+                {condaPoolStatus.creating > 0 && (
+                  <span className="text-violet-300">
+                    {" "}(+{condaPoolStatus.creating})
+                  </span>
+                )}
+              </>
             )}
           </span>
         </>

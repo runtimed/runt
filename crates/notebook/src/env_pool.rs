@@ -106,7 +106,23 @@ impl EnvPool {
     /// Automatically prunes stale environments before returning.
     pub fn take(&mut self) -> Option<PrewarmedEnv> {
         self.prune_stale();
-        self.pool.pop()
+        let result = self.pool.pop();
+
+        if result.is_some() {
+            info!(
+                "[prewarm:uv] Pool HIT - took env (remaining: {})",
+                self.pool.len()
+            );
+        } else {
+            info!(
+                "[prewarm:uv] Pool MISS - no env available (available: {}, creating: {}, target: {})",
+                self.pool.len(),
+                self.creating,
+                self.config.pool_size
+            );
+        }
+
+        result
     }
 
     /// Add a newly created prewarmed environment to the pool.
@@ -198,26 +214,29 @@ pub fn spawn_replenishment(pool: SharedEnvPool) {
 /// from previous sessions and adds valid ones to the pool. This allows
 /// the pool to start with environments already available, providing
 /// instant kernel startup even on first notebook open after app launch.
-pub async fn recover_existing_prewarmed(pool: &SharedEnvPool) {
+///
+/// Returns the number of environments recovered.
+pub async fn recover_existing_prewarmed(pool: &SharedEnvPool) -> usize {
     let recovered = crate::uv_env::find_existing_prewarmed_environments().await;
 
     if recovered.is_empty() {
-        info!("[prewarm] No existing prewarmed environments found");
-        return;
+        info!("[prewarm:uv] No existing prewarmed environments found");
+        return 0;
     }
 
     info!(
-        "[prewarm] Recovered {} existing prewarmed environments",
+        "[prewarm:uv] Recovered {} existing prewarmed environments",
         recovered.len()
     );
 
+    let mut added = 0;
     let mut p = pool.lock().await;
     for env in recovered {
         // Only add up to the pool size
         if p.pool.len() >= p.config.pool_size {
             // Clean up extras we don't need
             info!(
-                "[prewarm] Pool full, removing extra prewarmed env: {:?}",
+                "[prewarm:uv] Pool full, removing extra prewarmed env: {:?}",
                 env.venv_path
             );
             tokio::fs::remove_dir_all(&env.venv_path).await.ok();
@@ -230,25 +249,38 @@ pub async fn recover_existing_prewarmed(pool: &SharedEnvPool) {
             created_at: Instant::now(), // Treat as freshly created
         };
         p.pool.push(prewarmed);
+        added += 1;
     }
 
     info!(
-        "[prewarm] Pool initialized with {} environments",
+        "[prewarm:uv] Pool initialized with {} environments",
         p.pool.len()
     );
+    added
 }
+
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Run the background prewarming loop.
 ///
 /// This function runs indefinitely, periodically checking the pool
 /// and creating new environments as needed to maintain the target size.
-pub async fn run_prewarming_loop(pool: SharedEnvPool, app: AppHandle) {
+///
+/// The `recovery_complete` flag is set after recovery finishes, allowing
+/// other tasks (like auto-launch) to wait for recovery before proceeding.
+pub async fn run_prewarming_loop(
+    pool: SharedEnvPool,
+    app: AppHandle,
+    recovery_complete: Arc<AtomicBool>,
+) {
     // First, recover any existing prewarmed environments from disk
-    recover_existing_prewarmed(&pool).await;
+    let recovered = recover_existing_prewarmed(&pool).await;
+    info!("[prewarm:uv] Recovery complete: {} envs recovered", recovered);
+    recovery_complete.store(true, Ordering::SeqCst);
 
     // Check if uv is available before attempting to create environments
     if !crate::uv_env::check_uv_available().await {
-        warn!("[prewarm] uv is not installed - skipping environment prewarming");
+        warn!("[prewarm:uv] uv is not installed - skipping environment prewarming");
         emit_progress(&app, PrewarmProgress::Ready { pool_size: 0 });
         return;
     }
@@ -256,7 +288,7 @@ pub async fn run_prewarming_loop(pool: SharedEnvPool, app: AppHandle) {
     // Small delay to let the app finish startup before creating new envs
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    info!("[prewarm] Starting prewarming loop");
+    info!("[prewarm:uv] Starting prewarming loop");
     emit_progress(&app, PrewarmProgress::Starting);
 
     loop {
@@ -403,7 +435,23 @@ impl CondaEnvPool {
     /// Automatically prunes stale environments before returning.
     pub fn take(&mut self) -> Option<PrewarmedCondaEnv> {
         self.prune_stale();
-        self.pool.pop()
+        let result = self.pool.pop();
+
+        if result.is_some() {
+            info!(
+                "[prewarm:conda] Pool HIT - took env (remaining: {})",
+                self.pool.len()
+            );
+        } else {
+            info!(
+                "[prewarm:conda] Pool MISS - no env available (available: {}, creating: {}, target: {})",
+                self.pool.len(),
+                self.creating,
+                self.config.pool_size
+            );
+        }
+
+        result
     }
 
     /// Add a newly created prewarmed conda environment to the pool.
@@ -487,26 +535,44 @@ pub fn spawn_conda_replenishment(pool: SharedCondaEnvPool) {
 }
 
 /// Recover any existing prewarmed conda environments from disk.
-pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) {
+///
+/// Returns the number of environments recovered.
+/// Only fully warmed environments are added to the pool. Unwarmed environments
+/// (from incomplete creation or crashes) are skipped and cleaned up.
+pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) -> usize {
     let recovered = crate::conda_env::find_existing_prewarmed_conda_environments().await;
 
     if recovered.is_empty() {
-        info!("[prewarm] No existing prewarmed conda environments found");
-        return;
+        info!("[prewarm:conda] No existing prewarmed conda environments found");
+        return 0;
     }
 
     info!(
-        "[prewarm] Recovered {} existing prewarmed conda environments",
+        "[prewarm:conda] Recovered {} existing prewarmed conda environments",
         recovered.len()
     );
 
+    let mut added = 0;
     let mut p = pool.lock().await;
+
     for env in recovered {
         // Only add up to the pool size
         if p.pool.len() >= p.config.pool_size {
             // Clean up extras we don't need
             info!(
-                "[prewarm] Conda pool full, removing extra prewarmed env: {:?}",
+                "[prewarm:conda] Conda pool full, removing extra prewarmed env: {:?}",
+                env.env_path
+            );
+            tokio::fs::remove_dir_all(&env.env_path).await.ok();
+            continue;
+        }
+
+        // Only add environments that have been fully warmed
+        // Unwarmed environments are from incomplete creation (e.g., crash during warmup)
+        // and will be recreated fresh by the prewarming loop
+        if !crate::conda_env::is_environment_warmed(&env) {
+            info!(
+                "[prewarm:conda] Skipping unwarmed env (will be recreated): {:?}",
                 env.env_path
             );
             tokio::fs::remove_dir_all(&env.env_path).await.ok();
@@ -519,26 +585,33 @@ pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) {
             created_at: Instant::now(), // Treat as freshly created
         };
         p.pool.push(prewarmed);
+        added += 1;
     }
 
     info!(
-        "[prewarm] Conda pool initialized with {} environments",
-        p.pool.len()
+        "[prewarm:conda] Conda pool initialized with {} environments",
+        added
     );
+    added
 }
 
 /// Run the background conda prewarming loop.
 ///
 /// This function runs indefinitely, periodically checking the pool
 /// and creating new environments as needed to maintain the target size.
-pub async fn run_conda_prewarming_loop(pool: SharedCondaEnvPool) {
+///
+/// The `recovery_complete` flag is set after recovery finishes, allowing
+/// other tasks (like auto-launch) to wait for recovery before proceeding.
+pub async fn run_conda_prewarming_loop(pool: SharedCondaEnvPool, recovery_complete: Arc<AtomicBool>) {
     // First, recover any existing prewarmed environments from disk
-    recover_existing_prewarmed_conda(&pool).await;
+    let recovered = recover_existing_prewarmed_conda(&pool).await;
+    info!("[prewarm:conda] Recovery complete: {} envs recovered", recovered);
+    recovery_complete.store(true, Ordering::SeqCst);
 
     // Small delay to let the app finish startup before creating new envs
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    info!("[prewarm] Starting conda prewarming loop");
+    info!("[prewarm:conda] Starting conda prewarming loop");
 
     loop {
         // Check what needs to be created

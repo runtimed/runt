@@ -4,7 +4,7 @@
 //! for notebooks that declare inline dependencies in their metadata.
 
 use anyhow::{anyhow, Result};
-use log::info;
+use log::{info, warn};
 use rattler::{
     default_cache_dir,
     install::{Installer, Reporter, Transaction},
@@ -350,7 +350,7 @@ pub struct CondaDependencies {
 }
 
 /// Result of environment preparation.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CondaEnvironment {
     pub env_path: PathBuf,
     pub python_path: PathBuf,
@@ -923,10 +923,67 @@ pub async fn create_prewarmed_conda_environment(
 
     info!("[prewarm] Prewarmed conda environment created at {:?}", env_path);
 
-    Ok(CondaEnvironment {
+    let env = CondaEnvironment {
         env_path,
         python_path,
-    })
+    };
+
+    // Warm up the environment by running Python to trigger .pyc compilation
+    warmup_conda_environment(&env).await?;
+
+    Ok(env)
+}
+
+/// Warm up a conda environment by running Python to trigger initialization.
+///
+/// This compiles .pyc files and runs first-time setup for ipykernel,
+/// dramatically reducing kernel startup time on subsequent use.
+pub async fn warmup_conda_environment(env: &CondaEnvironment) -> Result<()> {
+    let warmup_start = std::time::Instant::now();
+    info!("[prewarm] Warming up conda environment at {:?}", env.env_path);
+
+    // Script that imports key packages to trigger .pyc compilation
+    let warmup_script = r#"
+# Warmup script - triggers .pyc compilation and initialization
+import sys
+import ipykernel
+import IPython
+import traitlets
+import zmq
+
+# Force ipykernel to initialize key components
+from ipykernel.kernelbase import Kernel
+from ipykernel.ipkernel import IPythonKernel
+
+# Import comm for widget support
+from ipykernel.comm import CommManager
+
+print("warmup complete")
+"#;
+
+    let output = tokio::process::Command::new(&env.python_path)
+        .args(["-c", warmup_script])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        warn!("[prewarm] Warmup failed for {:?}: {}", env.env_path, stderr);
+        // Don't fail the whole operation - environment is still usable
+        return Ok(());
+    }
+
+    // Create marker file to indicate this env has been warmed
+    let marker_path = env.env_path.join(".warmed");
+    tokio::fs::write(&marker_path, "").await.ok();
+
+    info!(
+        "[prewarm] Warmup complete for {:?} in {}ms",
+        env.env_path,
+        warmup_start.elapsed().as_millis()
+    );
+
+    Ok(())
 }
 
 /// Internal function to create a conda environment at a specific path.
@@ -1291,6 +1348,13 @@ pub async fn find_existing_prewarmed_conda_environments() -> Vec<CondaEnvironmen
     }
 
     found
+}
+
+/// Check if a conda environment has been warmed up.
+///
+/// Looks for a `.warmed` marker file in the environment directory.
+pub fn is_environment_warmed(env: &CondaEnvironment) -> bool {
+    env.env_path.join(".warmed").exists()
 }
 
 #[cfg(test)]

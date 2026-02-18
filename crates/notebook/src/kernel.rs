@@ -1604,6 +1604,7 @@ impl NotebookKernel {
         )
         .await?;
 
+        let kernel_start_time = std::time::Instant::now();
         info!(
             "Starting prewarmed conda kernel at {:?} with python {:?}",
             connection_file_path, env.python_path
@@ -1619,6 +1620,7 @@ impl NotebookKernel {
         #[cfg(unix)]
         cmd.process_group(0); // Create new process group for kernel and children
         let process = cmd.kill_on_drop(true).spawn()?;
+        info!("[kernel-timing] Process spawned in {}ms", kernel_start_time.elapsed().as_millis());
 
         // Store process group ID for cleanup
         #[cfg(unix)]
@@ -1628,6 +1630,7 @@ impl NotebookKernel {
 
         // Small delay to let the kernel start
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        info!("[kernel-timing] Post-spawn delay complete at {}ms", kernel_start_time.elapsed().as_millis());
 
         self.session_id = Uuid::new_v4().to_string();
 
@@ -1702,14 +1705,17 @@ impl NotebookKernel {
             identity,
         )
         .await?;
+        info!("[kernel-timing] Shell connection established at {}ms", kernel_start_time.elapsed().as_millis());
 
         // Verify kernel is alive with kernel_info handshake
         let request: JupyterMessage = KernelInfoRequest::default().into();
         shell.send(request).await?;
+        info!("[kernel-timing] kernel_info_request sent at {}ms, waiting for reply...", kernel_start_time.elapsed().as_millis());
 
         let reply = tokio::time::timeout(std::time::Duration::from_secs(30), shell.read()).await;
         match reply {
             Ok(Ok(msg)) => {
+                info!("[kernel-timing] kernel_info_reply received at {}ms", kernel_start_time.elapsed().as_millis());
                 info!("Prewarmed conda kernel alive: got {} reply", msg.header.msg_type);
             }
             Ok(Err(e)) => {
