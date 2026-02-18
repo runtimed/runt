@@ -1,15 +1,15 @@
 //! Deno environment detection and configuration for notebook environments.
 //!
 //! This module handles:
-//! - Detecting if Deno is installed on the system
+//! - Detecting if Deno is installed (or bootstrapping via rattler if not)
 //! - Finding deno.json/deno.jsonc configuration files
 //! - Extracting Deno configuration from notebook metadata
 //! - Managing Deno permissions for kernel execution
 
+use crate::tools;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 
 /// Default value for flexible_npm_imports (true = auto-install npm packages)
 fn default_flexible_npm_imports() -> bool {
@@ -88,21 +88,18 @@ struct RawDenoConfig {
     tasks: Option<serde_json::Value>,
 }
 
-/// Check if Deno is available on the system
+/// Check if Deno is available (either on PATH or bootstrappable via rattler)
 pub async fn check_deno_available() -> bool {
-    tokio::process::Command::new("deno")
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await
-        .map(|s| s.success())
-        .unwrap_or(false)
+    tools::get_deno_path().await.is_ok()
 }
 
 /// Get the installed Deno version
+///
+/// Deno is auto-bootstrapped via rattler if not found on PATH.
 pub async fn get_deno_version() -> Result<String> {
-    let output = tokio::process::Command::new("deno")
+    let deno_path = tools::get_deno_path().await?;
+
+    let output = tokio::process::Command::new(&deno_path)
         .arg("--version")
         .output()
         .await
@@ -125,8 +122,12 @@ pub async fn get_deno_version() -> Result<String> {
 }
 
 /// Check if Deno Jupyter support is available (Deno 1.37+)
+///
+/// Deno is auto-bootstrapped via rattler if not found on PATH.
 pub async fn check_deno_jupyter_available() -> Result<bool> {
-    let output = tokio::process::Command::new("deno")
+    let deno_path = tools::get_deno_path().await?;
+
+    let output = tokio::process::Command::new(&deno_path)
         .args(["jupyter", "--help"])
         .output()
         .await
