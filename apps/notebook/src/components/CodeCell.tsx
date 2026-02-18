@@ -241,9 +241,8 @@ export function CodeCell({
             )}
           </>
         }
-        outputContent={
-          cell.outputs.length > 0 ? <OutputArea outputs={cell.outputs} /> : undefined
-        }
+        outputContent={<OutputArea outputs={cell.outputs} preloadIframe />}
+        hideOutput={cell.outputs.length === 0}
       />
 
       {/* History Search Dialog (Ctrl+R) */}
