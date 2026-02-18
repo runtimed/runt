@@ -1,9 +1,10 @@
 //! Code formatting for notebook cells.
 //!
 //! Supports:
-//! - Python via `ruff format`
+//! - Python via `ruff format` (auto-bootstrapped via rattler if not on PATH)
 //! - TypeScript/JavaScript via `deno fmt`
 
+use crate::tools;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
@@ -20,19 +21,14 @@ pub struct FormatResult {
     pub error: Option<String>,
 }
 
-/// Check if ruff is available on the system
+/// Check if ruff is available (either on PATH or bootstrappable via rattler)
 pub async fn check_ruff_available() -> bool {
-    tokio::process::Command::new("ruff")
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await
-        .map(|s| s.success())
-        .unwrap_or(false)
+    tools::get_ruff_path().await.is_ok()
 }
 
 /// Format Python code using ruff
+///
+/// Ruff is auto-bootstrapped via rattler if not found on PATH.
 pub async fn format_python(source: &str) -> Result<FormatResult> {
     // Skip formatting for empty or whitespace-only source
     if source.trim().is_empty() {
@@ -43,7 +39,10 @@ pub async fn format_python(source: &str) -> Result<FormatResult> {
         });
     }
 
-    let mut child = tokio::process::Command::new("ruff")
+    // Get ruff path (from PATH or bootstrapped via rattler)
+    let ruff_path = tools::get_ruff_path().await?;
+
+    let mut child = tokio::process::Command::new(&ruff_path)
         .args(["format", "--stdin-filename", "cell.py", "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
