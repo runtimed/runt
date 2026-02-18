@@ -1,0 +1,28 @@
+[package]
+name = "pool-daemon"
+version = "0.1.0"
+edition = "2021"
+description = "Central daemon for managing prewarmed Python environment pools"
+repository = "https://github.com/runtimed/runt"
+license = "BSD-3-Clause"
+
+[lib]
+name = "pool_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pool-daemon"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+log = "0.4"
+env_logger = "0.11"
+dirs = "5"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+clap = { version = "4", features = ["derive"] }
