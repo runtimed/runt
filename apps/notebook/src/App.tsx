@@ -60,6 +60,7 @@ function AppContent() {
     cloneNotebook,
     dirty,
     appendOutput,
+    updateOutputByDisplayId,
     setExecutionCount,
     clearCellOutputs,
   } = useNotebook();
@@ -256,8 +257,9 @@ function AppContent() {
     onExecutionCount: handleExecutionCount,
     onExecutionDone: handleExecutionDone,
     onCommMessage: handleCommMessage,
-onKernelStarted: loadCondaDependencies,
+    onKernelStarted: loadCondaDependencies,
     onPagePayload: handlePagePayload,
+    onUpdateDisplayData: updateOutputByDisplayId,
   });
 
   // Environment preparation progress

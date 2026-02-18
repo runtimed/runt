@@ -26,6 +26,7 @@ export type JupyterOutput =
       data: Record<string, unknown>;
       metadata?: Record<string, unknown>;
       execution_count?: number | null;
+      display_id?: string;
     }
   | {
       output_type: "stream";

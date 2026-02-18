@@ -25,6 +25,8 @@ interface UseKernelOptions {
   onKernelStarted?: () => void;
   /** Called when a page payload is received (triggered by ? or ?? in IPython) */
   onPagePayload?: (cellId: string, data: MimeBundle, start: number) => void;
+  /** Called when an update_display_data message is received */
+  onUpdateDisplayData?: (displayId: string, data: Record<string, unknown>, metadata?: Record<string, unknown>) => void;
 }
 
 /** Info about a detected pyproject.toml */
@@ -71,16 +73,17 @@ export function useKernel({
   onExecutionCount,
   onExecutionDone,
   onCommMessage,
-onKernelStarted,
+  onKernelStarted,
   onPagePayload,
+  onUpdateDisplayData,
 }: UseKernelOptions) {
   const [kernelStatus, setKernelStatus] = useState<string>("not started");
   // Track whether we're in the process of auto-starting to avoid double starts
   const startingRef = useRef(false);
 
   // Store callbacks in refs to avoid effect re-runs causing duplicate listeners
-const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCommMessage, onKernelStarted, onPagePayload });
-  callbacksRef.current = { onOutput, onExecutionCount, onExecutionDone, onCommMessage, onKernelStarted, onPagePayload };
+  const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCommMessage, onKernelStarted, onPagePayload, onUpdateDisplayData });
+  callbacksRef.current = { onOutput, onExecutionCount, onExecutionDone, onCommMessage, onKernelStarted, onPagePayload, onUpdateDisplayData };
 
   useEffect(() => {
     let cancelled = false;
@@ -152,6 +155,22 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
         return;
       }
 
+      if (msgType === "update_display_data") {
+        const { onUpdateDisplayData } = callbacksRef.current;
+        if (onUpdateDisplayData) {
+          const content = msg.content as {
+            data: Record<string, unknown>;
+            metadata: Record<string, unknown>;
+            transient?: { display_id?: string };
+          };
+          const displayId = content.transient?.display_id;
+          if (displayId) {
+            onUpdateDisplayData(displayId, content.data, content.metadata);
+          }
+        }
+        return;
+      }
+
       if (!cellId) return;
 
       if (msgType === "execute_input") {
@@ -171,11 +190,13 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
         const content = msg.content as {
           data: Record<string, unknown>;
           metadata: Record<string, unknown>;
+          transient?: { display_id?: string };
         };
         onOutput(cellId, {
           output_type: "display_data",
           data: content.data,
           metadata: content.metadata,
+          display_id: content.transient?.display_id,
         }, { parentMsgId: msg.parent_header?.msg_id });
       } else if (msgType === "execute_result") {
         const content = msg.content as {
