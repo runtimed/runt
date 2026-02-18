@@ -394,10 +394,96 @@ jobs:
           name: runt-notebook-macos-x64
           path: runt-notebook-darwin-x64.dmg
 
+  build-notebook-windows-x64:
+    name: Build Windows x64 Notebook Installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dsherret/rust-toolchain-file@v1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "windows-notebook-x64"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pnpm\store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Install JS dependencies
+        run: pnpm install
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Cache cargo bin
+        uses: actions/cache@v4
+        with:
+          path: ~\.cargo\bin
+          key: cargo-bin-windows-x64-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-bin-windows-x64-tauri-cli-
+
+      - name: Install Tauri CLI
+        shell: pwsh
+        run: |
+          if (!(Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
+            cargo install tauri-cli --locked
+          }
+
+      - name: Set version in tauri.conf.json
+        shell: pwsh
+        run: |
+          $content = Get-Content crates/runt/Cargo.toml -Raw
+          if ($content -match 'version = "([^"]+)"') {
+            $currentVersion = $matches[1]
+          }
+          $commitSha = "$env:GITHUB_SHA".Substring(0, 7)
+          $version = "$currentVersion-preview.$commitSha"
+          Write-Host "Setting version to: $version"
+          $tauriConf = Get-Content crates/notebook/tauri.conf.json -Raw
+          $tauriConf = $tauriConf -replace '"version": "[^"]+"', "`"version`": `"$version`""
+          Set-Content crates/notebook/tauri.conf.json $tauriConf
+
+      - name: Generate Icons
+        run: cargo xtask icons
+
+      - name: Build NSIS Installer
+        run: cargo tauri build --ci --bundles nsis --config '{"build":{"beforeBuildCommand":""}}'
+        working-directory: crates/notebook
+
+      - name: Rename Installer
+        shell: pwsh
+        run: |
+          $nsisPath = Get-ChildItem -Path target\release\bundle\nsis -Filter "*.exe" | Select-Object -First 1
+          Copy-Item $nsisPath.FullName "runt-notebook-windows-x64.exe"
+
+      - name: Upload Windows Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: runt-notebook-windows-x64
+          path: runt-notebook-windows-x64.exe
+
   prerelease:
     name: Prerelease
     runs-on: ubuntu-latest
-    needs: [build-linux, build-macos, build-notebook-macos-arm64, build-notebook-macos-x64]
+    needs: [build-linux, build-macos, build-notebook-macos-arm64, build-notebook-macos-x64, build-notebook-windows-x64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -428,6 +514,12 @@ jobs:
           name: runt-notebook-macos-x64
           path: ./executables
 
+      - name: Download Windows x64 notebook installer
+        uses: actions/download-artifact@v4
+        with:
+          name: runt-notebook-windows-x64
+          path: ./executables
+
       - name: Create GitHub Preview Release
         uses: softprops/action-gh-release@v2
         env:
@@ -452,6 +544,9 @@ jobs:
             ### Notebook App (macOS)
             Download the DMG for your architecture below. The app is signed and notarized by Apple.
 
+            ### Notebook App (Windows)
+            Download the Windows installer below. Note: The Windows build is not code signed, so you may see a SmartScreen warning on first launch.
+
             ## Manual Downloads
 
             ### CLI
@@ -466,6 +561,7 @@ jobs:
             |----------|--------------|----------|
             | macOS | x64 (Intel) | `runt-notebook-darwin-x64.dmg` |
             | macOS | ARM64 (Apple Silicon) | `runt-notebook-darwin-arm64.dmg` |
+            | Windows | x64 | `runt-notebook-windows-x64.exe` |
           draft: false
           prerelease: true
           files: |
@@ -474,3 +570,4 @@ jobs:
             ./executables/runt-darwin-arm64
             ./executables/runt-notebook-darwin-x64.dmg
             ./executables/runt-notebook-darwin-arm64.dmg
+            ./executables/runt-notebook-windows-x64.exe

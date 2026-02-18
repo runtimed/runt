@@ -43,6 +43,12 @@
       "entitlements": "entitlements.plist",
       "hardenedRuntime": true,
       "minimumSystemVersion": "10.13"
+    },
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "currentUser"
+      }
     }
   }
 }
