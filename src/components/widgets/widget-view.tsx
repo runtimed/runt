@@ -11,6 +11,7 @@
 
 import { cn } from "@/lib/utils";
 import { AnyWidgetView, isAnyWidget } from "./anywidget-view";
+import { useLayoutStyles } from "./use-layout-styles";
 import { getWidgetComponent } from "./widget-registry";
 import type { WidgetModel } from "./widget-store";
 import { useWasWidgetClosed, useWidgetModel } from "./widget-store-context";
@@ -77,6 +78,8 @@ function UnsupportedWidget({ model, className }: UnsupportedWidgetProps) {
 export function WidgetView({ modelId, className }: WidgetViewProps) {
   const model = useWidgetModel(modelId);
   const wasClosed = useWasWidgetClosed(modelId);
+  // Get child layout styles (grid_area for positioning within grid containers)
+  const { childStyle } = useLayoutStyles(modelId);
 
   // Model was explicitly closed (e.g., tqdm with leave=False) - render nothing
   if (wasClosed) {
@@ -88,21 +91,38 @@ export function WidgetView({ modelId, className }: WidgetViewProps) {
     return <LoadingWidget modelId={modelId} className={className} />;
   }
 
+  // Determine the rendered widget content
+  let renderedWidget: React.ReactNode;
+
   // anywidgets have _esm field - render with ESM loader
   if (isAnyWidget(model)) {
-    return <AnyWidgetView modelId={modelId} className={className} />;
+    renderedWidget = <AnyWidgetView modelId={modelId} className={className} />;
+  } else {
+    // Check for built-in widget component
+    const WidgetComponent = getWidgetComponent(model.modelName);
+    if (WidgetComponent) {
+      renderedWidget = (
+        <WidgetComponent modelId={modelId} className={className} />
+      );
+    } else {
+      // No handler found
+      renderedWidget = (
+        <UnsupportedWidget
+          modelId={modelId}
+          model={model}
+          className={className}
+        />
+      );
+    }
   }
 
-  // Check for built-in widget component
-  const WidgetComponent = getWidgetComponent(model.modelName);
-  if (WidgetComponent) {
-    return <WidgetComponent modelId={modelId} className={className} />;
+  // Wrap with layout positioning if the widget has grid placement styles
+  const hasChildStyles = Object.keys(childStyle).length > 0;
+  if (hasChildStyles) {
+    return <div style={childStyle}>{renderedWidget}</div>;
   }
 
-  // No handler found
-  return (
-    <UnsupportedWidget modelId={modelId} model={model} className={className} />
-  );
+  return renderedWidget;
 }
 
 export default WidgetView;

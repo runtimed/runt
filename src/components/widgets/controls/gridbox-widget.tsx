@@ -8,6 +8,7 @@
  */
 
 import { cn } from "@/lib/utils";
+import { useLayoutStyles } from "../use-layout-styles";
 import type { WidgetComponentProps } from "../widget-registry";
 import { parseModelRef, useWidgetModelValue } from "../widget-store-context";
 import { WidgetView } from "../widget-view";
@@ -31,15 +32,21 @@ export function GridBoxWidget({ modelId, className }: WidgetComponentProps) {
   const children = useWidgetModelValue<string[]>(modelId, "children");
   const boxStyle = useWidgetModelValue<string>(modelId, "box_style") ?? "";
 
+  // Get layout styles from the Layout model
+  const { containerStyle, hasGridLayout } = useLayoutStyles(modelId);
+
   const styleClass = BOX_STYLE_MAP[boxStyle] ?? "";
 
   return (
     <div
       className={cn(
-        "grid grid-cols-1 sm:grid-cols-2 gap-2",
+        "grid",
+        // Only apply default Tailwind grid classes if no layout grid is specified
+        !hasGridLayout && "grid-cols-1 sm:grid-cols-2 gap-2",
         styleClass,
         className,
       )}
+      style={containerStyle}
       data-widget-id={modelId}
       data-widget-type="GridBox"
     >
