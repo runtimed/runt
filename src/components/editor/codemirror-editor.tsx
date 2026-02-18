@@ -18,7 +18,11 @@ import {
 } from "react";
 
 import { defaultExtensions } from "./extensions";
-import { getLanguageExtension, type SupportedLanguage } from "./languages";
+import {
+  getIndentationExtension,
+  getLanguageExtension,
+  type SupportedLanguage,
+} from "./languages";
 import { darkTheme, isDarkMode, lightTheme, type ThemeMode } from "./themes";
 
 export interface CodeMirrorEditorRef {
@@ -144,6 +148,11 @@ export const CodeMirrorEditor = forwardRef<
       [language],
     );
 
+    const indentExtension = useMemo(
+      () => getIndentationExtension(language),
+      [language],
+    );
+
     // Determine which theme to use
     const themeExtension = useMemo(() => {
       if (theme === "light") return lightTheme;
@@ -156,6 +165,7 @@ export const CodeMirrorEditor = forwardRef<
       const exts: Extension[] = [
         ...baseExtensions,
         langExtension,
+        indentExtension,
         themeExtension,
       ];
 
@@ -183,6 +193,7 @@ export const CodeMirrorEditor = forwardRef<
     }, [
       baseExtensions,
       langExtension,
+      indentExtension,
       themeExtension,
       keyMap,
       placeholder,
