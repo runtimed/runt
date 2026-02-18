@@ -332,7 +332,8 @@ dev-dependencies = ["pytest"]
         assert_eq!(info.dependency_count, 2);
         assert!(info.has_dev_dependencies);
         assert_eq!(info.requires_python, Some(">=3.10".to_string()));
-        assert_eq!(info.relative_path, "../pyproject.toml");
+        let expected_path = std::path::Path::new("..").join("pyproject.toml");
+        assert_eq!(info.relative_path, expected_path.display().to_string());
     }
 
     #[test]

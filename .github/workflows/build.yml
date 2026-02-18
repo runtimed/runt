@@ -24,6 +24,9 @@ jobs:
           - name: macOS
             runner: macos-latest
             setup: echo "No extra deps needed on macOS"
+          - name: Windows
+            runner: windows-latest
+            setup: echo "No extra deps needed on Windows"
     steps:
       - uses: actions/checkout@v4
 

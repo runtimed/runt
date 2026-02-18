@@ -4,7 +4,9 @@
 //! include paths from `.zshrc`, `.bashrc`, etc. This module spawns a login shell to capture
 //! the user's real PATH, then applies it to the current process.
 
-use log::{debug, info, warn};
+#[cfg(unix)]
+use log::warn;
+use log::{debug, info};
 use std::env;
 
 /// Well-known directories where tools like `uv`, `deno`, `cargo`, etc. are commonly installed.
@@ -98,6 +100,7 @@ fn capture_login_shell_path() -> Result<String, String> {
 }
 
 /// Merge a captured PATH with the current process PATH, prepending new entries.
+#[cfg(unix)]
 fn apply_path(shell_path: &str) {
     let current = env::var("PATH").unwrap_or_default();
     let current_entries: std::collections::HashSet<&str> = current.split(':').collect();
@@ -194,6 +197,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn test_apply_path_deduplicates() {
         // Save and restore PATH

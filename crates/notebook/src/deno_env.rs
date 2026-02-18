@@ -460,6 +460,7 @@ mod tests {
 
         assert_eq!(info.name, Some("my-project".to_string()));
         assert!(info.has_imports);
-        assert_eq!(info.relative_path, "../deno.json");
+        let expected_path = std::path::Path::new("..").join("deno.json");
+        assert_eq!(info.relative_path, expected_path.display().to_string());
     }
 }

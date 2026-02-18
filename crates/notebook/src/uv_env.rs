@@ -313,10 +313,12 @@ async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Res
             Box::pin(copy_dir_recursive(&src_path, &dst_path)).await?;
         } else if ty.is_symlink() {
             // Preserve symlinks (important for venv structure)
-            let link_target = tokio::fs::read_link(&src_path).await?;
             // On Unix, use symlink. On Windows, copy the file.
             #[cfg(unix)]
-            tokio::fs::symlink(&link_target, &dst_path).await?;
+            {
+                let link_target = tokio::fs::read_link(&src_path).await?;
+                tokio::fs::symlink(&link_target, &dst_path).await?;
+            }
             #[cfg(windows)]
             tokio::fs::copy(&src_path, &dst_path).await?;
         } else {

@@ -502,7 +502,8 @@ numpy = "*"
         assert!(info.has_pypi_dependencies);
         assert_eq!(info.pypi_dependency_count, 1);
         assert_eq!(info.python, Some("3.11".to_string()));
-        assert_eq!(info.relative_path, "../pixi.toml");
+        let expected_path = std::path::Path::new("..").join("pixi.toml");
+        assert_eq!(info.relative_path, expected_path.display().to_string());
     }
 
     #[test]
