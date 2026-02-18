@@ -2,7 +2,7 @@
 //!
 //! Supports:
 //! - Python via `ruff format` (auto-bootstrapped via rattler if not on PATH)
-//! - TypeScript/JavaScript via `deno fmt`
+//! - TypeScript/JavaScript via `deno fmt` (auto-bootstrapped via rattler if not on PATH)
 
 use crate::tools;
 use anyhow::{anyhow, Result};
@@ -84,6 +84,8 @@ pub async fn format_python(source: &str) -> Result<FormatResult> {
 }
 
 /// Format TypeScript/JavaScript code using deno fmt
+///
+/// Deno is auto-bootstrapped via rattler if not found on PATH.
 pub async fn format_deno(source: &str, language: &str) -> Result<FormatResult> {
     // Skip formatting for empty or whitespace-only source
     if source.trim().is_empty() {
@@ -102,7 +104,10 @@ pub async fn format_deno(source: &str, language: &str) -> Result<FormatResult> {
         _ => "ts", // default to TypeScript for Deno notebooks
     };
 
-    let mut child = tokio::process::Command::new("deno")
+    // Get deno path (from PATH or bootstrapped via rattler)
+    let deno_path = tools::get_deno_path().await?;
+
+    let mut child = tokio::process::Command::new(&deno_path)
         .args(["fmt", &format!("--ext={}", ext), "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

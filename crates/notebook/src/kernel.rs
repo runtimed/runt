@@ -1,5 +1,6 @@
 use crate::conda_env::{CondaDependencies, CondaEnvironment};
 use crate::execution_queue::QueueCommand;
+use crate::tools;
 use crate::uv_env::{NotebookDependencies, UvEnvironment};
 use anyhow::Result;
 use bytes::Bytes;
@@ -1883,8 +1884,13 @@ impl NotebookKernel {
             connection_file_path
         );
 
+        // Get deno path (from PATH or bootstrapped via rattler)
+        let deno_path = tools::get_deno_path()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get deno path: {}", e))?;
+
         // Build the deno command
-        let mut cmd = tokio::process::Command::new("deno");
+        let mut cmd = tokio::process::Command::new(&deno_path);
         cmd.arg("jupyter")
             .arg("--kernel")
             .arg("--conn")
