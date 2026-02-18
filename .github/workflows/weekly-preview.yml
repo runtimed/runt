@@ -24,7 +24,8 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev \
+            libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
       - name: Set up Rust
         uses: dsherret/rust-toolchain-file@v1
@@ -480,10 +481,94 @@ jobs:
           name: runt-notebook-windows-x64
           path: runt-notebook-windows-x64.exe
 
+  build-notebook-linux-x64:
+    name: Build Linux x64 Notebook AppImage
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev \
+            libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Set up Rust
+        uses: dsherret/rust-toolchain-file@v1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "linux-notebook-x64"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Install JS dependencies
+        run: pnpm install
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Cache cargo bin
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: cargo-bin-linux-x64-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-bin-linux-x64-tauri-cli-
+
+      - name: Install Tauri CLI
+        run: |
+          if ! command -v cargo-tauri &> /dev/null; then
+            cargo install tauri-cli --locked
+          fi
+
+      - name: Set version in tauri.conf.json
+        run: |
+          CURRENT_VERSION=$(grep '^version' crates/runt/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          COMMIT_SHA=${GITHUB_SHA::7}
+          VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
+          echo "Setting version to: ${VERSION}"
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" crates/notebook/tauri.conf.json
+
+      - name: Generate Icons
+        run: cargo xtask icons
+
+      - name: Build AppImage
+        run: cargo tauri build --ci --bundles appimage --config '{"build":{"beforeBuildCommand":""}}'
+        working-directory: crates/notebook
+
+      - name: Rename AppImage
+        run: |
+          APPIMAGE_PATH=$(find target/release/bundle/appimage -name "*.AppImage" | head -1)
+          cp "$APPIMAGE_PATH" runt-notebook-linux-x64.AppImage
+
+      - name: Upload Linux AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: runt-notebook-linux-x64
+          path: runt-notebook-linux-x64.AppImage
+
   prerelease:
     name: Prerelease
     runs-on: ubuntu-latest
-    needs: [build-linux, build-macos, build-notebook-macos-arm64, build-notebook-macos-x64, build-notebook-windows-x64]
+    needs: [build-linux, build-macos, build-notebook-macos-arm64, build-notebook-macos-x64, build-notebook-windows-x64, build-notebook-linux-x64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -520,6 +605,12 @@ jobs:
           name: runt-notebook-windows-x64
           path: ./executables
 
+      - name: Download Linux x64 notebook AppImage
+        uses: actions/download-artifact@v4
+        with:
+          name: runt-notebook-linux-x64
+          path: ./executables
+
       - name: Create GitHub Preview Release
         uses: softprops/action-gh-release@v2
         env:
@@ -547,6 +638,9 @@ jobs:
             ### Notebook App (Windows)
             Download the Windows installer below. Note: The Windows build is not code signed, so you may see a SmartScreen warning on first launch.
 
+            ### Notebook App (Linux)
+            Download the AppImage below. Make it executable with `chmod +x` and run directly.
+
             ## Manual Downloads
 
             ### CLI
@@ -559,6 +653,7 @@ jobs:
             ### Notebook App
             | Platform | Architecture | Download |
             |----------|--------------|----------|
+            | Linux | x64 | `runt-notebook-linux-x64.AppImage` |
             | macOS | x64 (Intel) | `runt-notebook-darwin-x64.dmg` |
             | macOS | ARM64 (Apple Silicon) | `runt-notebook-darwin-arm64.dmg` |
             | Windows | x64 | `runt-notebook-windows-x64.exe` |
@@ -568,6 +663,7 @@ jobs:
             ./executables/runt-linux-x64
             ./executables/runt-darwin-x64
             ./executables/runt-darwin-arm64
+            ./executables/runt-notebook-linux-x64.AppImage
             ./executables/runt-notebook-darwin-x64.dmg
             ./executables/runt-notebook-darwin-arm64.dmg
             ./executables/runt-notebook-windows-x64.exe
