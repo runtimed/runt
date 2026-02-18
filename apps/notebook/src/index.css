@@ -118,6 +118,11 @@ body {
     Ubuntu, Cantarell, sans-serif;
 }
 
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

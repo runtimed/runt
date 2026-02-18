@@ -183,7 +183,7 @@ function NotebookViewContent({
   );
 
   return (
-    <div ref={containerRef} className="py-4 pl-8 pr-4">
+    <div ref={containerRef} className="flex-1 overflow-y-auto overflow-x-hidden py-4 pl-8 pr-4">
       {cells.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
           <p className="text-sm">Empty notebook</p>

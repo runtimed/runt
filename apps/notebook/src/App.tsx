@@ -424,7 +424,7 @@ onKernelStarted: loadCondaDependencies,
   }, []);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="flex h-full flex-col bg-background overflow-hidden">
       {gitInfo && (
         <DebugBanner
           branch={gitInfo.branch}
