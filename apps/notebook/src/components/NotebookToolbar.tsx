@@ -246,7 +246,7 @@ export function NotebookToolbar({
               )}
             />
             <span className="text-xs text-muted-foreground">
-              {envProgress ? envProgress.statusText : (
+              {envProgress?.isActive ? envProgress.statusText : (
                 <span className="capitalize">{kernelStatus}</span>
               )}
             </span>

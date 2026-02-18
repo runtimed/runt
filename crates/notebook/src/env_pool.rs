@@ -450,7 +450,7 @@ impl CondaEnvPool {
 }
 
 /// Spawn a background task to replenish the conda pool after taking an environment.
-pub fn spawn_conda_replenishment(pool: SharedCondaEnvPool, app: AppHandle) {
+pub fn spawn_conda_replenishment(pool: SharedCondaEnvPool) {
     tokio::spawn(async move {
         // Check if we actually need to create one
         let should_create = {
@@ -468,7 +468,7 @@ pub fn spawn_conda_replenishment(pool: SharedCondaEnvPool, app: AppHandle) {
         }
 
         info!("[prewarm] Spawning immediate conda replenishment");
-        match crate::conda_env::create_prewarmed_conda_environment(Some(&app)).await {
+        match crate::conda_env::create_prewarmed_conda_environment(None).await {
             Ok(env) => {
                 let prewarmed = PrewarmedCondaEnv {
                     env_path: env.env_path,
@@ -531,7 +531,7 @@ pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) {
 ///
 /// This function runs indefinitely, periodically checking the pool
 /// and creating new environments as needed to maintain the target size.
-pub async fn run_conda_prewarming_loop(pool: SharedCondaEnvPool, app: AppHandle) {
+pub async fn run_conda_prewarming_loop(pool: SharedCondaEnvPool) {
     // First, recover any existing prewarmed environments from disk
     recover_existing_prewarmed_conda(&pool).await;
 
@@ -557,7 +557,7 @@ pub async fn run_conda_prewarming_loop(pool: SharedCondaEnvPool, app: AppHandle)
             // Create environments sequentially (conda/rattler is resource-intensive)
             for i in 0..deficit {
                 info!("[prewarm] Creating conda env {}/{}", i + 1, deficit);
-                match crate::conda_env::create_prewarmed_conda_environment(Some(&app)).await {
+                match crate::conda_env::create_prewarmed_conda_environment(None).await {
                     Ok(env) => {
                         let prewarmed = PrewarmedCondaEnv {
                             env_path: env.env_path,

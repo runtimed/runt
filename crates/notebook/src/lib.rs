@@ -1340,7 +1340,7 @@ async fn start_default_python_kernel_impl(
                         match kernel.start_with_prewarmed_conda(app.clone(), env, notebook_path.as_deref()).await {
                             Ok(()) => {
                                 // Trigger replenishment of the pool
-                                env_pool::spawn_conda_replenishment(conda_pool.clone(), app);
+                                env_pool::spawn_conda_replenishment(conda_pool.clone());
                                 return Ok("conda".to_string());
                             }
                             Err(e) => {
@@ -2169,9 +2169,8 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
             });
 
             // Spawn the conda environment prewarming loop
-            let app_for_conda_prewarm = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                env_pool::run_conda_prewarming_loop(conda_pool_for_prewarm, app_for_conda_prewarm).await;
+                env_pool::run_conda_prewarming_loop(conda_pool_for_prewarm).await;
             });
 
             // Auto-launch kernel for faster startup (only if trusted)
