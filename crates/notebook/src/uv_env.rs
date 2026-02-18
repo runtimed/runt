@@ -423,12 +423,7 @@ pub async fn find_and_claim_prewarmed_environments() -> Vec<UvEnvironment> {
         })
         .await;
 
-        let lock_created = match claim_result {
-            Ok(Ok(_)) => true,
-            _ => false,
-        };
-
-        if !lock_created {
+        if !matches!(claim_result, Ok(Ok(_))) {
             // Another process already claimed this environment
             info!(
                 "[prewarm] Skipping already-claimed prewarmed env: {:?}",
