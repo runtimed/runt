@@ -34,6 +34,26 @@ export function useNotebook() {
     };
   }, [loadCells]);
 
+  // Listen for backend-initiated cell source updates (e.g., from formatting)
+  useEffect(() => {
+    const unlisten = listen<{ cell_id: string; source: string }>(
+      "cell:source_updated",
+      (event) => {
+        setCells((prev) =>
+          prev.map((c) =>
+            c.id === event.payload.cell_id
+              ? { ...c, source: event.payload.source }
+              : c
+          )
+        );
+        setDirty(true);
+      }
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
   const updateCellSource = useCallback((cellId: string, source: string) => {
     setCells((prev) =>
       prev.map((c) => (c.id === cellId ? { ...c, source } : c))
@@ -244,6 +264,30 @@ export function useNotebook() {
     []
   );
 
+  /**
+   * Format a cell's source code using the appropriate formatter.
+   * The backend handles the formatting and emits a cell:source_updated event
+   * if the source changed, which updates the React state automatically.
+   */
+  const formatCell = useCallback(async (cellId: string) => {
+    try {
+      const result = await invoke<{
+        source: string;
+        changed: boolean;
+        error: string | null;
+      }>("format_cell", { cellId });
+
+      if (result.error) {
+        console.warn("[notebook] format_cell warning:", result.error);
+      }
+
+      return result;
+    } catch (e) {
+      console.error("[notebook] format_cell failed:", e);
+      return null;
+    }
+  }, []);
+
   return {
     cells,
     setCells,
@@ -261,5 +305,6 @@ export function useNotebook() {
     appendOutput,
     updateOutputByDisplayId,
     setExecutionCount,
+    formatCell,
   };
 }

@@ -2,6 +2,7 @@ pub mod conda_env;
 pub mod deno_env;
 pub mod env_pool;
 pub mod execution_queue;
+pub mod format;
 pub mod kernel;
 pub mod menu;
 pub mod notebook_state;
@@ -142,40 +143,151 @@ async fn get_notebook_path(
     Ok(state.path.as_ref().map(|p| p.to_string_lossy().to_string()))
 }
 
+/// Format all code cells in the notebook and save.
+/// Formatting is best-effort - cells that fail to format are saved as-is.
 #[tauri::command]
-async fn save_notebook(state: tauri::State<'_, Arc<Mutex<NotebookState>>>) -> Result<(), String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-    let path = state
-        .path
-        .clone()
-        .ok_or_else(|| "No file path set - use save_notebook_as".to_string())?;
-    let content = state.serialize()?;
+async fn save_notebook(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    // First pass: collect cells to format (release lock for async formatting)
+    let (runtime, cells_to_format, path) = {
+        let nb = state.lock().map_err(|e| e.to_string())?;
+        let path = nb
+            .path
+            .clone()
+            .ok_or_else(|| "No file path set - use save_notebook_as".to_string())?;
+        let rt = nb.get_runtime();
+
+        // Collect all code cells with their sources
+        let cells: Vec<(String, String)> = nb
+            .notebook
+            .cells
+            .iter()
+            .filter_map(|cell| {
+                if let nbformat::v4::Cell::Code { id, source, .. } = cell {
+                    let src = source.join("");
+                    if !src.trim().is_empty() {
+                        return Some((id.to_string(), src));
+                    }
+                }
+                None
+            })
+            .collect();
+
+        (rt, cells, path)
+    };
+
+    // Format each cell (async, outside the lock)
+    for (cell_id, source) in cells_to_format {
+        let format_result = match runtime {
+            Runtime::Python => format::format_python(&source).await,
+            Runtime::Deno => format::format_deno(&source, "typescript").await,
+        };
+
+        if let Ok(result) = format_result {
+            if result.changed {
+                // Update notebook state with formatted code
+                {
+                    let mut nb = state.lock().map_err(|e| e.to_string())?;
+                    nb.update_cell_source(&cell_id, &result.source);
+                }
+                // Emit event to sync frontend
+                let _ = app.emit(
+                    "cell:source_updated",
+                    serde_json::json!({
+                        "cell_id": cell_id,
+                        "source": result.source,
+                    }),
+                );
+            }
+        }
+        // Formatting errors are silently ignored - save with original code
+    }
+
+    // Now save
+    let mut nb = state.lock().map_err(|e| e.to_string())?;
+    let content = nb.serialize()?;
     std::fs::write(&path, &content).map_err(|e| e.to_string())?;
-    state.dirty = false;
+    nb.dirty = false;
     Ok(())
 }
 
-/// Save notebook to a specific path (Save As)
+/// Save notebook to a specific path (Save As).
+/// Formats all code cells before saving.
 #[tauri::command]
 async fn save_notebook_as(
     path: String,
     window: tauri::Window,
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-    let path = PathBuf::from(&path);
-    let content = state.serialize()?;
-    std::fs::write(&path, &content).map_err(|e| e.to_string())?;
+    let save_path = PathBuf::from(&path);
+
+    // First pass: collect cells to format (release lock for async formatting)
+    let (runtime, cells_to_format) = {
+        let nb = state.lock().map_err(|e| e.to_string())?;
+        let rt = nb.get_runtime();
+
+        // Collect all code cells with their sources
+        let cells: Vec<(String, String)> = nb
+            .notebook
+            .cells
+            .iter()
+            .filter_map(|cell| {
+                if let nbformat::v4::Cell::Code { id, source, .. } = cell {
+                    let src = source.join("");
+                    if !src.trim().is_empty() {
+                        return Some((id.to_string(), src));
+                    }
+                }
+                None
+            })
+            .collect();
+
+        (rt, cells)
+    };
+
+    // Format each cell (async, outside the lock)
+    for (cell_id, source) in cells_to_format {
+        let format_result = match runtime {
+            Runtime::Python => format::format_python(&source).await,
+            Runtime::Deno => format::format_deno(&source, "typescript").await,
+        };
+
+        if let Ok(result) = format_result {
+            if result.changed {
+                // Update notebook state with formatted code
+                {
+                    let mut nb = state.lock().map_err(|e| e.to_string())?;
+                    nb.update_cell_source(&cell_id, &result.source);
+                }
+                // Emit event to sync frontend
+                let _ = app.emit(
+                    "cell:source_updated",
+                    serde_json::json!({
+                        "cell_id": cell_id,
+                        "source": result.source,
+                    }),
+                );
+            }
+        }
+    }
+
+    // Now save
+    let mut nb = state.lock().map_err(|e| e.to_string())?;
+    let content = nb.serialize()?;
+    std::fs::write(&save_path, &content).map_err(|e| e.to_string())?;
 
     // Update the stored path and window title
-    let filename = path
+    let filename = save_path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("Untitled.ipynb");
     let _ = window.set_title(filename);
 
-    state.path = Some(path);
-    state.dirty = false;
+    nb.path = Some(save_path);
+    nb.dirty = false;
     Ok(())
 }
 
@@ -1937,6 +2049,80 @@ async fn start_kernel_with_deno(
     start_deno_kernel_impl(app, &notebook_state, &kernel_state).await
 }
 
+/// Format a cell's source code using the appropriate formatter (ruff for Python, deno fmt for TypeScript/JavaScript).
+/// Returns the formatted source and whether it changed. If formatting fails (e.g., syntax error),
+/// returns the original source with an error message.
+#[tauri::command]
+async fn format_cell(
+    cell_id: String,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    app: tauri::AppHandle,
+) -> Result<format::FormatResult, String> {
+    // Get current source and runtime
+    let (source, runtime) = {
+        let nb = state.lock().map_err(|e| e.to_string())?;
+        let src = nb
+            .get_cell_source(&cell_id)
+            .ok_or_else(|| "Cell not found".to_string())?;
+        let rt = nb.get_runtime();
+        (src, rt)
+    };
+
+    // Skip formatting for empty cells
+    if source.trim().is_empty() {
+        return Ok(format::FormatResult {
+            source,
+            changed: false,
+            error: None,
+        });
+    }
+
+    // Format based on runtime
+    let result = match runtime {
+        Runtime::Python => format::format_python(&source)
+            .await
+            .map_err(|e| e.to_string())?,
+        Runtime::Deno => format::format_deno(&source, "typescript")
+            .await
+            .map_err(|e| e.to_string())?,
+    };
+
+    // If formatting changed the source, update the backend state and notify frontend
+    if result.changed {
+        {
+            let mut nb = state.lock().map_err(|e| e.to_string())?;
+            nb.update_cell_source(&cell_id, &result.source);
+        }
+        // Emit event to notify frontend of the source change
+        let _ = app.emit(
+            "cell:source_updated",
+            serde_json::json!({
+                "cell_id": cell_id,
+                "source": result.source.clone(),
+            }),
+        );
+    }
+
+    Ok(result)
+}
+
+/// Check if a formatter is available for the current notebook runtime.
+/// Returns true if ruff is available for Python notebooks or deno for TypeScript notebooks.
+#[tauri::command]
+async fn check_formatter_available(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<bool, String> {
+    let runtime = {
+        let nb = state.lock().map_err(|e| e.to_string())?;
+        nb.get_runtime()
+    };
+
+    match runtime {
+        Runtime::Python => Ok(format::check_ruff_available().await),
+        Runtime::Deno => Ok(deno_env::check_deno_available().await),
+    }
+}
+
 /// Get app settings (default runtime, etc.)
 #[tauri::command]
 async fn get_settings() -> settings::AppSettings {
@@ -2126,6 +2312,9 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
             get_deno_flexible_npm_imports,
             set_deno_flexible_npm_imports,
             start_kernel_with_deno,
+            // Code formatting
+            format_cell,
+            check_formatter_available,
             // Settings
             get_settings,
             set_default_runtime,

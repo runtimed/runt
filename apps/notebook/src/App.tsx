@@ -63,6 +63,7 @@ function AppContent() {
     updateOutputByDisplayId,
     setExecutionCount,
     clearCellOutputs,
+    formatCell,
   } = useNotebook();
 
   const { theme, setTheme } = useTheme("notebook-theme");
@@ -515,6 +516,7 @@ function AppContent() {
         onDeleteCell={deleteCell}
         onAddCell={handleAddCell}
         onClearPagePayload={clearPagePayload}
+        onFormatCell={formatCell}
       />
     </div>
   );
