@@ -883,6 +883,416 @@ pub async fn clear_cache() -> Result<()> {
     Ok(())
 }
 
+// =============================================================================
+// Prewarming support
+// =============================================================================
+
+/// Create a prewarmed conda environment with just ipykernel installed.
+///
+/// This creates a generic environment at a temporary path (`prewarm-{uuid}`)
+/// that can later be claimed by a notebook using `claim_prewarmed_conda_environment`.
+/// The environment has no `env_id` in its hash, allowing it to be reused by any notebook.
+pub async fn create_prewarmed_conda_environment(
+    app: Option<&AppHandle>,
+) -> Result<CondaEnvironment> {
+    let temp_id = format!("prewarm-{}", uuid::Uuid::new_v4());
+    let cache_dir = get_cache_dir();
+    let env_path = cache_dir.join(&temp_id);
+
+    // Determine python path based on platform
+    #[cfg(target_os = "windows")]
+    let python_path = env_path.join("python.exe");
+    #[cfg(not(target_os = "windows"))]
+    let python_path = env_path.join("bin").join("python");
+
+    info!("[prewarm] Creating prewarmed conda environment at {:?}", env_path);
+
+    // Ensure cache directory exists
+    tokio::fs::create_dir_all(&cache_dir).await?;
+
+    // Create minimal dependencies (just ipykernel)
+    let deps = CondaDependencies {
+        dependencies: vec!["ipykernel".to_string(), "ipywidgets".to_string()],
+        channels: vec!["conda-forge".to_string()],
+        python: None, // Use default Python version
+        env_id: None, // No env_id for prewarmed envs
+    };
+
+    // Reuse the core environment creation logic
+    create_environment_at_path(&env_path, &deps, app).await?;
+
+    info!("[prewarm] Prewarmed conda environment created at {:?}", env_path);
+
+    Ok(CondaEnvironment {
+        env_path,
+        python_path,
+    })
+}
+
+/// Internal function to create a conda environment at a specific path.
+///
+/// This is the core rattler solve/install logic extracted for reuse.
+async fn create_environment_at_path(
+    env_path: &std::path::Path,
+    deps: &CondaDependencies,
+    app: Option<&AppHandle>,
+) -> Result<()> {
+    // Setup channel configuration
+    let cache_dir = get_cache_dir();
+    let channel_config = ChannelConfig::default_with_root_dir(cache_dir.clone());
+
+    // Parse channels (default to conda-forge if none specified)
+    let channels: Vec<Channel> = if deps.channels.is_empty() {
+        vec![Channel::from_str("conda-forge", &channel_config)?]
+    } else {
+        deps.channels
+            .iter()
+            .map(|c| Channel::from_str(c, &channel_config))
+            .collect::<Result<Vec<_>, _>>()?
+    };
+
+    emit_progress(app, EnvProgressPhase::FetchingRepodata {
+        channels: deps.channels.clone(),
+    });
+
+    // Build specs: base packages plus dependencies
+    let match_spec_options = ParseMatchSpecOptions::strict();
+    let mut specs: Vec<MatchSpec> = vec![
+        MatchSpec::from_str("ipykernel", match_spec_options)?,
+        MatchSpec::from_str("ipywidgets", match_spec_options)?,
+    ];
+
+    // Add python version constraint if specified
+    if let Some(ref py_version) = deps.python {
+        let py_spec = format!("python>={}", py_version);
+        specs.push(MatchSpec::from_str(&py_spec, match_spec_options)?);
+    }
+
+    // Add user dependencies
+    for dep in &deps.dependencies {
+        if dep != "ipykernel" && dep != "ipywidgets" {
+            specs.push(MatchSpec::from_str(dep, match_spec_options)?);
+        }
+    }
+
+    emit_progress(app, EnvProgressPhase::Solving { spec_count: specs.len() });
+
+    // Find rattler cache directory
+    let rattler_cache_dir = default_cache_dir()
+        .map_err(|e| anyhow!("could not determine rattler cache directory: {}", e))?;
+
+    // Create HTTP client
+    let download_client = reqwest::Client::builder().build()?;
+    let download_client = reqwest_middleware::ClientBuilder::new(download_client).build();
+
+    // Create gateway for fetching repodata
+    let gateway = Gateway::builder()
+        .with_cache_dir(rattler_cache_dir.join(rattler_cache::REPODATA_CACHE_DIR))
+        .with_package_cache(PackageCache::new(
+            rattler_cache_dir.join(rattler_cache::PACKAGE_CACHE_DIR),
+        ))
+        .with_client(download_client.clone())
+        .finish();
+
+    // Query repodata with retry logic
+    let install_platform = Platform::current();
+    let platforms = vec![install_platform, Platform::NoArch];
+
+    let repodata_start = std::time::Instant::now();
+    const MAX_RETRIES: u32 = 3;
+    const INITIAL_DELAY_MS: u64 = 1000;
+
+    let mut last_error = None;
+    let mut repo_data = None;
+
+    for attempt in 0..MAX_RETRIES {
+        if attempt > 0 {
+            let delay_ms = INITIAL_DELAY_MS * (1 << (attempt - 1));
+            info!(
+                "Retrying repodata fetch (attempt {}/{}) after {}ms...",
+                attempt + 1,
+                MAX_RETRIES,
+                delay_ms
+            );
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+        }
+
+        match gateway
+            .query(channels.clone(), platforms.clone(), specs.clone())
+            .recursive(true)
+            .await
+        {
+            Ok(data) => {
+                repo_data = Some(data);
+                break;
+            }
+            Err(e) => {
+                let error_str = e.to_string();
+                let is_retryable = error_str.contains("500")
+                    || error_str.contains("502")
+                    || error_str.contains("503")
+                    || error_str.contains("504")
+                    || error_str.contains("timeout")
+                    || error_str.contains("connection");
+
+                if is_retryable && attempt < MAX_RETRIES - 1 {
+                    info!(
+                        "Transient error fetching repodata (attempt {}): {}",
+                        attempt + 1,
+                        error_str
+                    );
+                    last_error = Some(e);
+                    continue;
+                }
+                emit_progress(app, EnvProgressPhase::Error {
+                    message: format!("Failed to fetch package metadata: {}", e),
+                });
+                return Err(anyhow!("Failed to fetch package metadata: {}", e));
+            }
+        }
+    }
+
+    let repo_data = repo_data.ok_or_else(|| {
+        let msg = format!(
+            "Failed to fetch package metadata after {} retries: {}",
+            MAX_RETRIES,
+            last_error.map(|e| e.to_string()).unwrap_or_else(|| "unknown error".to_string())
+        );
+        emit_progress(app, EnvProgressPhase::Error { message: msg.clone() });
+        anyhow!(msg)
+    })?;
+
+    let repodata_elapsed = repodata_start.elapsed();
+    let record_count: usize = repo_data.iter().map(|r| r.len()).sum();
+    info!(
+        "Fetched repodata with {} records in {:?}",
+        record_count, repodata_elapsed
+    );
+    emit_progress(app, EnvProgressPhase::RepodataComplete {
+        record_count,
+        elapsed_ms: repodata_elapsed.as_millis() as u64,
+    });
+
+    // Detect virtual packages
+    let virtual_packages = rattler_virtual_packages::VirtualPackage::detect(
+        &rattler_virtual_packages::VirtualPackageOverrides::default(),
+    )?
+    .iter()
+    .map(|vpkg| GenericVirtualPackage::from(vpkg.clone()))
+    .collect::<Vec<_>>();
+
+    // Solve dependencies
+    let solve_start = std::time::Instant::now();
+    info!("Solving dependencies for {} specs", specs.len());
+
+    let solver_task = SolverTask {
+        virtual_packages,
+        specs,
+        ..SolverTask::from_iter(&repo_data)
+    };
+
+    let solver_result = match resolvo::Solver.solve(solver_task) {
+        Ok(result) => result,
+        Err(e) => {
+            let msg = format!("Failed to solve dependencies: {}", e);
+            emit_progress(app, EnvProgressPhase::Error { message: msg.clone() });
+            return Err(anyhow!(msg));
+        }
+    };
+
+    let required_packages = solver_result.records;
+    let solve_elapsed = solve_start.elapsed();
+    info!(
+        "Solved {} packages in {:?}",
+        required_packages.len(),
+        solve_elapsed
+    );
+    emit_progress(app, EnvProgressPhase::SolveComplete {
+        package_count: required_packages.len(),
+        elapsed_ms: solve_elapsed.as_millis() as u64,
+    });
+
+    // Install packages
+    let install_start = std::time::Instant::now();
+    info!(
+        "Installing {} packages to {:?}",
+        required_packages.len(),
+        env_path
+    );
+    emit_progress(app, EnvProgressPhase::Installing {
+        total: required_packages.len(),
+    });
+
+    // Create progress reporter if we have an app handle
+    let reporter = app.map(|a| ProgressReporter::new(Some(a.clone())));
+
+    let installer = Installer::new()
+        .with_download_client(download_client)
+        .with_target_platform(install_platform);
+
+    let _result = if let Some(reporter) = reporter {
+        installer
+            .with_reporter(reporter)
+            .install(env_path, required_packages)
+            .await?
+    } else {
+        installer.install(env_path, required_packages).await?
+    };
+
+    let install_elapsed = install_start.elapsed();
+    info!(
+        "Conda environment ready at {:?} (install took {:?})",
+        env_path,
+        install_elapsed
+    );
+    emit_progress(app, EnvProgressPhase::InstallComplete {
+        elapsed_ms: install_elapsed.as_millis() as u64,
+    });
+
+    Ok(())
+}
+
+/// Claim a prewarmed conda environment for a specific notebook.
+///
+/// This moves the prewarmed environment to the correct cache location based
+/// on the notebook's `env_id`, so it will be found by `prepare_environment` later.
+pub async fn claim_prewarmed_conda_environment(
+    prewarmed: CondaEnvironment,
+    env_id: &str,
+) -> Result<CondaEnvironment> {
+    // Compute the hash that would be used for empty deps with this env_id
+    let deps = CondaDependencies {
+        dependencies: vec!["ipykernel".to_string()],
+        channels: vec!["conda-forge".to_string()],
+        python: None,
+        env_id: Some(env_id.to_string()),
+    };
+    let hash = compute_env_hash(&deps);
+    let cache_dir = get_cache_dir();
+    let dest_path = cache_dir.join(&hash);
+
+    // Determine python path based on platform
+    #[cfg(target_os = "windows")]
+    let python_path = dest_path.join("python.exe");
+    #[cfg(not(target_os = "windows"))]
+    let python_path = dest_path.join("bin").join("python");
+
+    // If destination already exists, just use it (race condition safety)
+    if dest_path.exists() {
+        info!(
+            "[prewarm] Destination already exists, removing prewarmed conda env at {:?}",
+            prewarmed.env_path
+        );
+        tokio::fs::remove_dir_all(&prewarmed.env_path).await.ok();
+        return Ok(CondaEnvironment {
+            env_path: dest_path,
+            python_path,
+        });
+    }
+
+    info!(
+        "[prewarm] Claiming prewarmed conda environment: {:?} -> {:?}",
+        prewarmed.env_path, dest_path
+    );
+
+    // Try to rename (fast if same filesystem)
+    match tokio::fs::rename(&prewarmed.env_path, &dest_path).await {
+        Ok(()) => {
+            info!("[prewarm] Conda environment claimed via rename");
+        }
+        Err(e) => {
+            // Rename failed (possibly cross-filesystem), fall back to copy+delete
+            info!(
+                "[prewarm] Rename failed ({}), falling back to copy",
+                e
+            );
+            copy_dir_recursive(&prewarmed.env_path, &dest_path).await?;
+            tokio::fs::remove_dir_all(&prewarmed.env_path).await.ok();
+            info!("[prewarm] Conda environment claimed via copy");
+        }
+    }
+
+    Ok(CondaEnvironment {
+        env_path: dest_path,
+        python_path,
+    })
+}
+
+/// Recursively copy a directory, preserving symlinks.
+async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
+    tokio::fs::create_dir_all(dst).await?;
+
+    let mut entries = tokio::fs::read_dir(src).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let ty = entry.file_type().await?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if ty.is_dir() {
+            Box::pin(copy_dir_recursive(&src_path, &dst_path)).await?;
+        } else if ty.is_symlink() {
+            // Preserve symlinks (important for conda env bin/ structure)
+            let link_target = tokio::fs::read_link(&src_path).await?;
+            #[cfg(unix)]
+            tokio::fs::symlink(&link_target, &dst_path).await?;
+            #[cfg(windows)]
+            tokio::fs::copy(&src_path, &dst_path).await?;
+        } else {
+            tokio::fs::copy(&src_path, &dst_path).await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Find existing prewarmed conda environments from previous sessions.
+///
+/// Scans the cache directory for `prewarm-*` directories and validates
+/// they have a working Python binary. Returns valid environments that
+/// can be added to the pool on startup.
+pub async fn find_existing_prewarmed_conda_environments() -> Vec<CondaEnvironment> {
+    let cache_dir = get_cache_dir();
+    let mut found = Vec::new();
+
+    let Ok(mut entries) = tokio::fs::read_dir(&cache_dir).await else {
+        return found;
+    };
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("prewarm-") {
+            continue;
+        }
+
+        let env_path = entry.path();
+
+        // Determine python path based on platform
+        #[cfg(target_os = "windows")]
+        let python_path = env_path.join("python.exe");
+        #[cfg(not(target_os = "windows"))]
+        let python_path = env_path.join("bin").join("python");
+
+        // Validate Python exists
+        if !python_path.exists() {
+            info!(
+                "[prewarm] Skipping invalid conda env (no python): {:?}",
+                env_path
+            );
+            // Clean up invalid environment
+            tokio::fs::remove_dir_all(&env_path).await.ok();
+            continue;
+        }
+
+        info!("[prewarm] Found existing prewarmed conda environment: {:?}", env_path);
+        found.push(CondaEnvironment {
+            env_path,
+            python_path,
+        });
+    }
+
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

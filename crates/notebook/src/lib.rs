@@ -20,7 +20,7 @@ use execution_queue::{ExecutionQueue, ExecutionQueueState, QueueCommand, SharedE
 use kernel::{CompletionResult, HistoryResult, NotebookKernel};
 use notebook_state::{FrontendCell, NotebookState};
 
-use log::info;
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -1121,6 +1121,7 @@ async fn start_default_python_kernel_impl(
     notebook_state: &Arc<Mutex<NotebookState>>,
     kernel_state: &Arc<tokio::sync::Mutex<NotebookKernel>>,
     pool: &env_pool::SharedEnvPool,
+    conda_pool: &env_pool::SharedCondaEnvPool,
 ) -> Result<String, String> {
     // Load user's preferred Python environment type from settings
     let app_settings = settings::load_settings();
@@ -1321,6 +1322,53 @@ async fn start_default_python_kernel_impl(
             (env_id, state.path.clone())
         };
 
+        // Try to use a prewarmed conda environment from the pool
+        let prewarmed = conda_pool.lock().await.take();
+        if let Some(prewarmed_env) = prewarmed {
+            info!("[prewarm] Using prewarmed conda environment for notebook");
+
+            // Try to claim and use the prewarmed env, but fall back gracefully on error
+            match conda_env::claim_prewarmed_conda_environment(
+                prewarmed_env.into_conda_environment(),
+                &env_id,
+            )
+            .await
+            {
+                Ok(env) => {
+                    if env.python_path.exists() {
+                        let mut kernel = kernel_state.lock().await;
+                        match kernel.start_with_prewarmed_conda(app.clone(), env, notebook_path.as_deref()).await {
+                            Ok(()) => {
+                                // Trigger replenishment of the pool
+                                env_pool::spawn_conda_replenishment(conda_pool.clone());
+                                return Ok("conda".to_string());
+                            }
+                            Err(e) => {
+                                error!(
+                                    "[prewarm] Failed to start kernel with prewarmed conda env, falling back: {}",
+                                    e
+                                );
+                            }
+                        }
+                    } else {
+                        info!(
+                            "[prewarm] Claimed conda env has invalid python path: {:?}, falling back",
+                            env.python_path
+                        );
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        "[prewarm] Failed to claim prewarmed conda env, falling back: {}",
+                        e
+                    );
+                }
+            }
+        }
+
+        // No prewarmed env available (or prewarmed failed), create one normally
+        info!("No prewarmed conda environment available, creating fresh");
+
         // Create minimal deps with just ipykernel and the unique env_id
         let deps = conda_env::CondaDependencies {
             dependencies: vec!["ipykernel".to_string()],
@@ -1348,8 +1396,9 @@ async fn start_default_kernel(
     notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
     kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
     pool: tauri::State<'_, env_pool::SharedEnvPool>,
+    conda_pool: tauri::State<'_, env_pool::SharedCondaEnvPool>,
 ) -> Result<String, String> {
-    start_default_python_kernel_impl(app, &notebook_state, &kernel_state, &pool).await
+    start_default_python_kernel_impl(app, &notebook_state, &kernel_state, &pool, &conda_pool).await
 }
 
 /// Check if the running kernel has a conda-managed environment.
@@ -1972,9 +2021,11 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
     let notebook_state = Arc::new(Mutex::new(initial_state));
     let kernel_state = Arc::new(tokio::sync::Mutex::new(NotebookKernel::default()));
 
-    // Create the prewarming environment pool
+    // Create the prewarming environment pools (UV and Conda)
     let env_pool: env_pool::SharedEnvPool =
         Arc::new(tokio::sync::Mutex::new(env_pool::EnvPool::new(env_pool::PoolConfig::default())));
+    let conda_env_pool: env_pool::SharedCondaEnvPool =
+        Arc::new(tokio::sync::Mutex::new(env_pool::CondaEnvPool::new(env_pool::PoolConfig::default())));
 
     // Track auto-launch state for frontend to query
     let auto_launch_in_progress = Arc::new(AtomicBool::new(false));
@@ -1984,11 +2035,13 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
     let notebook_for_processor = notebook_state.clone();
     let kernel_for_processor = kernel_state.clone();
     let pool_for_prewarm = env_pool.clone();
+    let conda_pool_for_prewarm = conda_env_pool.clone();
 
     // Clone for auto-launch kernel task
     let notebook_for_autolaunch = notebook_state.clone();
     let kernel_for_autolaunch = kernel_state.clone();
     let pool_for_autolaunch = env_pool.clone();
+    let conda_pool_for_autolaunch = conda_env_pool.clone();
     let auto_launch_flag = auto_launch_in_progress.clone();
 
     // Clone for lifecycle event handlers
@@ -2003,6 +2056,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
         .manage(kernel_state)
         .manage(queue)
         .manage(env_pool)
+        .manage(conda_env_pool)
         .manage(auto_launch_in_progress)
         .invoke_handler(tauri::generate_handler![
             load_notebook,
@@ -2108,10 +2162,15 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                 kernel.set_queue_tx(tx_for_kernel);
             });
 
-            // Spawn the environment prewarming loop
+            // Spawn the UV environment prewarming loop
             let app_for_prewarm = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 env_pool::run_prewarming_loop(pool_for_prewarm, app_for_prewarm).await;
+            });
+
+            // Spawn the conda environment prewarming loop
+            tauri::async_runtime::spawn(async move {
+                env_pool::run_conda_prewarming_loop(conda_pool_for_prewarm).await;
             });
 
             // Auto-launch kernel for faster startup (only if trusted)
@@ -2175,6 +2234,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                             &notebook_for_autolaunch,
                             &kernel_for_autolaunch,
                             &pool_for_autolaunch,
+                            &conda_pool_for_autolaunch,
                         )
                         .await
                         {

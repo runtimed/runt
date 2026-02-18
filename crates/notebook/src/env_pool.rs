@@ -47,7 +47,7 @@ impl Default for PoolConfig {
     fn default() -> Self {
         Self {
             pool_size: 3,
-            max_age_secs: 3600, // 1 hour
+            max_age_secs: 172800, // 2 days (ipykernel doesn't change often)
         }
     }
 }
@@ -333,6 +333,260 @@ pub async fn run_prewarming_loop(pool: SharedEnvPool, app: AppHandle) {
 fn emit_progress(app: &AppHandle, progress: PrewarmProgress) {
     if let Err(e) = app.emit("prewarm:progress", &progress) {
         error!("[prewarm] Failed to emit progress: {}", e);
+    }
+}
+
+// =============================================================================
+// Conda environment pool
+// =============================================================================
+
+use crate::conda_env::CondaEnvironment;
+
+/// A prewarmed conda environment ready for assignment to a notebook.
+#[derive(Debug, Clone)]
+pub struct PrewarmedCondaEnv {
+    /// Path to the conda environment directory.
+    pub env_path: PathBuf,
+    /// Path to the Python executable within the env.
+    pub python_path: PathBuf,
+    /// When this environment was created.
+    pub created_at: Instant,
+}
+
+impl PrewarmedCondaEnv {
+    /// Convert to a CondaEnvironment for kernel startup.
+    pub fn into_conda_environment(self) -> CondaEnvironment {
+        CondaEnvironment {
+            env_path: self.env_path,
+            python_path: self.python_path,
+        }
+    }
+}
+
+/// State of the conda prewarming pool.
+pub struct CondaEnvPool {
+    /// Available prewarmed conda environments.
+    pool: Vec<PrewarmedCondaEnv>,
+    /// Configuration.
+    config: PoolConfig,
+    /// Number of environments currently being created.
+    creating: usize,
+}
+
+/// Shared conda pool type for Tauri state management.
+pub type SharedCondaEnvPool = Arc<Mutex<CondaEnvPool>>;
+
+/// Current status of the conda pool for debugging/UI.
+#[derive(Debug, Clone, Serialize)]
+pub struct CondaPoolStatus {
+    /// Number of conda environments ready to use.
+    pub available: usize,
+    /// Number of conda environments currently being created.
+    pub creating: usize,
+    /// Target pool size.
+    pub target: usize,
+}
+
+impl CondaEnvPool {
+    /// Create a new conda environment pool with the given configuration.
+    pub fn new(config: PoolConfig) -> Self {
+        Self {
+            pool: Vec::with_capacity(config.pool_size),
+            config,
+            creating: 0,
+        }
+    }
+
+    /// Take a prewarmed conda environment from the pool.
+    ///
+    /// Returns `None` if no environments are available.
+    /// Automatically prunes stale environments before returning.
+    pub fn take(&mut self) -> Option<PrewarmedCondaEnv> {
+        self.prune_stale();
+        self.pool.pop()
+    }
+
+    /// Add a newly created prewarmed conda environment to the pool.
+    pub fn add(&mut self, env: PrewarmedCondaEnv) {
+        self.pool.push(env);
+        self.creating = self.creating.saturating_sub(1);
+    }
+
+    /// Mark that environment creation failed.
+    pub fn creation_failed(&mut self) {
+        self.creating = self.creating.saturating_sub(1);
+    }
+
+    /// Calculate how many environments need to be created to reach the target.
+    pub fn deficit(&self) -> usize {
+        let current = self.pool.len() + self.creating;
+        self.config.pool_size.saturating_sub(current)
+    }
+
+    /// Mark that we're starting to create N environments.
+    pub fn mark_creating(&mut self, count: usize) {
+        self.creating += count;
+    }
+
+    /// Remove environments that are older than the maximum age.
+    fn prune_stale(&mut self) {
+        let max_age = Duration::from_secs(self.config.max_age_secs);
+        let before = self.pool.len();
+        self.pool.retain(|e| e.created_at.elapsed() < max_age);
+        let removed = before - self.pool.len();
+        if removed > 0 {
+            info!("[prewarm] Pruned {} stale conda environments", removed);
+        }
+    }
+
+    /// Get the current status of the pool.
+    pub fn status(&self) -> CondaPoolStatus {
+        CondaPoolStatus {
+            available: self.pool.len(),
+            creating: self.creating,
+            target: self.config.pool_size,
+        }
+    }
+}
+
+/// Spawn a background task to replenish the conda pool after taking an environment.
+pub fn spawn_conda_replenishment(pool: SharedCondaEnvPool) {
+    tokio::spawn(async move {
+        // Check if we actually need to create one
+        let should_create = {
+            let mut p = pool.lock().await;
+            if p.deficit() > 0 {
+                p.mark_creating(1);
+                true
+            } else {
+                false
+            }
+        };
+
+        if !should_create {
+            return;
+        }
+
+        info!("[prewarm] Spawning immediate conda replenishment");
+        match crate::conda_env::create_prewarmed_conda_environment(None).await {
+            Ok(env) => {
+                let prewarmed = PrewarmedCondaEnv {
+                    env_path: env.env_path,
+                    python_path: env.python_path,
+                    created_at: Instant::now(),
+                };
+                pool.lock().await.add(prewarmed);
+                info!("[prewarm] Conda replenishment complete");
+            }
+            Err(e) => {
+                error!("[prewarm] Conda replenishment failed: {}", e);
+                pool.lock().await.creation_failed();
+            }
+        }
+    });
+}
+
+/// Recover any existing prewarmed conda environments from disk.
+pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) {
+    let recovered = crate::conda_env::find_existing_prewarmed_conda_environments().await;
+
+    if recovered.is_empty() {
+        info!("[prewarm] No existing prewarmed conda environments found");
+        return;
+    }
+
+    info!(
+        "[prewarm] Recovered {} existing prewarmed conda environments",
+        recovered.len()
+    );
+
+    let mut p = pool.lock().await;
+    for env in recovered {
+        // Only add up to the pool size
+        if p.pool.len() >= p.config.pool_size {
+            // Clean up extras we don't need
+            info!(
+                "[prewarm] Conda pool full, removing extra prewarmed env: {:?}",
+                env.env_path
+            );
+            tokio::fs::remove_dir_all(&env.env_path).await.ok();
+            continue;
+        }
+
+        let prewarmed = PrewarmedCondaEnv {
+            env_path: env.env_path,
+            python_path: env.python_path,
+            created_at: Instant::now(), // Treat as freshly created
+        };
+        p.pool.push(prewarmed);
+    }
+
+    info!(
+        "[prewarm] Conda pool initialized with {} environments",
+        p.pool.len()
+    );
+}
+
+/// Run the background conda prewarming loop.
+///
+/// This function runs indefinitely, periodically checking the pool
+/// and creating new environments as needed to maintain the target size.
+pub async fn run_conda_prewarming_loop(pool: SharedCondaEnvPool) {
+    // First, recover any existing prewarmed environments from disk
+    recover_existing_prewarmed_conda(&pool).await;
+
+    // Small delay to let the app finish startup before creating new envs
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    info!("[prewarm] Starting conda prewarming loop");
+
+    loop {
+        // Check what needs to be created
+        let deficit = {
+            let mut p = pool.lock().await;
+            let d = p.deficit();
+            if d > 0 {
+                p.mark_creating(d);
+            }
+            d
+        };
+
+        if deficit > 0 {
+            info!("[prewarm] Creating {} conda environments", deficit);
+
+            // Create environments sequentially (conda/rattler is resource-intensive)
+            for i in 0..deficit {
+                info!("[prewarm] Creating conda env {}/{}", i + 1, deficit);
+                match crate::conda_env::create_prewarmed_conda_environment(None).await {
+                    Ok(env) => {
+                        let prewarmed = PrewarmedCondaEnv {
+                            env_path: env.env_path,
+                            python_path: env.python_path,
+                            created_at: Instant::now(),
+                        };
+                        pool.lock().await.add(prewarmed);
+                        info!("[prewarm] Created prewarmed conda environment");
+                    }
+                    Err(e) => {
+                        error!("[prewarm] Failed to create conda environment: {}", e);
+                        pool.lock().await.creation_failed();
+                    }
+                }
+            }
+        }
+
+        // Log status
+        {
+            let p = pool.lock().await;
+            let status = p.status();
+            info!(
+                "[prewarm] Conda pool status: {}/{} ready, {} creating",
+                status.available, status.target, status.creating
+            );
+        }
+
+        // Sleep before next check (longer interval for conda since it's expensive)
+        tokio::time::sleep(Duration::from_secs(60)).await;
     }
 }
 
