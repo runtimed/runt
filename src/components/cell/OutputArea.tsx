@@ -87,6 +87,13 @@ interface OutputAreaProps {
    */
   isolated?: boolean | "auto";
   /**
+   * Pre-create the IsolatedFrame even when there are no outputs.
+   * This allows the iframe to bootstrap ahead of time, making output rendering instant.
+   * The iframe is hidden until outputs that need isolation arrive.
+   * @default false
+   */
+  preloadIframe?: boolean;
+  /**
    * Callback when a link is clicked in isolated outputs.
    */
   onLinkClick?: (url: string, newTab: boolean) => void;
@@ -261,6 +268,7 @@ export function OutputArea({
   priority = DEFAULT_PRIORITY,
   unsafe = false,
   isolated = "auto",
+  preloadIframe = false,
   onLinkClick,
   onWidgetUpdate,
 }: OutputAreaProps) {
@@ -288,14 +296,19 @@ export function OutputArea({
   // Get widget store context (may be null if not in provider)
   const widgetContext = useWidgetStore();
 
-  // Empty state: render nothing
-  if (outputs.length === 0) {
+  // Determine if we should use isolation (when we have outputs)
+  const shouldIsolate =
+    outputs.length > 0 &&
+    (isolated === true || (isolated === "auto" && anyOutputNeedsIsolation(outputs, priority)));
+
+  // When preloading, we render the iframe even with no outputs (hidden)
+  // This allows it to bootstrap ahead of time for instant rendering
+  const showPreloadedIframe = preloadIframe && !collapsed;
+
+  // Empty state: render nothing (unless preloading iframe)
+  if (outputs.length === 0 && !showPreloadedIframe) {
     return null;
   }
-
-  // Determine if we should use isolation
-  const shouldIsolate =
-    isolated === true || (isolated === "auto" && anyOutputNeedsIsolation(outputs, priority));
 
   // Check if we have widgets and should set up comm bridge
   const hasWidgets = hasWidgetOutputs(outputs, priority);
@@ -396,8 +409,11 @@ export function OutputArea({
     }
   }, [outputs, handleFrameReady]);
 
+  // Hide the entire output area when only preloading (no visible outputs)
+  const isPreloadOnly = showPreloadedIframe && outputs.length === 0;
+
   return (
-    <div data-slot="output-area" className={cn("output-area", className)}>
+    <div data-slot="output-area" className={cn("output-area", isPreloadOnly && "hidden", className)}>
       {/* Collapse toggle */}
       {hasCollapseControl && (
         <button
@@ -427,24 +443,29 @@ export function OutputArea({
           className={cn("space-y-2", maxHeight && "overflow-y-auto")}
           style={maxHeight ? { maxHeight: `${maxHeight}px` } : undefined}
         >
-          {shouldIsolate ? (
-            <IsolatedFrame
-              ref={frameRef}
-              darkMode={darkMode}
-              useReactRenderer={true}
-              minHeight={24}
-              maxHeight={maxHeight ?? 2000}
-              onReady={handleFrameReady}
-              onLinkClick={onLinkClick}
-              onWidgetUpdate={onWidgetUpdate}
-              onMessage={handleIframeMessage}
-              onError={(err) => console.error("[OutputArea] iframe error:", err)}
-            />
-          ) : (
+          {/* Preloaded or active isolated frame */}
+          {(shouldIsolate || showPreloadedIframe) && (
+            <div className={shouldIsolate ? undefined : "hidden"}>
+              <IsolatedFrame
+                ref={frameRef}
+                darkMode={darkMode}
+                useReactRenderer={true}
+                minHeight={24}
+                maxHeight={maxHeight ?? 2000}
+                onReady={handleFrameReady}
+                onLinkClick={onLinkClick}
+                onWidgetUpdate={onWidgetUpdate}
+                onMessage={handleIframeMessage}
+                onError={(err) => console.error("[OutputArea] iframe error:", err)}
+              />
+            </div>
+          )}
+
+          {/* In-DOM outputs (when not using isolation) */}
+          {!shouldIsolate &&
             outputs.map((output, index) =>
               renderOutput(output, index, renderers, priority, unsafe),
-            )
-          )}
+            )}
         </div>
       )}
     </div>

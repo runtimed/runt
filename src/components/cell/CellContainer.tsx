@@ -11,6 +11,8 @@ interface CellContainerProps {
   codeContent?: ReactNode;
   /** Content for the output section (renders with a different ribbon color) */
   outputContent?: ReactNode;
+  /** Hide the output section (useful for preloading content invisibly) */
+  hideOutput?: boolean;
   /** Legacy children prop - use codeContent/outputContent for segmented ribbon support */
   children?: ReactNode;
   /** Content to render in the left gutter action area (e.g., play button, execution count) */
@@ -34,6 +36,7 @@ export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
       onFocus,
       codeContent,
       outputContent,
+      hideOutput,
       children,
       gutterContent,
       rightGutterContent,
@@ -95,7 +98,7 @@ export const CellContainer = forwardRef<HTMLDivElement, CellContainerProps>(
             </div>
             {/* Output row - ribbon + content together */}
             {hasOutput && (
-              <div className="flex">
+              <div className={cn("flex", hideOutput && "hidden")}>
                 <div
                   className={cn(
                     "w-1 transition-colors duration-150",
