@@ -184,11 +184,13 @@ handle.update(HTML("Different <b>Media Type</b>"))`;
       // This ensures the kernel has processed the update before we check
       await browser.pause(3000);
 
-      // Check if second cell has an error (would indicate handle is not defined)
+      // Check if second cell has a Python error (would indicate handle is not defined)
       const secondCellHtml = await secondCell.getHTML();
       console.log("Second cell HTML:", secondCellHtml.substring(0, 500));
-      if (secondCellHtml.includes("NameError") || secondCellHtml.includes("Error")) {
-        console.log("ERROR: Second cell has an error - handle might not be defined!");
+      // Look for actual Python error patterns, not just "Error" which may appear in class names
+      if (secondCellHtml.includes("Traceback") || secondCellHtml.includes("NameError:")) {
+        console.log("ERROR: Second cell has a Python error!");
+        console.log("Full HTML:", secondCellHtml);
         throw new Error("Second cell execution failed - check if handle variable persists across cells");
       }
 
@@ -318,7 +320,10 @@ crosshandle = display("Cross-cell initial", display_id=True)`;
 
       const cell2Html = await cell2.getHTML();
       console.log("Cell 2 HTML:", cell2Html.substring(0, 300));
-      if (cell2Html.includes("NameError") || cell2Html.includes("Error")) {
+      // Look for actual Python error patterns, not just "Error" which may appear in class names
+      if (cell2Html.includes("Traceback") || cell2Html.includes("NameError:")) {
+        console.log("ERROR: Cell 2 has a Python error!");
+        console.log("Full HTML:", cell2Html);
         throw new Error("Second cell has an error - crosshandle not defined");
       }
 
