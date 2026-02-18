@@ -232,7 +232,7 @@ export class CommBridgeManager {
       });
       this.sentModels.add(commId);
       // Store initial state for change detection
-      this.previousState.set(commId, { ...model.state });
+      this.previousState.set(commId, this.cloneStateSnapshot(model.state));
       // Subscribe to custom messages for this model
       this.subscribeToModelCustomMessages(commId);
     }
@@ -278,7 +278,10 @@ export class CommBridgeManager {
         this.store.updateModel(commId, data, buffers);
         // Update our tracked state
         const current = this.previousState.get(commId) ?? {};
-        this.previousState.set(commId, { ...current, ...data });
+        this.previousState.set(
+          commId,
+          this.cloneStateSnapshot({ ...current, ...data })
+        );
         // Then forward to kernel
         this.sendUpdateToKernel(commId, data, buffers);
       } finally {
@@ -318,7 +321,7 @@ export class CommBridgeManager {
           model.buffers
         );
         // Store initial state for change detection
-        this.previousState.set(commId, { ...model.state });
+        this.previousState.set(commId, this.cloneStateSnapshot(model.state));
         // Subscribe to custom messages for this model
         this.subscribeToModelCustomMessages(commId);
       } else {
@@ -335,7 +338,7 @@ export class CommBridgeManager {
             // Forward state update to iframe
             this.sendCommMsg(commId, "update", delta, model.buffers);
             // Update tracked state
-            this.previousState.set(commId, { ...model.state });
+            this.previousState.set(commId, this.cloneStateSnapshot(model.state));
           }
         }
       }
@@ -395,11 +398,47 @@ export class CommBridgeManager {
     const changed: string[] = [];
     const allKeys = new Set([...Object.keys(previous), ...Object.keys(current)]);
     for (const key of allKeys) {
-      if (previous[key] !== current[key]) {
+      if (this.valuesAreDifferent(previous[key], current[key])) {
         changed.push(key);
       }
     }
     return changed;
+  }
+
+  /**
+   * Create a deep snapshot of model state so future in-place mutations are detectable.
+   */
+  private cloneStateSnapshot(
+    state: Record<string, unknown>
+  ): Record<string, unknown> {
+    try {
+      return structuredClone(state);
+    } catch {
+      return { ...state };
+    }
+  }
+
+  /**
+   * Compare two state values.
+   * For object/array values, use JSON content comparison so deep snapshots
+   * can detect in-place mutations from live state objects.
+   */
+  private valuesAreDifferent(previous: unknown, current: unknown): boolean {
+    if (
+      typeof previous !== "object" ||
+      previous === null ||
+      typeof current !== "object" ||
+      current === null
+    ) {
+      return previous !== current;
+    }
+
+    try {
+      return JSON.stringify(previous) !== JSON.stringify(current);
+    } catch {
+      // If value can't be serialized consistently, err on sending an update.
+      return true;
+    }
   }
 }
 

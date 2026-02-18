@@ -14,7 +14,11 @@ export interface PagePayloadEvent {
 }
 
 interface UseKernelOptions {
-  onOutput: (cellId: string, output: JupyterOutput) => void;
+  onOutput: (
+    cellId: string,
+    output: JupyterOutput,
+    meta?: { parentMsgId?: string }
+  ) => void;
   onExecutionCount: (cellId: string, count: number) => void;
   onExecutionDone: (cellId: string) => void;
   onCommMessage?: (msg: JupyterMessage) => void;
@@ -162,7 +166,7 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
           output_type: "stream",
           name: content.name as "stdout" | "stderr",
           text: content.text,
-        });
+        }, { parentMsgId: msg.parent_header?.msg_id });
       } else if (msgType === "display_data") {
         const content = msg.content as {
           data: Record<string, unknown>;
@@ -172,7 +176,7 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
           output_type: "display_data",
           data: content.data,
           metadata: content.metadata,
-        });
+        }, { parentMsgId: msg.parent_header?.msg_id });
       } else if (msgType === "execute_result") {
         const content = msg.content as {
           data: Record<string, unknown>;
@@ -184,7 +188,7 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
           data: content.data,
           metadata: content.metadata,
           execution_count: content.execution_count,
-        });
+        }, { parentMsgId: msg.parent_header?.msg_id });
         onExecutionCount(cellId, content.execution_count);
       } else if (msgType === "error") {
         const content = msg.content as {
@@ -197,7 +201,7 @@ const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCom
           ename: content.ename,
           evalue: content.evalue,
           traceback: content.traceback,
-        });
+        }, { parentMsgId: msg.parent_header?.msg_id });
       }
     });
 
