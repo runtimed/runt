@@ -243,6 +243,9 @@ jobs:
           echo "Setting version to: ${VERSION}"
           sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" crates/notebook/tauri.conf.json
 
+      - name: Generate Icons
+        run: cargo xtask icons
+
       - name: Build and Sign DMG
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -360,6 +363,9 @@ jobs:
           VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
           echo "Setting version to: ${VERSION}"
           sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" crates/notebook/tauri.conf.json
+
+      - name: Generate Icons
+        run: cargo xtask icons
 
       - name: Build and Sign DMG
         env:
