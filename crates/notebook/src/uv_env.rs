@@ -2,7 +2,9 @@
 //!
 //! This module handles creating ephemeral virtual environments using `uv`
 //! for notebooks that declare inline dependencies in their metadata.
+//! UV is auto-bootstrapped via rattler if not found on PATH.
 
+use crate::tools;
 use anyhow::{anyhow, Result};
 use log::info;
 use serde::{Deserialize, Serialize};
@@ -26,16 +28,9 @@ pub struct UvEnvironment {
     pub python_path: PathBuf,
 }
 
-/// Check if uv is available on the system.
+/// Check if uv is available (either on PATH or bootstrappable via rattler).
 pub async fn check_uv_available() -> bool {
-    tokio::process::Command::new("uv")
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await
-        .map(|s| s.success())
-        .unwrap_or(false)
+    tools::get_uv_path().await.is_ok()
 }
 
 /// Extract dependencies from notebook metadata.
@@ -132,6 +127,9 @@ pub async fn prepare_environment(
 
     info!("Creating new environment at {:?}", venv_path);
 
+    // Get uv path (from PATH or bootstrapped via rattler)
+    let uv_path = tools::get_uv_path().await?;
+
     // Ensure cache directory exists
     tokio::fs::create_dir_all(&cache_dir).await?;
 
@@ -141,7 +139,7 @@ pub async fn prepare_environment(
     }
 
     // Create virtual environment with uv
-    let mut venv_cmd = tokio::process::Command::new("uv");
+    let mut venv_cmd = tokio::process::Command::new(&uv_path);
     venv_cmd.arg("venv").arg(&venv_path);
 
     // Add python version constraint if specified
@@ -179,7 +177,7 @@ pub async fn prepare_environment(
         install_args.push(dep.clone());
     }
 
-    let install_status = tokio::process::Command::new("uv")
+    let install_status = tokio::process::Command::new(&uv_path)
         .args(&install_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -222,12 +220,16 @@ pub async fn remove_environment(env: &UvEnvironment) -> Result<()> {
 /// Install additional dependencies into an existing environment.
 ///
 /// This is used to sync new dependencies when the kernel is already running.
+/// UV is auto-bootstrapped via rattler if not found on PATH.
 pub async fn sync_dependencies(env: &UvEnvironment, deps: &[String]) -> Result<()> {
     if deps.is_empty() {
         return Ok(());
     }
 
     info!("Syncing {} dependencies to {:?}", deps.len(), env.venv_path);
+
+    // Get uv path (from PATH or bootstrapped via rattler)
+    let uv_path = tools::get_uv_path().await?;
 
     let mut install_args = vec![
         "pip".to_string(),
@@ -240,7 +242,7 @@ pub async fn sync_dependencies(env: &UvEnvironment, deps: &[String]) -> Result<(
         install_args.push(dep.clone());
     }
 
-    let output = tokio::process::Command::new("uv")
+    let output = tokio::process::Command::new(&uv_path)
         .args(&install_args)
         .output()
         .await?;
@@ -386,6 +388,7 @@ pub async fn find_existing_prewarmed_environments() -> Vec<UvEnvironment> {
 ///
 /// This creates an environment at a temporary path (prewarm-{uuid}) that can
 /// later be claimed by a notebook using `claim_prewarmed_environment`.
+/// UV is auto-bootstrapped via rattler if not found on PATH.
 pub async fn create_prewarmed_environment() -> Result<UvEnvironment> {
     let temp_id = format!("prewarm-{}", uuid::Uuid::new_v4());
     let cache_dir = get_cache_dir();
@@ -399,11 +402,14 @@ pub async fn create_prewarmed_environment() -> Result<UvEnvironment> {
 
     info!("[prewarm] Creating prewarmed environment at {:?}", venv_path);
 
+    // Get uv path (from PATH or bootstrapped via rattler)
+    let uv_path = tools::get_uv_path().await?;
+
     // Ensure cache directory exists
     tokio::fs::create_dir_all(&cache_dir).await?;
 
     // Create virtual environment with uv
-    let venv_status = tokio::process::Command::new("uv")
+    let venv_status = tokio::process::Command::new(&uv_path)
         .arg("venv")
         .arg(&venv_path)
         .stdout(Stdio::piped())
@@ -416,7 +422,7 @@ pub async fn create_prewarmed_environment() -> Result<UvEnvironment> {
     }
 
     // Install ipykernel and ipywidgets (no other dependencies)
-    let install_status = tokio::process::Command::new("uv")
+    let install_status = tokio::process::Command::new(&uv_path)
         .args([
             "pip",
             "install",
