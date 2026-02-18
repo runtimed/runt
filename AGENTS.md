@@ -23,5 +23,8 @@ The `.context/` directory is gitignored and used for per-worktree state that sho
 ## Contributing Guidelines
 
 See the `contributing/` directory for detailed guides:
-- `contributing/ui.md` - UI components and shadcn setup
+- `contributing/development.md` - Development workflow and build commands
+- `contributing/e2e.md` - End-to-end testing guide
+- `contributing/iframe-isolation.md` - Security architecture for output isolation
 - `contributing/nteract-elements.md` - Working with nteract/elements registry
+- `contributing/ui.md` - UI components and shadcn setup
