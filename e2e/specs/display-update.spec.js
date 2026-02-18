@@ -271,5 +271,81 @@ h.update("Final Update")`;
 
       console.log("Multiple updates test passed");
     });
+
+    it("should update display output across cells with same MIME type", async () => {
+      // This test verifies cross-cell updates work when MIME type stays the same
+      // Simpler than test 1 which also changes MIME type
+
+      // Get or create first code cell
+      let cell1 = await $('[data-cell-type="code"]');
+      if (!(await cell1.isExisting())) {
+        cell1 = await addCodeCell();
+      }
+      await focusAndClearCell(cell1);
+
+      // First cell: create display with text
+      const code1 = `from IPython.display import display
+crosshandle = display("Cross-cell initial", display_id=True)`;
+
+      console.log("Typing first cell code (cross-cell test)");
+      await typeSlowly(code1, 30);
+      await browser.pause(300);
+
+      await browser.keys(["Shift", "Enter"]);
+      console.log("Executed first cell (cross-cell test)");
+
+      // Wait for output
+      await waitForAnyOutput(cell1, KERNEL_STARTUP_TIMEOUT);
+      await waitForCellContent(cell1, "Cross-cell initial", 5000);
+      console.log("First cell has initial output");
+
+      // Add second cell
+      const cell2 = await addCodeCell();
+      await focusAndClearCell(cell2);
+
+      // Second cell: update the display (same MIME type - still text/plain)
+      const code2 = `crosshandle.update("Cross-cell updated")`;
+
+      console.log("Typing second cell code (simple update)");
+      await typeSlowly(code2, 30);
+      await browser.pause(300);
+
+      await browser.keys(["Shift", "Enter"]);
+      console.log("Executed second cell (cross-cell test)");
+
+      // Wait and check for errors
+      await browser.pause(3000);
+
+      const cell2Html = await cell2.getHTML();
+      console.log("Cell 2 HTML:", cell2Html.substring(0, 300));
+      if (cell2Html.includes("NameError") || cell2Html.includes("Error")) {
+        throw new Error("Second cell has an error - crosshandle not defined");
+      }
+
+      // Check cell 1's state
+      const cell1HtmlAfter = await cell1.getHTML();
+      console.log("Cell 1 HTML after:", cell1HtmlAfter.substring(0, 500));
+      console.log("Contains 'Cross-cell initial':", cell1HtmlAfter.includes("Cross-cell initial"));
+      console.log("Contains 'Cross-cell updated':", cell1HtmlAfter.includes("Cross-cell updated"));
+
+      // Wait for update
+      await browser.waitUntil(
+        async () => {
+          const html = await cell1.getHTML();
+          return html.includes("Cross-cell updated") && !html.includes("Cross-cell initial");
+        },
+        {
+          timeout: EXECUTION_TIMEOUT,
+          timeoutMsg: "Cross-cell update did not work",
+          interval: 500,
+        }
+      );
+
+      const finalHtml = await cell1.getHTML();
+      expect(finalHtml).toContain("Cross-cell updated");
+      expect(finalHtml).not.toContain("Cross-cell initial");
+
+      console.log("Cross-cell update test passed (same MIME type)");
+    });
   });
 });
