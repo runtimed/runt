@@ -117,11 +117,20 @@ function IsolatedRendererApp() {
     switch (type) {
       case "render": {
         const renderPayload = payload as RenderPayload;
-        const id = `output-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        setState((prev) => ({
-          ...prev,
-          outputs: [...prev.outputs, { id, payload: renderPayload }],
-        }));
+
+        // Generate stable ID when cellId is provided for better React reconciliation
+        const id = renderPayload.cellId
+          ? `${renderPayload.cellId}-${renderPayload.outputIndex ?? 0}`
+          : `output-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+        setState((prev) => {
+          if (renderPayload.replace) {
+            // Replace all outputs with this single new output
+            return { ...prev, outputs: [{ id, payload: renderPayload }] };
+          }
+          // Default: append to existing outputs
+          return { ...prev, outputs: [...prev.outputs, { id, payload: renderPayload }] };
+        });
 
         // Notify parent of render completion after next paint
         requestAnimationFrame(() => {

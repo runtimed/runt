@@ -40,6 +40,8 @@ export interface RenderPayload {
   outputIndex?: number;
   /** If true, append to existing outputs instead of replacing */
   append?: boolean;
+  /** If true, replace all existing outputs with this single output */
+  replace?: boolean;
 }
 
 /**
