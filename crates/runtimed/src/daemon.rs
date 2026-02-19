@@ -17,7 +17,7 @@ use tokio::sync::{Mutex, Notify};
 use tokio::net::UnixListener;
 
 #[cfg(windows)]
-use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
+use tokio::net::windows::named_pipe::ServerOptions;
 
 use crate::protocol::{Request, Response};
 use crate::singleton::{DaemonInfo, DaemonLock};

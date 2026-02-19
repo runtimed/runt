@@ -158,7 +158,7 @@ impl PoolClient {
                     loop {
                         match ClientOptions::new().open(&pipe_name) {
                             Ok(client) => return Ok(client),
-                            Err(e) if attempts < 5 => {
+                            Err(_) if attempts < 5 => {
                                 attempts += 1;
                                 tokio::time::sleep(Duration::from_millis(50)).await;
                             }
