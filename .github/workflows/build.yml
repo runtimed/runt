@@ -161,8 +161,12 @@ jobs:
         run: |
           cargo build --release -p runtimed
           TARGET=$(rustc --print host-tuple)
+          # Copy to crates/notebook/binaries/ for Tauri build validation
           mkdir -p crates/notebook/binaries
           cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
+          # Copy to target/release/binaries/ for runtime (no-bundle builds)
+          mkdir -p target/release/binaries
+          cp target/release/runtimed "target/release/binaries/runtimed-$TARGET"
 
       - name: Build Tauri app
         run: cd crates/notebook && cargo tauri build --ci --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
