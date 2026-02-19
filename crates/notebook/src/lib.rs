@@ -82,8 +82,11 @@ pub enum EnvSyncState {
 /// - Bundled macOS apps: Contents/MacOS/runtimed (no target suffix)
 /// - Development/no-bundle: target/{debug,release}/binaries/runtimed-{target}
 fn get_bundled_runtimed_path(app: &tauri::AppHandle) -> Option<PathBuf> {
-    // First, try the bundled app location (Contents/MacOS/runtimed)
-    // This is where Tauri places externalBin in bundled macOS apps
+    // First, try the bundled app location
+    // Tauri places externalBin differently per platform:
+    // - macOS: Contents/MacOS/runtimed
+    // - Linux: next to executable or in ../lib/{app}/
+    // - Windows: next to executable
     #[cfg(target_os = "macos")]
     {
         if let Ok(exe_dir) = app.path().resource_dir() {
@@ -91,6 +94,38 @@ fn get_bundled_runtimed_path(app: &tauri::AppHandle) -> Option<PathBuf> {
             // The binary is in Contents/MacOS, which is ../MacOS from Resources
             let macos_dir = exe_dir.parent()?.join("MacOS");
             let bundled_path = macos_dir.join("runtimed");
+            if bundled_path.exists() {
+                log::debug!("[startup] Found bundled runtimed at {:?}", bundled_path);
+                return Some(bundled_path);
+            }
+            log::debug!(
+                "[startup] Bundled runtimed not found at {:?}",
+                bundled_path
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // On Linux, Tauri places binaries next to the executable
+        if let Ok(resource_dir) = app.path().resource_dir() {
+            let bundled_path = resource_dir.join("runtimed");
+            if bundled_path.exists() {
+                log::debug!("[startup] Found bundled runtimed at {:?}", bundled_path);
+                return Some(bundled_path);
+            }
+            log::debug!(
+                "[startup] Bundled runtimed not found at {:?}",
+                bundled_path
+            );
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, Tauri places binaries next to the executable
+        if let Ok(resource_dir) = app.path().resource_dir() {
+            let bundled_path = resource_dir.join("runtimed.exe");
             if bundled_path.exists() {
                 log::debug!("[startup] Found bundled runtimed at {:?}", bundled_path);
                 return Some(bundled_path);
