@@ -5098,6 +5098,7 @@ dependencies = [
  "clap",
  "dirs 5.0.1",
  "env_logger",
+ "futures",
  "libc",
  "log",
  "serde",

@@ -299,7 +299,7 @@ impl Daemon {
                             }
                             EnvType::Conda => {
                                 tokio::spawn(async move {
-                                    daemon.create_conda_env().await;
+                                    daemon.replenish_conda_env().await;
                                 });
                             }
                         }
@@ -413,8 +413,217 @@ impl Daemon {
 
     /// Conda warming loop - maintains the Conda pool.
     async fn conda_warming_loop(&self) {
-        info!("[runtimed] Conda warming loop not implemented yet");
-        // TODO: Implement conda environment creation
+        // Check if we should even try (pool size > 0)
+        if self.config.conda_pool_size == 0 {
+            info!("[runtimed] Conda pool size is 0, skipping warming");
+            return;
+        }
+
+        // Check if mamba or conda is available
+        let conda_cmd = if self.check_mamba_available().await {
+            info!("[runtimed] Using mamba for conda environments");
+            "mamba"
+        } else if self.check_conda_available().await {
+            info!("[runtimed] Using conda for conda environments");
+            "conda"
+        } else {
+            warn!("[runtimed] Neither mamba nor conda found, skipping conda warming");
+            return;
+        };
+
+        info!(
+            "[runtimed] Starting conda warming loop (target: {})",
+            self.config.conda_pool_size
+        );
+
+        loop {
+            // Check shutdown
+            if *self.shutdown.lock().await {
+                break;
+            }
+
+            // Check deficit
+            let deficit = self.conda_pool.lock().await.deficit();
+
+            if deficit > 0 {
+                info!("[runtimed] Conda pool deficit: {}, creating {} envs", deficit, deficit);
+
+                // Mark as warming
+                self.conda_pool.lock().await.mark_warming(deficit);
+
+                // Create environments concurrently (but limit to 2 at a time for conda)
+                let tasks: Vec<_> = (0..deficit.min(2))
+                    .map(|_| self.create_conda_env(conda_cmd))
+                    .collect();
+
+                futures::future::join_all(tasks).await;
+            }
+
+            // Wait before checking again
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        }
+    }
+
+    /// Check if mamba is available on PATH.
+    async fn check_mamba_available(&self) -> bool {
+        tokio::process::Command::new("mamba")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
+    /// Check if conda is available on PATH.
+    async fn check_conda_available(&self) -> bool {
+        tokio::process::Command::new("conda")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
+    /// Create a single Conda environment and add it to the pool.
+    async fn create_conda_env(&self, conda_cmd: &str) {
+        let temp_id = format!("prewarm-conda-{}", uuid::Uuid::new_v4());
+        let env_path = self.config.cache_dir.join(&temp_id);
+
+        #[cfg(target_os = "windows")]
+        let python_path = env_path.join("python.exe");
+        #[cfg(not(target_os = "windows"))]
+        let python_path = env_path.join("bin").join("python");
+
+        info!("[runtimed] Creating Conda environment at {:?}", env_path);
+
+        // Ensure cache directory exists
+        if let Err(e) = tokio::fs::create_dir_all(&self.config.cache_dir).await {
+            error!("[runtimed] Failed to create cache dir: {}", e);
+            self.conda_pool.lock().await.warming_failed();
+            return;
+        }
+
+        // Create conda environment with ipykernel (5 minute timeout - conda is slower)
+        let create_result = tokio::time::timeout(
+            std::time::Duration::from_secs(300),
+            tokio::process::Command::new(conda_cmd)
+                .args([
+                    "create",
+                    "-y",
+                    "-p",
+                    env_path.to_str().unwrap_or(""),
+                    "-c",
+                    "conda-forge",
+                    "python>=3.9",
+                    "ipykernel",
+                    "ipywidgets",
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .status(),
+        )
+        .await;
+
+        let create_ok = match create_result {
+            Ok(Ok(status)) => status.success(),
+            Ok(Err(e)) => {
+                error!("[runtimed] Failed to run {}: {}", conda_cmd, e);
+                false
+            }
+            Err(_) => {
+                error!("[runtimed] Conda env creation timed out");
+                false
+            }
+        };
+
+        if !create_ok {
+            error!("[runtimed] Failed to create conda environment at {:?}", env_path);
+            // Clean up partial environment
+            tokio::fs::remove_dir_all(&env_path).await.ok();
+            self.conda_pool.lock().await.warming_failed();
+            return;
+        }
+
+        // Verify python exists
+        if !python_path.exists() {
+            error!(
+                "[runtimed] Python not found at {:?} after conda create",
+                python_path
+            );
+            tokio::fs::remove_dir_all(&env_path).await.ok();
+            self.conda_pool.lock().await.warming_failed();
+            return;
+        }
+
+        // Run warmup script (30 second timeout)
+        let warmup_script = r#"
+import ipykernel
+import IPython
+import ipywidgets
+from ipykernel.kernelbase import Kernel
+from ipykernel.ipkernel import IPythonKernel
+print("warmup complete")
+"#;
+        let warmup_result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            tokio::process::Command::new(&python_path)
+                .args(["-c", warmup_script])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .status(),
+        )
+        .await;
+
+        match warmup_result {
+            Ok(Ok(status)) if status.success() => {
+                info!("[runtimed] Conda warmup complete for {:?}", env_path);
+            }
+            Ok(Ok(_)) => {
+                warn!("[runtimed] Conda warmup failed for {:?}", env_path);
+                // Continue anyway - environment should still be usable
+            }
+            Ok(Err(e)) => {
+                warn!("[runtimed] Failed to run conda warmup: {}", e);
+            }
+            Err(_) => {
+                warn!("[runtimed] Conda warmup timed out");
+            }
+        }
+
+        // Add to pool
+        let env = PooledEnv {
+            env_type: EnvType::Conda,
+            venv_path: env_path.clone(),
+            python_path,
+        };
+
+        self.conda_pool.lock().await.add(env);
+        info!(
+            "[runtimed] Conda environment ready: {:?} (pool: {}/{})",
+            env_path,
+            self.conda_pool.lock().await.stats().0,
+            self.config.conda_pool_size
+        );
+    }
+
+    /// Replenish a single Conda environment (detects mamba/conda on demand).
+    async fn replenish_conda_env(&self) {
+        let conda_cmd = if self.check_mamba_available().await {
+            "mamba"
+        } else if self.check_conda_available().await {
+            "conda"
+        } else {
+            warn!("[runtimed] Neither mamba nor conda found for replenishment");
+            self.conda_pool.lock().await.warming_failed();
+            return;
+        };
+
+        self.conda_pool.lock().await.mark_warming(1);
+        self.create_conda_env(conda_cmd).await;
     }
 
     /// Check if uv is available on PATH.
@@ -555,11 +764,6 @@ print("warmup complete")
         });
     }
 
-    /// Create a single Conda environment and add it to the pool.
-    async fn create_conda_env(&self) {
-        // TODO: Implement conda environment creation
-        self.conda_pool.lock().await.warming_failed();
-    }
 }
 
 #[cfg(test)]
