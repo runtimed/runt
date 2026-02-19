@@ -463,7 +463,7 @@ impl Daemon {
         use rattler_repodata_gateway::Gateway;
         use rattler_solve::{resolvo, SolverImpl, SolverTask};
 
-        let temp_id = format!("prewarm-conda-{}", uuid::Uuid::new_v4());
+        let temp_id = format!("runtimed-conda-{}", uuid::Uuid::new_v4());
         let env_path = self.config.cache_dir.join(&temp_id);
 
         #[cfg(target_os = "windows")]
@@ -707,7 +707,7 @@ print("warmup complete")
 
     /// Create a single UV environment and add it to the pool.
     async fn create_uv_env(&self) {
-        let temp_id = format!("prewarm-{}", uuid::Uuid::new_v4());
+        let temp_id = format!("runtimed-uv-{}", uuid::Uuid::new_v4());
         let venv_path = self.config.cache_dir.join(&temp_id);
 
         #[cfg(target_os = "windows")]
