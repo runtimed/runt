@@ -411,25 +411,13 @@ impl Daemon {
         }
     }
 
-    /// Conda warming loop - maintains the Conda pool.
+    /// Conda warming loop - maintains the Conda pool using rattler.
     async fn conda_warming_loop(&self) {
         // Check if we should even try (pool size > 0)
         if self.config.conda_pool_size == 0 {
             info!("[runtimed] Conda pool size is 0, skipping warming");
             return;
         }
-
-        // Check if mamba or conda is available
-        let conda_cmd = if self.check_mamba_available().await {
-            info!("[runtimed] Using mamba for conda environments");
-            "mamba"
-        } else if self.check_conda_available().await {
-            info!("[runtimed] Using conda for conda environments");
-            "conda"
-        } else {
-            warn!("[runtimed] Neither mamba nor conda found, skipping conda warming");
-            return;
-        };
 
         info!(
             "[runtimed] Starting conda warming loop (target: {})",
@@ -451,12 +439,13 @@ impl Daemon {
                 // Mark as warming
                 self.conda_pool.lock().await.mark_warming(deficit);
 
-                // Create environments concurrently (but limit to 2 at a time for conda)
-                let tasks: Vec<_> = (0..deficit.min(2))
-                    .map(|_| self.create_conda_env(conda_cmd))
-                    .collect();
-
-                futures::future::join_all(tasks).await;
+                // Create environments one at a time (rattler is already efficient)
+                for _ in 0..deficit {
+                    if *self.shutdown.lock().await {
+                        break;
+                    }
+                    self.create_conda_env().await;
+                }
             }
 
             // Wait before checking again
@@ -464,32 +453,16 @@ impl Daemon {
         }
     }
 
-    /// Check if mamba is available on PATH.
-    async fn check_mamba_available(&self) -> bool {
-        tokio::process::Command::new("mamba")
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await
-            .map(|s| s.success())
-            .unwrap_or(false)
-    }
+    /// Create a single Conda environment using rattler and add it to the pool.
+    async fn create_conda_env(&self) {
+        use rattler::{default_cache_dir, install::Installer, package_cache::PackageCache};
+        use rattler_conda_types::{
+            Channel, ChannelConfig, GenericVirtualPackage, MatchSpec, ParseMatchSpecOptions,
+            Platform,
+        };
+        use rattler_repodata_gateway::Gateway;
+        use rattler_solve::{resolvo, SolverImpl, SolverTask};
 
-    /// Check if conda is available on PATH.
-    async fn check_conda_available(&self) -> bool {
-        tokio::process::Command::new("conda")
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await
-            .map(|s| s.success())
-            .unwrap_or(false)
-    }
-
-    /// Create a single Conda environment and add it to the pool.
-    async fn create_conda_env(&self, conda_cmd: &str) {
         let temp_id = format!("prewarm-conda-{}", uuid::Uuid::new_v4());
         let env_path = self.config.cache_dir.join(&temp_id);
 
@@ -507,42 +480,136 @@ impl Daemon {
             return;
         }
 
-        // Create conda environment with ipykernel (5 minute timeout - conda is slower)
-        let create_result = tokio::time::timeout(
-            std::time::Duration::from_secs(300),
-            tokio::process::Command::new(conda_cmd)
-                .args([
-                    "create",
-                    "-y",
-                    "-p",
-                    env_path.to_str().unwrap_or(""),
-                    "-c",
-                    "conda-forge",
-                    "python>=3.9",
-                    "ipykernel",
-                    "ipywidgets",
-                ])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .status(),
-        )
-        .await;
+        // Setup channel configuration
+        let channel_config = ChannelConfig::default_with_root_dir(self.config.cache_dir.clone());
 
-        let create_ok = match create_result {
-            Ok(Ok(status)) => status.success(),
-            Ok(Err(e)) => {
-                error!("[runtimed] Failed to run {}: {}", conda_cmd, e);
-                false
-            }
-            Err(_) => {
-                error!("[runtimed] Conda env creation timed out");
-                false
+        // Parse channels
+        let channels = match Channel::from_str("conda-forge", &channel_config) {
+            Ok(ch) => vec![ch],
+            Err(e) => {
+                error!("[runtimed] Failed to parse conda-forge channel: {}", e);
+                self.conda_pool.lock().await.warming_failed();
+                return;
             }
         };
 
-        if !create_ok {
-            error!("[runtimed] Failed to create conda environment at {:?}", env_path);
-            // Clean up partial environment
+        // Build specs: python + ipykernel + ipywidgets
+        let match_spec_options = ParseMatchSpecOptions::strict();
+        let specs: Vec<MatchSpec> = match (|| -> anyhow::Result<Vec<MatchSpec>> {
+            Ok(vec![
+                MatchSpec::from_str("python>=3.9", match_spec_options)?,
+                MatchSpec::from_str("ipykernel", match_spec_options)?,
+                MatchSpec::from_str("ipywidgets", match_spec_options)?,
+            ])
+        })() {
+            Ok(s) => s,
+            Err(e) => {
+                error!("[runtimed] Failed to parse match specs: {}", e);
+                self.conda_pool.lock().await.warming_failed();
+                return;
+            }
+        };
+
+        // Find rattler cache directory
+        let rattler_cache_dir = match default_cache_dir() {
+            Ok(dir) => dir,
+            Err(e) => {
+                error!("[runtimed] Could not determine rattler cache directory: {}", e);
+                self.conda_pool.lock().await.warming_failed();
+                return;
+            }
+        };
+
+        if let Err(e) = rattler_cache::ensure_cache_dir(&rattler_cache_dir) {
+            error!("[runtimed] Could not create rattler cache directory: {}", e);
+            self.conda_pool.lock().await.warming_failed();
+            return;
+        }
+
+        // Create HTTP client
+        let download_client = match reqwest::Client::builder().build() {
+            Ok(c) => reqwest_middleware::ClientBuilder::new(c).build(),
+            Err(e) => {
+                error!("[runtimed] Failed to create HTTP client: {}", e);
+                self.conda_pool.lock().await.warming_failed();
+                return;
+            }
+        };
+
+        // Create gateway for fetching repodata
+        let gateway = Gateway::builder()
+            .with_cache_dir(rattler_cache_dir.join(rattler_cache::REPODATA_CACHE_DIR))
+            .with_package_cache(PackageCache::new(
+                rattler_cache_dir.join(rattler_cache::PACKAGE_CACHE_DIR),
+            ))
+            .with_client(download_client.clone())
+            .finish();
+
+        // Query repodata
+        let install_platform = Platform::current();
+        let platforms = vec![install_platform, Platform::NoArch];
+
+        info!("[runtimed] Fetching conda repodata from conda-forge...");
+        let repo_data = match gateway
+            .query(channels.clone(), platforms.clone(), specs.clone())
+            .recursive(true)
+            .await
+        {
+            Ok(data) => data,
+            Err(e) => {
+                error!("[runtimed] Failed to fetch repodata: {}", e);
+                self.conda_pool.lock().await.warming_failed();
+                return;
+            }
+        };
+
+        info!("[runtimed] Repodata fetched, solving dependencies...");
+
+        // Detect virtual packages
+        let virtual_packages = match rattler_virtual_packages::VirtualPackage::detect(
+            &rattler_virtual_packages::VirtualPackageOverrides::default(),
+        ) {
+            Ok(vps) => vps
+                .iter()
+                .map(|vpkg| GenericVirtualPackage::from(vpkg.clone()))
+                .collect::<Vec<_>>(),
+            Err(e) => {
+                error!("[runtimed] Failed to detect virtual packages: {}", e);
+                self.conda_pool.lock().await.warming_failed();
+                return;
+            }
+        };
+
+        // Solve dependencies
+        let solver_task = SolverTask {
+            virtual_packages,
+            specs,
+            ..SolverTask::from_iter(&repo_data)
+        };
+
+        let required_packages = match resolvo::Solver.solve(solver_task) {
+            Ok(result) => result.records,
+            Err(e) => {
+                error!("[runtimed] Failed to solve dependencies: {}", e);
+                self.conda_pool.lock().await.warming_failed();
+                return;
+            }
+        };
+
+        info!(
+            "[runtimed] Solved: {} packages to install",
+            required_packages.len()
+        );
+
+        // Install packages
+        let install_result = Installer::new()
+            .with_download_client(download_client)
+            .with_target_platform(install_platform)
+            .install(&env_path, required_packages)
+            .await;
+
+        if let Err(e) = install_result {
+            error!("[runtimed] Failed to install packages: {}", e);
             tokio::fs::remove_dir_all(&env_path).await.ok();
             self.conda_pool.lock().await.warming_failed();
             return;
@@ -551,7 +618,7 @@ impl Daemon {
         // Verify python exists
         if !python_path.exists() {
             error!(
-                "[runtimed] Python not found at {:?} after conda create",
+                "[runtimed] Python not found at {:?} after install",
                 python_path
             );
             tokio::fs::remove_dir_all(&env_path).await.ok();
@@ -559,40 +626,8 @@ impl Daemon {
             return;
         }
 
-        // Run warmup script (30 second timeout)
-        let warmup_script = r#"
-import ipykernel
-import IPython
-import ipywidgets
-from ipykernel.kernelbase import Kernel
-from ipykernel.ipkernel import IPythonKernel
-print("warmup complete")
-"#;
-        let warmup_result = tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            tokio::process::Command::new(&python_path)
-                .args(["-c", warmup_script])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .status(),
-        )
-        .await;
-
-        match warmup_result {
-            Ok(Ok(status)) if status.success() => {
-                info!("[runtimed] Conda warmup complete for {:?}", env_path);
-            }
-            Ok(Ok(_)) => {
-                warn!("[runtimed] Conda warmup failed for {:?}", env_path);
-                // Continue anyway - environment should still be usable
-            }
-            Ok(Err(e)) => {
-                warn!("[runtimed] Failed to run conda warmup: {}", e);
-            }
-            Err(_) => {
-                warn!("[runtimed] Conda warmup timed out");
-            }
-        }
+        // Run warmup script
+        self.warmup_conda_env(&python_path, &env_path).await;
 
         // Add to pool
         let env = PooledEnv {
@@ -610,20 +645,52 @@ print("warmup complete")
         );
     }
 
-    /// Replenish a single Conda environment (detects mamba/conda on demand).
-    async fn replenish_conda_env(&self) {
-        let conda_cmd = if self.check_mamba_available().await {
-            "mamba"
-        } else if self.check_conda_available().await {
-            "conda"
-        } else {
-            warn!("[runtimed] Neither mamba nor conda found for replenishment");
-            self.conda_pool.lock().await.warming_failed();
-            return;
-        };
+    /// Warm up a conda environment by running Python to trigger .pyc compilation.
+    async fn warmup_conda_env(&self, python_path: &PathBuf, env_path: &PathBuf) {
+        let warmup_script = r#"
+import ipykernel
+import IPython
+import ipywidgets
+import traitlets
+import zmq
+from ipykernel.kernelbase import Kernel
+from ipykernel.ipkernel import IPythonKernel
+from ipykernel.comm import CommManager
+print("warmup complete")
+"#;
 
+        let warmup_result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            tokio::process::Command::new(python_path)
+                .args(["-c", warmup_script])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .status(),
+        )
+        .await;
+
+        match warmup_result {
+            Ok(Ok(status)) if status.success() => {
+                // Create marker file
+                tokio::fs::write(env_path.join(".warmed"), "").await.ok();
+                info!("[runtimed] Conda warmup complete for {:?}", env_path);
+            }
+            Ok(Ok(_)) => {
+                warn!("[runtimed] Conda warmup failed for {:?}", env_path);
+            }
+            Ok(Err(e)) => {
+                warn!("[runtimed] Failed to run conda warmup: {}", e);
+            }
+            Err(_) => {
+                warn!("[runtimed] Conda warmup timed out");
+            }
+        }
+    }
+
+    /// Replenish a single Conda environment.
+    async fn replenish_conda_env(&self) {
         self.conda_pool.lock().await.mark_warming(1);
-        self.create_conda_env(conda_cmd).await;
+        self.create_conda_env().await;
     }
 
     /// Check if uv is available on PATH.
