@@ -76,6 +76,47 @@ pub enum EnvSyncState {
     },
 }
 
+/// Get the path to the bundled runtimed binary.
+///
+/// Tauri bundles external binaries with target triple suffixes (e.g., runtimed-aarch64-apple-darwin).
+/// This function resolves the correct path based on the current platform.
+fn get_bundled_runtimed_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let resource_dir = app.path().resource_dir().ok()?;
+
+    let target = if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            "aarch64-apple-darwin"
+        } else {
+            "x86_64-apple-darwin"
+        }
+    } else if cfg!(target_os = "linux") {
+        if cfg!(target_arch = "aarch64") {
+            "aarch64-unknown-linux-gnu"
+        } else {
+            "x86_64-unknown-linux-gnu"
+        }
+    } else if cfg!(target_os = "windows") {
+        "x86_64-pc-windows-msvc"
+    } else {
+        return None;
+    };
+
+    let binary_name = if cfg!(windows) {
+        format!("binaries/runtimed-{}.exe", target)
+    } else {
+        format!("binaries/runtimed-{}", target)
+    };
+
+    let path = resource_dir.join(binary_name);
+    if path.exists() {
+        log::debug!("[startup] Found bundled runtimed at {:?}", path);
+        Some(path)
+    } else {
+        log::debug!("[startup] Bundled runtimed not found at {:?}", path);
+        None
+    }
+}
+
 /// Get git information for the debug banner.
 /// Returns None in release builds.
 #[tauri::command]
@@ -2404,8 +2445,11 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
 
             // Try to ensure runtimed is running (non-blocking, optional)
             // The daemon provides centralized prewarming across all notebook windows
+            let app_for_daemon = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                match runtimed::client::ensure_daemon_running(None).await {
+                // Get path to bundled runtimed binary (for auto-installation)
+                let binary_path = get_bundled_runtimed_path(&app_for_daemon);
+                match runtimed::client::ensure_daemon_running(binary_path).await {
                     Ok(endpoint) => {
                         log::info!("[startup] runtimed running at {}", endpoint);
                     }
