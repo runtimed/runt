@@ -1,7 +1,7 @@
 //! Pool daemon server implementation.
 //!
 //! The daemon manages prewarmed environment pools and handles requests from
-//! notebook windows via Unix domain socket.
+//! notebook windows via IPC (Unix domain sockets on Unix, named pipes on Windows).
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -10,9 +10,14 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use log::{error, info, warn};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, Notify};
+
+#[cfg(unix)]
+use tokio::net::UnixListener;
+
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 
 use crate::protocol::{Request, Response};
 use crate::singleton::{DaemonInfo, DaemonLock};
@@ -176,22 +181,19 @@ impl Daemon {
 
     /// Run the daemon server.
     pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
-        // Ensure socket directory exists
-        if let Some(parent) = self.config.socket_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
+        // Platform-specific setup
+        #[cfg(unix)]
+        {
+            // Ensure socket directory exists
+            if let Some(parent) = self.config.socket_path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
 
-        // Remove stale socket file
-        if self.config.socket_path.exists() {
-            tokio::fs::remove_file(&self.config.socket_path).await?;
+            // Remove stale socket file
+            if self.config.socket_path.exists() {
+                tokio::fs::remove_file(&self.config.socket_path).await?;
+            }
         }
-
-        // Bind to the socket
-        let listener = UnixListener::bind(&self.config.socket_path)?;
-        info!(
-            "[runtimed] Listening on {:?}",
-            self.config.socket_path
-        );
 
         // Write daemon info so clients can discover us
         if let Err(e) = self._lock.write_info(&self.config.socket_path.to_string_lossy()) {
@@ -212,10 +214,35 @@ impl Daemon {
             conda_daemon.conda_warming_loop().await;
         });
 
-        // Accept connections
+        // Platform-specific accept loop
+        #[cfg(unix)]
+        {
+            self.run_unix_server().await?;
+        }
+
+        #[cfg(windows)]
+        {
+            self.run_windows_server().await?;
+        }
+
+        // Cleanup socket (Unix only - named pipes don't need cleanup)
+        #[cfg(unix)]
+        tokio::fs::remove_file(&self.config.socket_path).await.ok();
+
+        Ok(())
+    }
+
+    /// Unix-specific server loop using Unix domain sockets.
+    #[cfg(unix)]
+    async fn run_unix_server(self: &Arc<Self>) -> anyhow::Result<()> {
+        let listener = UnixListener::bind(&self.config.socket_path)?;
+        info!(
+            "[runtimed] Listening on {:?}",
+            self.config.socket_path
+        );
+
         loop {
             tokio::select! {
-                // Wait for a new connection
                 accept_result = listener.accept() => {
                     match accept_result {
                         Ok((stream, _)) => {
@@ -231,7 +258,6 @@ impl Daemon {
                         }
                     }
                 }
-                // Wait for shutdown signal
                 _ = self.shutdown_notify.notified() => {
                     info!("[runtimed] Shutting down");
                     break;
@@ -239,8 +265,63 @@ impl Daemon {
             }
         }
 
-        // Cleanup socket
-        tokio::fs::remove_file(&self.config.socket_path).await.ok();
+        Ok(())
+    }
+
+    /// Windows-specific server loop using named pipes.
+    #[cfg(windows)]
+    async fn run_windows_server(self: &Arc<Self>) -> anyhow::Result<()> {
+        let pipe_name = self.config.socket_path.to_string_lossy().to_string();
+        info!("[runtimed] Listening on {}", pipe_name);
+
+        // Create the first pipe server instance
+        let mut server = ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(&pipe_name)?;
+
+        loop {
+            tokio::select! {
+                // Wait for a client to connect
+                connect_result = server.connect() => {
+                    if let Err(e) = connect_result {
+                        error!("[runtimed] Pipe connect error: {}", e);
+                        continue;
+                    }
+
+                    // The current server instance is now connected - swap it out
+                    let connected = server;
+
+                    // Create a new server instance BEFORE spawning the handler
+                    // This allows new clients to connect while we handle the current one
+                    server = match ServerOptions::new().create(&pipe_name) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            error!("[runtimed] Failed to create new pipe server: {}", e);
+                            // Try to recover by creating a new first instance
+                            match ServerOptions::new().first_pipe_instance(true).create(&pipe_name) {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    error!("[runtimed] Fatal: cannot create pipe server: {}", e);
+                                    break;
+                                }
+                            }
+                        }
+                    };
+
+                    // Handle the connection
+                    let daemon = self.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = daemon.handle_connection(connected).await {
+                            error!("[runtimed] Connection error: {}", e);
+                        }
+                    });
+                }
+                _ = self.shutdown_notify.notified() => {
+                    info!("[runtimed] Shutting down");
+                    break;
+                }
+            }
+        }
 
         Ok(())
     }
@@ -326,8 +407,14 @@ impl Daemon {
     }
 
     /// Handle a single client connection.
-    async fn handle_connection(self: Arc<Self>, stream: UnixStream) -> anyhow::Result<()> {
-        let (reader, mut writer) = stream.into_split();
+    ///
+    /// This method is generic over any stream that implements `AsyncRead + AsyncWrite`,
+    /// allowing it to work with both Unix sockets and Windows named pipes.
+    async fn handle_connection<S>(self: Arc<Self>, stream: S) -> anyhow::Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        let (reader, mut writer) = tokio::io::split(stream);
         let mut reader = BufReader::new(reader);
         let mut line = String::new();
 

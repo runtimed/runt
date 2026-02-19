@@ -2,14 +2,14 @@
 //!
 //! This crate provides a daemon process that manages a shared pool of prewarmed
 //! Python environments (UV and Conda). Notebook windows communicate with the
-//! daemon via Unix domain socket to request and return environments.
+//! daemon via IPC (Unix domain sockets on Unix, named pipes on Windows) to
+//! request and return environments.
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
 pub mod client;
-#[cfg(unix)]
 pub mod daemon;
 pub mod protocol;
 pub mod service;
@@ -49,12 +49,26 @@ pub struct PoolStats {
     pub conda_warming: usize,
 }
 
-/// Get the default socket path for runtimed.
+/// Get the default endpoint path for runtimed.
+///
+/// On Unix, this returns a Unix socket path (e.g., ~/.cache/runt/runtimed.sock).
+/// On Windows, this returns a named pipe path (e.g., \\.\pipe\runtimed).
+#[cfg(unix)]
 pub fn default_socket_path() -> PathBuf {
     dirs::cache_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("runt")
         .join("runtimed.sock")
+}
+
+/// Get the default endpoint path for runtimed.
+///
+/// On Unix, this returns a Unix socket path (e.g., ~/.cache/runt/runtimed.sock).
+/// On Windows, this returns a named pipe path (e.g., \\.\pipe\runtimed).
+#[cfg(windows)]
+pub fn default_socket_path() -> PathBuf {
+    // Windows named pipes use the \\.\pipe\name format
+    PathBuf::from(r"\\.\pipe\runtimed")
 }
 
 /// Get the default cache directory for environments.

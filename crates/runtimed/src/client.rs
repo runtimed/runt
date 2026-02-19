@@ -1,28 +1,23 @@
 //! Client for communicating with the pool daemon.
 //!
 //! Notebook windows use this client to request prewarmed environments
-//! from the central daemon.
-//!
-//! Note: The daemon uses Unix sockets and is only available on Unix platforms.
-//! On Windows, functions gracefully return None/errors and the notebook
-//! falls back to in-process prewarming.
+//! from the central daemon via IPC (Unix domain sockets on Unix, named pipes
+//! on Windows).
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 use log::{info, warn};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
-use crate::{EnvType, PooledEnv};
+use crate::protocol::{Request, Response};
+use crate::{default_socket_path, EnvType, PoolStats, PooledEnv};
 
-#[cfg(unix)]
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(unix)]
 use tokio::net::UnixStream;
 
-#[cfg(unix)]
-use crate::protocol::{Request, Response};
-#[cfg(unix)]
-use crate::{default_socket_path, PoolStats};
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::ClientOptions;
 
 /// Error type for client operations.
 #[derive(Debug, thiserror::Error)]
@@ -38,28 +33,22 @@ pub enum ClientError {
 
     #[error("Connection timeout")]
     Timeout,
-
-    #[error("Daemon not supported on this platform")]
-    NotSupported,
 }
 
 /// Client for the pool daemon.
-#[cfg(unix)]
 pub struct PoolClient {
     socket_path: PathBuf,
     connect_timeout: Duration,
 }
 
-#[cfg(unix)]
 impl Default for PoolClient {
     fn default() -> Self {
         Self::new(default_socket_path())
     }
 }
 
-#[cfg(unix)]
 impl PoolClient {
-    /// Create a new client with a custom socket path.
+    /// Create a new client with a custom socket/pipe path.
     pub fn new(socket_path: PathBuf) -> Self {
         Self {
             socket_path,
@@ -75,10 +64,7 @@ impl PoolClient {
 
     /// Check if the daemon is running.
     pub async fn is_daemon_running(&self) -> bool {
-        match self.ping().await {
-            Ok(()) => true,
-            Err(_) => false,
-        }
+        self.ping().await.is_ok()
     }
 
     /// Ping the daemon to check if it's alive.
@@ -146,19 +132,63 @@ impl PoolClient {
 
     /// Send a request to the daemon and receive a response.
     async fn send_request(&self, request: Request) -> Result<Response, ClientError> {
-        let connect_result = tokio::time::timeout(
-            self.connect_timeout,
-            UnixStream::connect(&self.socket_path),
-        )
-        .await;
+        #[cfg(unix)]
+        let stream = {
+            let connect_result = tokio::time::timeout(
+                self.connect_timeout,
+                UnixStream::connect(&self.socket_path),
+            )
+            .await;
 
-        let stream = match connect_result {
-            Ok(Ok(s)) => s,
-            Ok(Err(e)) => return Err(ClientError::ConnectionFailed(e)),
-            Err(_) => return Err(ClientError::Timeout),
+            match connect_result {
+                Ok(Ok(s)) => s,
+                Ok(Err(e)) => return Err(ClientError::ConnectionFailed(e)),
+                Err(_) => return Err(ClientError::Timeout),
+            }
         };
 
-        let (reader, mut writer) = stream.into_split();
+        #[cfg(windows)]
+        let stream = {
+            let pipe_name = self.socket_path.to_string_lossy().to_string();
+            let connect_result = tokio::time::timeout(
+                self.connect_timeout,
+                async {
+                    // Named pipes may need retry if server is between connections
+                    let mut attempts = 0;
+                    loop {
+                        match ClientOptions::new().open(&pipe_name) {
+                            Ok(client) => return Ok(client),
+                            Err(e) if attempts < 5 => {
+                                attempts += 1;
+                                tokio::time::sleep(Duration::from_millis(50)).await;
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    }
+                },
+            )
+            .await;
+
+            match connect_result {
+                Ok(Ok(s)) => s,
+                Ok(Err(e)) => return Err(ClientError::ConnectionFailed(e)),
+                Err(_) => return Err(ClientError::Timeout),
+            }
+        };
+
+        self.send_request_on_stream(stream, request).await
+    }
+
+    /// Send a request on an established stream.
+    async fn send_request_on_stream<S>(
+        &self,
+        stream: S,
+        request: Request,
+    ) -> Result<Response, ClientError>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        let (reader, mut writer) = tokio::io::split(stream);
         let mut reader = BufReader::new(reader);
 
         // Send request
@@ -190,9 +220,6 @@ impl PoolClient {
 /// 3. If daemon is unavailable or pool is empty, returns None
 ///
 /// This allows notebook code to optionally use the daemon without requiring it.
-///
-/// Note: On Windows, this always returns None as the daemon is not supported.
-#[cfg(unix)]
 pub async fn try_get_pooled_env(env_type: EnvType) -> Option<PooledEnv> {
     let client = PoolClient::default();
 
@@ -215,13 +242,6 @@ pub async fn try_get_pooled_env(env_type: EnvType) -> Option<PooledEnv> {
     }
 }
 
-/// On Windows, daemon is not supported. Always returns None.
-#[cfg(not(unix))]
-pub async fn try_get_pooled_env(_env_type: EnvType) -> Option<PooledEnv> {
-    info!("[pool-client] Daemon not supported on Windows, using in-process prewarming");
-    None
-}
-
 /// Ensure the pool daemon is running, installing and starting it if needed.
 ///
 /// This function:
@@ -232,9 +252,6 @@ pub async fn try_get_pooled_env(_env_type: EnvType) -> Option<PooledEnv> {
 /// 5. Waits for the daemon to be ready
 ///
 /// Returns Ok(endpoint) if daemon is running, Err if it couldn't be started.
-///
-/// Note: On Windows, this returns NotSupported error.
-#[cfg(unix)]
 pub async fn ensure_daemon_running(
     daemon_binary: Option<std::path::PathBuf>,
 ) -> Result<String, EnsureDaemonError> {
@@ -296,15 +313,6 @@ pub async fn ensure_daemon_running(
     Err(EnsureDaemonError::Timeout)
 }
 
-/// On Windows, daemon is not supported.
-#[cfg(not(unix))]
-pub async fn ensure_daemon_running(
-    _daemon_binary: Option<std::path::PathBuf>,
-) -> Result<String, EnsureDaemonError> {
-    info!("[pool-client] Daemon not supported on Windows");
-    Err(EnsureDaemonError::NotSupported)
-}
-
 /// Errors that can occur when ensuring the daemon is running.
 #[derive(Debug, thiserror::Error)]
 pub enum EnsureDaemonError {
@@ -322,19 +330,19 @@ pub enum EnsureDaemonError {
 
     #[error("Daemon did not become ready within timeout")]
     Timeout,
-
-    #[error("Daemon not supported on this platform")]
-    NotSupported,
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_client_default() {
         let client = PoolClient::default();
+        #[cfg(unix)]
         assert!(client.socket_path.to_string_lossy().contains("runtimed.sock"));
+        #[cfg(windows)]
+        assert!(client.socket_path.to_string_lossy().contains("runtimed"));
     }
 
     #[test]
