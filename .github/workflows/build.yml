@@ -71,7 +71,7 @@ jobs:
           pnpm --dir apps/sidecar build
           pnpm --dir apps/notebook build
 
-      - name: Build runtimed sidecar
+      - name: Build runtimed daemon
         shell: bash
         run: |
           cargo build --release -p runtimed
@@ -157,7 +157,7 @@ jobs:
             cargo install tauri-cli tauri-driver --locked
           fi
 
-      - name: Build runtimed sidecar
+      - name: Build runtimed daemon
         run: |
           cargo build --release -p runtimed
           TARGET=$(rustc --print host-tuple)

@@ -82,7 +82,7 @@ fn cmd_watch_isolated() {
 
 fn cmd_build() {
     // Build runtimed daemon binary for bundling
-    build_runtimed_sidecar();
+    build_runtimed_daemon();
 
     // pnpm build runs: isolated-renderer + sidecar + notebook
     println!("Building frontend (isolated-renderer, sidecar, notebook)...");
@@ -152,7 +152,7 @@ fn build_with_bundle(bundle: &str) {
     }
 
     // Build runtimed daemon binary for bundling
-    build_runtimed_sidecar();
+    build_runtimed_daemon();
 
     // Build frontend
     println!("Building frontend...");
@@ -176,7 +176,7 @@ fn build_with_bundle(bundle: &str) {
 }
 
 /// Build runtimed and copy to binaries/ with target triple suffix for Tauri bundling.
-fn build_runtimed_sidecar() {
+fn build_runtimed_daemon() {
     println!("Building runtimed daemon...");
 
     // Get the host target triple
@@ -205,7 +205,7 @@ fn build_runtimed_sidecar() {
         eprintln!("Failed to copy runtimed binary: {e}");
         exit(1);
     });
-    println!("runtimed sidecar ready: {}", dest.display());
+    println!("runtimed daemon ready: {}", dest.display());
 
     // Also copy to target/debug/binaries/ for development (no-bundle builds)
     // Tauri's externalBin only copies to app bundle, not for --no-bundle
@@ -216,7 +216,7 @@ fn build_runtimed_sidecar() {
         eprintln!("Failed to copy runtimed to dev binaries: {e}");
         exit(1);
     });
-    println!("runtimed dev sidecar ready: {}", dev_dest.display());
+    println!("runtimed dev daemon ready: {}", dev_dest.display());
 }
 
 /// Get the host target triple (e.g., aarch64-apple-darwin).
