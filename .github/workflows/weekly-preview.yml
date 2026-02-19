@@ -256,6 +256,13 @@ jobs:
       - name: Generate Icons
         run: cargo xtask icons
 
+      - name: Build runtimed daemon
+        run: |
+          cargo build --release -p runtimed
+          TARGET=$(rustc --print host-tuple)
+          mkdir -p crates/notebook/binaries
+          cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
+
       - name: Build and Sign DMG
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -380,6 +387,12 @@ jobs:
       - name: Generate Icons
         run: cargo xtask icons
 
+      - name: Build runtimed daemon
+        run: |
+          cargo build --release -p runtimed --target x86_64-apple-darwin
+          mkdir -p crates/notebook/binaries
+          cp target/x86_64-apple-darwin/release/runtimed "crates/notebook/binaries/runtimed-x86_64-apple-darwin"
+
       - name: Build and Sign DMG
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -477,6 +490,14 @@ jobs:
       - name: Generate Icons
         run: cargo xtask icons
 
+      - name: Build runtimed daemon
+        shell: bash
+        run: |
+          cargo build --release -p runtimed
+          TARGET=$(rustc --print host-tuple)
+          mkdir -p crates/notebook/binaries
+          cp target/release/runtimed.exe "crates/notebook/binaries/runtimed-$TARGET.exe"
+
       - name: Build NSIS Installer
         run: cargo tauri build --ci --bundles nsis --config '{"build":{"beforeBuildCommand":""}}'
         working-directory: crates/notebook
@@ -564,6 +585,13 @@ jobs:
 
       - name: Generate Icons
         run: cargo xtask icons
+
+      - name: Build runtimed daemon
+        run: |
+          cargo build --release -p runtimed
+          TARGET=$(rustc --print host-tuple)
+          mkdir -p crates/notebook/binaries
+          cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
 
       - name: Build AppImage
         run: cargo tauri build --ci --bundles appimage --config '{"build":{"beforeBuildCommand":""}}'
