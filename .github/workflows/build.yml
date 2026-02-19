@@ -71,6 +71,18 @@ jobs:
           pnpm --dir apps/sidecar build
           pnpm --dir apps/notebook build
 
+      - name: Build runtimed sidecar
+        shell: bash
+        run: |
+          cargo build --release -p runtimed
+          TARGET=$(rustc --print host-tuple)
+          mkdir -p crates/notebook/binaries
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp target/release/runtimed.exe "crates/notebook/binaries/runtimed-$TARGET.exe"
+          else
+            cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
+          fi
+
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 
@@ -144,6 +156,13 @@ jobs:
           if ! command -v cargo-tauri &> /dev/null || ! command -v tauri-driver &> /dev/null; then
             cargo install tauri-cli tauri-driver --locked
           fi
+
+      - name: Build runtimed sidecar
+        run: |
+          cargo build --release -p runtimed
+          TARGET=$(rustc --print host-tuple)
+          mkdir -p crates/notebook/binaries
+          cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
 
       - name: Build Tauri app
         run: cd crates/notebook && cargo tauri build --ci --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
