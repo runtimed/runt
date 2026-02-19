@@ -103,7 +103,8 @@ impl DaemonLock {
             };
 
             let handle = lock_file.as_raw_handle() as HANDLE;
-            let mut overlapped = std::mem::zeroed();
+            // SAFETY: zeroed is valid for OVERLAPPED struct
+            let mut overlapped = unsafe { std::mem::zeroed() };
             let result = unsafe {
                 LockFileEx(
                     handle,

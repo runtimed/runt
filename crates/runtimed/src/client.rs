@@ -2,16 +2,27 @@
 //!
 //! Notebook windows use this client to request prewarmed environments
 //! from the central daemon.
+//!
+//! Note: The daemon uses Unix sockets and is only available on Unix platforms.
+//! On Windows, functions gracefully return None/errors and the notebook
+//! falls back to in-process prewarming.
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 use log::{info, warn};
+
+use crate::{EnvType, PooledEnv};
+
+#[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(unix)]
 use tokio::net::UnixStream;
 
+#[cfg(unix)]
 use crate::protocol::{Request, Response};
-use crate::{default_socket_path, EnvType, PoolStats, PooledEnv};
+#[cfg(unix)]
+use crate::{default_socket_path, PoolStats};
 
 /// Error type for client operations.
 #[derive(Debug, thiserror::Error)]
@@ -27,20 +38,26 @@ pub enum ClientError {
 
     #[error("Connection timeout")]
     Timeout,
+
+    #[error("Daemon not supported on this platform")]
+    NotSupported,
 }
 
 /// Client for the pool daemon.
+#[cfg(unix)]
 pub struct PoolClient {
     socket_path: PathBuf,
     connect_timeout: Duration,
 }
 
+#[cfg(unix)]
 impl Default for PoolClient {
     fn default() -> Self {
         Self::new(default_socket_path())
     }
 }
 
+#[cfg(unix)]
 impl PoolClient {
     /// Create a new client with a custom socket path.
     pub fn new(socket_path: PathBuf) -> Self {
@@ -173,6 +190,9 @@ impl PoolClient {
 /// 3. If daemon is unavailable or pool is empty, returns None
 ///
 /// This allows notebook code to optionally use the daemon without requiring it.
+///
+/// Note: On Windows, this always returns None as the daemon is not supported.
+#[cfg(unix)]
 pub async fn try_get_pooled_env(env_type: EnvType) -> Option<PooledEnv> {
     let client = PoolClient::default();
 
@@ -195,6 +215,13 @@ pub async fn try_get_pooled_env(env_type: EnvType) -> Option<PooledEnv> {
     }
 }
 
+/// On Windows, daemon is not supported. Always returns None.
+#[cfg(not(unix))]
+pub async fn try_get_pooled_env(_env_type: EnvType) -> Option<PooledEnv> {
+    info!("[pool-client] Daemon not supported on Windows, using in-process prewarming");
+    None
+}
+
 /// Ensure the pool daemon is running, installing and starting it if needed.
 ///
 /// This function:
@@ -205,6 +232,9 @@ pub async fn try_get_pooled_env(env_type: EnvType) -> Option<PooledEnv> {
 /// 5. Waits for the daemon to be ready
 ///
 /// Returns Ok(endpoint) if daemon is running, Err if it couldn't be started.
+///
+/// Note: On Windows, this returns NotSupported error.
+#[cfg(unix)]
 pub async fn ensure_daemon_running(
     daemon_binary: Option<std::path::PathBuf>,
 ) -> Result<String, EnsureDaemonError> {
@@ -266,6 +296,15 @@ pub async fn ensure_daemon_running(
     Err(EnsureDaemonError::Timeout)
 }
 
+/// On Windows, daemon is not supported.
+#[cfg(not(unix))]
+pub async fn ensure_daemon_running(
+    _daemon_binary: Option<std::path::PathBuf>,
+) -> Result<String, EnsureDaemonError> {
+    info!("[pool-client] Daemon not supported on Windows");
+    Err(EnsureDaemonError::NotSupported)
+}
+
 /// Errors that can occur when ensuring the daemon is running.
 #[derive(Debug, thiserror::Error)]
 pub enum EnsureDaemonError {
@@ -283,9 +322,12 @@ pub enum EnsureDaemonError {
 
     #[error("Daemon did not become ready within timeout")]
     Timeout,
+
+    #[error("Daemon not supported on this platform")]
+    NotSupported,
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

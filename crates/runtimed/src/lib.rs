@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 pub mod client;
+#[cfg(unix)]
 pub mod daemon;
 pub mod protocol;
 pub mod service;
