@@ -86,19 +86,22 @@ export function MarkdownCell({
     frameRef.current.render({
       mimeType: "text/markdown",
       data: cell.source,
+      cellId: cell.id,
+      replace: true,
     });
-  }, [cell.source]);
+  }, [cell.source, cell.id]);
 
   // Sync markdown to iframe whenever source changes (supports RTC updates)
   useEffect(() => {
     if (frameRef.current?.isReady && cell.source) {
-      frameRef.current.clear();
       frameRef.current.render({
         mimeType: "text/markdown",
         data: cell.source,
+        cellId: cell.id,
+        replace: true,
       });
     }
-  }, [cell.source]);
+  }, [cell.source, cell.id]);
 
   // Handle link clicks from iframe
   const handleLinkClick = useCallback((url: string) => {
