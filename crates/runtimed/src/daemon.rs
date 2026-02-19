@@ -198,6 +198,9 @@ impl Daemon {
             error!("[runtimed] Failed to write daemon info: {}", e);
         }
 
+        // Find and reuse existing environments from previous runs
+        self.find_existing_environments().await;
+
         // Spawn the warming loops
         let uv_daemon = self.clone();
         tokio::spawn(async move {
@@ -240,6 +243,86 @@ impl Daemon {
         tokio::fs::remove_file(&self.config.socket_path).await.ok();
 
         Ok(())
+    }
+
+    /// Find and reuse existing runtimed environments from previous runs.
+    async fn find_existing_environments(&self) {
+        let cache_dir = &self.config.cache_dir;
+
+        if !cache_dir.exists() {
+            return;
+        }
+
+        let mut entries = match tokio::fs::read_dir(cache_dir).await {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+
+        let mut uv_found = 0;
+        let mut conda_found = 0;
+
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let env_path = entry.path();
+
+            // Check for runtimed-uv-* directories
+            if name.starts_with("runtimed-uv-") {
+                #[cfg(target_os = "windows")]
+                let python_path = env_path.join("Scripts").join("python.exe");
+                #[cfg(not(target_os = "windows"))]
+                let python_path = env_path.join("bin").join("python");
+
+                if python_path.exists() {
+                    let mut pool = self.uv_pool.lock().await;
+                    if pool.available.len() < pool.target {
+                        pool.available.push_back(PoolEntry {
+                            env: PooledEnv {
+                                env_type: EnvType::Uv,
+                                venv_path: env_path.clone(),
+                                python_path,
+                            },
+                            created_at: Instant::now(),
+                        });
+                        uv_found += 1;
+                    }
+                } else {
+                    // Invalid env, clean up
+                    tokio::fs::remove_dir_all(&env_path).await.ok();
+                }
+            }
+            // Check for runtimed-conda-* directories
+            else if name.starts_with("runtimed-conda-") {
+                #[cfg(target_os = "windows")]
+                let python_path = env_path.join("python.exe");
+                #[cfg(not(target_os = "windows"))]
+                let python_path = env_path.join("bin").join("python");
+
+                if python_path.exists() {
+                    let mut pool = self.conda_pool.lock().await;
+                    if pool.available.len() < pool.target {
+                        pool.available.push_back(PoolEntry {
+                            env: PooledEnv {
+                                env_type: EnvType::Conda,
+                                venv_path: env_path.clone(),
+                                python_path,
+                            },
+                            created_at: Instant::now(),
+                        });
+                        conda_found += 1;
+                    }
+                } else {
+                    // Invalid env, clean up
+                    tokio::fs::remove_dir_all(&env_path).await.ok();
+                }
+            }
+        }
+
+        if uv_found > 0 || conda_found > 0 {
+            info!(
+                "[runtimed] Found {} existing UV and {} existing Conda environments",
+                uv_found, conda_found
+            );
+        }
     }
 
     /// Handle a single client connection.
