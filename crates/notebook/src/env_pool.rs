@@ -32,6 +32,51 @@ impl PrewarmedEnv {
             python_path: self.python_path,
         }
     }
+
+    /// Create from a daemon's PooledEnv.
+    pub fn from_pooled_env(env: runtimed::PooledEnv) -> Self {
+        Self {
+            venv_path: env.venv_path,
+            python_path: env.python_path,
+            created_at: Instant::now(),
+        }
+    }
+}
+
+/// Try to take a UV environment from the daemon first, falling back to in-process pool.
+///
+/// This provides a seamless integration where:
+/// 1. If daemon is running and has envs, use them (fast, shared across windows)
+/// 2. If daemon unavailable or empty, use in-process pool (local fallback)
+pub async fn take_uv_env(pool: &SharedEnvPool) -> Option<PrewarmedEnv> {
+    // Try daemon first (non-blocking, fast timeout)
+    if let Some(env) = runtimed::client::try_get_pooled_env(runtimed::EnvType::Uv).await {
+        info!("[prewarm:uv] Got environment from daemon");
+        return Some(PrewarmedEnv::from_pooled_env(env));
+    }
+
+    // Fall back to in-process pool
+    let result = pool.lock().await.take();
+    if result.is_some() {
+        info!("[prewarm:uv] Got environment from in-process pool");
+    }
+    result
+}
+
+/// Try to take a Conda environment from the daemon first, falling back to in-process pool.
+pub async fn take_conda_env(pool: &SharedCondaEnvPool) -> Option<PrewarmedCondaEnv> {
+    // Try daemon first
+    if let Some(env) = runtimed::client::try_get_pooled_env(runtimed::EnvType::Conda).await {
+        info!("[prewarm:conda] Got environment from daemon");
+        return Some(PrewarmedCondaEnv::from_pooled_env(env));
+    }
+
+    // Fall back to in-process pool
+    let result = pool.lock().await.take();
+    if result.is_some() {
+        info!("[prewarm:conda] Got environment from in-process pool");
+    }
+    result
 }
 
 /// Configuration for the environment pool.
@@ -403,6 +448,15 @@ impl PrewarmedCondaEnv {
         CondaEnvironment {
             env_path: self.env_path,
             python_path: self.python_path,
+        }
+    }
+
+    /// Create from a daemon's PooledEnv.
+    pub fn from_pooled_env(env: runtimed::PooledEnv) -> Self {
+        Self {
+            env_path: env.venv_path, // daemon uses venv_path for both uv and conda
+            python_path: env.python_path,
+            created_at: Instant::now(),
         }
     }
 }
