@@ -78,11 +78,31 @@ pub enum EnvSyncState {
 
 /// Get the path to the bundled runtimed binary.
 ///
-/// Tauri bundles external binaries with target triple suffixes (e.g., runtimed-aarch64-apple-darwin).
-/// This function resolves the correct path based on the current platform.
+/// Tauri places external binaries differently depending on the build type:
+/// - Bundled macOS apps: Contents/MacOS/runtimed (no target suffix)
+/// - Development/no-bundle: target/{debug,release}/binaries/runtimed-{target}
 fn get_bundled_runtimed_path(app: &tauri::AppHandle) -> Option<PathBuf> {
-    let resource_dir = app.path().resource_dir().ok()?;
+    // First, try the bundled app location (Contents/MacOS/runtimed)
+    // This is where Tauri places externalBin in bundled macOS apps
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(exe_dir) = app.path().resource_dir() {
+            // resource_dir on macOS points to Contents/Resources
+            // The binary is in Contents/MacOS, which is ../MacOS from Resources
+            let macos_dir = exe_dir.parent()?.join("MacOS");
+            let bundled_path = macos_dir.join("runtimed");
+            if bundled_path.exists() {
+                log::debug!("[startup] Found bundled runtimed at {:?}", bundled_path);
+                return Some(bundled_path);
+            }
+            log::debug!(
+                "[startup] Bundled runtimed not found at {:?}",
+                bundled_path
+            );
+        }
+    }
 
+    // Fallback: try the development path (target/*/binaries/runtimed-{target})
     let target = if cfg!(target_os = "macos") {
         if cfg!(target_arch = "aarch64") {
             "aarch64-apple-darwin"
@@ -102,19 +122,25 @@ fn get_bundled_runtimed_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     };
 
     let binary_name = if cfg!(windows) {
-        format!("binaries/runtimed-{}.exe", target)
+        format!("runtimed-{}.exe", target)
     } else {
-        format!("binaries/runtimed-{}", target)
+        format!("runtimed-{}", target)
     };
 
-    let path = resource_dir.join(binary_name);
-    if path.exists() {
-        log::debug!("[startup] Found bundled runtimed at {:?}", path);
-        Some(path)
-    } else {
-        log::debug!("[startup] Bundled runtimed not found at {:?}", path);
-        None
+    // Try to find it relative to the executable (for no-bundle dev builds)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            // Check binaries/ directory next to the executable
+            let dev_path = exe_dir.join("binaries").join(&binary_name);
+            if dev_path.exists() {
+                log::debug!("[startup] Found dev runtimed at {:?}", dev_path);
+                return Some(dev_path);
+            }
+            log::debug!("[startup] Dev runtimed not found at {:?}", dev_path);
+        }
     }
+
+    None
 }
 
 /// Get git information for the debug banner.

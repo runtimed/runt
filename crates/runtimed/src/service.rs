@@ -169,6 +169,45 @@ impl ServiceManager {
         Ok(())
     }
 
+    /// Upgrade the daemon binary by stopping, replacing, and restarting.
+    ///
+    /// This is used when the notebook app detects a version mismatch between
+    /// the running daemon and the bundled version.
+    pub fn upgrade(&self, source_binary: &PathBuf) -> ServiceResult<()> {
+        if !source_binary.exists() {
+            return Err(ServiceError::BinaryNotFound(source_binary.clone()));
+        }
+
+        info!(
+            "[service] Upgrading daemon binary from {:?}",
+            source_binary
+        );
+
+        // Stop the running daemon (ignore errors - may not be running)
+        self.stop().ok();
+
+        // Replace the binary
+        std::fs::copy(source_binary, &self.config.binary_path)?;
+        info!(
+            "[service] Replaced binary at {:?}",
+            self.config.binary_path
+        );
+
+        // Make binary executable on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(&self.config.binary_path, perms)?;
+        }
+
+        // Service config already exists, just restart
+        self.start()?;
+
+        info!("[service] Upgrade completed successfully");
+        Ok(())
+    }
+
     /// Start the daemon service.
     pub fn start(&self) -> ServiceResult<()> {
         #[cfg(target_os = "macos")]

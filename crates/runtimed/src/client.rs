@@ -246,10 +246,11 @@ pub async fn try_get_pooled_env(env_type: EnvType) -> Option<PooledEnv> {
 ///
 /// This function:
 /// 1. Checks if the daemon responds to ping
-/// 2. If not responding, checks if the service is installed
-/// 3. If not installed, installs the service using the provided binary path
-/// 4. Starts the service if not running
-/// 5. Waits for the daemon to be ready
+/// 2. If running, checks version - upgrades if bundled version differs
+/// 3. If not responding, checks if the service is installed
+/// 4. If not installed, installs the service using the provided binary path
+/// 5. Starts the service if not running
+/// 6. Waits for the daemon to be ready
 ///
 /// Returns Ok(endpoint) if daemon is running, Err if it couldn't be started.
 pub async fn ensure_daemon_running(
@@ -259,18 +260,45 @@ pub async fn ensure_daemon_running(
     use crate::singleton::get_running_daemon_info;
 
     let client = PoolClient::default();
+    let manager = ServiceManager::default();
+
+    // Version of the bundled/calling binary
+    let bundled_version = env!("CARGO_PKG_VERSION");
 
     // First, try to ping the daemon
     if client.ping().await.is_ok() {
         if let Some(info) = get_running_daemon_info() {
+            // Check if we need to upgrade
+            if info.version != bundled_version {
+                info!(
+                    "[pool-client] Version mismatch: running={}, bundled={}",
+                    info.version, bundled_version
+                );
+
+                if let Some(binary_path) = &daemon_binary {
+                    if !binary_path.exists() {
+                        return Err(EnsureDaemonError::BinaryNotFound(binary_path.clone()));
+                    }
+
+                    info!("[pool-client] Upgrading daemon...");
+                    manager
+                        .upgrade(binary_path)
+                        .map_err(|e| EnsureDaemonError::UpgradeFailed(e.to_string()))?;
+
+                    // Wait for upgraded daemon to be ready
+                    return wait_for_daemon_ready(&client).await;
+                } else {
+                    // No binary path provided, can't upgrade - just use existing
+                    info!("[pool-client] No binary path provided, using existing daemon");
+                }
+            }
+
             info!("[pool-client] Daemon already running at {}", info.endpoint);
             return Ok(info.endpoint);
         }
     }
 
     info!("[pool-client] Daemon not responding, checking service...");
-
-    let manager = ServiceManager::default();
 
     // Install if not already installed
     if !manager.is_installed() {
@@ -293,7 +321,15 @@ pub async fn ensure_daemon_running(
         .start()
         .map_err(|e| EnsureDaemonError::StartFailed(e.to_string()))?;
 
-    // Wait for daemon to be ready (up to 10 seconds)
+    // Wait for daemon to be ready
+    wait_for_daemon_ready(&client).await
+}
+
+/// Wait for the daemon to become ready (up to 10 seconds).
+#[cfg(unix)]
+async fn wait_for_daemon_ready(client: &PoolClient) -> Result<String, EnsureDaemonError> {
+    use crate::singleton::get_running_daemon_info;
+
     info!("[pool-client] Waiting for daemon to be ready...");
     for i in 0..20 {
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -327,6 +363,9 @@ pub enum EnsureDaemonError {
 
     #[error("Failed to start daemon service: {0}")]
     StartFailed(String),
+
+    #[error("Failed to upgrade daemon service: {0}")]
+    UpgradeFailed(String),
 
     #[error("Daemon did not become ready within timeout")]
     Timeout,
