@@ -166,4 +166,45 @@ When shipped as a release build, the daemon installs as a system service that st
 - **Linux**: systemd user service in `~/.config/systemd/user/`
 - **Windows**: Startup folder script
 
-See user-facing documentation for service management commands.
+### Managing the Installed Service (for developers)
+
+If you have the app installed and want to run a development version of the daemon instead, you'll need to stop the installed service first.
+
+**macOS:**
+```bash
+# Stop the installed daemon
+launchctl unload ~/Library/LaunchAgents/io.runtimed.plist
+
+# Check status
+launchctl list | grep io.runtimed
+
+# Restart it later
+launchctl load ~/Library/LaunchAgents/io.runtimed.plist
+
+# Full uninstall (removes binary and service config)
+~/Library/Application\ Support/runt/bin/runtimed uninstall
+```
+
+**Linux:**
+```bash
+# Stop the installed daemon
+systemctl --user stop runtimed.service
+
+# Check status
+systemctl --user status runtimed.service
+
+# Restart it later
+systemctl --user start runtimed.service
+
+# Full uninstall
+~/.local/share/runt/bin/runtimed uninstall
+```
+
+**Key paths (macOS):**
+| File | Path |
+|------|------|
+| Installed binary | `~/Library/Application Support/runt/bin/runtimed` |
+| Service config | `~/Library/LaunchAgents/io.runtimed.plist` |
+| Socket | `~/Library/Caches/runt/runtimed.sock` |
+| Daemon info | `~/Library/Caches/runt/daemon.json` |
+| Logs | `~/Library/Caches/runt/runtimed.log` |
