@@ -1153,7 +1153,10 @@ async fn start_default_uv_kernel(
 
     // Try to use a prewarmed environment (daemon first, then in-process pool)
     if let Some(env_id) = &env_id {
-        let prewarmed = env_pool::take_uv_env(&pool).await;
+        let prewarmed = {
+                #[allow(clippy::needless_borrow)]
+                env_pool::take_uv_env(&pool)
+            }.await;
         if let Some(prewarmed_env) = prewarmed {
             info!("[prewarm] Using prewarmed environment for default uv kernel");
 
@@ -1363,7 +1366,10 @@ async fn start_default_python_kernel_impl(
 
         // Try to use a prewarmed environment (daemon first, then in-process pool)
         if let Some(env_id) = &env_id {
-            let prewarmed = env_pool::take_uv_env(&pool).await;
+            let prewarmed = {
+                #[allow(clippy::needless_borrow)]
+                env_pool::take_uv_env(&pool)
+            }.await;
             if let Some(prewarmed_env) = prewarmed {
                 info!("[prewarm] Using prewarmed environment for notebook");
 
@@ -1507,7 +1513,10 @@ async fn start_default_python_kernel_impl(
         };
 
         // Try to use a prewarmed conda environment (daemon first, then in-process pool)
-        let prewarmed = env_pool::take_conda_env(&conda_pool).await;
+        let prewarmed = {
+            #[allow(clippy::needless_borrow)]
+            env_pool::take_conda_env(&conda_pool)
+        }.await;
         if let Some(prewarmed_env) = prewarmed {
             info!("[prewarm] Using prewarmed conda environment for notebook");
 
