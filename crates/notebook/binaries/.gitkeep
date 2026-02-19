@@ -1,0 +1,3 @@
+# This directory holds runtimed binaries with target triple suffixes.
+# Built binaries are placed here by `cargo xtask build` and bundled with the app.
+# Example: runtimed-aarch64-apple-darwin, runtimed-x86_64-unknown-linux-gnu

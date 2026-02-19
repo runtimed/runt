@@ -1,4 +1,5 @@
 use std::env;
+use std::fs;
 use std::path::Path;
 use std::process::{exit, Command};
 
@@ -80,6 +81,9 @@ fn cmd_watch_isolated() {
 }
 
 fn cmd_build() {
+    // Build runtimed daemon binary for bundling
+    build_runtimed_daemon();
+
     // pnpm build runs: isolated-renderer + sidecar + notebook
     println!("Building frontend (isolated-renderer, sidecar, notebook)...");
     run_cmd("pnpm", &["build"]);
@@ -147,6 +151,9 @@ fn build_with_bundle(bundle: &str) {
         println!("Skipping icon generation (no source.png found)");
     }
 
+    // Build runtimed daemon binary for bundling
+    build_runtimed_daemon();
+
     // Build frontend
     println!("Building frontend...");
     run_cmd("pnpm", &["build"]);
@@ -166,6 +173,63 @@ fn build_with_bundle(bundle: &str) {
     );
 
     println!("Build complete!");
+}
+
+/// Build runtimed and copy to binaries/ with target triple suffix for Tauri bundling.
+fn build_runtimed_daemon() {
+    println!("Building runtimed daemon...");
+
+    // Get the host target triple
+    let target = get_host_target();
+
+    // Build runtimed in release mode for smaller binary
+    run_cmd("cargo", &["build", "--release", "-p", "runtimed"]);
+
+    // Determine source and destination paths
+    let source = if cfg!(windows) {
+        "target/release/runtimed.exe"
+    } else {
+        "target/release/runtimed"
+    };
+
+    let binary_name = if cfg!(windows) {
+        format!("runtimed-{}.exe", target)
+    } else {
+        format!("runtimed-{}", target)
+    };
+
+    // Copy to crates/notebook/binaries/ for Tauri bundle builds
+    let binaries_dir = Path::new("crates/notebook/binaries");
+    let dest = binaries_dir.join(&binary_name);
+    fs::copy(source, &dest).unwrap_or_else(|e| {
+        eprintln!("Failed to copy runtimed binary: {e}");
+        exit(1);
+    });
+    println!("runtimed daemon ready: {}", dest.display());
+
+    // Also copy to target/debug/binaries/ for development (no-bundle builds)
+    // Tauri's externalBin only copies to app bundle, not for --no-bundle
+    let dev_binaries_dir = Path::new("target/debug/binaries");
+    fs::create_dir_all(dev_binaries_dir).ok();
+    let dev_dest = dev_binaries_dir.join(&binary_name);
+    fs::copy(source, &dev_dest).unwrap_or_else(|e| {
+        eprintln!("Failed to copy runtimed to dev binaries: {e}");
+        exit(1);
+    });
+    println!("runtimed dev daemon ready: {}", dev_dest.display());
+}
+
+/// Get the host target triple (e.g., aarch64-apple-darwin).
+fn get_host_target() -> String {
+    let output = Command::new("rustc")
+        .args(["--print", "host-tuple"])
+        .output()
+        .expect("Failed to get host target from rustc");
+
+    String::from_utf8(output.stdout)
+        .expect("Invalid UTF-8 from rustc")
+        .trim()
+        .to_string()
 }
 
 fn run_cmd(cmd: &str, args: &[&str]) {

@@ -76,6 +76,108 @@ pub enum EnvSyncState {
     },
 }
 
+/// Get the path to the bundled runtimed binary.
+///
+/// Tauri places external binaries differently depending on the build type:
+/// - Bundled macOS apps: Contents/MacOS/runtimed (no target suffix)
+/// - Development/no-bundle: target/{debug,release}/binaries/runtimed-{target}
+fn get_bundled_runtimed_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    // First, try the bundled app location
+    // Tauri places externalBin differently per platform:
+    // - macOS: Contents/MacOS/runtimed
+    // - Linux: next to executable or in ../lib/{app}/
+    // - Windows: next to executable
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(exe_dir) = app.path().resource_dir() {
+            // resource_dir on macOS points to Contents/Resources
+            // The binary is in Contents/MacOS, which is ../MacOS from Resources
+            let macos_dir = exe_dir.parent()?.join("MacOS");
+            let bundled_path = macos_dir.join("runtimed");
+            if bundled_path.exists() {
+                log::debug!("[startup] Found bundled runtimed at {:?}", bundled_path);
+                return Some(bundled_path);
+            }
+            log::debug!(
+                "[startup] Bundled runtimed not found at {:?}",
+                bundled_path
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // On Linux, Tauri places binaries next to the executable
+        if let Ok(resource_dir) = app.path().resource_dir() {
+            let bundled_path = resource_dir.join("runtimed");
+            if bundled_path.exists() {
+                log::debug!("[startup] Found bundled runtimed at {:?}", bundled_path);
+                return Some(bundled_path);
+            }
+            log::debug!(
+                "[startup] Bundled runtimed not found at {:?}",
+                bundled_path
+            );
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, Tauri places binaries next to the executable
+        if let Ok(resource_dir) = app.path().resource_dir() {
+            let bundled_path = resource_dir.join("runtimed.exe");
+            if bundled_path.exists() {
+                log::debug!("[startup] Found bundled runtimed at {:?}", bundled_path);
+                return Some(bundled_path);
+            }
+            log::debug!(
+                "[startup] Bundled runtimed not found at {:?}",
+                bundled_path
+            );
+        }
+    }
+
+    // Fallback: try the development path (target/*/binaries/runtimed-{target})
+    let target = if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            "aarch64-apple-darwin"
+        } else {
+            "x86_64-apple-darwin"
+        }
+    } else if cfg!(target_os = "linux") {
+        if cfg!(target_arch = "aarch64") {
+            "aarch64-unknown-linux-gnu"
+        } else {
+            "x86_64-unknown-linux-gnu"
+        }
+    } else if cfg!(target_os = "windows") {
+        "x86_64-pc-windows-msvc"
+    } else {
+        return None;
+    };
+
+    let binary_name = if cfg!(windows) {
+        format!("runtimed-{}.exe", target)
+    } else {
+        format!("runtimed-{}", target)
+    };
+
+    // Try to find it relative to the executable (for no-bundle dev builds)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            // Check binaries/ directory next to the executable
+            let dev_path = exe_dir.join("binaries").join(&binary_name);
+            if dev_path.exists() {
+                log::debug!("[startup] Found dev runtimed at {:?}", dev_path);
+                return Some(dev_path);
+            }
+            log::debug!("[startup] Dev runtimed not found at {:?}", dev_path);
+        }
+    }
+
+    None
+}
+
 /// Get git information for the debug banner.
 /// Returns None in release builds.
 #[tauri::command]
@@ -1110,9 +1212,12 @@ async fn start_default_uv_kernel(
         (uv_env::extract_env_id(&state.notebook.metadata), state.path.clone())
     };
 
-    // Try to use a prewarmed environment from the pool
+    // Try to use a prewarmed environment (daemon first, then in-process pool)
     if let Some(env_id) = &env_id {
-        let prewarmed = pool.lock().await.take();
+        let prewarmed = {
+                #[allow(clippy::needless_borrow)]
+                env_pool::take_uv_env(&pool)
+            }.await;
         if let Some(prewarmed_env) = prewarmed {
             info!("[prewarm] Using prewarmed environment for default uv kernel");
 
@@ -1320,9 +1425,12 @@ async fn start_default_python_kernel_impl(
             (uv_env::extract_env_id(&state.notebook.metadata), state.path.clone())
         };
 
-        // Try to use a prewarmed environment from the pool
+        // Try to use a prewarmed environment (daemon first, then in-process pool)
         if let Some(env_id) = &env_id {
-            let prewarmed = pool.lock().await.take();
+            let prewarmed = {
+                #[allow(clippy::needless_borrow)]
+                env_pool::take_uv_env(&pool)
+            }.await;
             if let Some(prewarmed_env) = prewarmed {
                 info!("[prewarm] Using prewarmed environment for notebook");
 
@@ -1465,8 +1573,11 @@ async fn start_default_python_kernel_impl(
             (env_id, state.path.clone())
         };
 
-        // Try to use a prewarmed conda environment from the pool
-        let prewarmed = conda_pool.lock().await.take();
+        // Try to use a prewarmed conda environment (daemon first, then in-process pool)
+        let prewarmed = {
+            #[allow(clippy::needless_borrow)]
+            env_pool::take_conda_env(&conda_pool)
+        }.await;
         if let Some(prewarmed_env) = prewarmed {
             info!("[prewarm] Using prewarmed conda environment for notebook");
 
@@ -2400,6 +2511,23 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
             tauri::async_runtime::spawn(async move {
                 let mut kernel = kernel_for_tx.lock().await;
                 kernel.set_queue_tx(tx_for_kernel);
+            });
+
+            // Try to ensure runtimed is running (non-blocking, optional)
+            // The daemon provides centralized prewarming across all notebook windows
+            let app_for_daemon = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // Get path to bundled runtimed binary (for auto-installation)
+                let binary_path = get_bundled_runtimed_path(&app_for_daemon);
+                match runtimed::client::ensure_daemon_running(binary_path).await {
+                    Ok(endpoint) => {
+                        log::info!("[startup] runtimed running at {}", endpoint);
+                    }
+                    Err(e) => {
+                        // Not critical - in-process prewarming will work as fallback
+                        log::info!("[startup] runtimed not available: {}. Using in-process prewarming.", e);
+                    }
+                }
             });
 
             // Spawn the UV environment prewarming loop

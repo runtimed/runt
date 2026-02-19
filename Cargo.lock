@@ -3125,6 +3125,7 @@ dependencies = [
  "rattler_virtual_packages",
  "reqwest",
  "reqwest-middleware",
+ "runtimed",
  "runtimelib",
  "serde",
  "serde_json",
@@ -5078,6 +5079,7 @@ dependencies = [
  "jupyter-protocol",
  "petname",
  "rpassword",
+ "runtimed",
  "runtimelib",
  "serde",
  "serde_json",
@@ -5085,6 +5087,35 @@ dependencies = [
  "tabled",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "runtimed"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "dirs 5.0.1",
+ "env_logger",
+ "futures",
+ "libc",
+ "log",
+ "rattler",
+ "rattler_cache",
+ "rattler_conda_types",
+ "rattler_repodata_gateway",
+ "rattler_solve",
+ "rattler_virtual_packages",
+ "reqwest",
+ "reqwest-middleware",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

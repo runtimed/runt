@@ -19,6 +19,7 @@ uuid = { workspace = true }
 jupyter-protocol = { workspace = true }
 runtimelib = { workspace = true, features = ["tokio-runtime", "ring"] }
 sidecar = { path = "../sidecar" }
+runtimed = { path = "../runtimed" }
 clap = { version = "4.5.1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 petname = "2"

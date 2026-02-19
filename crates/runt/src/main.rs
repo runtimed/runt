@@ -170,6 +170,31 @@ enum Commands {
         #[arg(long, short)]
         wait: bool,
     },
+    /// Interact with the pool daemon (prewarmed Python environments)
+    Pool {
+        #[command(subcommand)]
+        command: PoolCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum PoolCommands {
+    /// Check if the pool daemon is running
+    Ping,
+    /// Show pool daemon status and statistics
+    Status {
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
+    /// Request an environment from the pool (for testing)
+    Take {
+        /// Environment type: uv or conda
+        #[arg(default_value = "uv")]
+        env_type: String,
+    },
+    /// Request daemon shutdown
+    Shutdown,
 }
 
 fn main() -> Result<()> {
@@ -201,6 +226,7 @@ async fn async_main(command: Option<Commands>) -> Result<()> {
         Some(Commands::Debug { kernel, cmd, exec, dump, wait }) => {
             debug_session(kernel.as_deref(), cmd.as_deref(), exec.as_deref(), dump, wait).await?
         }
+        Some(Commands::Pool { command }) => pool_command(command).await?,
         None => println!("No command specified. Use --help for usage information."),
     }
 
@@ -765,6 +791,90 @@ async fn execute_code(id: &str, code: Option<&str>) -> Result<()> {
 
     if reply.status != ReplyStatus::Ok {
         std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+// =============================================================================
+// Pool daemon commands
+// =============================================================================
+
+async fn pool_command(command: PoolCommands) -> Result<()> {
+    use runtimed::client::PoolClient;
+    use runtimed::EnvType;
+
+    let client = PoolClient::default();
+
+    match command {
+        PoolCommands::Ping => {
+            match client.ping().await {
+                Ok(()) => {
+                    println!("pong");
+                }
+                Err(e) => {
+                    eprintln!("Daemon not running: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        PoolCommands::Status { json } => {
+            match client.status().await {
+                Ok(stats) => {
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&stats)?);
+                    } else {
+                        println!("Pool Daemon Status");
+                        println!("==================");
+                        println!("UV environments:");
+                        println!("  Available: {}", stats.uv_available);
+                        println!("  Warming:   {}", stats.uv_warming);
+                        println!("Conda environments:");
+                        println!("  Available: {}", stats.conda_available);
+                        println!("  Warming:   {}", stats.conda_warming);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to get status: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        PoolCommands::Take { env_type } => {
+            let env_type = match env_type.to_lowercase().as_str() {
+                "uv" => EnvType::Uv,
+                "conda" => EnvType::Conda,
+                _ => {
+                    eprintln!("Invalid env_type: {}. Use 'uv' or 'conda'.", env_type);
+                    std::process::exit(1);
+                }
+            };
+
+            match client.take(env_type).await {
+                Ok(Some(env)) => {
+                    println!("{}", serde_json::to_string_pretty(&env)?);
+                }
+                Ok(None) => {
+                    eprintln!("Pool empty for {}", env_type);
+                    std::process::exit(1);
+                }
+                Err(e) => {
+                    eprintln!("Failed to take environment: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        PoolCommands::Shutdown => {
+            match client.shutdown().await {
+                Ok(()) => {
+                    println!("Shutdown request sent");
+                }
+                Err(e) => {
+                    eprintln!("Failed to shutdown: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
     }
 
     Ok(())

@@ -1,0 +1,48 @@
+[package]
+name = "runtimed"
+version = "0.1.0"
+edition = "2021"
+description = "Central daemon for managing Jupyter runtimes and prewarmed environments"
+repository = "https://github.com/runtimed/runt"
+license = "BSD-3-Clause"
+
+[lib]
+name = "runtimed"
+path = "src/lib.rs"
+
+[[bin]]
+name = "runtimed"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+futures = { workspace = true }
+log = "0.4"
+env_logger = "0.11"
+dirs = "5"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+clap = { version = "4", features = ["derive"] }
+
+# Conda environment support via rattler
+rattler = "0.39"
+rattler_cache = "0.6"
+rattler_conda_types = "0.43"
+rattler_repodata_gateway = { version = "0.25", features = ["gateway"] }
+rattler_solve = { version = "4.2", features = ["resolvo"] }
+rattler_virtual_packages = "2.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest-middleware = "0.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
+
+[dev-dependencies]
+tempfile = "3"
