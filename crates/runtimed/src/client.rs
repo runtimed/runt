@@ -326,7 +326,6 @@ pub async fn ensure_daemon_running(
 }
 
 /// Wait for the daemon to become ready (up to 10 seconds).
-#[cfg(unix)]
 async fn wait_for_daemon_ready(client: &PoolClient) -> Result<String, EnsureDaemonError> {
     use crate::singleton::get_running_daemon_info;
 
