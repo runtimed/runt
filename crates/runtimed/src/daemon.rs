@@ -665,18 +665,23 @@ print("warmup complete")
                 .args(["-c", warmup_script])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .status(),
+                .output(),
         )
         .await;
 
         match warmup_result {
-            Ok(Ok(status)) if status.success() => {
+            Ok(Ok(output)) if output.status.success() => {
                 // Create marker file
                 tokio::fs::write(env_path.join(".warmed"), "").await.ok();
                 info!("[runtimed] Conda warmup complete for {:?}", env_path);
             }
-            Ok(Ok(_)) => {
-                warn!("[runtimed] Conda warmup failed for {:?}", env_path);
+            Ok(Ok(output)) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                warn!(
+                    "[runtimed] Conda warmup failed for {:?}: {}",
+                    env_path,
+                    stderr.lines().take(3).collect::<Vec<_>>().join(" | ")
+                );
             }
             Ok(Err(e)) => {
                 warn!("[runtimed] Failed to run conda warmup: {}", e);
