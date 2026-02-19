@@ -17,7 +17,7 @@ This guide covers ipywidgets and anywidget support in Runt.
 
 | Widget | Why | Alternative |
 |--------|-----|-------------|
-| JupyterLab extensions | Pattaya is not JupyterLab | — |
+| JupyterLab extensions | Runt is not JupyterLab | — |
 | jupyterlab-sidecar | JupyterLab extension | Use notebook outputs |
 | bqplot | Extends IPython's DOMWidget | Plotly, Altair, Vega-Lite |
 
@@ -66,7 +66,7 @@ ipycanvas has a custom implementation (tested with v0.14.3). This is a from-scra
 
 ### anywidget
 
-Pattaya fully implements the [AFM (AnyWidget Frontend Module) spec](https://anywidget.dev/en/afm/). Any widget following this spec will work.
+Runt fully implements the [AFM (AnyWidget Frontend Module) spec](https://anywidget.dev/en/afm/). Any widget following this spec will work.
 
 **Tested widgets:**
 - **quak** — DataFrame viewer (custom messages work)
@@ -102,6 +102,7 @@ Some widgets extend IPython's `DOMWidget` class instead of the standard `@jupyte
 
 **Known incompatible:**
 - `bqplot` — Uses IPython DOMWidget internals
+- `ipyleaflet` — Uses IPython DOMWidget internals
 
 ## Why These Limitations?
 
