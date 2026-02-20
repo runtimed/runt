@@ -53,6 +53,11 @@ struct GitInfo {
 struct KernelLifecycleEvent {
     state: String,
     runtime: String,
+    /// Environment source identifier, present when state is "ready".
+    /// Values: "uv:inline", "uv:pyproject", "uv:prewarmed", "uv:fresh",
+    ///         "conda:inline", "conda:pixi", "conda:prewarmed", "conda:fresh"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    env_source: Option<String>,
 }
 
 /// Environment sync state for dirty detection.
@@ -1464,7 +1469,7 @@ async fn start_default_python_kernel_impl(
                                 "[kernel-ready] Started UV kernel in {}ms | Source: pyproject.toml (auto-detected)",
                                 kernel_start.elapsed().as_millis()
                             );
-                            return Ok("uv".to_string());
+                            return Ok("uv:pyproject".to_string());
                         }
                     }
                 }
@@ -1517,7 +1522,7 @@ async fn start_default_python_kernel_impl(
                             "[kernel-ready] Started Conda kernel in {}ms | Source: pixi.toml (auto-detected)",
                             kernel_start.elapsed().as_millis()
                         );
-                        return Ok("conda".to_string());
+                        return Ok("conda:pixi".to_string());
                     }
                 }
             }
@@ -1611,7 +1616,7 @@ async fn start_default_python_kernel_impl(
                 "[kernel-ready] Started UV kernel in {}ms | Source: cached/fresh env with deps",
                 kernel_start.elapsed().as_millis()
             );
-            return Ok("uv".to_string());
+            return Ok("uv:inline".to_string());
         }
 
         // No dependencies - try to use a prewarmed environment (daemon first, then in-process pool)
@@ -1643,7 +1648,7 @@ async fn start_default_python_kernel_impl(
                                         "[kernel-ready] Started UV kernel in {}ms | Source: prewarmed",
                                         kernel_start.elapsed().as_millis()
                                     );
-                                    return Ok("uv".to_string());
+                                    return Ok("uv:prewarmed".to_string());
                                 }
                                 Err(e) => {
                                     log::warn!(
@@ -1688,7 +1693,7 @@ async fn start_default_python_kernel_impl(
             "[kernel-ready] Started UV kernel in {}ms | Source: fresh",
             kernel_start.elapsed().as_millis()
         );
-        Ok("uv".to_string())
+        Ok("uv:fresh".to_string())
     } else {
         info!("Using conda/rattler for default kernel (preferred: {:?})", preferred_env);
 
@@ -1793,7 +1798,7 @@ async fn start_default_python_kernel_impl(
                 "[kernel-ready] Started Conda kernel in {}ms | Source: cached/fresh env with deps",
                 kernel_start.elapsed().as_millis()
             );
-            return Ok("conda".to_string());
+            return Ok("conda:inline".to_string());
         }
 
         // No dependencies - try to use a prewarmed conda environment (daemon first, then in-process pool)
@@ -1822,7 +1827,7 @@ async fn start_default_python_kernel_impl(
                                     "[kernel-ready] Started Conda kernel in {}ms | Source: prewarmed",
                                     kernel_start.elapsed().as_millis()
                                 );
-                                return Ok("conda".to_string());
+                                return Ok("conda:prewarmed".to_string());
                             }
                             Err(e) => {
                                 error!(
@@ -1868,7 +1873,7 @@ async fn start_default_python_kernel_impl(
             "[kernel-ready] Started Conda kernel in {}ms | Source: fresh",
             kernel_start.elapsed().as_millis()
         );
-        Ok("conda".to_string())
+        Ok("conda:fresh".to_string())
     }
 }
 
@@ -3031,19 +3036,21 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                 auto_launch_flag.store(true, Ordering::SeqCst);
 
                 // Emit lifecycle event so frontend can show "Starting" status
+                let runtime_str = match runtime {
+                    Runtime::Python => "python".to_string(),
+                    Runtime::Deno => "deno".to_string(),
+                };
                 let lifecycle_event = KernelLifecycleEvent {
                     state: "launching".to_string(),
-                    runtime: match runtime {
-                        Runtime::Python => "python".to_string(),
-                        Runtime::Deno => "deno".to_string(),
-                    },
+                    runtime: runtime_str.clone(),
+                    env_source: None,
                 };
                 let _ = app_for_autolaunch.emit("kernel:lifecycle", &lifecycle_event);
 
-                match runtime {
+                let env_source = match runtime {
                     Runtime::Python => {
-                        if let Err(e) = start_default_python_kernel_impl(
-                            app_for_autolaunch,
+                        match start_default_python_kernel_impl(
+                            app_for_autolaunch.clone(),
                             &notebook_for_autolaunch,
                             &kernel_for_autolaunch,
                             &pool_for_autolaunch,
@@ -3051,23 +3058,41 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                         )
                         .await
                         {
-                            log::warn!("Auto-launch kernel failed (will start on demand): {}", e);
+                            Ok(source) => Some(source),
+                            Err(e) => {
+                                log::warn!("Auto-launch kernel failed (will start on demand): {}", e);
+                                None
+                            }
                         }
                     }
                     Runtime::Deno => {
-                        if let Err(e) = start_deno_kernel_impl(
-                            app_for_autolaunch,
+                        match start_deno_kernel_impl(
+                            app_for_autolaunch.clone(),
                             &notebook_for_autolaunch,
                             &kernel_for_autolaunch,
                         )
                         .await
                         {
-                            log::warn!(
-                                "Auto-launch Deno kernel failed (will start on demand): {}",
-                                e
-                            );
+                            Ok(()) => Some("deno".to_string()),
+                            Err(e) => {
+                                log::warn!(
+                                    "Auto-launch Deno kernel failed (will start on demand): {}",
+                                    e
+                                );
+                                None
+                            }
                         }
                     }
+                };
+
+                // Emit "ready" lifecycle event with environment source
+                if let Some(source) = env_source {
+                    let ready_event = KernelLifecycleEvent {
+                        state: "ready".to_string(),
+                        runtime: runtime_str,
+                        env_source: Some(source),
+                    };
+                    let _ = app_for_autolaunch.emit("kernel:lifecycle", &ready_event);
                 }
 
                 // Clear auto-launch flag when done

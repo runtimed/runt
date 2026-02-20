@@ -251,6 +251,7 @@ function AppContent() {
 
   const {
     kernelStatus,
+    envSource,
     ensureKernelStarted,
     interruptKernel,
     restartKernel,
@@ -441,6 +442,7 @@ function AppContent() {
       )}
       <NotebookToolbar
         kernelStatus={kernelStatus}
+        envSource={envSource}
         dirty={dirty}
         hasDependencies={hasDependencies}
         theme={theme}
