@@ -133,6 +133,8 @@ function AppContent() {
     removeDependency: removeCondaDependency,
     setChannels: setCondaChannels,
     setPython: setCondaPython,
+    environmentYmlInfo,
+    environmentYmlDeps,
   } = useCondaDependencies();
 
   // Deno config detection and settings
@@ -145,10 +147,10 @@ function AppContent() {
 
   // Auto-detect environment type based on what's configured
   // uv takes priority if metadata exists AND uv is available
-  // Falls back to conda if uv is not available
+  // Falls back to conda if uv is not available or environment.yml is detected
   const envType = isUvConfigured && uvAvailable !== false
     ? "uv"
-    : isCondaConfigured || uvAvailable === false
+    : isCondaConfigured || environmentYmlInfo?.has_dependencies || uvAvailable === false
       ? "conda"
       : null;
 
@@ -156,7 +158,7 @@ function AppContent() {
   // For Deno, show badge if deno.json is found with imports
   const hasDependencies = runtime === "deno"
     ? denoConfigInfo?.has_imports ?? false
-    : hasUvDependencies || hasCondaDependencies;
+    : hasUvDependencies || hasCondaDependencies || (environmentYmlInfo?.has_dependencies ?? false);
 
   // Get widget store handler for routing comm messages
   const {
@@ -475,6 +477,8 @@ function AppContent() {
           onSetPython={setCondaPython}
           envProgress={envProgress.envType === "conda" ? envProgress : null}
           onResetProgress={envProgress.reset}
+          environmentYmlInfo={environmentYmlInfo}
+          environmentYmlDeps={environmentYmlDeps}
         />
       )}
       {dependencyHeaderOpen && runtime === "python" && envType !== "conda" && (

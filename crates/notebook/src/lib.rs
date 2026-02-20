@@ -2,6 +2,7 @@ pub mod cli_install;
 pub mod conda_env;
 pub mod deno_env;
 pub mod env_pool;
+pub mod environment_yml;
 pub mod execution_queue;
 pub mod format;
 pub mod kernel;
@@ -1369,14 +1370,44 @@ async fn start_default_python_kernel_impl(
 
     // Check which env type actually has dependencies in the notebook metadata
     // This overrides user preference when deps exist in only one type
-    let (has_uv_deps, has_conda_deps) = {
+    let (has_uv_deps, has_conda_deps, notebook_path_for_detection) = {
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
         let uv_deps = uv_env::extract_dependencies(&state.notebook.metadata);
         let conda_deps = conda_env::extract_dependencies(&state.notebook.metadata);
         let has_uv = uv_deps.map(|d| !d.dependencies.is_empty()).unwrap_or(false);
         let has_conda = conda_deps.map(|d| !d.dependencies.is_empty()).unwrap_or(false);
-        (has_uv, has_conda)
+        (has_uv, has_conda, state.path.clone())
     };
+
+    // If no inline deps, check for project-level environment files
+    // environment.yml takes priority as a conda project file
+    if !has_uv_deps && !has_conda_deps {
+        if let Some(ref nb_path) = notebook_path_for_detection {
+            if let Some(yml_path) = environment_yml::find_environment_yml(nb_path) {
+                if let Ok(config) = environment_yml::parse_environment_yml(&yml_path) {
+                    if !config.dependencies.is_empty() {
+                        let deps = environment_yml::convert_to_conda_dependencies(&config);
+                        info!(
+                            "Found environment.yml at {} with {} deps, starting conda kernel",
+                            yml_path.display(),
+                            deps.dependencies.len()
+                        );
+                        let mut kernel = kernel_state.lock().await;
+                        kernel
+                            .start_with_conda(app, &deps, Some(nb_path))
+                            .await
+                            .map_err(|e| e.to_string())?;
+
+                        info!(
+                            "[kernel-ready] Started conda kernel via environment.yml in {}ms",
+                            kernel_start.elapsed().as_millis()
+                        );
+                        return Ok("conda".to_string());
+                    }
+                }
+            }
+        }
+    }
 
     // Determine which env type to actually use
     // Priority: 1) Use whichever has deps, 2) Fall back to user preference
@@ -2124,6 +2155,129 @@ async fn get_pixi_dependencies(
     }))
 }
 
+// ============================================================================
+// environment.yml Discovery and Environment Commands
+// ============================================================================
+
+/// Detect environment.yml near the notebook and return info about it.
+#[tauri::command]
+async fn detect_environment_yml(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<Option<environment_yml::EnvironmentYmlInfo>, String> {
+    let notebook_path = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        state.path.clone()
+    };
+
+    // Need a notebook path to search from
+    let Some(notebook_path) = notebook_path else {
+        return Ok(None);
+    };
+
+    // Find environment.yml walking up from notebook directory
+    let Some(yml_path) = environment_yml::find_environment_yml(&notebook_path) else {
+        return Ok(None);
+    };
+
+    // Parse and create info
+    let config = environment_yml::parse_environment_yml(&yml_path).map_err(|e| e.to_string())?;
+    let info = environment_yml::create_environment_yml_info(&config, &notebook_path);
+
+    info!(
+        "Detected environment.yml at {} with {} dependencies",
+        info.relative_path, info.dependency_count
+    );
+
+    Ok(Some(info))
+}
+
+/// Full environment.yml dependencies for display in the UI.
+#[derive(Serialize)]
+struct EnvironmentYmlDepsJson {
+    path: String,
+    relative_path: String,
+    name: Option<String>,
+    dependencies: Vec<String>,
+    pip_dependencies: Vec<String>,
+    python: Option<String>,
+    channels: Vec<String>,
+}
+
+/// Get full parsed dependencies from the detected environment.yml.
+#[tauri::command]
+async fn get_environment_yml_dependencies(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<Option<EnvironmentYmlDepsJson>, String> {
+    let notebook_path = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        state.path.clone()
+    };
+
+    let Some(notebook_path) = notebook_path else {
+        return Ok(None);
+    };
+
+    let Some(yml_path) = environment_yml::find_environment_yml(&notebook_path) else {
+        return Ok(None);
+    };
+
+    let config = environment_yml::parse_environment_yml(&yml_path).map_err(|e| e.to_string())?;
+
+    let relative_path = pathdiff::diff_paths(
+        &config.path,
+        notebook_path.parent().unwrap_or(&notebook_path),
+    )
+    .map(|p| p.display().to_string())
+    .unwrap_or_else(|| config.path.display().to_string());
+
+    Ok(Some(EnvironmentYmlDepsJson {
+        path: config.path.display().to_string(),
+        relative_path,
+        name: config.name,
+        dependencies: config.dependencies,
+        pip_dependencies: config.pip_dependencies,
+        python: config.python,
+        channels: config.channels,
+    }))
+}
+
+/// Start kernel using dependencies from a detected environment.yml.
+#[tauri::command]
+async fn start_kernel_with_environment_yml(
+    app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
+) -> Result<(), String> {
+    let notebook_path = {
+        let state = notebook_state.lock().map_err(|e| e.to_string())?;
+        state.path.clone()
+    };
+
+    let Some(notebook_path) = notebook_path else {
+        return Err("No notebook path available".to_string());
+    };
+
+    let Some(yml_path) = environment_yml::find_environment_yml(&notebook_path) else {
+        return Err("No environment.yml found".to_string());
+    };
+
+    let config =
+        environment_yml::parse_environment_yml(&yml_path).map_err(|e| e.to_string())?;
+    let deps = environment_yml::convert_to_conda_dependencies(&config);
+
+    info!(
+        "Starting kernel with environment.yml ({} deps) from {}",
+        deps.dependencies.len(),
+        yml_path.display()
+    );
+
+    let mut kernel = kernel_state.lock().await;
+    kernel
+        .start_with_conda(app, &deps, Some(&notebook_path))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ========== Deno kernel support ==========
 
 /// Check if Deno is available on the system
@@ -2408,10 +2562,11 @@ fn spawn_new_notebook(runtime: Runtime) {
     }
 }
 
-/// Create initial notebook state for a new notebook, detecting pyproject.toml for Python.
+/// Create initial notebook state for a new notebook, detecting project-level config for Python.
 fn create_new_notebook_state(path: &Path, runtime: Runtime) -> NotebookState {
-    // Only check pyproject.toml for Python runtime
+    // Only check project files for Python runtime
     if runtime == Runtime::Python {
+        // Check pyproject.toml first (uv)
         if let Some(pyproject_path) = pyproject::find_pyproject(path) {
             if let Ok(config) = pyproject::parse_pyproject(&pyproject_path) {
                 info!(
@@ -2424,9 +2579,26 @@ fn create_new_notebook_state(path: &Path, runtime: Runtime) -> NotebookState {
                 return state;
             }
         }
+
+        // Check environment.yml (conda)
+        if let Some(yml_path) = environment_yml::find_environment_yml(path) {
+            if let Ok(config) = environment_yml::parse_environment_yml(&yml_path) {
+                if !config.dependencies.is_empty() {
+                    info!(
+                        "New notebook at {}: detected environment.yml at {}, using conda",
+                        path.display(),
+                        yml_path.display()
+                    );
+                    let mut state =
+                        NotebookState::new_empty_with_conda_from_environment_yml(&config);
+                    state.path = Some(path.to_path_buf());
+                    return state;
+                }
+            }
+        }
     }
 
-    // No pyproject.toml found (or non-Python runtime) - use default
+    // No project-level config found (or non-Python runtime) - use default
     let mut state = NotebookState::new_empty_with_runtime(runtime);
     state.path = Some(path.to_path_buf());
     state
@@ -2576,6 +2748,10 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
             // pixi.toml support
             detect_pixi_toml,
             get_pixi_dependencies,
+            // environment.yml support
+            detect_environment_yml,
+            get_environment_yml_dependencies,
+            start_kernel_with_environment_yml,
             // Trust verification
             verify_notebook_trust,
             approve_notebook_trust,
