@@ -217,6 +217,53 @@ impl NotebookState {
         }
     }
 
+    /// Create a new empty Python notebook with UV metadata from a pyproject.toml config.
+    /// Used when creating a new notebook in a directory with pyproject.toml.
+    pub fn new_empty_with_uv_from_pyproject(config: &crate::pyproject::PyProjectConfig) -> Self {
+        let env_id = Uuid::new_v4().to_string();
+        let mut additional = HashMap::new();
+
+        let all_deps = crate::pyproject::get_all_dependencies(config);
+
+        additional.insert(
+            "uv".to_string(),
+            serde_json::json!({
+                "dependencies": all_deps,
+                "requires-python": config.requires_python,
+            }),
+        );
+
+        additional.insert(
+            "runt".to_string(),
+            serde_json::json!({
+                "env_id": env_id,
+                "runtime": "python",
+            }),
+        );
+
+        NotebookState {
+            notebook: Notebook {
+                metadata: nbformat::v4::Metadata {
+                    kernelspec: None,
+                    language_info: None,
+                    authors: None,
+                    additional,
+                },
+                nbformat: 4,
+                nbformat_minor: 5,
+                cells: vec![Cell::Code {
+                    id: CellId::from(Uuid::new_v4()),
+                    metadata: empty_cell_metadata(),
+                    execution_count: None,
+                    source: Vec::new(),
+                    outputs: Vec::new(),
+                }],
+            },
+            path: None,
+            dirty: false,
+        }
+    }
+
     pub fn from_notebook(notebook: Notebook, path: PathBuf) -> Self {
         NotebookState {
             notebook,

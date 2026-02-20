@@ -25,7 +25,7 @@ use notebook_state::{FrontendCell, NotebookState};
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, RunEvent};
@@ -2407,6 +2407,30 @@ fn spawn_new_notebook(runtime: Runtime) {
     }
 }
 
+/// Create initial notebook state for a new notebook, detecting pyproject.toml for Python.
+fn create_new_notebook_state(path: &Path, runtime: Runtime) -> NotebookState {
+    // Only check pyproject.toml for Python runtime
+    if runtime == Runtime::Python {
+        if let Some(pyproject_path) = pyproject::find_pyproject(path) {
+            if let Ok(config) = pyproject::parse_pyproject(&pyproject_path) {
+                info!(
+                    "New notebook at {}: detected pyproject.toml at {}, using UV",
+                    path.display(),
+                    pyproject_path.display()
+                );
+                let mut state = NotebookState::new_empty_with_uv_from_pyproject(&config);
+                state.path = Some(path.to_path_buf());
+                return state;
+            }
+        }
+    }
+
+    // No pyproject.toml found (or non-Python runtime) - use default
+    let mut state = NotebookState::new_empty_with_runtime(runtime);
+    state.path = Some(path.to_path_buf());
+    state
+}
+
 /// Run the notebook Tauri app.
 ///
 /// If `notebook_path` is Some, opens that file. If None, creates a new empty notebook.
@@ -2431,10 +2455,8 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
             NotebookState::from_notebook(nb_v4, path.clone())
         }
         Some(ref path) => {
-            // New notebook at specified path with requested runtime
-            let mut state = NotebookState::new_empty_with_runtime(runtime);
-            state.path = Some(path.clone());
-            state
+            // New notebook at specified path - detect pyproject.toml for Python
+            create_new_notebook_state(path, runtime)
         }
         None => {
             // New empty notebook with requested runtime
