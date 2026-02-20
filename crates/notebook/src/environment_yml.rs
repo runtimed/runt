@@ -137,14 +137,12 @@ pub fn parse_environment_yml(path: &Path) -> Result<EnvironmentYmlConfig> {
                 }
                 serde_yaml::Value::Mapping(map) => {
                     // Check for pip: [...] mapping
-                    if let Some(pip_value) =
-                        map.get(&serde_yaml::Value::String("pip".to_string()))
+                    if let Some(serde_yaml::Value::Sequence(pip_list)) =
+                        map.get(serde_yaml::Value::String("pip".to_string()))
                     {
-                        if let serde_yaml::Value::Sequence(pip_list) = pip_value {
-                            for pip_dep in pip_list {
-                                if let serde_yaml::Value::String(s) = pip_dep {
-                                    pip_dependencies.push(s.clone());
-                                }
+                        for pip_dep in pip_list {
+                            if let serde_yaml::Value::String(s) = pip_dep {
+                                pip_dependencies.push(s.clone());
                             }
                         }
                     }
@@ -172,7 +170,7 @@ pub fn parse_environment_yml(path: &Path) -> Result<EnvironmentYmlConfig> {
 /// Matches "python", "python=3.10", "python>=3.9", etc.
 fn is_python_dep(dep: &str) -> bool {
     let name = dep
-        .split(|c: char| c == '=' || c == '>' || c == '<' || c == '!' || c == ' ')
+        .split(['=', '>', '<', '!', ' '])
         .next()
         .unwrap_or("");
     name == "python"
