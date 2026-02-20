@@ -1366,19 +1366,51 @@ async fn start_default_python_kernel_impl(
     let preferred_env = app_settings.default_python_env;
     let uv_available = uv_env::check_uv_available().await;
 
-    // Determine which env type to actually use based on preference and availability
-    let use_uv = match preferred_env {
-        settings::PythonEnvType::Uv => {
-            if uv_available {
-                true
-            } else {
-                info!("uv preferred but not available, falling back to conda");
-                false
-            }
-        }
-        settings::PythonEnvType::Conda => {
-            // Conda is always available via rattler
+    // Check which env type actually has dependencies in the notebook metadata
+    // This overrides user preference when deps exist in only one type
+    let (has_uv_deps, has_conda_deps) = {
+        let state = notebook_state.lock().map_err(|e| e.to_string())?;
+        let uv_deps = uv_env::extract_dependencies(&state.notebook.metadata);
+        let conda_deps = conda_env::extract_dependencies(&state.notebook.metadata);
+        let has_uv = uv_deps.map(|d| !d.dependencies.is_empty()).unwrap_or(false);
+        let has_conda = conda_deps.map(|d| !d.dependencies.is_empty()).unwrap_or(false);
+        (has_uv, has_conda)
+    };
+
+    // Determine which env type to actually use
+    // Priority: 1) Use whichever has deps, 2) Fall back to user preference
+    let use_uv = if has_uv_deps && !has_conda_deps {
+        // UV has deps, conda doesn't - use UV regardless of preference
+        if uv_available {
+            info!("Using uv (has dependencies, conda is empty)");
+            true
+        } else {
+            log::warn!("Notebook has uv dependencies but uv not available, falling back to conda");
             false
+        }
+    } else if has_conda_deps && !has_uv_deps {
+        // Conda has deps, uv doesn't - use conda regardless of preference
+        info!("Using conda (has dependencies, uv is empty)");
+        false
+    } else if has_uv_deps && has_conda_deps {
+        // Both have deps - use user preference but warn
+        log::warn!("Notebook has both uv and conda dependencies, using preference: {:?}", preferred_env);
+        match preferred_env {
+            settings::PythonEnvType::Uv => uv_available,
+            settings::PythonEnvType::Conda => false,
+        }
+    } else {
+        // Neither has deps - use user preference (for prewarmed envs)
+        match preferred_env {
+            settings::PythonEnvType::Uv => {
+                if uv_available {
+                    true
+                } else {
+                    info!("uv preferred but not available, falling back to conda");
+                    false
+                }
+            }
+            settings::PythonEnvType::Conda => false,
         }
     };
 
@@ -1386,8 +1418,8 @@ async fn start_default_python_kernel_impl(
         info!("Using uv for default kernel (preferred: {:?})", preferred_env);
 
         // Ensure uv metadata exists in the notebook (for legacy notebooks)
-        // Also extract env_id for per-notebook isolation
-        let (env_id, notebook_path) = {
+        // Also extract env_id for per-notebook isolation and notebook dependencies
+        let (env_id, notebook_path, notebook_deps) = {
             let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
 
             // If notebook has empty conda deps and we're using UV, migrate to UV
@@ -1422,17 +1454,48 @@ async fn start_default_python_kernel_impl(
                 state.dirty = true;
             }
 
-            (uv_env::extract_env_id(&state.notebook.metadata), state.path.clone())
+            // Extract notebook dependencies
+            let deps = uv_env::extract_dependencies(&state.notebook.metadata);
+
+            (uv_env::extract_env_id(&state.notebook.metadata), state.path.clone(), deps)
         };
 
-        // Try to use a prewarmed environment (daemon first, then in-process pool)
+        // Check if notebook has dependencies - if so, use prepare_environment path
+        // which properly finds existing cached environments
+        let has_deps = notebook_deps
+            .as_ref()
+            .map(|d| !d.dependencies.is_empty())
+            .unwrap_or(false);
+
+        if has_deps {
+            // Notebook has dependencies - use the normal path that finds/creates cached envs
+            let deps = notebook_deps.unwrap();
+            info!(
+                "[env] Notebook has {} dependencies, using prepare_environment path",
+                deps.dependencies.len()
+            );
+
+            let mut kernel = kernel_state.lock().await;
+            kernel
+                .start_with_uv(app, &deps, env_id.as_deref(), notebook_path.as_deref())
+                .await
+                .map_err(|e| e.to_string())?;
+
+            info!(
+                "[kernel-ready] Started UV kernel in {}ms | Source: cached/fresh env with deps",
+                kernel_start.elapsed().as_millis()
+            );
+            return Ok("uv".to_string());
+        }
+
+        // No dependencies - try to use a prewarmed environment (daemon first, then in-process pool)
         if let Some(env_id) = &env_id {
             let prewarmed = {
                 #[allow(clippy::needless_borrow)]
                 env_pool::take_uv_env(&pool)
             }.await;
             if let Some(prewarmed_env) = prewarmed {
-                info!("[prewarm] Using prewarmed environment for notebook");
+                info!("[prewarm] Using prewarmed environment for notebook (no deps)");
 
                 // Try to claim and use the prewarmed env, but fall back gracefully on error
                 match uv_env::claim_prewarmed_environment(
@@ -1505,7 +1568,8 @@ async fn start_default_python_kernel_impl(
 
         // Get the env_id for this notebook (should be set at notebook creation)
         // Fall back to creating one for legacy notebooks
-        let (env_id, notebook_path) = {
+        // Also extract conda dependencies
+        let (env_id, notebook_path, conda_deps) = {
             let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
 
             // Check if notebook has empty uv deps - if so, migrate to conda
@@ -1570,16 +1634,49 @@ async fn start_default_python_kernel_impl(
                     new_id
                 }
             };
-            (env_id, state.path.clone())
+
+            // Extract conda dependencies
+            let deps = conda_env::extract_dependencies(&state.notebook.metadata);
+
+            (env_id, state.path.clone(), deps)
         };
 
-        // Try to use a prewarmed conda environment (daemon first, then in-process pool)
+        // Check if notebook has dependencies - if so, use prepare_environment path
+        // which properly finds existing cached environments
+        let has_deps = conda_deps
+            .as_ref()
+            .map(|d| !d.dependencies.is_empty())
+            .unwrap_or(false);
+
+        if has_deps {
+            // Notebook has dependencies - use the normal path that finds/creates cached envs
+            let mut deps = conda_deps.unwrap();
+            deps.env_id = Some(env_id.clone());
+            info!(
+                "[env] Notebook has {} conda dependencies, using prepare_environment path",
+                deps.dependencies.len()
+            );
+
+            let mut kernel = kernel_state.lock().await;
+            kernel
+                .start_with_conda(app, &deps, notebook_path.as_deref())
+                .await
+                .map_err(|e| e.to_string())?;
+
+            info!(
+                "[kernel-ready] Started Conda kernel in {}ms | Source: cached/fresh env with deps",
+                kernel_start.elapsed().as_millis()
+            );
+            return Ok("conda".to_string());
+        }
+
+        // No dependencies - try to use a prewarmed conda environment (daemon first, then in-process pool)
         let prewarmed = {
             #[allow(clippy::needless_borrow)]
             env_pool::take_conda_env(&conda_pool)
         }.await;
         if let Some(prewarmed_env) = prewarmed {
-            info!("[prewarm] Using prewarmed conda environment for notebook");
+            info!("[prewarm] Using prewarmed conda environment for notebook (no deps)");
 
             // Try to claim and use the prewarmed env, but fall back gracefully on error
             match conda_env::claim_prewarmed_conda_environment(
