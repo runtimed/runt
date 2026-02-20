@@ -33,6 +33,7 @@ export interface PyProjectInfo {
   dependency_count: number;
   has_dev_dependencies: boolean;
   requires_python: string | null;
+  has_venv: boolean;
 }
 
 export function useDependencies() {
