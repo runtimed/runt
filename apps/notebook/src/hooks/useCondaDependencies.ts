@@ -7,6 +7,30 @@ export interface CondaDependencies {
   python: string | null;
 }
 
+/** Info about a detected environment.yml */
+export interface EnvironmentYmlInfo {
+  path: string;
+  relative_path: string;
+  name: string | null;
+  has_dependencies: boolean;
+  dependency_count: number;
+  has_pip_dependencies: boolean;
+  pip_dependency_count: number;
+  python: string | null;
+  channels: string[];
+}
+
+/** Full environment.yml dependencies for display */
+export interface EnvironmentYmlDeps {
+  path: string;
+  relative_path: string;
+  name: string | null;
+  dependencies: string[];
+  pip_dependencies: string[];
+  python: string | null;
+  channels: string[];
+}
+
 export function useCondaDependencies() {
   const [dependencies, setDependencies] = useState<CondaDependencies | null>(
     null
@@ -16,6 +40,10 @@ export function useCondaDependencies() {
   const [syncedWhileRunning, setSyncedWhileRunning] = useState(false);
   // Track if user added deps but kernel isn't conda-managed (needs restart)
   const [needsKernelRestart, setNeedsKernelRestart] = useState(false);
+
+  // environment.yml detection state
+  const [environmentYmlInfo, setEnvironmentYmlInfo] = useState<EnvironmentYmlInfo | null>(null);
+  const [environmentYmlDeps, setEnvironmentYmlDeps] = useState<EnvironmentYmlDeps | null>(null);
 
   const loadDependencies = useCallback(async () => {
     try {
@@ -28,10 +56,28 @@ export function useCondaDependencies() {
     }
   }, []);
 
-  // Load dependencies on mount
+  // Load full environment.yml dependencies
+  const loadEnvironmentYmlDeps = useCallback(async () => {
+    try {
+      const deps = await invoke<EnvironmentYmlDeps | null>("get_environment_yml_dependencies");
+      setEnvironmentYmlDeps(deps);
+    } catch (e) {
+      console.error("Failed to load environment.yml dependencies:", e);
+    }
+  }, []);
+
+  // Load dependencies and detect environment.yml on mount
   useEffect(() => {
     loadDependencies();
+    invoke<EnvironmentYmlInfo | null>("detect_environment_yml").then(setEnvironmentYmlInfo);
   }, [loadDependencies]);
+
+  // Load environment.yml deps when we detect one
+  useEffect(() => {
+    if (environmentYmlInfo?.has_dependencies) {
+      loadEnvironmentYmlDeps();
+    }
+  }, [environmentYmlInfo, loadEnvironmentYmlDeps]);
 
   // Re-sign the notebook after user modifications to keep it trusted
   const resignTrust = useCallback(async () => {
@@ -195,5 +241,8 @@ export function useCondaDependencies() {
     setChannels,
     setPython,
     clearSyncNotice,
+    // environment.yml support
+    environmentYmlInfo,
+    environmentYmlDeps,
   };
 }

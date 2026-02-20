@@ -114,3 +114,16 @@ export interface PixiInfo {
   python: string | null;
   channels: string[];
 }
+
+// environment.yml detection info
+export interface EnvironmentYmlInfo {
+  path: string;
+  relative_path: string;
+  name: string | null;
+  has_dependencies: boolean;
+  dependency_count: number;
+  has_pip_dependencies: boolean;
+  pip_dependency_count: number;
+  python: string | null;
+  channels: string[];
+}

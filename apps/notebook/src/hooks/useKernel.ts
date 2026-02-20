@@ -368,8 +368,22 @@ export function useKernel({
     }
   }, []);
 
+  const startKernelWithEnvironmentYml = useCallback(async () => {
+    setKernelStatus("starting");
+    try {
+      console.log("[kernel] starting kernel with environment.yml");
+      await invoke("start_kernel_with_environment_yml");
+      console.log("[kernel] start_kernel_with_environment_yml succeeded");
+      setKernelStatus("idle");
+      callbacksRef.current.onKernelStarted?.();
+    } catch (e) {
+      console.error("start_kernel_with_environment_yml failed:", e);
+      setKernelStatus("error");
+    }
+  }, []);
+
   const ensureKernelStarted = useCallback(
-    async (opts?: { useUv?: boolean; useConda?: boolean; usePyproject?: boolean; useDeno?: boolean }) => {
+    async (opts?: { useUv?: boolean; useConda?: boolean; usePyproject?: boolean; useDeno?: boolean; useEnvironmentYml?: boolean }) => {
       if (startingRef.current) return;
       startingRef.current = true;
       try {
@@ -398,6 +412,13 @@ export function useKernel({
         if (opts?.usePyproject) {
           console.log("[kernel] usePyproject explicitly requested");
           await startKernelWithPyproject();
+          return;
+        }
+
+        // If useEnvironmentYml is explicitly requested, use environment.yml
+        if (opts?.useEnvironmentYml) {
+          console.log("[kernel] useEnvironmentYml explicitly requested");
+          await startKernelWithEnvironmentYml();
           return;
         }
 
@@ -461,6 +482,14 @@ export function useKernel({
           return;
         }
 
+        // Check for environment.yml (conda environment spec)
+        const envYmlInfo = await invoke<{ has_dependencies: boolean; relative_path: string } | null>("detect_environment_yml");
+        if (envYmlInfo?.has_dependencies) {
+          console.log("[kernel] detected environment.yml:", envYmlInfo.relative_path);
+          await startKernelWithEnvironmentYml();
+          return;
+        }
+
         // Fall back to default kernel (backend decides uv vs conda)
         console.log("[kernel] falling back to default kernel");
         await startDefaultKernel();
@@ -468,7 +497,7 @@ export function useKernel({
         startingRef.current = false;
       }
     },
-    [startKernelWithUv, startKernelWithConda, startKernelWithPyproject, startKernelWithDeno, startDefaultKernel]
+    [startKernelWithUv, startKernelWithConda, startKernelWithPyproject, startKernelWithDeno, startKernelWithEnvironmentYml, startDefaultKernel]
   );
 
   const shutdownKernel = useCallback(async () => {
@@ -497,6 +526,7 @@ export function useKernel({
     startKernelWithConda,
     startKernelWithPyproject,
     startKernelWithDeno,
+    startKernelWithEnvironmentYml,
     startDefaultKernel,
     startDefaultUvKernel,
     startDefaultCondaKernel,

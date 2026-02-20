@@ -1,7 +1,8 @@
 import { useState, useCallback, type KeyboardEvent } from "react";
-import { X, Plus, Info, AlertCircle } from "lucide-react";
+import { X, Plus, Info, AlertCircle, FileText } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import type { EnvProgressState } from "../hooks/useEnvProgress";
+import type { EnvironmentYmlInfo, EnvironmentYmlDeps } from "../hooks/useCondaDependencies";
 
 interface CondaDependencyHeaderProps {
   dependencies: string[];
@@ -18,6 +19,9 @@ interface CondaDependencyHeaderProps {
   envProgress?: EnvProgressState | null;
   /** Callback to reset/dismiss error state */
   onResetProgress?: () => void;
+  // environment.yml support
+  environmentYmlInfo?: EnvironmentYmlInfo | null;
+  environmentYmlDeps?: EnvironmentYmlDeps | null;
 }
 
 export function CondaDependencyHeader({
@@ -33,6 +37,8 @@ export function CondaDependencyHeader({
   onSetPython,
   envProgress,
   onResetProgress,
+  environmentYmlInfo,
+  environmentYmlDeps,
 }: CondaDependencyHeaderProps) {
   const [newDep, setNewDep] = useState("");
   const [newChannel, setNewChannel] = useState("");
@@ -165,6 +171,49 @@ export function CondaDependencyHeader({
               Restart kernel to use these dependencies. Conda environments
               require a kernel restart after changes.
             </span>
+          </div>
+        )}
+
+        {/* environment.yml detected banner */}
+        {environmentYmlInfo?.has_dependencies && (
+          <div className="mb-3 rounded bg-emerald-500/10 px-2 py-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+            <div className="flex items-center gap-2">
+              <FileText className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                Using deps from{" "}
+                <code className="rounded bg-emerald-500/20 px-1">
+                  {environmentYmlInfo.relative_path}
+                </code>
+                {environmentYmlInfo.name && (
+                  <span className="text-muted-foreground ml-1">
+                    ({environmentYmlInfo.name})
+                  </span>
+                )}
+              </span>
+            </div>
+            {environmentYmlDeps && (environmentYmlDeps.dependencies.length > 0 || environmentYmlDeps.pip_dependencies.length > 0) && (
+              <div className="mt-2 text-xs text-emerald-700/80 dark:text-emerald-400/80">
+                {environmentYmlDeps.dependencies.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-1">
+                    {environmentYmlDeps.dependencies.map((dep) => (
+                      <span key={dep} className="rounded bg-emerald-500/20 px-1.5 py-0.5 font-mono">
+                        {dep}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {environmentYmlDeps.pip_dependencies.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    <span className="text-muted-foreground">pip:</span>
+                    {environmentYmlDeps.pip_dependencies.map((dep) => (
+                      <span key={dep} className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono">
+                        {dep}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
