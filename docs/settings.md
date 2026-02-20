@@ -10,7 +10,6 @@ Runt notebook settings control default behavior for new notebooks, appearance, a
 | Default runtime | python, deno | python | Settings file |
 | Default Python env | uv, conda | conda | Settings file |
 | Default Deno permissions | Deno permission flags | none | Settings file |
-| Zoom | 50%–300% | 100% | Not persisted |
 
 ## Settings File
 
@@ -93,14 +92,3 @@ Specifies default permission flags applied to new Deno notebooks.
 
 By default this is an empty array, meaning Deno notebooks run with no extra permissions. See the [Deno permissions documentation](https://docs.deno.com/runtime/fundamentals/security/) for available flags.
 
-## Zoom
-
-Zoom in and out of the notebook view using the View menu or keyboard shortcuts:
-
-| Action | Shortcut |
-|--------|----------|
-| Zoom in | Cmd+= |
-| Zoom out | Cmd+- |
-| Reset to 100% | Cmd+0 |
-
-Zoom ranges from 50% to 300%. The zoom level is not persisted — it resets to 100% when you close the window.
