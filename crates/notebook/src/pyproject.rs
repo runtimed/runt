@@ -45,6 +45,8 @@ pub struct PyProjectInfo {
     pub has_dev_dependencies: bool,
     /// Python version constraint if specified.
     pub requires_python: Option<String>,
+    /// Whether a .venv directory exists in the project.
+    pub has_venv: bool,
 }
 
 // [tool.uv] section - not covered by pyproject-toml crate
@@ -163,6 +165,13 @@ pub fn create_pyproject_info(config: &PyProjectConfig, notebook_path: &Path) -> 
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| config.path.display().to_string());
 
+    // Check if .venv exists in the project directory
+    let has_venv = config
+        .path
+        .parent()
+        .map(|dir| dir.join(".venv").is_dir())
+        .unwrap_or(false);
+
     PyProjectInfo {
         path: config.path.display().to_string(),
         relative_path,
@@ -171,6 +180,7 @@ pub fn create_pyproject_info(config: &PyProjectConfig, notebook_path: &Path) -> 
         dependency_count: config.dependencies.len(),
         has_dev_dependencies: !config.dev_dependencies.is_empty(),
         requires_python: config.requires_python.clone(),
+        has_venv,
     }
 }
 

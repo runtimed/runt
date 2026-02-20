@@ -38,6 +38,7 @@ export interface PyProjectInfo {
   dependency_count: number;
   has_dev_dependencies: boolean;
   requires_python: string | null;
+  has_venv: boolean;
 }
 
 /** Info about a detected deno.json/deno.jsonc */
@@ -434,11 +435,12 @@ export function useKernel({
         }
 
         // Check for pyproject.toml (auto-detect if present)
+        // Use pyproject.toml path if it has dependencies OR a .venv exists in the project
         const uvAvailable = await invoke<boolean>("check_uv_available");
         if (uvAvailable) {
           const pyprojectInfo = await invoke<PyProjectInfo | null>("detect_pyproject");
-          if (pyprojectInfo?.has_dependencies) {
-            console.log("[kernel] detected pyproject.toml:", pyprojectInfo.relative_path);
+          if (pyprojectInfo?.has_dependencies || pyprojectInfo?.has_venv) {
+            console.log("[kernel] detected pyproject.toml:", pyprojectInfo.relative_path, "has_venv:", pyprojectInfo.has_venv);
             await startKernelWithPyproject();
             return;
           }
