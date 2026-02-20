@@ -241,6 +241,7 @@ export function useKernel({
 
   const startKernel = useCallback(async (name: string) => {
     setKernelStatus("starting");
+    setEnvSource(null);
     try {
       console.log("[kernel] starting kernel:", name);
       await invoke("start_kernel", { kernelspecName: name });
@@ -364,6 +365,7 @@ export function useKernel({
 
   const startKernelWithDeno = useCallback(async () => {
     setKernelStatus("starting");
+    setEnvSource(null);
     try {
       console.log("[kernel] starting Deno kernel");
       await invoke("start_kernel_with_deno");

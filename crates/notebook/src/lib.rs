@@ -2395,10 +2395,13 @@ async fn import_pixi_dependencies(
     // Merge pixi deps into notebook conda metadata
     let mut state = state.lock().map_err(|e| e.to_string())?;
 
-    let conda_value = serde_json::json!({
+    let mut conda_value = serde_json::json!({
         "dependencies": conda_deps.dependencies,
         "channels": conda_deps.channels,
     });
+    if let Some(python) = &conda_deps.python {
+        conda_value["python"] = serde_json::json!(python);
+    }
 
     state
         .notebook
