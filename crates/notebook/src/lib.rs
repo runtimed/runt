@@ -25,7 +25,7 @@ use notebook_state::{FrontendCell, NotebookState};
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, RunEvent};
@@ -2408,7 +2408,7 @@ fn spawn_new_notebook(runtime: Runtime) {
 }
 
 /// Create initial notebook state for a new notebook, detecting pyproject.toml for Python.
-fn create_new_notebook_state(path: &PathBuf, runtime: Runtime) -> NotebookState {
+fn create_new_notebook_state(path: &Path, runtime: Runtime) -> NotebookState {
     // Only check pyproject.toml for Python runtime
     if runtime == Runtime::Python {
         if let Some(pyproject_path) = pyproject::find_pyproject(path) {
@@ -2419,7 +2419,7 @@ fn create_new_notebook_state(path: &PathBuf, runtime: Runtime) -> NotebookState 
                     pyproject_path.display()
                 );
                 let mut state = NotebookState::new_empty_with_uv_from_pyproject(&config);
-                state.path = Some(path.clone());
+                state.path = Some(path.to_path_buf());
                 return state;
             }
         }
@@ -2427,7 +2427,7 @@ fn create_new_notebook_state(path: &PathBuf, runtime: Runtime) -> NotebookState 
 
     // No pyproject.toml found (or non-Python runtime) - use default
     let mut state = NotebookState::new_empty_with_runtime(runtime);
-    state.path = Some(path.clone());
+    state.path = Some(path.to_path_buf());
     state
 }
 
