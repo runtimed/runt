@@ -350,7 +350,7 @@ pub enum ServerMessage {
     Welcome {
         client_id: String,
         version: u64,
-        snapshot: NotebookSnapshot,
+        snapshot: Box<NotebookSnapshot>,
         #[serde(default)]
         catch_up: Vec<DeltaEvent>,
         #[serde(default)]
@@ -1217,7 +1217,7 @@ mod tests {
         let msg = ServerMessage::Welcome {
             client_id: "tauri-ui-1".into(),
             version: 847,
-            snapshot: NotebookSnapshot {
+            snapshot: Box::new(NotebookSnapshot {
                 version: 847,
                 metadata: HashMap::from([("title".into(), "Test Notebook".into())]),
                 cells: vec![CellSnapshot {
@@ -1237,7 +1237,7 @@ mod tests {
                 runtime_sessions: vec![],
                 execution_queue: vec![],
                 actors: vec![test_actor()],
-            },
+            }),
             catch_up: vec![],
             presence: HashMap::new(),
         };
@@ -1953,7 +1953,7 @@ mod tests {
         let msg = ServerMessage::Welcome {
             client_id: "agent-1".into(),
             version: 50,
-            snapshot: NotebookSnapshot {
+            snapshot: Box::new(NotebookSnapshot {
                 version: 48,
                 metadata: HashMap::new(),
                 cells: vec![],
@@ -1963,7 +1963,7 @@ mod tests {
                 runtime_sessions: vec![],
                 execution_queue: vec![],
                 actors: vec![],
-            },
+            }),
             catch_up: vec![
                 DeltaEvent {
                     version: 49,
