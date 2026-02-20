@@ -126,6 +126,8 @@ function AppContent() {
     hasDependencies: hasCondaDependencies,
     isCondaConfigured,
     loading: condaDepsLoading,
+    syncing: condaSyncing,
+    syncState: condaSyncState,
     syncedWhileRunning: condaSyncedWhileRunning,
     needsKernelRestart: condaNeedsKernelRestart,
     loadDependencies: loadCondaDependencies,
@@ -135,6 +137,7 @@ function AppContent() {
     setPython: setCondaPython,
     environmentYmlInfo,
     environmentYmlDeps,
+    syncNow: syncCondaNow,
   } = useCondaDependencies();
 
   // Deno config detection and settings
@@ -471,12 +474,15 @@ function AppContent() {
           channels={condaDependencies?.channels ?? []}
           python={condaDependencies?.python ?? null}
           loading={condaDepsLoading}
+          syncing={condaSyncing}
+          syncState={condaSyncState}
           syncedWhileRunning={condaSyncedWhileRunning}
           needsKernelRestart={condaNeedsKernelRestart}
           onAdd={addCondaDependency}
           onRemove={removeCondaDependency}
           onSetChannels={setCondaChannels}
           onSetPython={setCondaPython}
+          onSyncNow={syncCondaNow}
           envProgress={envProgress.envType === "conda" ? envProgress : null}
           onResetProgress={envProgress.reset}
           environmentYmlInfo={environmentYmlInfo}

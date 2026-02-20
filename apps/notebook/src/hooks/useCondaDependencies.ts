@@ -31,6 +31,13 @@ export interface EnvironmentYmlDeps {
   channels: string[];
 }
 
+/** Conda sync state — tracks whether declared deps match the running kernel's environment. */
+export type CondaSyncState =
+  | { status: "not_running" }
+  | { status: "not_conda_managed" }
+  | { status: "synced" }
+  | { status: "dirty" };
+
 export function useCondaDependencies() {
   const [dependencies, setDependencies] = useState<CondaDependencies | null>(
     null
@@ -40,6 +47,10 @@ export function useCondaDependencies() {
   const [syncedWhileRunning, setSyncedWhileRunning] = useState(false);
   // Track if user added deps but kernel isn't conda-managed (needs restart)
   const [needsKernelRestart, setNeedsKernelRestart] = useState(false);
+  // Sync state for "Sync Now" button
+  const [syncState, setSyncState] = useState<CondaSyncState | null>(null);
+  // Whether a sync is in progress (separate from loading so input stays enabled)
+  const [syncing, setSyncing] = useState(false);
 
   // environment.yml detection state
   const [environmentYmlInfo, setEnvironmentYmlInfo] = useState<EnvironmentYmlInfo | null>(null);
@@ -89,6 +100,29 @@ export function useCondaDependencies() {
     }
   }, []);
 
+  // Check sync state between declared deps and the running kernel
+  const checkSyncState = useCallback(async () => {
+    try {
+      const isRunning = await invoke<boolean>("is_kernel_running");
+      if (!isRunning) {
+        setSyncState({ status: "not_running" });
+        return;
+      }
+
+      const hasCondaEnv = await invoke<boolean>("kernel_has_conda_env");
+      if (!hasCondaEnv) {
+        setSyncState({ status: "not_conda_managed" });
+        return;
+      }
+
+      // If we reach here, kernel is running with conda — mark as dirty
+      // (we can't cheaply check if they actually match, so assume dirty after changes)
+      setSyncState({ status: "dirty" });
+    } catch (e) {
+      console.error("Failed to check conda sync state:", e);
+    }
+  }, []);
+
   // Try to sync deps to running kernel
   const syncToKernel = useCallback(async (): Promise<boolean> => {
     try {
@@ -118,6 +152,7 @@ export function useCondaDependencies() {
         if (synced) {
           setSyncedWhileRunning(true);
           setNeedsKernelRestart(false);
+          setSyncState({ status: "synced" });
         }
         return synced;
       } catch {
@@ -131,6 +166,17 @@ export function useCondaDependencies() {
     }
   }, []);
 
+  // Explicit sync function for "Sync Now" button — does NOT block the input
+  const syncNow = useCallback(async (): Promise<boolean> => {
+    setSyncing(true);
+    try {
+      const synced = await syncToKernel();
+      return synced;
+    } finally {
+      setSyncing(false);
+    }
+  }, [syncToKernel]);
+
   const addDependency = useCallback(
     async (pkg: string) => {
       if (!pkg.trim()) return;
@@ -140,15 +186,15 @@ export function useCondaDependencies() {
         await loadDependencies();
         // Re-sign to keep notebook trusted after user modification
         await resignTrust();
-        // Try to sync to running kernel
-        await syncToKernel();
+        // Check sync state — UI will show "Sync Now" if dirty
+        await checkSyncState();
       } catch (e) {
         console.error("Failed to add conda dependency:", e);
       } finally {
         setLoading(false);
       }
     },
-    [loadDependencies, resignTrust, syncToKernel]
+    [loadDependencies, resignTrust, checkSyncState]
   );
 
   const removeDependency = useCallback(
@@ -159,25 +205,22 @@ export function useCondaDependencies() {
         await loadDependencies();
         // Re-sign to keep notebook trusted after user modification
         await resignTrust();
-        // Note: removing a dep doesn't uninstall from running kernel
-        // User would need to restart for that
-        const hasCondaEnv = await invoke<boolean>("kernel_has_conda_env");
-        if (hasCondaEnv) {
-          setNeedsKernelRestart(true);
-        }
+        // Check sync state — removing a dep doesn't uninstall from running kernel
+        await checkSyncState();
       } catch (e) {
         console.error("Failed to remove conda dependency:", e);
       } finally {
         setLoading(false);
       }
     },
-    [loadDependencies, resignTrust]
+    [loadDependencies, resignTrust, checkSyncState]
   );
 
   // Clear the synced notice (e.g., when kernel restarts)
   const clearSyncNotice = useCallback(() => {
     setSyncedWhileRunning(false);
     setNeedsKernelRestart(false);
+    setSyncState(null);
   }, []);
 
   const setChannels = useCallback(
@@ -233,6 +276,8 @@ export function useCondaDependencies() {
     hasDependencies,
     isCondaConfigured,
     loading,
+    syncing,
+    syncState,
     syncedWhileRunning,
     needsKernelRestart,
     loadDependencies,
@@ -240,6 +285,7 @@ export function useCondaDependencies() {
     removeDependency,
     setChannels,
     setPython,
+    syncNow,
     clearSyncNotice,
     // environment.yml support
     environmentYmlInfo,
