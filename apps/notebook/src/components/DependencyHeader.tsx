@@ -207,6 +207,16 @@ export function DependencyHeader({
             </div>
           )}
 
+          {/* Project-managed state: read-only view when using uv run */}
+          {isUsingProjectEnv && (
+            <div className="mb-3 flex items-start gap-2 rounded bg-green-500/10 px-2 py-1.5 text-xs text-green-700 dark:text-green-400">
+              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                Managed by <code className="rounded bg-green-500/20 px-1">{pyprojectInfo?.relative_path ?? "pyproject.toml"}</code> — restart kernel to pick up dependency changes.
+              </span>
+            </div>
+          )}
+
           {/* Python version */}
           {requiresPython && (
             <div className="mb-2 text-xs text-muted-foreground">
@@ -214,34 +224,39 @@ export function DependencyHeader({
             </div>
           )}
 
-          {/* Dependencies list */}
-          {dependencies.length > 0 ? (
-            <div className="mb-3 flex flex-wrap gap-1.5">
-              {dependencies.map((dep) => (
-                <div
-                  key={dep}
-                  className="flex items-center gap-1 rounded bg-background px-2 py-1 text-xs border"
-                >
-                  <span className="font-mono">{dep}</span>
-                  <button
-                    type="button"
-                    onClick={() => onRemove(dep)}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
-                    disabled={loading}
-                    title={`Remove ${dep}`}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
+          {/* Dependencies list (read-only when using project env) */}
+          {!isUsingProjectEnv && (
+            <>
+              {dependencies.length > 0 ? (
+                <div className="mb-3 flex flex-wrap gap-1.5">
+                  {dependencies.map((dep) => (
+                    <div
+                      key={dep}
+                      className="flex items-center gap-1 rounded bg-background px-2 py-1 text-xs border"
+                    >
+                      <span className="font-mono">{dep}</span>
+                      <button
+                        type="button"
+                        onClick={() => onRemove(dep)}
+                        className="text-muted-foreground hover:text-foreground transition-colors"
+                        disabled={loading}
+                        title={`Remove ${dep}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="mb-3 text-xs text-muted-foreground">
-              No dependencies. Add packages to create an isolated environment.
-            </div>
+              ) : (
+                <div className="mb-3 text-xs text-muted-foreground">
+                  No inline dependencies. Add packages to create an isolated environment.
+                </div>
+              )}
+            </>
           )}
 
-          {/* Add dependency input */}
+          {/* Add dependency input (hidden when using project env) */}
+          {!isUsingProjectEnv && (
           <div className="flex gap-2">
             <input
               type="text"
@@ -263,7 +278,8 @@ export function DependencyHeader({
               <Plus className="h-3 w-3" />
               Add
             </button>
-        </div>
+          </div>
+          )}
       </div>
     </div>
   );
