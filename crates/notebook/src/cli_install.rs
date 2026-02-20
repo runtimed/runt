@@ -141,9 +141,9 @@ pub fn install_cli(app: &tauri::AppHandle) -> Result<(), String> {
 
 /// Try to install directly without admin privileges
 fn try_install_direct(
-    bundled_runt: &PathBuf,
-    runt_dest: &PathBuf,
-    nb_dest: &PathBuf,
+    bundled_runt: &std::path::Path,
+    runt_dest: &std::path::Path,
+    nb_dest: &std::path::Path,
 ) -> Result<(), String> {
     // Copy runt binary
     fs::copy(bundled_runt, runt_dest)
@@ -167,7 +167,7 @@ fn try_install_direct(
 }
 
 /// Create the nb wrapper script
-fn create_nb_wrapper(nb_dest: &PathBuf) -> Result<(), String> {
+fn create_nb_wrapper(nb_dest: &std::path::Path) -> Result<(), String> {
     let script = r#"#!/bin/bash
 # nb - Runt Notebook CLI (shorthand for 'runt notebook')
 # Installed by runt-notebook.app
@@ -197,9 +197,9 @@ exec runt notebook "$@"
 /// Install using macOS admin privileges via osascript
 #[cfg(target_os = "macos")]
 fn install_with_admin_privileges(
-    bundled_runt: &PathBuf,
-    runt_dest: &PathBuf,
-    nb_dest: &PathBuf,
+    bundled_runt: &std::path::Path,
+    runt_dest: &std::path::Path,
+    nb_dest: &std::path::Path,
 ) -> Result<(), String> {
     let nb_script = r#"#!/bin/bash
 # nb - Runt Notebook CLI (shorthand for 'runt notebook')
