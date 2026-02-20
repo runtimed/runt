@@ -20,7 +20,9 @@ fs.mkdirSync(SCREENSHOT_FAILURES_DIR, { recursive: true });
 export const config = {
   runner: "local",
 
-  specs: [path.join(__dirname, "specs", "*.spec.js")],
+  specs: process.env.E2E_SPEC
+    ? [process.env.E2E_SPEC]
+    : [path.join(__dirname, "specs", "*.spec.js")],
 
   // Don't run tests in parallel - we have one app instance
   maxInstances: 1,
@@ -34,6 +36,8 @@ export const config = {
         // Path is relative to where tauri-driver runs (inside Docker at /app)
         application:
           process.env.TAURI_APP_PATH || "/app/target/release/notebook",
+        // Pass notebook path as arg to open a specific fixture
+        ...(process.env.NOTEBOOK_PATH ? { args: [process.env.NOTEBOOK_PATH] } : {}),
       },
     },
   ],

@@ -150,15 +150,6 @@ function AppContent() {
     setFlexibleNpmImports,
   } = useDenoDependencies();
 
-  // Auto-detect environment type based on what's configured
-  // uv takes priority if metadata exists AND uv is available
-  // Falls back to conda if uv is not available or environment.yml is detected
-  const envType = isUvConfigured && uvAvailable !== false
-    ? "uv"
-    : isCondaConfigured || environmentYmlInfo?.has_dependencies || uvAvailable === false
-      ? "conda"
-      : null;
-
   // Combine hasDependencies for toolbar badge
   // For Deno, show badge if deno.json is found with imports
   const hasDependencies = runtime === "deno"
@@ -271,6 +262,19 @@ function AppContent() {
     onPagePayload: handlePagePayload,
     onUpdateDisplayData: updateOutputByDisplayId,
   });
+
+  // When kernel is running and we know the env source, use it to determine panel type.
+  // This handles: both-deps (backend picks based on preference), pixi (auto-detected, no metadata).
+  // Fall back to metadata-based detection when kernel hasn't started yet.
+  const envType = envSource?.startsWith("conda:")
+    ? "conda"
+    : envSource?.startsWith("uv:")
+      ? "uv"
+      : isUvConfigured && uvAvailable !== false
+        ? "uv"
+        : isCondaConfigured || environmentYmlInfo?.has_dependencies || uvAvailable === false
+          ? "conda"
+          : null;
 
   // Environment preparation progress
   const envProgress = useEnvProgress();
