@@ -626,7 +626,8 @@ pub fn launch(file: &Path, quiet: bool, dump: Option<&Path>) -> Result<()> {
     #[cfg(target_os = "windows")]
     {
         use tao::platform::windows::WindowExtWindows;
-        menu_bar.init_for_hwnd(window.hwnd() as _).ok();
+        // SAFETY: window.hwnd() returns a valid HWND for the duration of the window's lifetime
+        unsafe { menu_bar.init_for_hwnd(window.hwnd() as _) }.ok();
     }
     // Linux: Menu bar initialization skipped - requires GTK integration
 

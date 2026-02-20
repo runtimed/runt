@@ -1,2 +1,3 @@
-# Ignore all runtimed binaries (built by xtask)
+# Ignore all external binaries (built by xtask)
 runtimed-*
+runt-*

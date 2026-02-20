@@ -13,6 +13,9 @@ pub const MENU_ZOOM_IN: &str = "zoom_in";
 pub const MENU_ZOOM_OUT: &str = "zoom_out";
 pub const MENU_ZOOM_RESET: &str = "zoom_reset";
 
+// Menu item IDs for CLI installation
+pub const MENU_INSTALL_CLI: &str = "install_cli";
+
 /// Build the application menu bar
 pub fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let menu = Menu::new(app)?;
@@ -20,6 +23,14 @@ pub fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     // App menu (macOS standard - shows app name)
     let app_menu = Submenu::new(app, "runt-notebook", true)?;
     app_menu.append(&PredefinedMenuItem::about(app, Some("runt-notebook"), None)?)?;
+    app_menu.append(&PredefinedMenuItem::separator(app)?)?;
+    app_menu.append(&MenuItem::with_id(
+        app,
+        MENU_INSTALL_CLI,
+        "Install 'runt' Command in PATH...",
+        true,
+        None::<&str>,
+    )?)?;
     app_menu.append(&PredefinedMenuItem::separator(app)?)?;
     app_menu.append(&PredefinedMenuItem::services(app, None)?)?;
     app_menu.append(&PredefinedMenuItem::separator(app)?)?;

@@ -256,12 +256,13 @@ jobs:
       - name: Generate Icons
         run: cargo xtask icons
 
-      - name: Build runtimed daemon
+      - name: Build external binaries
         run: |
-          cargo build --release -p runtimed
+          cargo build --release -p runtimed -p runt-cli
           TARGET=$(rustc --print host-tuple)
           mkdir -p crates/notebook/binaries
           cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
+          cp target/release/runt "crates/notebook/binaries/runt-$TARGET"
 
       - name: Build and Sign DMG
         env:
@@ -387,11 +388,12 @@ jobs:
       - name: Generate Icons
         run: cargo xtask icons
 
-      - name: Build runtimed daemon
+      - name: Build external binaries
         run: |
-          cargo build --release -p runtimed --target x86_64-apple-darwin
+          cargo build --release -p runtimed -p runt-cli --target x86_64-apple-darwin
           mkdir -p crates/notebook/binaries
           cp target/x86_64-apple-darwin/release/runtimed "crates/notebook/binaries/runtimed-x86_64-apple-darwin"
+          cp target/x86_64-apple-darwin/release/runt "crates/notebook/binaries/runt-x86_64-apple-darwin"
 
       - name: Build and Sign DMG
         env:
@@ -490,13 +492,14 @@ jobs:
       - name: Generate Icons
         run: cargo xtask icons
 
-      - name: Build runtimed daemon
+      - name: Build external binaries
         shell: bash
         run: |
-          cargo build --release -p runtimed
+          cargo build --release -p runtimed -p runt-cli
           TARGET=$(rustc --print host-tuple)
           mkdir -p crates/notebook/binaries
           cp target/release/runtimed.exe "crates/notebook/binaries/runtimed-$TARGET.exe"
+          cp target/release/runt.exe "crates/notebook/binaries/runt-$TARGET.exe"
 
       - name: Build NSIS Installer
         run: cargo tauri build --ci --bundles nsis --config '{"build":{"beforeBuildCommand":""}}'
@@ -586,12 +589,13 @@ jobs:
       - name: Generate Icons
         run: cargo xtask icons
 
-      - name: Build runtimed daemon
+      - name: Build external binaries
         run: |
-          cargo build --release -p runtimed
+          cargo build --release -p runtimed -p runt-cli
           TARGET=$(rustc --print host-tuple)
           mkdir -p crates/notebook/binaries
           cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
+          cp target/release/runt "crates/notebook/binaries/runt-$TARGET"
 
       - name: Build AppImage
         run: cargo tauri build --ci --bundles appimage --config '{"build":{"beforeBuildCommand":""}}'

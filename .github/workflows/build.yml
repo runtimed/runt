@@ -71,16 +71,18 @@ jobs:
           pnpm --dir apps/sidecar build
           pnpm --dir apps/notebook build
 
-      - name: Build runtimed daemon
+      - name: Build external binaries
         shell: bash
         run: |
-          cargo build --release -p runtimed
+          cargo build --release -p runtimed -p runt-cli
           TARGET=$(rustc --print host-tuple)
           mkdir -p crates/notebook/binaries
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             cp target/release/runtimed.exe "crates/notebook/binaries/runtimed-$TARGET.exe"
+            cp target/release/runt.exe "crates/notebook/binaries/runt-$TARGET.exe"
           else
             cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
+            cp target/release/runt "crates/notebook/binaries/runt-$TARGET"
           fi
 
       - name: Clippy
@@ -141,6 +143,7 @@ jobs:
       - name: Build frontend
         run: |
           pnpm run isolated-renderer:build
+          pnpm --dir apps/sidecar build
           pnpm --dir apps/notebook build
 
       - name: Cache cargo bin
@@ -157,16 +160,18 @@ jobs:
             cargo install tauri-cli tauri-driver --locked
           fi
 
-      - name: Build runtimed daemon
+      - name: Build external binaries
         run: |
-          cargo build --release -p runtimed
+          cargo build --release -p runtimed -p runt-cli
           TARGET=$(rustc --print host-tuple)
           # Copy to crates/notebook/binaries/ for Tauri build validation
           mkdir -p crates/notebook/binaries
           cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
+          cp target/release/runt "crates/notebook/binaries/runt-$TARGET"
           # Copy to target/release/binaries/ for runtime (no-bundle builds)
           mkdir -p target/release/binaries
           cp target/release/runtimed "target/release/binaries/runtimed-$TARGET"
+          cp target/release/runt "target/release/binaries/runt-$TARGET"
 
       - name: Build Tauri app
         run: cd crates/notebook && cargo tauri build --ci --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
