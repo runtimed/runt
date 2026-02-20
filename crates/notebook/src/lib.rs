@@ -1434,7 +1434,99 @@ async fn start_default_python_kernel_impl(
             settings::PythonEnvType::Conda => false,
         }
     } else {
-        // Neither has deps - use user preference (for prewarmed envs)
+        // Neither has inline deps - check for project files before falling back to prewarmed
+        // Detection priority: pyproject.toml → pixi.toml → (environment.yml) → prewarmed
+        let notebook_path_for_detection = {
+            let state = notebook_state.lock().map_err(|e| e.to_string())?;
+            state.path.clone()
+        };
+
+        // Priority 2: Check for pyproject.toml → use uv run
+        if uv_available {
+            if let Some(ref nb_path) = notebook_path_for_detection {
+                if let Some(pyproject_path) = pyproject::find_pyproject(nb_path) {
+                    if let Ok(config) = pyproject::parse_pyproject(&pyproject_path) {
+                        let info = pyproject::create_pyproject_info(&config, nb_path);
+                        if info.has_dependencies || info.has_venv {
+                            let project_dir = pyproject_path.parent()
+                                .ok_or_else(|| "Invalid pyproject.toml path".to_string())?;
+
+                            info!(
+                                "Auto-detected pyproject.toml at {}, starting with uv run",
+                                info.relative_path
+                            );
+
+                            let mut kernel = kernel_state.lock().await;
+                            kernel.start_with_uv_run(app, project_dir).await
+                                .map_err(|e| e.to_string())?;
+
+                            info!(
+                                "[kernel-ready] Started UV kernel in {}ms | Source: pyproject.toml (auto-detected)",
+                                kernel_start.elapsed().as_millis()
+                            );
+                            return Ok("uv".to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Priority 3: Check for pixi.toml → convert to conda deps
+        if let Some(ref nb_path) = notebook_path_for_detection {
+            if let Some(pixi_path) = pixi::find_pixi_toml(nb_path) {
+                if let Ok(config) = pixi::parse_pixi_toml(&pixi_path) {
+                    if !config.dependencies.is_empty() {
+                        let pixi_info = pixi::create_pixi_info(&config, nb_path);
+                        info!(
+                            "Auto-detected pixi.toml at {} with {} dependencies, using conda/rattler path",
+                            pixi_info.relative_path,
+                            pixi_info.dependency_count
+                        );
+
+                        let mut deps = pixi::convert_to_conda_dependencies(&config);
+
+                        // Get or create env_id for this notebook
+                        let env_id = {
+                            let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
+                            let existing_id = state.notebook.metadata.additional
+                                .get("runt")
+                                .and_then(|v| v.get("env_id"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            match existing_id {
+                                Some(id) => id,
+                                None => {
+                                    let new_id = uuid::Uuid::new_v4().to_string();
+                                    state.notebook.metadata.additional.insert(
+                                        "runt".to_string(),
+                                        serde_json::json!({ "env_id": new_id }),
+                                    );
+                                    state.dirty = true;
+                                    new_id
+                                }
+                            }
+                        };
+                        deps.env_id = Some(env_id);
+
+                        let mut kernel = kernel_state.lock().await;
+                        kernel.start_with_conda(app, &deps, notebook_path_for_detection.as_deref())
+                            .await
+                            .map_err(|e| e.to_string())?;
+
+                        info!(
+                            "[kernel-ready] Started Conda kernel in {}ms | Source: pixi.toml (auto-detected)",
+                            kernel_start.elapsed().as_millis()
+                        );
+                        return Ok("conda".to_string());
+                    }
+                }
+            }
+        }
+
+        // Priority 4: environment.yml detection would go here
+        // (handled by environment_yml.rs when available)
+
+        // No project file found - fall back to user preference (for prewarmed envs)
         match preferred_env {
             settings::PythonEnvType::Uv => {
                 if uv_available {
