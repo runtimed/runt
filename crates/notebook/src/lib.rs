@@ -3102,7 +3102,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                         {
                             Ok(source) => Some(source),
                             Err(e) => {
-                                log::warn!("Auto-launch kernel failed (will start on demand): {}", e);
+                                log::error!("Auto-launch kernel failed: {}", e);
                                 None
                             }
                         }
@@ -3117,24 +3117,29 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                         {
                             Ok(()) => Some("deno".to_string()),
                             Err(e) => {
-                                log::warn!(
-                                    "Auto-launch Deno kernel failed (will start on demand): {}",
-                                    e
-                                );
+                                log::error!("Auto-launch Deno kernel failed: {}", e);
                                 None
                             }
                         }
                     }
                 };
 
-                // Emit "ready" lifecycle event with environment source
                 if let Some(source) = env_source {
+                    // Emit "ready" lifecycle event with environment source
                     let ready_event = KernelLifecycleEvent {
                         state: "ready".to_string(),
                         runtime: runtime_str,
                         env_source: Some(source),
                     };
                     let _ = app_for_autolaunch.emit("kernel:lifecycle", &ready_event);
+                } else {
+                    // Emit "error" lifecycle event so frontend can show the failure
+                    let error_event = KernelLifecycleEvent {
+                        state: "error".to_string(),
+                        runtime: runtime_str,
+                        env_source: None,
+                    };
+                    let _ = app_for_autolaunch.emit("kernel:lifecycle", &error_event);
                 }
 
                 // Clear auto-launch flag when done

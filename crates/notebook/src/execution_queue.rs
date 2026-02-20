@@ -50,8 +50,13 @@ pub enum QueueCommand {
     RetryProcessing,
 }
 
-/// Maximum number of kernel-not-running retries before cancelling (50 * 100ms = 5 seconds)
-const MAX_KERNEL_RETRIES: usize = 50;
+/// Maximum number of kernel-not-running retries before cancelling.
+/// Must be high enough for `uv run` scenarios where deps may need installing (up to ~90s).
+/// 600 * 500ms = 300 seconds (5 minutes).
+const MAX_KERNEL_RETRIES: usize = 600;
+
+/// Delay between kernel retry attempts in milliseconds
+const KERNEL_RETRY_DELAY_MS: u64 = 500;
 
 /// The execution queue - owns the pending/executing state
 pub struct ExecutionQueue {
@@ -377,10 +382,10 @@ async fn process_next(
                 q.pending.push_front(cell_id);
                 emit_queue_state(app, &q);
             }
-            // Schedule a retry after a short delay
+            // Schedule a retry after a delay (long enough for uv run / conda env creation)
             let tx_clone = tx.clone();
             tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(KERNEL_RETRY_DELAY_MS)).await;
                 let _ = tx_clone.send(QueueCommand::RetryProcessing).await;
             });
         } else {

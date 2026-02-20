@@ -112,7 +112,7 @@ export function useKernel({
       }
     });
 
-    // Listen for kernel lifecycle events (auto-launch starting/ready)
+    // Listen for kernel lifecycle events (auto-launch starting/ready/error)
     const lifecycleUnlisten = listen<{ state: string; runtime: string; env_source?: string }>(
       "kernel:lifecycle",
       (event) => {
@@ -121,6 +121,8 @@ export function useKernel({
           setKernelStatus("starting");
         } else if (event.payload.state === "ready" && event.payload.env_source) {
           setEnvSource(event.payload.env_source);
+        } else if (event.payload.state === "error") {
+          setKernelStatus("error");
         }
       }
     );
