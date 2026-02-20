@@ -102,7 +102,6 @@ impl NotebookState {
                     serde_json::json!({
                         "dependencies": Vec::<String>::new(),
                         "channels": vec!["conda-forge"],
-                        "env_id": env_id.clone(),
                     }),
                 );
             }
@@ -163,7 +162,6 @@ impl NotebookState {
                             serde_json::json!({
                                 "dependencies": Vec::<String>::new(),
                                 "channels": vec!["conda-forge"],
-                                "env_id": env_id.clone(),
                             }),
                         );
                     }

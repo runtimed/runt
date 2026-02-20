@@ -438,16 +438,9 @@ async fn clone_notebook_to_path(
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
         let mut cloned = state.notebook.clone();
 
-        // Update runt metadata with new env_id
+        // Update runt metadata with new env_id (canonical location for env_id)
         if let Some(runt_value) = cloned.metadata.additional.get_mut("runt") {
             if let Some(obj) = runt_value.as_object_mut() {
-                obj.insert("env_id".to_string(), serde_json::json!(new_env_id.clone()));
-            }
-        }
-
-        // Also update conda env_id if present
-        if let Some(conda_value) = cloned.metadata.additional.get_mut("conda") {
-            if let Some(obj) = conda_value.as_object_mut() {
                 obj.insert("env_id".to_string(), serde_json::json!(new_env_id.clone()));
             }
         }
