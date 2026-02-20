@@ -240,6 +240,14 @@ pub enum ClientMessage {
 }
 
 /// Edit operations sent by clients. Nested inside `ClientMessage::Edit`.
+///
+/// # Security note
+///
+/// Several variants include actor identity fields (`created_by`, `actor_id`,
+/// `modified_by`, `requested_by`, `cancelled_by`). The server MUST NOT trust
+/// these values from the wire — it must overwrite them with the authenticated
+/// identity established during the `Hello` handshake. Failing to do so allows
+/// clients to impersonate other actors.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum EditOp {
