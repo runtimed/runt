@@ -17,7 +17,12 @@ interface DependencyHeaderProps {
   // pyproject.toml support
   pyprojectInfo?: PyProjectInfo | null;
   pyprojectDeps?: PyProjectDeps | null;
+  /** Copy pyproject.toml deps into notebook metadata as a portable snapshot */
   onImportFromPyproject?: () => Promise<void>;
+  /** Start kernel using the project environment (uv run) */
+  onUseProjectEnv?: () => Promise<void>;
+  /** Whether the kernel is currently using the project environment */
+  isUsingProjectEnv?: boolean;
 }
 
 export function DependencyHeader({
@@ -34,6 +39,8 @@ export function DependencyHeader({
   pyprojectInfo,
   pyprojectDeps,
   onImportFromPyproject,
+  onUseProjectEnv,
+  isUsingProjectEnv,
 }: DependencyHeaderProps) {
   const [newDep, setNewDep] = useState("");
 
@@ -133,7 +140,6 @@ export function DependencyHeader({
                 <div className="flex items-center gap-2">
                   <FileText className="h-3.5 w-3.5 shrink-0" />
                   <span>
-                    Using deps from{" "}
                     <code className="rounded bg-uv/20 px-1">
                       {pyprojectInfo.relative_path}
                     </code>
@@ -144,18 +150,36 @@ export function DependencyHeader({
                     )}
                   </span>
                 </div>
-                {onImportFromPyproject && (
-                  <button
-                    type="button"
-                    onClick={onImportFromPyproject}
-                    disabled={loading}
-                    className="flex items-center gap-1 text-uv hover:text-uv/80 transition-colors disabled:opacity-50"
-                    title="Copy pyproject.toml dependencies into notebook for portability"
-                  >
-                    <Download className="h-3 w-3" />
-                    Import to notebook
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {onUseProjectEnv && !isUsingProjectEnv && (
+                    <button
+                      type="button"
+                      onClick={onUseProjectEnv}
+                      disabled={loading}
+                      className="flex items-center gap-1 rounded bg-uv px-2 py-0.5 text-white text-xs font-medium hover:bg-uv/90 transition-colors disabled:opacity-50"
+                      title="Start kernel with uv run — stays in sync with pyproject.toml"
+                    >
+                      Use project env
+                    </button>
+                  )}
+                  {isUsingProjectEnv && (
+                    <span className="rounded bg-green-500/20 px-1.5 py-0.5 text-green-700 dark:text-green-400 text-xs font-medium">
+                      Active
+                    </span>
+                  )}
+                  {onImportFromPyproject && (
+                    <button
+                      type="button"
+                      onClick={onImportFromPyproject}
+                      disabled={loading}
+                      className="flex items-center gap-1 text-uv/70 hover:text-uv transition-colors disabled:opacity-50"
+                      title="Copy deps into notebook metadata for portable sharing"
+                    >
+                      <Download className="h-3 w-3" />
+                      Copy to notebook
+                    </button>
+                  )}
+                </div>
               </div>
               {pyprojectDeps && (pyprojectDeps.dependencies.length > 0 || pyprojectDeps.dev_dependencies.length > 0) && (
                 <div className="mt-2 text-xs text-uv/80">

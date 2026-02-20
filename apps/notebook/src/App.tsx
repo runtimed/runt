@@ -256,6 +256,7 @@ function AppContent() {
     kernelStatus,
     envSource,
     ensureKernelStarted,
+    startKernelWithPyproject,
     interruptKernel,
     restartKernel,
     listKernelspecs,
@@ -517,6 +518,8 @@ function AppContent() {
           pyprojectInfo={pyprojectInfo}
           pyprojectDeps={pyprojectDeps}
           onImportFromPyproject={importFromPyproject}
+          onUseProjectEnv={startKernelWithPyproject}
+          isUsingProjectEnv={envSource === "uv:pyproject"}
         />
       )}
       {showIsolationTest && <IsolationTest />}
