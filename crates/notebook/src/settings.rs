@@ -91,12 +91,8 @@ mod tests {
     fn test_default_settings() {
         let settings = AppSettings::default();
         assert_eq!(settings.default_runtime, Runtime::Python);
-<<<<<<< HEAD
-        assert_eq!(settings.default_python_env, PythonEnvType::Conda);
-=======
         assert_eq!(settings.default_python_env, PythonEnvType::Uv);
         assert!(settings.default_deno_permissions.is_empty());
->>>>>>> a66c524 (Change default Python env from conda to uv)
     }
 
     #[test]

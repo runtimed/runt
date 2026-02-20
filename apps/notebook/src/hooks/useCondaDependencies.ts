@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import type { PixiInfo } from "../types";
 
 export interface CondaDependencies {
   dependencies: string[];
@@ -51,6 +52,8 @@ export function useCondaDependencies() {
   const [syncState, setSyncState] = useState<CondaSyncState | null>(null);
   // Whether a sync is in progress (separate from loading so input stays enabled)
   const [syncing, setSyncing] = useState(false);
+  // pixi.toml detection
+  const [pixiInfo, setPixiInfo] = useState<PixiInfo | null>(null);
 
   // environment.yml detection state
   const [environmentYmlInfo, setEnvironmentYmlInfo] = useState<EnvironmentYmlInfo | null>(null);
@@ -77,10 +80,11 @@ export function useCondaDependencies() {
     }
   }, []);
 
-  // Load dependencies and detect environment.yml on mount
+  // Load dependencies and detect environment.yml and pixi.toml on mount
   useEffect(() => {
     loadDependencies();
     invoke<EnvironmentYmlInfo | null>("detect_environment_yml").then(setEnvironmentYmlInfo);
+    invoke<PixiInfo | null>("detect_pixi_toml").then(setPixiInfo);
   }, [loadDependencies]);
 
   // Load environment.yml deps when we detect one
@@ -271,6 +275,20 @@ export function useCondaDependencies() {
   // True if conda metadata exists (even with empty deps)
   const isCondaConfigured = dependencies !== null;
 
+  // Import pixi.toml deps into notebook conda metadata
+  const importFromPixi = useCallback(async () => {
+    setLoading(true);
+    try {
+      await invoke("import_pixi_dependencies");
+      await loadDependencies();
+      await resignTrust();
+    } catch (e) {
+      console.error("Failed to import pixi dependencies:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [loadDependencies, resignTrust]);
+
   return {
     dependencies,
     hasDependencies,
@@ -280,12 +298,14 @@ export function useCondaDependencies() {
     syncState,
     syncedWhileRunning,
     needsKernelRestart,
+    pixiInfo,
     loadDependencies,
     addDependency,
     removeDependency,
     setChannels,
     setPython,
     syncNow,
+    importFromPixi,
     clearSyncNotice,
     // environment.yml support
     environmentYmlInfo,

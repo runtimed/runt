@@ -138,6 +138,8 @@ function AppContent() {
     environmentYmlInfo,
     environmentYmlDeps,
     syncNow: syncCondaNow,
+    pixiInfo,
+    importFromPixi,
   } = useCondaDependencies();
 
   // Deno config detection and settings
@@ -501,6 +503,8 @@ function AppContent() {
           onResetProgress={envProgress.reset}
           environmentYmlInfo={environmentYmlInfo}
           environmentYmlDeps={environmentYmlDeps}
+          pixiInfo={pixiInfo}
+          onImportFromPixi={importFromPixi}
         />
       )}
       {dependencyHeaderOpen && runtime === "python" && envType !== "conda" && (

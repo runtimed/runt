@@ -2377,6 +2377,51 @@ async fn start_kernel_with_environment_yml(
         .map_err(|e| e.to_string())
 }
 
+/// Import dependencies from pixi.toml into notebook conda metadata.
+/// This converts pixi deps to conda format and stores them inline in the notebook.
+#[tauri::command]
+async fn import_pixi_dependencies(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<(), String> {
+    let notebook_path = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        state.path.clone()
+    };
+
+    let Some(notebook_path) = notebook_path else {
+        return Err("No notebook path set".to_string());
+    };
+
+    let Some(pixi_path) = pixi::find_pixi_toml(&notebook_path) else {
+        return Err("No pixi.toml found".to_string());
+    };
+
+    let config = pixi::parse_pixi_toml(&pixi_path).map_err(|e| e.to_string())?;
+    let conda_deps = pixi::convert_to_conda_dependencies(&config);
+
+    // Merge pixi deps into notebook conda metadata
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+
+    let conda_value = serde_json::json!({
+        "dependencies": conda_deps.dependencies,
+        "channels": conda_deps.channels,
+    });
+
+    state
+        .notebook
+        .metadata
+        .additional
+        .insert("conda".to_string(), conda_value);
+    state.dirty = true;
+
+    info!(
+        "Imported {} dependencies from pixi.toml into notebook conda metadata",
+        conda_deps.dependencies.len()
+    );
+
+    Ok(())
+}
+
 // ========== Deno kernel support ==========
 
 /// Check if Deno is available on the system
@@ -2851,6 +2896,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
             // pixi.toml support
             detect_pixi_toml,
             get_pixi_dependencies,
+            import_pixi_dependencies,
             // environment.yml support
             detect_environment_yml,
             get_environment_yml_dependencies,
