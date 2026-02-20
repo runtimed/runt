@@ -40,10 +40,6 @@ pub struct AppSettings {
     /// Default Python environment type (uv or conda)
     #[serde(default)]
     pub default_python_env: PythonEnvType,
-
-    /// Default Deno permissions for new notebooks
-    #[serde(default)]
-    pub default_deno_permissions: Vec<String>,
 }
 
 impl Default for AppSettings {
@@ -51,7 +47,6 @@ impl Default for AppSettings {
         Self {
             default_runtime: Runtime::Python,
             default_python_env: PythonEnvType::Conda,
-            default_deno_permissions: vec![],
         }
     }
 }
@@ -96,7 +91,6 @@ mod tests {
         let settings = AppSettings::default();
         assert_eq!(settings.default_runtime, Runtime::Python);
         assert_eq!(settings.default_python_env, PythonEnvType::Conda);
-        assert!(settings.default_deno_permissions.is_empty());
     }
 
     #[test]
@@ -104,7 +98,6 @@ mod tests {
         let settings = AppSettings {
             default_runtime: Runtime::Deno,
             default_python_env: PythonEnvType::Uv,
-            default_deno_permissions: vec!["--allow-net".to_string()],
         };
 
         let json = serde_json::to_string(&settings).unwrap();
@@ -112,7 +105,6 @@ mod tests {
 
         assert_eq!(parsed.default_runtime, Runtime::Deno);
         assert_eq!(parsed.default_python_env, PythonEnvType::Uv);
-        assert_eq!(parsed.default_deno_permissions.len(), 1);
     }
 
     #[test]

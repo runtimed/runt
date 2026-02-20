@@ -9,7 +9,6 @@ Runt notebook settings control default behavior for new notebooks, appearance, a
 | Theme | light, dark, system | system | Browser localStorage (per window) |
 | Default runtime | python, deno | python | Settings file |
 | Default Python env | uv, conda | conda | Settings file |
-| Default Deno permissions | Deno permission flags | none | Settings file |
 
 ## Settings File
 
@@ -28,8 +27,7 @@ Example:
 ```json
 {
   "default_runtime": "python",
-  "default_python_env": "conda",
-  "default_deno_permissions": []
+  "default_python_env": "conda"
 }
 ```
 
@@ -80,15 +78,4 @@ Valid values: `"uv"`, `"conda"`
 
 If the notebook directory contains a `pyproject.toml` or `environment.yml`, the environment type is determined by that file instead of this setting.
 
-## Default Deno Permissions
-
-Specifies default permission flags applied to new Deno notebooks.
-
-```json
-{
-  "default_deno_permissions": ["--allow-net", "--allow-read"]
-}
-```
-
-By default this is an empty array, meaning Deno notebooks run with no extra permissions. See the [Deno permissions documentation](https://docs.deno.com/runtime/fundamentals/security/) for available flags.
 
