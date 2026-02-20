@@ -68,7 +68,7 @@ fn source_to_lines(source: &str) -> Vec<String> {
     if source.is_empty() {
         return Vec::new();
     }
-    source.lines().map(|l| format!("{}\n", l)).collect()
+    source.split_inclusive('\n').map(|s| s.to_string()).collect()
 }
 
 pub struct NotebookState {
@@ -569,7 +569,7 @@ mod tests {
         state.update_cell_source(&cell_id, "print('hello')");
 
         let source = state.get_cell_source(&cell_id).unwrap();
-        assert_eq!(source, "print('hello')\n");
+        assert_eq!(source, "print('hello')");
     }
 
     #[test]
@@ -590,7 +590,7 @@ mod tests {
         state.update_cell_source(&cell_id, "line1\nline2\nline3");
 
         let source = state.get_cell_source(&cell_id).unwrap();
-        assert_eq!(source, "line1\nline2\nline3\n");
+        assert_eq!(source, "line1\nline2\nline3");
     }
 
     #[test]
@@ -767,7 +767,7 @@ mod tests {
 
         assert_eq!(frontend_cells.len(), 1);
         if let FrontendCell::Code { source, .. } = &frontend_cells[0] {
-            assert_eq!(source, "x = 1\n");
+            assert_eq!(source, "x = 1");
         } else {
             panic!("Expected code cell");
         }
@@ -793,18 +793,35 @@ mod tests {
     }
 
     #[test]
-    fn test_source_to_lines_adds_newlines() {
+    fn test_source_to_lines_multiline() {
         let lines = source_to_lines("line1\nline2");
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0], "line1\n");
-        assert_eq!(lines[1], "line2\n");
+        assert_eq!(lines[1], "line2");
     }
 
     #[test]
     fn test_source_to_lines_single_line() {
         let lines = source_to_lines("single");
         assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0], "single\n");
+        assert_eq!(lines[0], "single");
+    }
+
+    #[test]
+    fn test_source_to_lines_preserves_trailing_newline() {
+        let lines = source_to_lines("line1\nline2\n");
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], "line1\n");
+        assert_eq!(lines[1], "line2\n");
+    }
+
+    #[test]
+    fn test_source_to_lines_roundtrip() {
+        for original in &["line1\nline2", "line1\nline2\n", "single", "single\n", ""] {
+            let lines = source_to_lines(original);
+            let rejoined: String = lines.join("");
+            assert_eq!(&rejoined, original, "roundtrip failed for {:?}", original);
+        }
     }
 
     #[test]

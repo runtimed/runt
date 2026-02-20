@@ -21,6 +21,14 @@ pub struct FormatResult {
     pub error: Option<String>,
 }
 
+impl FormatResult {
+    /// Strip the trailing newline that formatters (ruff, deno) always add.
+    /// Notebook cells should not end with a trailing newline per nbformat convention.
+    pub fn source_for_cell(&self) -> &str {
+        self.source.strip_suffix('\n').unwrap_or(&self.source)
+    }
+}
+
 /// Check if ruff is available (either on PATH or bootstrappable via rattler)
 pub async fn check_ruff_available() -> bool {
     tools::get_ruff_path().await.is_ok()
