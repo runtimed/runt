@@ -7,7 +7,7 @@
 | Start dev server | `cargo xtask dev` |
 | Quick debug build | `cargo xtask build` |
 | Build and run | `cargo xtask run` |
-| Run with notebook | `cargo xtask run path/to/notebook.ipynb` |
+| Run with notebook | `cargo xtask build && ./target/debug/notebook path/to/notebook.ipynb` |
 | Build release .app | `cargo xtask build-app` |
 | Build release DMG | `cargo xtask build-dmg` |
 
@@ -37,9 +37,12 @@ cargo xtask build
 # Build and run
 cargo xtask run
 
-# Build and run with a notebook
-cargo xtask run notebooks/test-isolation.ipynb
+# Build and open a specific notebook
+cargo xtask build
+./target/debug/notebook path/to/notebook.ipynb
 ```
+
+**Note:** Use `./target/debug/notebook` directly to open notebooks with file paths. The `cargo xtask run` command doesn't pass file arguments through correctly.
 
 ### `cargo xtask build-app` / `build-dmg` — Release Builds
 
@@ -66,5 +69,6 @@ cargo build         # Build Rust
 The `notebooks/` directory has test files:
 
 ```bash
-cargo xtask run notebooks/test-isolation.ipynb
+cargo xtask build
+./target/debug/notebook notebooks/test-isolation.ipynb
 ```
