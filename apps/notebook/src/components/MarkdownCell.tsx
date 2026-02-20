@@ -42,6 +42,7 @@ export function MarkdownCell({
   const [editing, setEditing] = useState(cell.source === "");
   const editorRef = useRef<CodeMirrorEditorRef>(null);
   const frameRef = useRef<IsolatedFrameHandle>(null);
+  const viewRef = useRef<HTMLDivElement>(null);
   const { registerEditor, unregisterEditor } = useEditorRegistry();
 
   // Track dark mode state for iframe theme sync
@@ -108,6 +109,28 @@ export function MarkdownCell({
     window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
+  // Handle keyboard navigation in view mode (when not editing)
+  const handleViewKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "ArrowDown") {
+        onFocusNext?.("start");
+        e.preventDefault();
+      } else if (e.key === "ArrowUp") {
+        onFocusPrevious?.("end");
+        e.preventDefault();
+      } else if (e.key === "Enter" && e.shiftKey) {
+        // Shift+Enter: move to next cell (like execute for code cells)
+        onFocusNext?.("start");
+        e.preventDefault();
+      } else if (e.key === "Enter" && !e.shiftKey) {
+        // Enter: enter edit mode
+        setEditing(true);
+        e.preventDefault();
+      }
+    },
+    [onFocusNext, onFocusPrevious],
+  );
+
   // Handle focus next, creating a new cell if at the end
   const handleFocusNextOrCreate = useCallback(
     (cursorPosition: "start" | "end") => {
@@ -163,6 +186,15 @@ export function MarkdownCell({
     }
   }, [editing]);
 
+  // Focus view section when cell becomes focused but not editing
+  useEffect(() => {
+    if (isFocused && !editing) {
+      requestAnimationFrame(() => {
+        viewRef.current?.focus();
+      });
+    }
+  }, [isFocused, editing]);
+
   return (
     <CellContainer
       id={cell.id}
@@ -203,11 +235,17 @@ export function MarkdownCell({
 
       {/* View section - hidden when editing */}
       <div
+        ref={viewRef}
+        role="textbox"
+        aria-readonly
+        aria-label="Markdown cell content"
+        tabIndex={0}
         className={cn(
-          "py-2 cursor-text relative group/md",
+          "py-2 cursor-text relative group/md outline-none",
           editing && "hidden"
         )}
         onDoubleClick={handleDoubleClick}
+        onKeyDown={handleViewKeyDown}
       >
         {cell.source ? (
           <IsolatedFrame
