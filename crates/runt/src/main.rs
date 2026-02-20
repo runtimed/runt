@@ -175,6 +175,14 @@ enum Commands {
         #[command(subcommand)]
         command: PoolCommands,
     },
+    /// Open the notebook application
+    Notebook {
+        /// Path to notebook file or directory to open
+        path: Option<PathBuf>,
+        /// Runtime for new notebooks (python, deno)
+        #[arg(long, short)]
+        runtime: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -205,12 +213,83 @@ fn main() -> Result<()> {
             // Sidecar runs a tao event loop on the main thread (no tokio needed)
             sidecar::launch(&file, quiet, dump.as_deref())
         }
+        Some(Commands::Notebook { path, runtime }) => {
+            // Notebook launches the desktop app (no tokio needed)
+            open_notebook(path, runtime)
+        }
         other => {
             // All other subcommands use tokio
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async_main(other))
         }
     }
+}
+
+/// Open the notebook application with optional path and runtime arguments
+fn open_notebook(path: Option<PathBuf>, runtime: Option<String>) -> Result<()> {
+    // Convert relative paths to absolute
+    let abs_path = path.map(|p| {
+        if p.is_relative() {
+            std::env::current_dir().unwrap_or_default().join(p)
+        } else {
+            p
+        }
+    });
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut cmd = std::process::Command::new("open");
+        cmd.arg("-a").arg("runt-notebook");
+
+        if abs_path.is_some() || runtime.is_some() {
+            cmd.arg("--args");
+        }
+        if let Some(p) = abs_path {
+            cmd.arg(p);
+        }
+        if let Some(r) = runtime {
+            cmd.arg("--runtime").arg(r);
+        }
+
+        cmd.spawn()
+            .map_err(|e| anyhow::anyhow!("Failed to launch runt-notebook: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, try common install locations or use shell execution
+        let app_name = "runt-notebook.exe";
+        let mut cmd = std::process::Command::new(app_name);
+
+        if let Some(p) = abs_path {
+            cmd.arg(p);
+        }
+        if let Some(r) = runtime {
+            cmd.arg("--runtime").arg(r);
+        }
+
+        cmd.spawn()
+            .map_err(|e| anyhow::anyhow!("Failed to launch runt-notebook: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // On Linux, try to find the app in PATH or common locations
+        let app_name = "runt-notebook";
+        let mut cmd = std::process::Command::new(app_name);
+
+        if let Some(p) = abs_path {
+            cmd.arg(p);
+        }
+        if let Some(r) = runtime {
+            cmd.arg("--runtime").arg(r);
+        }
+
+        cmd.spawn()
+            .map_err(|e| anyhow::anyhow!("Failed to launch runt-notebook: {}", e))?;
+    }
+
+    Ok(())
 }
 
 async fn async_main(command: Option<Commands>) -> Result<()> {
@@ -222,6 +301,7 @@ async fn async_main(command: Option<Commands>) -> Result<()> {
         Some(Commands::Exec { id, code }) => execute_code(&id, code.as_deref()).await?,
         Some(Commands::Console { kernel, cmd, verbose }) => console(kernel.as_deref(), cmd.as_deref(), verbose).await?,
         Some(Commands::Sidecar { .. }) => unreachable!(),
+        Some(Commands::Notebook { .. }) => unreachable!(),
         Some(Commands::Clean { timeout, dry_run }) => clean_kernels(timeout, dry_run).await?,
         Some(Commands::Debug { kernel, cmd, exec, dump, wait }) => {
             debug_session(kernel.as_deref(), cmd.as_deref(), exec.as_deref(), dump, wait).await?

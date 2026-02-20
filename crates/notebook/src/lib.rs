@@ -1,3 +1,4 @@
+pub mod cli_install;
 pub mod conda_env;
 pub mod deno_env;
 pub mod env_pool;
@@ -2820,6 +2821,33 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                 crate::menu::MENU_ZOOM_RESET => {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.emit("menu:zoom-reset", ());
+                    }
+                }
+                crate::menu::MENU_INSTALL_CLI => {
+                    let app_handle = app.clone();
+                    match crate::cli_install::install_cli(&app_handle) {
+                        Ok(()) => {
+                            log::info!("[cli_install] CLI installed successfully");
+                            // Show success dialog
+                            tauri::async_runtime::spawn(async move {
+                                let _ = tauri_plugin_dialog::DialogExt::dialog(&app_handle)
+                                    .message("The 'runt' and 'nb' commands have been installed to /usr/local/bin.\n\nYou can now use:\n  runt notebook    - Open notebook app\n  nb               - Shorthand for above\n  runt ps          - List running kernels")
+                                    .title("CLI Installed")
+                                    .kind(tauri_plugin_dialog::MessageDialogKind::Info)
+                                    .blocking_show();
+                            });
+                        }
+                        Err(e) => {
+                            log::error!("[cli_install] CLI installation failed: {}", e);
+                            // Show error dialog
+                            tauri::async_runtime::spawn(async move {
+                                let _ = tauri_plugin_dialog::DialogExt::dialog(&app_handle)
+                                    .message(format!("Failed to install CLI: {}", e))
+                                    .title("Installation Failed")
+                                    .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+                                    .blocking_show();
+                            });
+                        }
                     }
                 }
                 _ => {}

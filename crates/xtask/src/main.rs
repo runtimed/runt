@@ -175,48 +175,54 @@ fn build_with_bundle(bundle: &str) {
     println!("Build complete!");
 }
 
-/// Build runtimed and copy to binaries/ with target triple suffix for Tauri bundling.
+/// Build external binaries (runtimed daemon and runt CLI) for Tauri bundling.
 fn build_runtimed_daemon() {
-    println!("Building runtimed daemon...");
+    build_external_binary("runtimed", "runtimed");
+    build_external_binary("runt-cli", "runt");
+}
+
+/// Build a binary and copy to binaries/ with target triple suffix for Tauri bundling.
+fn build_external_binary(package: &str, binary_name: &str) {
+    println!("Building {binary_name}...");
 
     // Get the host target triple
     let target = get_host_target();
 
-    // Build runtimed in release mode for smaller binary
-    run_cmd("cargo", &["build", "--release", "-p", "runtimed"]);
+    // Build in release mode for smaller binary
+    run_cmd("cargo", &["build", "--release", "-p", package]);
 
     // Determine source and destination paths
     let source = if cfg!(windows) {
-        "target/release/runtimed.exe"
+        format!("target/release/{binary_name}.exe")
     } else {
-        "target/release/runtimed"
+        format!("target/release/{binary_name}")
     };
 
-    let binary_name = if cfg!(windows) {
-        format!("runtimed-{}.exe", target)
+    let dest_name = if cfg!(windows) {
+        format!("{binary_name}-{target}.exe")
     } else {
-        format!("runtimed-{}", target)
+        format!("{binary_name}-{target}")
     };
 
     // Copy to crates/notebook/binaries/ for Tauri bundle builds
     let binaries_dir = Path::new("crates/notebook/binaries");
-    let dest = binaries_dir.join(&binary_name);
-    fs::copy(source, &dest).unwrap_or_else(|e| {
-        eprintln!("Failed to copy runtimed binary: {e}");
+    let dest = binaries_dir.join(&dest_name);
+    fs::copy(&source, &dest).unwrap_or_else(|e| {
+        eprintln!("Failed to copy {binary_name} binary: {e}");
         exit(1);
     });
-    println!("runtimed daemon ready: {}", dest.display());
+    println!("{binary_name} ready: {}", dest.display());
 
     // Also copy to target/debug/binaries/ for development (no-bundle builds)
     // Tauri's externalBin only copies to app bundle, not for --no-bundle
     let dev_binaries_dir = Path::new("target/debug/binaries");
     fs::create_dir_all(dev_binaries_dir).ok();
-    let dev_dest = dev_binaries_dir.join(&binary_name);
-    fs::copy(source, &dev_dest).unwrap_or_else(|e| {
-        eprintln!("Failed to copy runtimed to dev binaries: {e}");
+    let dev_dest = dev_binaries_dir.join(&dest_name);
+    fs::copy(&source, &dev_dest).unwrap_or_else(|e| {
+        eprintln!("Failed to copy {binary_name} to dev binaries: {e}");
         exit(1);
     });
-    println!("runtimed dev daemon ready: {}", dev_dest.display());
+    println!("{binary_name} dev ready: {}", dev_dest.display());
 }
 
 /// Get the host target triple (e.g., aarch64-apple-darwin).
