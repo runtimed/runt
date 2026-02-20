@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 
 pub mod client;
 pub mod daemon;
+pub mod fractional_index;
+pub mod notebook_protocol;
+pub mod notebook_server;
 pub mod protocol;
 pub mod service;
 pub mod singleton;
