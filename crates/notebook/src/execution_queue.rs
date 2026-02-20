@@ -329,21 +329,24 @@ async fn process_next(
 
         match format_result {
             Ok(result) if result.changed => {
-                info!("[queue] Formatted cell {}", cell_id);
-                code = result.source.clone();
-                // Update notebook state with formatted code
-                {
-                    let mut nb = notebook_state.lock().unwrap();
-                    nb.update_cell_source(&cell_id, &result.source);
+                let cell_source = result.source_for_cell();
+                if cell_source != code {
+                    info!("[queue] Formatted cell {}", cell_id);
+                    code = cell_source.to_string();
+                    // Update notebook state with formatted code
+                    {
+                        let mut nb = notebook_state.lock().unwrap();
+                        nb.update_cell_source(&cell_id, cell_source);
+                    }
+                    // Emit event to sync frontend
+                    let _ = app.emit(
+                        "cell:source_updated",
+                        serde_json::json!({
+                            "cell_id": cell_id,
+                            "source": cell_source,
+                        }),
+                    );
                 }
-                // Emit event to sync frontend
-                let _ = app.emit(
-                    "cell:source_updated",
-                    serde_json::json!({
-                        "cell_id": cell_id,
-                        "source": result.source,
-                    }),
-                );
             }
             Ok(_) => {
                 // No change needed

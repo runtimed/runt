@@ -308,18 +308,19 @@ async fn save_notebook(
         };
 
         if let Ok(result) = format_result {
-            if result.changed {
+            let cell_source = result.source_for_cell();
+            if cell_source != source {
                 // Update notebook state with formatted code
                 {
                     let mut nb = state.lock().map_err(|e| e.to_string())?;
-                    nb.update_cell_source(&cell_id, &result.source);
+                    nb.update_cell_source(&cell_id, cell_source);
                 }
                 // Emit event to sync frontend
                 let _ = app.emit(
                     "cell:source_updated",
                     serde_json::json!({
                         "cell_id": cell_id,
-                        "source": result.source,
+                        "source": cell_source,
                     }),
                 );
             }
@@ -378,18 +379,19 @@ async fn save_notebook_as(
         };
 
         if let Ok(result) = format_result {
-            if result.changed {
+            let cell_source = result.source_for_cell();
+            if cell_source != source {
                 // Update notebook state with formatted code
                 {
                     let mut nb = state.lock().map_err(|e| e.to_string())?;
-                    nb.update_cell_source(&cell_id, &result.source);
+                    nb.update_cell_source(&cell_id, cell_source);
                 }
                 // Emit event to sync frontend
                 let _ = app.emit(
                     "cell:source_updated",
                     serde_json::json!({
                         "cell_id": cell_id,
-                        "source": result.source,
+                        "source": cell_source,
                     }),
                 );
             }
@@ -2326,7 +2328,7 @@ async fn format_cell(
     }
 
     // Format based on runtime
-    let result = match runtime {
+    let mut result = match runtime {
         Runtime::Python => format::format_python(&source)
             .await
             .map_err(|e| e.to_string())?,
@@ -2334,6 +2336,10 @@ async fn format_cell(
             .await
             .map_err(|e| e.to_string())?,
     };
+
+    // Strip trailing newline that formatters always add (cells shouldn't end with \n)
+    result.source = result.source_for_cell().to_string();
+    result.changed = result.source != source;
 
     // If formatting changed the source, update the backend state and notify frontend
     if result.changed {
