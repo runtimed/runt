@@ -163,7 +163,7 @@ export function DependencyHeader({
                     </button>
                   )}
                   {isUsingProjectEnv && (
-                    <span className="rounded bg-green-500/20 px-1.5 py-0.5 text-green-700 dark:text-green-400 text-xs font-medium">
+                    <span className="rounded bg-uv/20 px-1.5 py-0.5 text-uv text-xs font-medium">
                       Active
                     </span>
                   )}
@@ -209,10 +209,10 @@ export function DependencyHeader({
 
           {/* Project-managed state: read-only view when using uv run */}
           {isUsingProjectEnv && (
-            <div className="mb-3 flex items-start gap-2 rounded bg-green-500/10 px-2 py-1.5 text-xs text-green-700 dark:text-green-400">
+            <div className="mb-3 flex items-start gap-2 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
               <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
               <span>
-                Managed by <code className="rounded bg-green-500/20 px-1">{pyprojectInfo?.relative_path ?? "pyproject.toml"}</code> — restart kernel to pick up dependency changes.
+                Managed by <code className="rounded bg-uv/20 px-1">{pyprojectInfo?.relative_path ?? "pyproject.toml"}</code> — restart kernel to pick up dependency changes.
               </span>
             </div>
           )}
