@@ -177,31 +177,40 @@ jobs:
         run: cd crates/notebook && cargo tauri build --ci --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: Run E2E tests
+        timeout-minutes: 15
         run: |
           # Start Xvfb (suppress xkbcomp keysym warnings)
           Xvfb :99 -screen 0 1920x1080x24 2>/dev/null &
           export DISPLAY=:99
           sleep 2
 
-          # Start tauri-driver in background
-          tauri-driver --port 4444 &
-          DRIVER_PID=$!
-          sleep 3
+          # Helper to start a fresh tauri-driver (avoids stale connections between runs)
+          start_driver() {
+            kill $DRIVER_PID 2>/dev/null || true
+            sleep 1
+            tauri-driver --port 4444 &
+            DRIVER_PID=$!
+            sleep 3
+          }
 
           FAIL=0
 
           # Run default tests (fixture-specific specs are auto-excluded by wdio config)
+          start_driver
           pnpm test:e2e || FAIL=1
 
           # Run fixture-specific specs with their required notebooks
+          start_driver
           NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/pixi-project/6-pixi.ipynb \
             E2E_SPEC=e2e/specs/pixi-env-detection.spec.js \
             pnpm test:e2e || FAIL=1
 
+          start_driver
           NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/pyproject-project/5-pyproject.ipynb \
             E2E_SPEC=e2e/specs/pyproject-startup.spec.js \
             pnpm test:e2e || FAIL=1
 
+          start_driver
           NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/4-both-deps.ipynb \
             E2E_SPEC=e2e/specs/both-deps-panel.spec.js \
             pnpm test:e2e || FAIL=1
