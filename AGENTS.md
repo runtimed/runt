@@ -36,17 +36,17 @@ Runt supports multiple environment backends (UV, Conda) and project file formats
 
 ### Detection Priority Chain
 
-When a notebook has no inline dependencies, `start_default_python_kernel_impl` in `crates/notebook/src/lib.rs` checks for project files in this order:
+When a notebook has no inline dependencies, `start_default_python_kernel_impl` in `crates/notebook/src/lib.rs` uses **closest-wins** project file detection via `project_file::find_nearest_project_file`:
 
 1. **Inline deps in notebook metadata** (uv or conda) — use those directly
-2. **pyproject.toml** near notebook — start kernel via `uv run`
-3. **pixi.toml** near notebook — convert to conda deps, use rattler
-4. **environment.yml** near notebook — use conda with parsed deps
-5. **No project file** — use prewarmed env based on user preference
+2. **Closest project file** — single walk-up from the notebook directory, checking for `pyproject.toml`, `pixi.toml`, and `environment.yml` at each level. The first (closest) match wins. Same-directory tiebreaker: pyproject.toml > pixi.toml > environment.yml
+3. **No project file** — use prewarmed env based on user preference
+
+The walk-up stops at `.git` boundaries and the home directory, preventing cross-repository project file pollution.
 
 Deno has a parallel chain: `deno.json`/`deno.jsonc` detection triggers the Deno kernel. It's separate but the same invariant applies.
 
-**Key invariant: the backend and frontend detection chains must agree on priority order.** The backend decides in `start_default_python_kernel_impl` (lib.rs). The frontend detects in `useKernel.ts` (auto-launch logic). If these diverge, users get unexpected environments.
+**Key invariant: the frontend defers to the backend for project file detection.** The frontend (`useKernel.ts`) handles inline deps and Deno runtime detection, then calls `startDefaultKernel()` which delegates all project file detection to the backend. This avoids duplicating the detection chain across frontend and backend.
 
 ### Environment Source Labels
 
