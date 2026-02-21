@@ -22,6 +22,22 @@ Two modes are available:
 The app has a built-in WebDriver server activated by the `webdriver-test` feature flag.
 This lets you run E2E tests natively on macOS without Docker.
 
+The `e2e/dev.sh` helper script handles building, starting, and testing:
+
+```bash
+# Full cycle: build + start + test
+./e2e/dev.sh cycle
+
+# Or step by step:
+./e2e/dev.sh build       # Build with WebDriver support
+./e2e/dev.sh start       # Start app with WebDriver server (in foreground)
+./e2e/dev.sh test        # Run smoke test (notebook-execution only)
+./e2e/dev.sh test all    # Run all non-fixture specs
+./e2e/dev.sh stop        # Stop the running app
+```
+
+You can also run the steps manually:
+
 ```bash
 # 1. Build with WebDriver support (builds frontend + Rust binary)
 cargo xtask build-e2e
@@ -36,9 +52,31 @@ pnpm test:e2e:native
 E2E_SPEC=e2e/specs/notebook-execution.spec.js pnpm test:e2e:native
 ```
 
-**Important:** You must use `cargo xtask build-e2e` (not plain `cargo build`) because
-`cargo tauri build` embeds the frontend assets into the binary. A plain `cargo build`
-would try to connect to a Vite dev server instead.
+**Important:** You must use `cargo xtask build-e2e` (or `./e2e/dev.sh build`) instead of
+plain `cargo build` because `cargo tauri build` embeds the frontend assets into the binary.
+A plain `cargo build` would try to connect to a Vite dev server instead.
+
+### Port Configuration
+
+The WebDriver port is configurable via environment variables with this fallback chain:
+
+```
+WEBDRIVER_PORT > CONDUCTOR_PORT > PORT > 4444
+```
+
+Both `e2e/dev.sh` and `e2e/wdio.conf.js` use this same chain, so the app and test
+runner always agree on which port to use.
+
+| Variable | Purpose |
+|----------|---------|
+| `WEBDRIVER_PORT` | Explicit override — always wins |
+| `CONDUCTOR_PORT` | Set automatically by Conductor workspaces (each worktree gets a unique port) |
+| `PORT` | Generic fallback for other environments |
+| `4444` | Default when nothing is set |
+
+Most contributors don't need to set anything — the default port `4444` works fine.
+If you use Conductor with parallel worktrees, `CONDUCTOR_PORT` is set for you
+automatically.
 
 ### Docker Mode (CI / Linux)
 
@@ -75,7 +113,7 @@ pnpm wdio run e2e/wdio.conf.js --spec e2e/specs/notebook-execution.spec.js
 ┌──────────────┐    W3C WebDriver    ┌──────────────────────────┐
 │  WebdriverIO │    HTTP protocol    │   notebook binary        │
 │  Test Runner │ ◄─────────────────► │                          │
-│              │    localhost:4444    │  ┌────────────────────┐  │
+│              │    localhost:$PORT   │  ┌────────────────────┐  │
 │  (test specs)│                     │  │ WebDriver Server   │  │
 │              │                     │  │ (axum HTTP server)  │  │
 │              │                     │  └────────┬───────────┘  │

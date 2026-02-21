@@ -7,7 +7,7 @@
  *
  *   2. Native mode (macOS): Connects to the app's built-in WebDriver server
  *      - Build: cargo build --features webdriver-test -p notebook
- *      - Run:   ./target/debug/notebook --webdriver-port 4444
+ *      - Run:   ./target/debug/notebook --webdriver-port $PORT
  *      - Test:  pnpm test:e2e:native
  */
 
@@ -67,7 +67,7 @@ export const config = {
 
   // WebDriver connection settings
   hostname: process.env.WEBDRIVER_HOST || "localhost",
-  port: parseInt(process.env.WEBDRIVER_PORT || "4444", 10),
+  port: parseInt(process.env.WEBDRIVER_PORT || process.env.CONDUCTOR_PORT || process.env.PORT || "4444", 10),
 
   logLevel: "warn",
 

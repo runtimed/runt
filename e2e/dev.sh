@@ -11,7 +11,7 @@ if [ -f "$PROJECT_ROOT/e2e/.env" ]; then
   set -a; source "$PROJECT_ROOT/e2e/.env"; set +a
 fi
 
-PORT="${WEBDRIVER_PORT:-4444}"
+PORT="${WEBDRIVER_PORT:-${CONDUCTOR_PORT:-${PORT:-4444}}}"
 
 case "${1:-help}" in
   build)
