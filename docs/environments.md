@@ -7,10 +7,10 @@ Runt automatically manages Python and Deno environments for your notebooks. You 
 When you open a notebook, Runt looks for dependencies in this order:
 
 1. **Inline dependencies** stored in the notebook itself
-2. **pyproject.toml** in the notebook's directory (or parent directories)
-3. **pixi.toml** in the notebook's directory (or parent directories)
-4. **environment.yml** in the notebook's directory (or parent directories)
-5. If none found, a **prewarmed environment** with just the basics
+2. **Closest project file** — Runt walks up from the notebook's directory looking for `pyproject.toml`, `pixi.toml`, or `environment.yml`. The closest match wins, regardless of file type. If the same directory has multiple project files, the tiebreaker is: pyproject.toml > pixi.toml > environment.yml
+3. If none found, a **prewarmed environment** with just the basics
+
+The search stops at git repository boundaries and your home directory, so project files from unrelated repos won't interfere.
 
 This means your notebook starts with the right packages automatically.
 
@@ -88,7 +88,7 @@ To reclaim disk space, delete the environment cache directories. Runt will recre
 
 **Packages aren't available after adding them**: Click "Sync Now" in the dependency panel to install pending changes, then restart the kernel.
 
-**Wrong environment**: If the kernel started with a prewarmed environment instead of your project's dependencies, check that your project file (pyproject.toml, environment.yml, pixi.toml) is in the notebook's directory or a parent directory.
+**Wrong environment**: If the kernel started with a prewarmed environment instead of your project's dependencies, check that your project file (pyproject.toml, environment.yml, pixi.toml) is in the notebook's directory or a parent directory within the same git repository.
 
 **Slow first start**: The first time a notebook opens with dependencies, Runt needs to download and install packages. Subsequent opens with the same dependencies are instant due to caching.
 

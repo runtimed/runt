@@ -74,6 +74,7 @@ Dependencies are signed with HMAC-SHA256 using a per-machine key at `~/.config/r
 | File | Role |
 |------|------|
 | `crates/notebook/src/lib.rs` | Tauri commands, kernel launch orchestration |
+| `crates/notebook/src/project_file.rs` | Unified closest-wins project file detection |
 | `crates/notebook/src/kernel.rs` | Kernel process management |
 | `crates/notebook/src/uv_env.rs` | UV environment creation and caching |
 | `crates/notebook/src/conda_env.rs` | Conda environment creation via rattler |
