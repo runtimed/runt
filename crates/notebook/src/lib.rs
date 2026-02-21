@@ -837,6 +837,30 @@ async fn remove_dependency(
     Ok(())
 }
 
+/// Remove an entire dependency metadata section ("uv" or "conda") from the notebook.
+///
+/// Used when a notebook has both uv and conda inline dependencies and the user
+/// chooses which one to keep — the other section is removed entirely.
+#[tauri::command]
+async fn clear_dependency_section(
+    section: String,
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<(), String> {
+    if section != "uv" && section != "conda" {
+        return Err(format!(
+            "Invalid section: {}. Must be 'uv' or 'conda'.",
+            section
+        ));
+    }
+
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+    if state.notebook.metadata.additional.remove(&section).is_some() {
+        state.dirty = true;
+    }
+
+    Ok(())
+}
+
 /// Start kernel with uv-managed environment.
 #[tauri::command]
 async fn start_kernel_with_uv(
@@ -2873,6 +2897,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
             set_notebook_dependencies,
             add_dependency,
             remove_dependency,
+            clear_dependency_section,
             start_kernel_with_uv,
             start_default_uv_kernel,
             is_kernel_running,

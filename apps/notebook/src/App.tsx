@@ -74,6 +74,7 @@ function AppContent() {
   const [dependencyHeaderOpen, setDependencyHeaderOpen] = useState(false);
   const [showIsolationTest, setShowIsolationTest] = useState(false);
   const [trustDialogOpen, setTrustDialogOpen] = useState(false);
+  const [clearingDeps, setClearingDeps] = useState(false);
 
   // Trust verification for notebook dependencies
   const {
@@ -113,6 +114,7 @@ function AppContent() {
     needsKernelRestart,
     addDependency,
     removeDependency,
+    clearAllDependencies: clearAllUvDeps,
     syncState,
     syncNow,
     pyprojectInfo,
@@ -133,6 +135,7 @@ function AppContent() {
     loadDependencies: loadCondaDependencies,
     addDependency: addCondaDependency,
     removeDependency: removeCondaDependency,
+    clearAllDependencies: clearAllCondaDeps,
     setChannels: setCondaChannels,
     setPython: setCondaPython,
     environmentYmlInfo,
@@ -481,15 +484,33 @@ function AppContent() {
         onToggleDependencies={() => setDependencyHeaderOpen((prev) => !prev)}
         listKernelspecs={listKernelspecs}
       />
-      {/* Dual-dependency warning: both UV and conda deps exist */}
+      {/* Dual-dependency choice: both UV and conda deps exist, let user pick */}
       {dependencyHeaderOpen && runtime === "python" && hasUvDependencies && hasCondaDependencies && (
         <div className="border-b bg-amber-50/50 dark:bg-amber-950/20 px-3 py-2">
-          <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
-            <span className="shrink-0 mt-0.5">&#9888;</span>
-            <div>
-              <span className="font-medium">This notebook has both uv and conda dependencies.</span>
-              {" "}Using {envType === "conda" ? "conda" : "uv"} based on your preference.
-              Consider removing the unused {envType === "conda" ? "uv" : "conda"} dependencies to avoid confusion.
+          <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+            <span className="shrink-0">&#9888;</span>
+            <span className="font-medium">This notebook has both uv and conda dependencies.</span>
+            <div className="flex gap-1.5 ml-auto shrink-0">
+              <button
+                disabled={clearingDeps}
+                onClick={async () => {
+                  setClearingDeps(true);
+                  try { await clearAllCondaDeps(); } finally { setClearingDeps(false); }
+                }}
+                className="px-2 py-0.5 text-xs font-medium rounded bg-fuchsia-100 dark:bg-fuchsia-900/40 hover:bg-fuchsia-200 dark:hover:bg-fuchsia-800/50 text-fuchsia-800 dark:text-fuchsia-300 border border-fuchsia-300 dark:border-fuchsia-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Use uv ({dependencies?.dependencies?.length ?? 0} {(dependencies?.dependencies?.length ?? 0) === 1 ? "package" : "packages"})
+              </button>
+              <button
+                disabled={clearingDeps}
+                onClick={async () => {
+                  setClearingDeps(true);
+                  try { await clearAllUvDeps(); } finally { setClearingDeps(false); }
+                }}
+                className="px-2 py-0.5 text-xs font-medium rounded bg-emerald-100 dark:bg-emerald-900/40 hover:bg-emerald-200 dark:hover:bg-emerald-800/50 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Use conda ({condaDependencies?.dependencies?.length ?? 0} {(condaDependencies?.dependencies?.length ?? 0) === 1 ? "package" : "packages"})
+              </button>
             </div>
           </div>
         </div>

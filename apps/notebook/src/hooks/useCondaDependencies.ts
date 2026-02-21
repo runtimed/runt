@@ -220,6 +220,20 @@ export function useCondaDependencies() {
     [loadDependencies, resignTrust, checkSyncState]
   );
 
+  // Remove the entire conda dependency section from notebook metadata
+  const clearAllDependencies = useCallback(async () => {
+    setLoading(true);
+    try {
+      await invoke("clear_dependency_section", { section: "conda" });
+      await loadDependencies();
+      await resignTrust();
+    } catch (e) {
+      console.error("Failed to clear conda dependencies:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [loadDependencies, resignTrust]);
+
   // Clear the synced notice (e.g., when kernel restarts)
   const clearSyncNotice = useCallback(() => {
     setSyncedWhileRunning(false);
@@ -302,6 +316,7 @@ export function useCondaDependencies() {
     loadDependencies,
     addDependency,
     removeDependency,
+    clearAllDependencies,
     setChannels,
     setPython,
     syncNow,
