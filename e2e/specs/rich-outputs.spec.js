@@ -8,6 +8,10 @@
  */
 
 import { browser, expect } from "@wdio/globals";
+import os from "node:os";
+
+// macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
+const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
 
 describe("Rich Output Types", () => {
   const KERNEL_STARTUP_TIMEOUT = 90000;
@@ -57,7 +61,7 @@ describe("Rich Output Types", () => {
     await browser.pause(200);
 
     // Clear any existing content
-    await browser.keys(["Control", "a"]);
+    await browser.keys([MOD_KEY, "a"]);
     await browser.pause(100);
   }
 

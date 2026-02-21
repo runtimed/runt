@@ -6,6 +6,10 @@
  */
 
 import { browser, expect } from "@wdio/globals";
+import os from "node:os";
+
+// macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
+const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
 
 /**
  * Screenshot helper for capturing milestone moments
@@ -168,7 +172,7 @@ describe("Backspace Delete Cell", () => {
     await browser.pause(500);
 
     // Ensure second cell is empty
-    await browser.keys(["Control", "a"]);
+    await browser.keys([MOD_KEY, "a"]);
     await browser.pause(200);
     await browser.keys("Backspace");
     await browser.pause(500);
@@ -217,7 +221,7 @@ describe("Backspace Delete Cell", () => {
       await browser.pause(300);
 
       // Clear the cell
-      await browser.keys(["Control", "a"]);
+      await browser.keys([MOD_KEY, "a"]);
       await browser.pause(200);
       await browser.keys("Backspace");
       await browser.pause(300);
@@ -240,7 +244,7 @@ describe("Backspace Delete Cell", () => {
     await browser.pause(300);
 
     // Clear the cell
-    await browser.keys(["Control", "a"]);
+    await browser.keys([MOD_KEY, "a"]);
     await browser.pause(200);
     await browser.keys("Backspace");
     await browser.pause(300);

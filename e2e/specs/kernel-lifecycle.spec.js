@@ -8,6 +8,10 @@
  */
 
 import { browser, expect } from "@wdio/globals";
+import os from "node:os";
+
+// macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
+const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
 
 describe("Kernel Lifecycle", () => {
   const KERNEL_STARTUP_TIMEOUT = 90000;
@@ -113,7 +117,7 @@ describe("Kernel Lifecycle", () => {
     await browser.pause(200);
 
     // Clear any existing content
-    await browser.keys(["Control", "a"]);
+    await browser.keys([MOD_KEY, "a"]);
     await browser.pause(100);
   }
 
@@ -166,7 +170,7 @@ describe("Kernel Lifecycle", () => {
     // Send interrupt (Ctrl+C or Cmd+C equivalent - uses kernel interrupt)
     // In Jupyter, this is typically Ctrl+C or there's an interrupt button
     // Try keyboard interrupt first
-    await browser.keys(["Control", "c"]);
+    await browser.keys([MOD_KEY, "c"]);
     console.log("Sent interrupt signal");
 
     // Wait a moment
@@ -212,29 +216,18 @@ describe("Kernel Lifecycle", () => {
     // Wait for any output or completion
     await browser.pause(5000);
 
-    // Now find and click the restart button - try multiple selectors separately
+    // Now find and click the restart button
     const restartButton = await findButton([
+      'button[title="Restart kernel"]',
       'button[aria-label*="restart"]',
       'button[aria-label*="Restart"]',
-      "button*=Restart",
     ]);
 
     if (restartButton) {
       console.log("Found restart button, clicking...");
       await restartButton.click();
-      await browser.pause(500);
 
-      // Handle confirmation dialog if it appears - try multiple selectors
-      const confirmButton = await findButton([
-        "button*=Confirm",
-        "button*=OK",
-        "button*=Yes",
-      ]);
-      if (confirmButton) {
-        await confirmButton.click();
-      }
-
-      // Wait for kernel to restart
+      // Wait for kernel to restart (no confirmation dialog)
       await browser.pause(5000);
 
       // Now try to access the variable - should get NameError

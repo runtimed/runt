@@ -5,6 +5,12 @@ set -e
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BINARY="$PROJECT_ROOT/target/debug/notebook"
+
+# Source .env for default config (port, etc.)
+if [ -f "$PROJECT_ROOT/e2e/.env" ]; then
+  set -a; source "$PROJECT_ROOT/e2e/.env"; set +a
+fi
+
 PORT="${WEBDRIVER_PORT:-4444}"
 
 case "${1:-help}" in
@@ -29,8 +35,13 @@ case "${1:-help}" in
     ;;
 
   stop)
-    # Stop the running app
-    pkill -f "target/debug/notebook" 2>/dev/null && echo "Stopped" || echo "Not running"
+    # Stop all processes listening on $PORT (safe — won't kill other notebook instances)
+    PIDS=$(lsof -ti :"$PORT" 2>/dev/null || true)
+    if [ -n "$PIDS" ]; then
+      echo "$PIDS" | xargs kill 2>/dev/null && echo "Stopped processes on port $PORT" || echo "Failed to stop some processes"
+    else
+      echo "No process listening on port $PORT"
+    fi
     ;;
 
   restart)
@@ -41,9 +52,14 @@ case "${1:-help}" in
     ;;
 
   test)
-    # Run E2E tests (optionally pass a spec file)
+    # Run E2E tests: ./e2e/dev.sh test [spec|all]
+    #   no args  → notebook-execution only (quick smoke test)
+    #   all      → all non-fixture specs
+    #   <path>   → specific spec file
     cd "$PROJECT_ROOT"
-    if [ -n "$2" ]; then
+    if [ "$2" = "all" ]; then
+      WEBDRIVER_PORT="$PORT" pnpm exec wdio run e2e/wdio.conf.js
+    elif [ -n "$2" ]; then
       E2E_SPEC="$2" WEBDRIVER_PORT="$PORT" pnpm exec wdio run e2e/wdio.conf.js
     else
       E2E_SPEC=e2e/specs/notebook-execution.spec.js WEBDRIVER_PORT="$PORT" pnpm exec wdio run e2e/wdio.conf.js

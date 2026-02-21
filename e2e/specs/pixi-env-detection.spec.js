@@ -10,6 +10,10 @@
  */
 
 import { browser, expect } from "@wdio/globals";
+import os from "node:os";
+
+// macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
+const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
 
 describe("Pixi Environment Detection", () => {
   const KERNEL_STARTUP_TIMEOUT = 120000;
@@ -47,7 +51,7 @@ describe("Pixi Environment Detection", () => {
     await editor.click();
     await browser.pause(200);
 
-    await browser.keys(["Control", "a"]);
+    await browser.keys([MOD_KEY, "a"]);
     await browser.pause(100);
 
     await typeSlowly("import sys; print(sys.executable)");

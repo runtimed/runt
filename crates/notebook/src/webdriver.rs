@@ -31,21 +31,45 @@ pub struct WebDriverState {
     /// Pending requests waiting for results from the JS bridge
     pending: Mutex<HashMap<String, oneshot::Sender<String>>>,
     /// Current session ID (we only support one session)
-    session_id: String,
+    session_id: Mutex<String>,
+    /// How many sessions have been created (to know when to reset app)
+    session_count: std::sync::atomic::AtomicU32,
+    /// The port the WebDriver server is running on (needed for bridge re-injection)
+    port: u16,
 }
 
 impl WebDriverState {
-    pub fn new(app_handle: AppHandle) -> Self {
+    pub fn new(app_handle: AppHandle, port: u16) -> Self {
         Self {
             app_handle,
             pending: Mutex::new(HashMap::new()),
-            session_id: uuid::Uuid::new_v4().to_string(),
+            session_id: Mutex::new(uuid::Uuid::new_v4().to_string()),
+            session_count: std::sync::atomic::AtomicU32::new(0),
+            port,
         }
     }
 
     /// Get the main webview window
     fn window(&self) -> Option<WebviewWindow> {
         self.app_handle.get_webview_window("main")
+    }
+
+    /// Reset the app to a clean empty notebook.
+    /// Uses Tauri IPC (via the bridge) to programmatically delete all cells
+    /// and create a fresh empty one. No page reload needed — much faster.
+    async fn reset_app(&self) -> Result<(), String> {
+        match self.exec_bridge("resetNotebook", json!({})).await {
+            Ok(_) => {
+                log::info!("[webdriver] Notebook reset successfully");
+                // Pause for React to fully re-render after cell deletion + cleanup
+                tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+                Ok(())
+            }
+            Err(e) => {
+                log::error!("[webdriver] resetNotebook failed: {}", e);
+                Err(format!("resetNotebook failed: {}", e))
+            }
+        }
     }
 
     /// Execute a command in the JS bridge and wait for the result
@@ -139,13 +163,34 @@ fn w3c_element(element_id: &str) -> Value {
 // Route handlers
 // ============================================================
 
-/// POST /session — Create a new session (app is already running, so this is mostly a no-op)
+/// POST /session — Create a new session.
+/// On first call: returns immediately (app is already fresh).
+/// On subsequent calls: reloads the webview to reset app state, re-injects bridge.
 async fn new_session(
     State(state): State<SharedState>,
     Json(_body): Json<Value>,
 ) -> Json<Value> {
+    let count = state
+        .session_count
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+    // Reset app state for subsequent sessions (not the first one)
+    if count > 0 {
+        log::info!("[webdriver] Resetting app for new session (session #{})", count + 1);
+        if let Err(e) = state.reset_app().await {
+            log::error!("[webdriver] Failed to reset app: {}", e);
+        }
+    }
+
+    // Generate a new session ID
+    let new_id = uuid::Uuid::new_v4().to_string();
+    {
+        let mut session_id = state.session_id.lock().await;
+        *session_id = new_id.clone();
+    }
+
     w3c_value(json!({
-        "sessionId": state.session_id,
+        "sessionId": new_id,
         "capabilities": {
             "browserName": "wry",
             "browserVersion": "embedded",
@@ -562,6 +607,43 @@ async fn send_keys(
     Ok(w3c_value(Value::Null))
 }
 
+/// POST /session/{session_id}/moveto — Legacy JSONWP moveTo (used by element.moveTo())
+async fn move_to(
+    State(state): State<SharedState>,
+    Path(_session_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let element = body
+        .get("element")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let xoffset = body.get("xoffset").and_then(|v| v.as_i64()).unwrap_or(0);
+    let yoffset = body.get("yoffset").and_then(|v| v.as_i64()).unwrap_or(0);
+
+    state
+        .exec_bridge(
+            "moveTo",
+            json!({ "elementId": element, "xoffset": xoffset, "yoffset": yoffset }),
+        )
+        .await
+        .map_err(|e| w3c_error("unknown error", &e))?;
+
+    Ok(w3c_value(Value::Null))
+}
+
+/// POST /session/{session_id}/doubleclick — Legacy JSONWP doubleClick
+async fn double_click(
+    State(state): State<SharedState>,
+    Path(_session_id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    state
+        .exec_bridge("doubleClick", json!({}))
+        .await
+        .map_err(|e| w3c_error("unknown error", &e))?;
+
+    Ok(w3c_value(Value::Null))
+}
+
 /// POST /session/{session_id}/frame — Switch to frame
 async fn switch_to_frame(
     State(state): State<SharedState>,
@@ -885,8 +967,10 @@ fn build_router(state: SharedState) -> Router {
             "/session/:session_id/actions",
             delete(release_actions),
         )
-        // Legacy keys endpoint (browser.keys() in WebdriverIO)
+        // Legacy JSONWP endpoints
         .route("/session/:session_id/keys", post(send_keys))
+        .route("/session/:session_id/moveto", post(move_to))
+        .route("/session/:session_id/doubleclick", post(double_click))
         // Screenshots
         .route(
             "/session/:session_id/screenshot",
@@ -896,9 +980,13 @@ fn build_router(state: SharedState) -> Router {
             "/session/:session_id/element/:element_id/screenshot",
             get(take_element_screenshot),
         )
-        // Script execution
+        // Script execution (W3C and legacy JSONWP)
         .route(
             "/session/:session_id/execute/sync",
+            post(execute_script),
+        )
+        .route(
+            "/session/:session_id/execute",
             post(execute_script),
         )
         .fallback(fallback_handler)
@@ -922,7 +1010,7 @@ const BRIDGE_JS: &str = include_str!("webdriver_bridge.js");
 /// Start the WebDriver server on the given port.
 /// This should be called from the Tauri setup hook.
 pub fn start_server(app_handle: AppHandle, port: u16) {
-    let state = Arc::new(WebDriverState::new(app_handle.clone()));
+    let state = Arc::new(WebDriverState::new(app_handle.clone(), port));
     let state_for_server = state.clone();
 
     // Inject the JS bridge into the WebView

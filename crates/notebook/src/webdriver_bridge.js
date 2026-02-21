@@ -510,11 +510,42 @@
           }
         }
       } else if (actionSequence.type === "pointer") {
+        let pointerX = 0, pointerY = 0;
+        let lastMovedElement = null;
         for (const action of actionSequence.actions) {
-          if (action.type === "pointerDown" || action.type === "pointerUp") {
-            // pointer actions at current position
-          } else if (action.type === "pointerMove") {
+          if (action.type === "pointerMove") {
             // Move to element or coordinates
+            let target = null;
+            if (action.origin && typeof action.origin === "object") {
+              // W3C element origin: {"element-6066-...": "element-id"}
+              const elKey = Object.keys(action.origin).find(k => k.startsWith("element-"));
+              if (elKey) {
+                target = getElement(action.origin[elKey]);
+              }
+            }
+            if (target) {
+              const rect = target.getBoundingClientRect();
+              pointerX = rect.left + rect.width / 2 + (action.x || 0);
+              pointerY = rect.top + rect.height / 2 + (action.y || 0);
+              lastMovedElement = target;
+            } else {
+              pointerX = action.x || 0;
+              pointerY = action.y || 0;
+              lastMovedElement = currentDocument.elementFromPoint(pointerX, pointerY);
+            }
+            const moveTarget = lastMovedElement || currentDocument.body;
+            moveTarget.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, clientX: pointerX, clientY: pointerY }));
+            moveTarget.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: pointerX, clientY: pointerY }));
+          } else if (action.type === "pointerDown") {
+            const target = lastMovedElement || currentDocument.elementFromPoint(pointerX, pointerY) || currentDocument.body;
+            const button = action.button || 0;
+            target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, clientX: pointerX, clientY: pointerY, button }));
+            if (button === 0) target.focus?.();
+          } else if (action.type === "pointerUp") {
+            const target = lastMovedElement || currentDocument.elementFromPoint(pointerX, pointerY) || currentDocument.body;
+            const button = action.button || 0;
+            target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, clientX: pointerX, clientY: pointerY, button }));
+            target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, clientX: pointerX, clientY: pointerY, button }));
           } else if (action.type === "pause") {
             // Handled on Rust side
           }
@@ -524,6 +555,48 @@
       }
     }
 
+    return { success: true };
+  }
+
+  // Track last pointer position for legacy JSONWP moveTo/doubleclick
+  let lastPointerX = 0, lastPointerY = 0;
+  let lastPointerTarget = null;
+
+  /**
+   * Legacy JSONWP moveTo — move mouse to an element (triggers hover)
+   */
+  function moveTo(elementId, xoffset, yoffset) {
+    const el = elementId ? getElement(elementId) : null;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      lastPointerX = rect.left + rect.width / 2 + (xoffset || 0);
+      lastPointerY = rect.top + rect.height / 2 + (yoffset || 0);
+      lastPointerTarget = el;
+    } else {
+      lastPointerX += xoffset || 0;
+      lastPointerY += yoffset || 0;
+      lastPointerTarget = currentDocument.elementFromPoint(lastPointerX, lastPointerY);
+    }
+    const target = lastPointerTarget || currentDocument.body;
+    target.dispatchEvent(new MouseEvent("mouseenter", { bubbles: false, clientX: lastPointerX, clientY: lastPointerY }));
+    target.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, clientX: lastPointerX, clientY: lastPointerY }));
+    target.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: lastPointerX, clientY: lastPointerY }));
+    return { success: true };
+  }
+
+  /**
+   * Legacy JSONWP doubleClick — double-click at last pointer position
+   */
+  function doubleClick() {
+    const target = lastPointerTarget || currentDocument.elementFromPoint(lastPointerX, lastPointerY) || currentDocument.body;
+    const opts = { bubbles: true, cancelable: true, clientX: lastPointerX, clientY: lastPointerY, detail: 2 };
+    target.dispatchEvent(new MouseEvent("mousedown", { ...opts, detail: 1 }));
+    target.dispatchEvent(new MouseEvent("mouseup", { ...opts, detail: 1 }));
+    target.dispatchEvent(new MouseEvent("click", { ...opts, detail: 1 }));
+    target.dispatchEvent(new MouseEvent("mousedown", { ...opts, detail: 2 }));
+    target.dispatchEvent(new MouseEvent("mouseup", { ...opts, detail: 2 }));
+    target.dispatchEvent(new MouseEvent("click", { ...opts, detail: 2 }));
+    target.dispatchEvent(new MouseEvent("dblclick", { ...opts, detail: 2 }));
     return { success: true };
   }
 
@@ -616,6 +689,53 @@
       currentWindow = window;
       currentDocument = document;
       return { success: true };
+    }
+  }
+
+  /**
+   * Reset the notebook to a clean state by clearing all cell contents via the DOM.
+   * For each CodeMirror editor, selects all and deletes. Also removes extra cells
+   * by clicking their delete buttons (the app protects the last cell).
+   */
+  async function resetNotebook() {
+    // Always reset frame context first — if switchToFrame left currentDocument
+    // pointing at a detached/sandboxed iframe, we need to recover before doing anything.
+    currentDocument = document;
+    currentWindow = window;
+    elementStore.clear();
+    nextElementId = 1;
+
+    try {
+      // Delete all extra cells by clicking delete buttons (leave one)
+      for (let pass = 0; pass < 20; pass++) {
+        const cells = currentDocument.querySelectorAll("[data-cell-type]");
+        if (cells.length <= 1) break;
+
+        // Find and click the delete button on the FIRST cell (not the last — it's protected)
+        const firstCell = cells[0];
+        const deleteBtn = firstCell.querySelector('button[aria-label*="delete"], button[title*="Delete"]');
+        if (deleteBtn) {
+          deleteBtn.click();
+          // Wait for React to re-render
+          await new Promise(r => setTimeout(r, 100));
+        } else {
+          break; // No delete button found
+        }
+      }
+
+      // Clear the remaining cell's content via CodeMirror
+      const editors = currentDocument.querySelectorAll('.cm-content[contenteditable="true"]');
+      for (const editor of editors) {
+        editor.focus();
+        // Select all content
+        currentDocument.execCommand("selectAll");
+        // Delete it
+        currentDocument.execCommand("delete");
+      }
+
+      return { success: true };
+    } catch (e) {
+      return { error: "resetNotebook failed: " + (e.message || String(e)) };
     }
   }
 
@@ -765,6 +885,12 @@
           case "performActions":
             result = performActions(params.actions);
             break;
+          case "moveTo":
+            result = moveTo(params.elementId, params.xoffset, params.yoffset);
+            break;
+          case "doubleClick":
+            result = doubleClick();
+            break;
           case "switchToFrame":
             result = switchToFrame(params.frameId);
             break;
@@ -783,6 +909,12 @@
           case "executeScript":
             result = executeScript(params.script, params.args);
             break;
+          case "resetNotebook":
+            // Async: programmatically clear all cells via Tauri IPC
+            resetNotebook().then((r) => {
+              sendResult(requestId, r);
+            });
+            return;
           case "screenshot":
             // Async operation
             takeScreenshot().then((r) => {
@@ -814,6 +946,29 @@
       console.error("[webdriver-bridge] Failed to send result:", e);
     });
   }
+
+  // Inject CSS to make hover-only UI elements always visible during testing.
+  // This ensures delete buttons and other hover-revealed controls are clickable
+  // without needing to simulate CSS :hover state via pointer events.
+  const testStyles = document.createElement("style");
+  testStyles.id = "webdriver-test-overrides";
+  testStyles.textContent = `
+    /* Make cell action buttons (delete, etc.) always visible during tests.
+       The right gutter container uses sm:opacity-0 and only shows on hover/focus.
+       Target the parent container div using :has() so the button is reachable. */
+    div:has(> button[title="Delete cell"]) {
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+    }
+    /* Also target the MarkdownCell inline delete button */
+    button[title="Delete cell"] {
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+    }
+  `;
+  document.head.appendChild(testStyles);
 
   console.log("[webdriver-bridge] Test bridge initialized");
 })();

@@ -10,6 +10,10 @@
  */
 
 import { browser, expect } from "@wdio/globals";
+import os from "node:os";
+
+// macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
+const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
 
 describe("Cell Operations", () => {
   const KERNEL_STARTUP_TIMEOUT = 90000;
@@ -114,7 +118,7 @@ describe("Cell Operations", () => {
       } else {
         console.log("Add Code button not found, using keyboard shortcut");
         // Try keyboard shortcut if button not found
-        await browser.keys(["Control", "Shift", "b"]); // Common shortcut
+        await browser.keys([MOD_KEY, "Shift", "b"]); // Common shortcut
         await browser.pause(500);
 
         const newCount = await countCodeCells();
@@ -174,6 +178,7 @@ describe("Cell Operations", () => {
 
         // Look for delete button - try multiple selectors separately
         const deleteButton = await findButton([
+          'button[title="Delete cell"]',
           'button[aria-label*="delete"]',
           'button[aria-label*="Delete"]',
           "button*=Delete",
@@ -191,7 +196,7 @@ describe("Cell Operations", () => {
         } else {
           // Try keyboard shortcut
           console.log("Delete button not found, trying keyboard shortcut");
-          await browser.keys(["Control", "Shift", "d"]); // Common delete shortcut
+          await browser.keys([MOD_KEY, "Shift", "d"]); // Common delete shortcut
           await browser.pause(500);
 
           const newCount = await countAllCells();
@@ -214,6 +219,7 @@ describe("Cell Operations", () => {
           await browser.pause(200);
 
           const deleteButton = await findButton([
+            'button[title="Delete cell"]',
             'button[aria-label*="delete"]',
             'button[aria-label*="Delete"]',
           ]);
@@ -240,6 +246,7 @@ describe("Cell Operations", () => {
         await browser.pause(200);
 
         const deleteButton = await findButton([
+          'button[title="Delete cell"]',
           'button[aria-label*="delete"]',
           'button[aria-label*="Delete"]',
         ]);
@@ -280,7 +287,7 @@ describe("Cell Operations", () => {
       const editor1 = await firstCell.$('.cm-content[contenteditable="true"]');
       await editor1.click();
       await browser.pause(200);
-      await browser.keys(["Control", "a"]);
+      await browser.keys([MOD_KEY, "a"]);
       await browser.pause(100);
 
       const code1 = "shared_var = 100";
@@ -296,8 +303,9 @@ describe("Cell Operations", () => {
           const output = await firstCell.$('[data-slot="ansi-stream-output"]');
           const error = await firstCell.$('[data-slot="ansi-error-output"]');
           // If no output/error, check if execution count appeared
+          // The execution count renders as [N▶] with a play symbol, so match loosely
           const cellText = await firstCell.getText();
-          const hasExecCount = cellText.match(/\[\d+\]/);
+          const hasExecCount = cellText.match(/\[\d+/);
           return (
             (await output.isExisting()) ||
             (await error.isExisting()) ||
@@ -349,7 +357,7 @@ describe("Cell Operations", () => {
       // Clear and type new code
       await editor.click();
       await browser.pause(200);
-      await browser.keys(["Control", "a"]);
+      await browser.keys([MOD_KEY, "a"]);
       await browser.pause(100);
 
       await typeSlowly('print("exec count test")');
@@ -374,8 +382,8 @@ describe("Cell Operations", () => {
 
       // Look for execution count indicator (could be in various formats)
       const hasExecCount =
-        cellText.match(/\[\d+\]/) || // [1], [2], etc.
-        cellText.match(/In\s*\[\d+\]/); // In [1], In [2], etc.
+        cellText.match(/\[\d+/) || // [1], [2▶], etc.
+        cellText.match(/In\s*\[\d+/); // In [1], In [2], etc.
 
       console.log("Has execution count:", !!hasExecCount);
 

@@ -10,6 +10,10 @@
  */
 
 import { browser, expect } from "@wdio/globals";
+import os from "node:os";
+
+// macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
+const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
 
 describe("Environment Detection", () => {
   // Allow extra time for environment creation on first run
@@ -85,7 +89,7 @@ describe("Environment Detection", () => {
     await browser.pause(200);
 
     // Clear any existing content
-    await browser.keys(["Control", "a"]);
+    await browser.keys([MOD_KEY, "a"]);
     await browser.pause(100);
 
     // Step 3: Type code to print the Python executable path
@@ -137,7 +141,7 @@ describe("Environment Detection", () => {
     await browser.pause(200);
 
     // Clear and type new code
-    await browser.keys(["Control", "a"]);
+    await browser.keys([MOD_KEY, "a"]);
     await browser.pause(100);
 
     const testCode = 'import ipykernel; print(f"ipykernel {ipykernel.__version__}")';
@@ -166,7 +170,7 @@ describe("Environment Detection", () => {
     await editor.click();
     await browser.pause(200);
 
-    await browser.keys(["Control", "a"]);
+    await browser.keys([MOD_KEY, "a"]);
     await browser.pause(100);
 
     // Simple computation to verify the kernel is working
