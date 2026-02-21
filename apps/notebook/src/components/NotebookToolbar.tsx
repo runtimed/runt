@@ -150,6 +150,7 @@ function envBadgeClasses(variant: EnvBadgeVariant): string {
 
 interface NotebookToolbarProps {
   kernelStatus: string;
+  kernelErrorMessage: string | null;
   envSource: string | null;
   /** Pre-start hint: "uv" | "conda" | "pixi" | null, derived from notebook metadata */
   envTypeHint?: EnvBadgeVariant | null;
@@ -176,6 +177,7 @@ const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
 
 export function NotebookToolbar({
   kernelStatus,
+  kernelErrorMessage,
   envSource,
   envTypeHint,
   dirty,
@@ -369,8 +371,24 @@ export function NotebookToolbar({
               )}
             />
             <span className="text-xs text-muted-foreground">
-              {envProgress?.isActive ? envProgress.statusText : (
-                <span className="capitalize">{kernelStatus}</span>
+              {envProgress?.isActive ? envProgress.statusText : envProgress?.error ? (
+                <span className="text-red-600 dark:text-red-400" title={envProgress.error}>
+                  {envProgress.statusText}
+                </span>
+              ) : (
+                <>
+                  <span className="capitalize">{kernelStatus}</span>
+                  {kernelStatus === "error" && kernelErrorMessage && (
+                    <span
+                      className="text-red-600 dark:text-red-400"
+                      title={kernelErrorMessage}
+                    >
+                      {" "}&mdash; {kernelErrorMessage.length > 80
+                        ? `${kernelErrorMessage.substring(0, 80)}...`
+                        : kernelErrorMessage}
+                    </span>
+                  )}
+                </>
               )}
             </span>
           </div>

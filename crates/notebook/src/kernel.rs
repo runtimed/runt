@@ -1030,6 +1030,14 @@ impl NotebookKernel {
         // Shutdown existing kernel if any
         self.shutdown().await.ok();
 
+        // Canonicalize project_dir so uv gets an absolute path
+        let project_dir = project_dir.canonicalize().map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to resolve project directory {:?}: {}",
+                project_dir,
+                e
+            )
+        })?;
         info!("Starting kernel with uv run in project {:?}", project_dir);
 
         // Reserve ports
@@ -1068,7 +1076,7 @@ impl NotebookKernel {
         );
 
         // Use `uv run` to launch the kernel - this lets uv handle the environment
-        // --with ipykernel adds it transiently without modifying pyproject.toml
+        // --with adds ipykernel and ipywidgets transiently without modifying pyproject.toml
         let uv_path = tools::get_uv_path().await?;
         let mut cmd = tokio::process::Command::new(&uv_path);
         cmd.args([
@@ -1077,13 +1085,15 @@ impl NotebookKernel {
             &project_dir.to_string_lossy(),
             "--with",
             "ipykernel",
+            "--with",
+            "ipywidgets",
             "python",
             "-m",
             "ipykernel_launcher",
             "-f",
         ])
         .arg(&connection_file_path)
-        .current_dir(project_dir)
+        .current_dir(&project_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
         #[cfg(unix)]
@@ -1101,9 +1111,11 @@ impl NotebookKernel {
             env_hash: "pyproject".to_string(),
         });
 
-        // Spawn a task to read stderr and emit progress events from uv output
+        // Spawn a task to read stderr, emit progress events, and buffer lines for error reporting
         let stderr = process.stderr.take();
         let stderr_app = app.clone();
+        let stderr_lines = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+        let stderr_lines_writer = stderr_lines.clone();
         let _stderr_task = tokio::spawn(async move {
             if let Some(stderr) = stderr {
                 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -1111,6 +1123,16 @@ impl NotebookKernel {
                 let mut lines = reader.lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     debug!("uv stderr: {}", line);
+
+                    // Buffer line for error reporting (keep last 20 lines)
+                    {
+                        let mut buf = stderr_lines_writer.lock().await;
+                        buf.push(line.clone());
+                        if buf.len() > 20 {
+                            buf.remove(0);
+                        }
+                    }
+
                     let line_lower = line.to_lowercase();
                     if line_lower.contains("resolved") && line_lower.contains("package") {
                         emit_uv_progress(&stderr_app, EnvProgressPhase::Solving { spec_count: 0 });
@@ -1141,10 +1163,19 @@ impl NotebookKernel {
 
             // Check if uv run process already exited (error case)
             if let Ok(Some(status)) = process.try_wait() {
+                // Give stderr reader a moment to drain remaining output
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                let captured = stderr_lines.lock().await;
+                let stderr_detail = if captured.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n{}", captured.join("\n"))
+                };
+                let msg = format!("uv run exited with {}{}", status, stderr_detail);
                 emit_uv_progress(&app, EnvProgressPhase::Error {
-                    message: format!("uv run exited with {}", status),
+                    message: msg.clone(),
                 });
-                return Err(anyhow::anyhow!("uv run exited with {}", status));
+                return Err(anyhow::anyhow!(msg));
             }
 
             // Try iopub connection
@@ -1218,10 +1249,19 @@ impl NotebookKernel {
         }
 
         if !connected {
+            let captured = stderr_lines.lock().await;
+            let stderr_hint = if captured.is_empty() {
+                String::new()
+            } else {
+                let last_lines: Vec<&str> = captured.iter().rev().take(5)
+                    .map(|s| s.as_str()).collect::<Vec<_>>().into_iter().rev().collect();
+                format!("\nLast stderr: {}", last_lines.join("\n"))
+            };
             let msg = format!(
-                "Kernel did not respond after {} attempts (last: {})",
+                "Kernel did not respond after {} attempts (last: {}){}",
                 delays_ms.len(),
-                last_error.unwrap_or_else(|| "unknown".to_string())
+                last_error.unwrap_or_else(|| "unknown".to_string()),
+                stderr_hint
             );
             emit_uv_progress(&app, EnvProgressPhase::Error { message: msg.clone() });
             return Err(anyhow::anyhow!(msg));

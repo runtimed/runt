@@ -58,6 +58,9 @@ struct KernelLifecycleEvent {
     ///         "conda:inline", "conda:pixi", "conda:prewarmed", "conda:fresh"
     #[serde(skip_serializing_if = "Option::is_none")]
     env_source: Option<String>,
+    /// Error message, present when state is "error".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_message: Option<String>,
 }
 
 /// Environment sync state for dirty detection.
@@ -3080,10 +3083,11 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                     state: "launching".to_string(),
                     runtime: runtime_str.clone(),
                     env_source: None,
+                    error_message: None,
                 };
                 let _ = app_for_autolaunch.emit("kernel:lifecycle", &lifecycle_event);
 
-                let env_source = match runtime {
+                let (env_source, error_msg) = match runtime {
                     Runtime::Python => {
                         match start_default_python_kernel_impl(
                             app_for_autolaunch.clone(),
@@ -3094,10 +3098,10 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                         )
                         .await
                         {
-                            Ok(source) => Some(source),
+                            Ok(source) => (Some(source), None),
                             Err(e) => {
                                 log::error!("Auto-launch kernel failed: {}", e);
-                                None
+                                (None, Some(e.to_string()))
                             }
                         }
                     }
@@ -3109,29 +3113,29 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                         )
                         .await
                         {
-                            Ok(()) => Some("deno".to_string()),
+                            Ok(()) => (Some("deno".to_string()), None),
                             Err(e) => {
                                 log::error!("Auto-launch Deno kernel failed: {}", e);
-                                None
+                                (None, Some(e.to_string()))
                             }
                         }
                     }
                 };
 
                 if let Some(source) = env_source {
-                    // Emit "ready" lifecycle event with environment source
                     let ready_event = KernelLifecycleEvent {
                         state: "ready".to_string(),
                         runtime: runtime_str,
                         env_source: Some(source),
+                        error_message: None,
                     };
                     let _ = app_for_autolaunch.emit("kernel:lifecycle", &ready_event);
                 } else {
-                    // Emit "error" lifecycle event so frontend can show the failure
                     let error_event = KernelLifecycleEvent {
                         state: "error".to_string(),
                         runtime: runtime_str,
                         env_source: None,
+                        error_message: error_msg,
                     };
                     let _ = app_for_autolaunch.emit("kernel:lifecycle", &error_event);
                 }
