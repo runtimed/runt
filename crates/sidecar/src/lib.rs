@@ -109,7 +109,6 @@ enum SidecarEvent {
 #[serde(rename_all = "snake_case")]
 enum KernelConnectionStatus {
     Connected,
-    Disconnected,
 }
 
 async fn run(

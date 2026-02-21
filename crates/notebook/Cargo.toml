@@ -6,6 +6,9 @@ description = "Tauri-based notebook UI for Jupyter kernels"
 repository = "https://github.com/runtimed/runt"
 license = "BSD-3-Clause"
 
+[lints]
+workspace = true
+
 [lib]
 name = "notebook"
 path = "src/lib.rs"

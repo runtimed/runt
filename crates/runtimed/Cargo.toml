@@ -6,6 +6,9 @@ description = "Central daemon for managing Jupyter runtimes and prewarmed enviro
 repository = "https://github.com/runtimed/runt"
 license = "BSD-3-Clause"
 
+[lints]
+workspace = true
+
 [lib]
 name = "runtimed"
 path = "src/lib.rs"
