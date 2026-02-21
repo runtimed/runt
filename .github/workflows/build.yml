@@ -176,7 +176,7 @@ jobs:
       - name: Build Tauri app
         run: cd crates/notebook && cargo tauri build --ci --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
 
-      - name: Run E2E security tests
+      - name: Run E2E tests
         run: |
           # Start Xvfb (suppress xkbcomp keysym warnings)
           Xvfb :99 -screen 0 1920x1080x24 2>/dev/null &
@@ -188,13 +188,20 @@ jobs:
           DRIVER_PID=$!
           sleep 3
 
-          # Run tests
-          pnpm test:e2e || TEST_EXIT=$?
+          FAIL=0
+
+          # Run default tests (exclude fixture-specific specs that need NOTEBOOK_PATH)
+          pnpm test:e2e -- --exclude 'e2e/specs/pixi-env-detection.spec.js' || FAIL=1
+
+          # Run pixi test with its required fixture notebook
+          NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/pixi-project/6-pixi.ipynb \
+            E2E_SPEC=e2e/specs/pixi-env-detection.spec.js \
+            pnpm test:e2e || FAIL=1
 
           # Cleanup
           kill $DRIVER_PID 2>/dev/null || true
 
-          exit ${TEST_EXIT:-0}
+          exit $FAIL
         env:
           TAURI_APP_PATH: ./target/release/notebook
           # Suppress accessibility bus warnings in headless CI
