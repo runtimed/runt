@@ -386,6 +386,7 @@ export function useKernel({
       console.log("[kernel] starting kernel with environment.yml");
       await invoke("start_kernel_with_environment_yml");
       console.log("[kernel] start_kernel_with_environment_yml succeeded");
+      setEnvSource("conda:env_yml");
       setKernelStatus("idle");
       callbacksRef.current.onKernelStarted?.();
     } catch (e) {

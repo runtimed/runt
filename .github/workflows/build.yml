@@ -191,11 +191,22 @@ jobs:
           FAIL=0
 
           # Run default tests (exclude fixture-specific specs that need NOTEBOOK_PATH)
-          pnpm test:e2e -- --exclude 'e2e/specs/pixi-env-detection.spec.js' || FAIL=1
+          pnpm test:e2e -- \
+            --exclude 'e2e/specs/pixi-env-detection.spec.js' \
+            --exclude 'e2e/specs/pyproject-startup.spec.js' \
+            --exclude 'e2e/specs/both-deps-panel.spec.js' || FAIL=1
 
-          # Run pixi test with its required fixture notebook
+          # Run fixture-specific specs with their required notebooks
           NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/pixi-project/6-pixi.ipynb \
             E2E_SPEC=e2e/specs/pixi-env-detection.spec.js \
+            pnpm test:e2e || FAIL=1
+
+          NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/pyproject-project/5-pyproject.ipynb \
+            E2E_SPEC=e2e/specs/pyproject-startup.spec.js \
+            pnpm test:e2e || FAIL=1
+
+          NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/4-both-deps.ipynb \
+            E2E_SPEC=e2e/specs/both-deps-panel.spec.js \
             pnpm test:e2e || FAIL=1
 
           # Cleanup

@@ -1370,44 +1370,14 @@ async fn start_default_python_kernel_impl(
 
     // Check which env type actually has dependencies in the notebook metadata
     // This overrides user preference when deps exist in only one type
-    let (has_uv_deps, has_conda_deps, notebook_path_for_detection) = {
+    let (has_uv_deps, has_conda_deps) = {
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
         let uv_deps = uv_env::extract_dependencies(&state.notebook.metadata);
         let conda_deps = conda_env::extract_dependencies(&state.notebook.metadata);
         let has_uv = uv_deps.map(|d| !d.dependencies.is_empty()).unwrap_or(false);
         let has_conda = conda_deps.map(|d| !d.dependencies.is_empty()).unwrap_or(false);
-        (has_uv, has_conda, state.path.clone())
+        (has_uv, has_conda)
     };
-
-    // If no inline deps, check for project-level environment files
-    // environment.yml takes priority as a conda project file
-    if !has_uv_deps && !has_conda_deps {
-        if let Some(ref nb_path) = notebook_path_for_detection {
-            if let Some(yml_path) = environment_yml::find_environment_yml(nb_path) {
-                if let Ok(config) = environment_yml::parse_environment_yml(&yml_path) {
-                    if !config.dependencies.is_empty() {
-                        let deps = environment_yml::convert_to_conda_dependencies(&config);
-                        info!(
-                            "Found environment.yml at {} with {} deps, starting conda kernel",
-                            yml_path.display(),
-                            deps.dependencies.len()
-                        );
-                        let mut kernel = kernel_state.lock().await;
-                        kernel
-                            .start_with_conda(app, &deps, Some(nb_path))
-                            .await
-                            .map_err(|e| e.to_string())?;
-
-                        info!(
-                            "[kernel-ready] Started conda kernel via environment.yml in {}ms",
-                            kernel_start.elapsed().as_millis()
-                        );
-                        return Ok("conda".to_string());
-                    }
-                }
-            }
-        }
-    }
 
     // Determine which env type to actually use
     // Priority: 1) Use whichever has deps, 2) Fall back to user preference
@@ -1521,8 +1491,32 @@ async fn start_default_python_kernel_impl(
             }
         }
 
-        // Priority 4: environment.yml detection would go here
-        // (handled by environment_yml.rs when available)
+        // Priority 4: Check for environment.yml → convert to conda deps
+        if let Some(ref nb_path) = notebook_path_for_detection {
+            if let Some(yml_path) = environment_yml::find_environment_yml(nb_path) {
+                if let Ok(config) = environment_yml::parse_environment_yml(&yml_path) {
+                    if !config.dependencies.is_empty() {
+                        let deps = environment_yml::convert_to_conda_dependencies(&config);
+                        info!(
+                            "Found environment.yml at {} with {} deps, starting conda kernel",
+                            yml_path.display(),
+                            deps.dependencies.len()
+                        );
+                        let mut kernel = kernel_state.lock().await;
+                        kernel
+                            .start_with_conda(app, &deps, Some(nb_path))
+                            .await
+                            .map_err(|e| e.to_string())?;
+
+                        info!(
+                            "[kernel-ready] Started conda kernel via environment.yml in {}ms",
+                            kernel_start.elapsed().as_millis()
+                        );
+                        return Ok("conda:env_yml".to_string());
+                    }
+                }
+            }
+        }
 
         // No project file found - fall back to user preference (for prewarmed envs)
         match preferred_env {

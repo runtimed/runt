@@ -138,7 +138,7 @@ export function NotebookToolbar({
 
   return (
     <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
-      <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
+      <header data-testid="notebook-toolbar" className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
         <div className="flex h-10 items-center gap-2 px-3">
           {/* Save */}
           <button
