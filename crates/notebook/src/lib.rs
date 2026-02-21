@@ -2550,12 +2550,13 @@ async fn start_deno_kernel_impl(
             .unwrap_or_default();
         let flexible = deps.map(|d| d.flexible_npm_imports).unwrap_or(true);
 
-        // Find workspace directory with deno.json
+        // Find workspace directory with deno.json (canonicalized so Deno gets an
+        // absolute working directory even when the notebook was opened with a relative path)
         let ws_dir = state
             .path
             .as_ref()
             .and_then(|p| deno_env::find_deno_config(p))
-            .and_then(|c| c.parent().map(|p| p.to_path_buf()));
+            .and_then(|c| c.parent().map(|p| p.canonicalize().unwrap_or_else(|_| p.to_path_buf())));
 
         (perms, ws_dir, flexible, state.path.clone())
     };

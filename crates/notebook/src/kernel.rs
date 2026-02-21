@@ -52,9 +52,11 @@ type PendingHistory = Arc<StdMutex<HashMap<String, tokio::sync::oneshot::Sender<
 /// - Otherwise falls back to ~/notebooks (creating it if needed)
 /// - If ~/notebooks creation fails, falls back to home directory, then temp directory
 fn kernel_cwd(notebook_path: Option<&std::path::Path>) -> std::path::PathBuf {
-    // If notebook has a path, use its parent directory
+    // If notebook has a path, use its parent directory (canonicalized to absolute path
+    // so child processes get a valid working directory even when the notebook was opened
+    // with a relative path, e.g. via Cmd-O file dialog)
     if let Some(parent) = notebook_path.and_then(|p| p.parent()) {
-        return parent.to_path_buf();
+        return parent.canonicalize().unwrap_or_else(|_| parent.to_path_buf());
     }
 
     // Check if we're running from CLI (cwd is something other than `/`)
