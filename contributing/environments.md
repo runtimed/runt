@@ -4,37 +4,42 @@ This guide covers how Runt creates and manages Python and Deno environments for 
 
 ## Overview
 
-When a user opens a notebook, Runt needs to provide a kernel with the right packages installed. The system supports six distinct environment creation paths depending on the notebook's metadata and surrounding project files.
+When a user opens a notebook, Runt needs to provide a kernel with the right packages installed. The system supports multiple environment creation paths depending on the notebook's metadata and surrounding project files.
 
 ```
 Notebook opened
   │
   ├─ Has inline deps? ──────────────── Use UV or Conda with those deps
   │
-  ├─ pyproject.toml nearby? ────────── Use `uv run` (project's .venv)
-  │
-  ├─ pixi.toml nearby? ────────────── Convert to conda deps, use rattler
-  │
-  ├─ environment.yml nearby? ───────── Use conda with parsed deps
+  ├─ Closest project file?             (walk up from notebook, stop at .git / home)
+  │   ├─ pyproject.toml ─────────────── Use `uv run` (project's .venv)
+  │   ├─ pixi.toml ──────────────────── Convert to conda deps, use rattler
+  │   └─ environment.yml ────────────── Use conda with parsed deps
   │
   └─ Nothing found ────────────────── Claim prewarmed env from pool
 ```
 
 ## Detection Priority Chain
 
-The backend decides which environment to use in `start_default_python_kernel_impl` (`crates/notebook/src/lib.rs`). The order matters:
+The backend decides which environment to use in `start_default_python_kernel_impl` (`crates/notebook/src/lib.rs`):
 
 | Priority | Source | Backend | Environment Type |
 |----------|--------|---------|-----------------|
 | 1 | Inline notebook metadata | uv or conda deps from `metadata.uv` / `metadata.conda` | Cached by dep hash |
-| 2 | `pyproject.toml` | `uv run --with ipykernel` in project dir | Project `.venv/` |
-| 3 | `pixi.toml` | Convert pixi deps to `CondaDependencies`, use rattler | Cached by dep hash |
-| 4 | `environment.yml` | Parse deps, use rattler | Cached by dep hash |
-| 5 | User preference | Prewarmed UV or Conda env from pool | Shared pool env |
+| 2 | Closest project file | Single walk-up via `project_file::find_nearest_project_file` | Depends on file type |
+| 3 | User preference | Prewarmed UV or Conda env from pool | Shared pool env |
 
-**Rationale**: Inline deps always win because the user explicitly declared them. pyproject.toml before pixi.toml because it's more common and uv is faster. pixi.toml before environment.yml because pixi is a superset of conda's dependency model.
+For step 2, the walk-up checks for `pyproject.toml`, `pixi.toml`, and `environment.yml`/`environment.yaml` at **each directory level**, starting from the notebook's location. The first (closest) match wins. When multiple project files exist in the same directory, the tiebreaker order is: pyproject.toml > pixi.toml > environment.yml.
 
-**Key invariant**: The frontend auto-launch logic in `apps/notebook/src/hooks/useKernel.ts` must match this priority order. If they diverge, users get unexpected environments.
+The walk-up stops at `.git` boundaries and the user's home directory, preventing cross-repository project file pollution.
+
+| Project file | Backend | Environment Type |
+|-------------|---------|-----------------|
+| `pyproject.toml` | `uv run --with ipykernel` in project dir | Project `.venv/` |
+| `pixi.toml` | Convert pixi deps to `CondaDependencies`, use rattler | Cached by dep hash |
+| `environment.yml` | Parse deps, use rattler | Cached by dep hash |
+
+**Key invariant**: The frontend (`useKernel.ts`) handles inline deps and Deno detection, then defers all project file detection to the backend via `startDefaultKernel()`. This avoids duplicating the detection chain across frontend and backend.
 
 Deno has a separate chain: `deno.json`/`deno.jsonc` detection triggers the Deno runtime. See `crates/notebook/src/deno_env.rs`.
 
@@ -73,16 +78,24 @@ Prewarmed environments have no `env_id` so they can be reused by any notebook th
 
 ## Project File Discovery
 
-All project file detectors walk up the directory tree from the notebook's location, stopping at the user's home directory:
+The unified project file detection lives in `project_file.rs` and is used by `start_default_python_kernel_impl` for kernel launch decisions:
+
+| Module | Purpose |
+|--------|---------|
+| `project_file.rs` | `find_nearest_project_file()` — single walk-up checking all project file types at each level, closest wins |
+
+Individual project file modules still exist for parsing, Tauri detection commands, and the dependency management UI:
 
 | Module | File | Function |
 |--------|------|----------|
-| `pyproject.rs` | `pyproject.toml` | `find_pyproject()` |
-| `pixi.rs` | `pixi.toml` | `find_pixi_toml()` |
-| `environment_yml.rs` | `environment.yml` / `environment.yaml` | `find_environment_yml()` |
+| `pyproject.rs` | `pyproject.toml` | `find_pyproject()`, parsing, Tauri commands |
+| `pixi.rs` | `pixi.toml` | `find_pixi_toml()`, parsing, Tauri commands |
+| `environment_yml.rs` | `environment.yml` / `environment.yaml` | `find_environment_yml()`, parsing, Tauri commands |
 | `deno_env.rs` | `deno.json` / `deno.jsonc` | `find_deno_config()` |
 
-Each module also provides:
+All walk-up functions (both unified and individual) stop at `.git` boundaries and the user's home directory.
+
+Each per-format module provides:
 - A parse function to extract dependencies
 - Tauri commands for frontend detection (`detect_*`), dependency listing (`get_*_dependencies`), and import (`import_*_dependencies`)
 
@@ -162,6 +175,7 @@ The kernel lifecycle is managed by `useKernel.ts`, which:
 | File | Role |
 |------|------|
 | `crates/notebook/src/lib.rs` | Tauri commands, `start_default_python_kernel_impl` |
+| `crates/notebook/src/project_file.rs` | Unified closest-wins project file detection |
 | `crates/notebook/src/kernel.rs` | Kernel process management, `start_with_uv`/`start_with_conda`/`start_with_uv_run` |
 | `crates/notebook/src/uv_env.rs` | UV environment creation, dep hashing, caching |
 | `crates/notebook/src/conda_env.rs` | Conda environment creation via rattler |
