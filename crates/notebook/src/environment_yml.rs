@@ -90,11 +90,15 @@ pub fn find_environment_yml(start_path: &Path) -> Option<PathBuf> {
             return Some(yaml_candidate);
         }
 
-        // Stop at home directory
+        // Stop at home directory or git repo root — a project file above the
+        // repo root almost certainly belongs to a different project
         if let Some(ref home) = home_dir {
             if current == *home {
                 return None;
             }
+        }
+        if current.join(".git").exists() {
+            return None;
         }
 
         // Move to parent directory

@@ -92,11 +92,15 @@ pub fn find_pyproject(start_path: &Path) -> Option<PathBuf> {
             return Some(candidate);
         }
 
-        // Stop at home directory
+        // Stop at home directory or git repo root — a project file above the
+        // repo root almost certainly belongs to a different project
         if let Some(ref home) = home_dir {
             if current == *home {
                 return None;
             }
+        }
+        if current.join(".git").exists() {
+            return None;
         }
 
         // Move to parent directory
@@ -312,6 +316,43 @@ index-url = "https://pypi.org/simple"
         let found = find_pyproject(&deep_dir);
         assert!(found.is_some());
         assert_eq!(found.unwrap(), temp.path().join("pyproject.toml"));
+    }
+
+    #[test]
+    fn test_find_pyproject_stops_at_git_root() {
+        // Simulate: outer_dir has pyproject.toml, repo_dir has .git,
+        // notebook is in repo_dir/notebooks/. The walk should stop at
+        // repo_dir (git root) and NOT find the outer pyproject.toml.
+        let temp = TempDir::new().unwrap();
+        let outer = temp.path().join("org");
+        let repo = outer.join("my-repo");
+        let notebooks = repo.join("notebooks");
+        std::fs::create_dir_all(&notebooks).unwrap();
+
+        // Put pyproject.toml ABOVE the git root (in the org dir)
+        create_pyproject(&outer, "[project]\nname = \"org-level\"");
+        // Mark my-repo as a git root
+        std::fs::create_dir(repo.join(".git")).unwrap();
+
+        // Should NOT find the org-level pyproject.toml
+        let found = find_pyproject(&notebooks);
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn test_find_pyproject_at_git_root() {
+        // pyproject.toml at the same level as .git should still be found
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path().join("my-repo");
+        let notebooks = repo.join("notebooks");
+        std::fs::create_dir_all(&notebooks).unwrap();
+
+        create_pyproject(&repo, "[project]\nname = \"my-project\"");
+        std::fs::create_dir(repo.join(".git")).unwrap();
+
+        let found = find_pyproject(&notebooks);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), repo.join("pyproject.toml"));
     }
 
     #[test]
