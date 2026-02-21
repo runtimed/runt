@@ -47,7 +47,6 @@ impl Default for AppSettings {
         Self {
             default_runtime: Runtime::Python,
             default_python_env: PythonEnvType::Uv,
-            default_deno_permissions: vec![],
         }
     }
 }
@@ -92,7 +91,6 @@ mod tests {
         let settings = AppSettings::default();
         assert_eq!(settings.default_runtime, Runtime::Python);
         assert_eq!(settings.default_python_env, PythonEnvType::Uv);
-        assert!(settings.default_deno_permissions.is_empty());
     }
 
     #[test]
