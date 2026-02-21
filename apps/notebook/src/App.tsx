@@ -247,6 +247,7 @@ function AppContent() {
 
   const {
     kernelStatus,
+    kernelErrorMessage,
     envSource,
     ensureKernelStarted,
     startKernelWithPyproject,
@@ -463,12 +464,13 @@ function AppContent() {
       )}
       <NotebookToolbar
         kernelStatus={kernelStatus}
+        kernelErrorMessage={kernelErrorMessage}
         envSource={envSource}
         envTypeHint={envTypeHint}
         dirty={dirty}
         hasDependencies={hasDependencies}
         theme={theme}
-        envProgress={envProgress.isActive ? envProgress : null}
+        envProgress={envProgress.isActive || envProgress.error ? envProgress : null}
         runtime={runtime}
         onThemeChange={setTheme}
         onSave={save}

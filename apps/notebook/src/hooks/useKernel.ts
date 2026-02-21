@@ -79,6 +79,8 @@ export function useKernel({
   onUpdateDisplayData,
 }: UseKernelOptions) {
   const [kernelStatus, setKernelStatus] = useState<string>("not started");
+  // Error message from kernel launch failure
+  const [kernelErrorMessage, setKernelErrorMessage] = useState<string | null>(null);
   // Environment source from backend (e.g. "uv:inline", "uv:pyproject", "conda:prewarmed")
   const [envSource, setEnvSource] = useState<string | null>(null);
   // Track whether we're in the process of auto-starting to avoid double starts
@@ -113,16 +115,19 @@ export function useKernel({
     });
 
     // Listen for kernel lifecycle events (auto-launch starting/ready/error)
-    const lifecycleUnlisten = listen<{ state: string; runtime: string; env_source?: string }>(
+    const lifecycleUnlisten = listen<{ state: string; runtime: string; env_source?: string; error_message?: string }>(
       "kernel:lifecycle",
       (event) => {
         if (cancelled) return;
         if (event.payload.state === "launching") {
           setKernelStatus("starting");
+          setKernelErrorMessage(null);
         } else if (event.payload.state === "ready" && event.payload.env_source) {
           setEnvSource(event.payload.env_source);
+          setKernelErrorMessage(null);
         } else if (event.payload.state === "error") {
           setKernelStatus("error");
+          setKernelErrorMessage(event.payload.error_message ?? null);
         }
       }
     );
@@ -535,6 +540,7 @@ export function useKernel({
 
   return {
     kernelStatus,
+    kernelErrorMessage,
     envSource,
     startKernel,
     startKernelWithUv,
