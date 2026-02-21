@@ -1,5 +1,14 @@
 /**
  * WebDriverIO configuration for Tauri E2E testing
+ *
+ * Supports two modes:
+ *   1. Docker mode (default): Connects to tauri-driver inside a Docker container
+ *      - pnpm test:e2e:docker
+ *
+ *   2. Native mode (macOS): Connects to the app's built-in WebDriver server
+ *      - Build: cargo build --features webdriver-test -p notebook
+ *      - Run:   ./target/debug/notebook --webdriver-port 4444
+ *      - Test:  pnpm test:e2e:native
  */
 
 import fs from "node:fs";
@@ -45,7 +54,8 @@ export const config = {
       // Tauri uses wry as the browser engine
       browserName: "wry",
       "tauri:options": {
-        // Path is relative to where tauri-driver runs (inside Docker at /app)
+        // In Docker mode: path to the compiled binary (tauri-driver launches it)
+        // In native mode: ignored (app is already running with --webdriver-port)
         application:
           process.env.TAURI_APP_PATH || "/app/target/release/notebook",
         // Pass notebook path as arg to open a specific fixture
