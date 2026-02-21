@@ -62,7 +62,7 @@ impl WebDriverState {
             Ok(_) => {
                 log::info!("[webdriver] Notebook reset successfully");
                 // Pause for React to fully re-render after cell deletion + cleanup
-                tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
                 Ok(())
             }
             Err(e) => {

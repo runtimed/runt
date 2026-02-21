@@ -9,6 +9,7 @@
 
 import { browser, expect } from "@wdio/globals";
 import os from "node:os";
+import { waitForAppReady } from "../helpers.js";
 
 // macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
 const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
@@ -20,8 +21,7 @@ describe("Rich Output Types", () => {
   let codeCell;
 
   before(async () => {
-    // Wait for app to fully load
-    await browser.pause(5000);
+    await waitForAppReady();
 
     const title = await browser.getTitle();
     console.log("Page title:", title);
@@ -30,7 +30,7 @@ describe("Rich Output Types", () => {
   /**
    * Helper to type text character by character with delay
    */
-  async function typeSlowly(text, delay = 50) {
+  async function typeSlowly(text, delay = 30) {
     for (const char of text) {
       await browser.keys(char);
       await browser.pause(delay);

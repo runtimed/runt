@@ -31,6 +31,7 @@ const FIXTURE_SPECS = [
   "pixi-env-detection.spec.js",
   "pyproject-startup.spec.js",
   "both-deps-panel.spec.js",
+  "iframe-isolation.spec.js",
 ];
 
 export const config = {

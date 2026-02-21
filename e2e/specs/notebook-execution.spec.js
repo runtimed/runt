@@ -7,6 +7,7 @@
 
 import { browser, expect } from "@wdio/globals";
 import os from "node:os";
+import { waitForAppReady } from "../helpers.js";
 
 // macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
 const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
@@ -35,23 +36,18 @@ describe("Notebook Execution Happy Path", () => {
   let codeCell;
 
   before(async () => {
-    // Wait for app to fully load
-    await browser.pause(5000);
+    await waitForAppReady();
 
-    // Debug: Log page state
     const title = await browser.getTitle();
-    const url = await browser.getUrl();
     console.log("Page title:", title);
-    console.log("Page URL:", url);
 
-    // Screenshot: Initial app state
     await takeScreenshot("01-app-loaded");
   });
 
   /**
    * Helper to type text character by character with delay to avoid dropped keys
    */
-  async function typeSlowly(text, delay = 50) {
+  async function typeSlowly(text, delay = 30) {
     for (const char of text) {
       await browser.keys(char);
       await browser.pause(delay);

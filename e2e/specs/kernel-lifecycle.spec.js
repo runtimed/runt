@@ -9,6 +9,7 @@
 
 import { browser, expect } from "@wdio/globals";
 import os from "node:os";
+import { waitForAppReady } from "../helpers.js";
 
 // macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
 const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
@@ -20,8 +21,7 @@ describe("Kernel Lifecycle", () => {
   let codeCell;
 
   before(async () => {
-    // Wait for app to fully load
-    await browser.pause(5000);
+    await waitForAppReady();
 
     const title = await browser.getTitle();
     console.log("Page title:", title);
@@ -30,7 +30,7 @@ describe("Kernel Lifecycle", () => {
   /**
    * Helper to type text character by character with delay
    */
-  async function typeSlowly(text, delay = 50) {
+  async function typeSlowly(text, delay = 30) {
     for (const char of text) {
       await browser.keys(char);
       await browser.pause(delay);
@@ -213,8 +213,14 @@ describe("Kernel Lifecycle", () => {
     await browser.pause(300);
     await browser.keys(["Shift", "Enter"]);
 
-    // Wait for any output or completion
-    await browser.pause(5000);
+    // Wait for execution to complete (exec count or output)
+    await browser.waitUntil(
+      async () => {
+        const cellText = await codeCell.getText();
+        return cellText.match(/\[\d+/);
+      },
+      { timeout: KERNEL_STARTUP_TIMEOUT, interval: 500, timeoutMsg: "Variable setup did not complete" }
+    );
 
     // Now find and click the restart button
     const restartButton = await findButton([
@@ -227,8 +233,17 @@ describe("Kernel Lifecycle", () => {
       console.log("Found restart button, clicking...");
       await restartButton.click();
 
-      // Wait for kernel to restart (no confirmation dialog)
-      await browser.pause(5000);
+      // Wait for kernel to restart by watching toolbar status cycle back to idle
+      await browser.waitUntil(
+        async () => {
+          const text = await browser.execute(() => {
+            const el = document.querySelector('[data-testid="notebook-toolbar"] .capitalize');
+            return el ? el.textContent.trim().toLowerCase() : '';
+          });
+          return text === 'idle' || text === 'not started';
+        },
+        { timeout: 15000, interval: 300, timeoutMsg: "Kernel did not restart" }
+      );
 
       // Now try to access the variable - should get NameError
       await setupCodeCell();

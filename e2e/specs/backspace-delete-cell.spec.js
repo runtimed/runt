@@ -7,6 +7,7 @@
 
 import { browser, expect } from "@wdio/globals";
 import os from "node:os";
+import { waitForAppReady } from "../helpers.js";
 
 // macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
 const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
@@ -31,7 +32,7 @@ describe("Backspace Delete Cell", () => {
   /**
    * Helper to type text character by character with delay to avoid dropped keys
    */
-  async function typeSlowly(text, delay = 100) {
+  async function typeSlowly(text, delay = 50) {
     for (const char of text) {
       await browser.keys(char);
       await browser.pause(delay);
@@ -60,8 +61,7 @@ describe("Backspace Delete Cell", () => {
   }
 
   before(async () => {
-    // Wait for app to fully load
-    await browser.pause(5000);
+    await waitForAppReady();
     await takeScreenshot("backspace-01-app-loaded");
   });
 
@@ -77,7 +77,7 @@ describe("Backspace Delete Cell", () => {
       const addCodeButton = await $("button*=Code");
       await addCodeButton.waitForClickable({ timeout: 5000 });
       await addCodeButton.click();
-      await browser.pause(1000);
+      await browser.pause(500);
     }
 
     // Step 2: Get the first cell and its editor
@@ -95,7 +95,7 @@ describe("Backspace Delete Cell", () => {
 
     // Type a simple marker - just a few chars to minimize issues
     console.log("Typing marker...");
-    await typeSlowly("ABC", 150);
+    await typeSlowly("ABC", 50);
     await browser.pause(500);
 
     // Verify we typed something by reading back
@@ -132,7 +132,7 @@ describe("Backspace Delete Cell", () => {
     // Use Alt+Enter to execute and insert a new cell
     console.log("Adding second cell with Alt+Enter...");
     await browser.keys(["Alt", "Enter"]);
-    await browser.pause(1500);
+    await browser.pause(500);
 
     // Verify we now have 2 cells
     let cellCount = await countCodeCells();
@@ -148,7 +148,7 @@ describe("Backspace Delete Cell", () => {
         await lastAddButton.scrollIntoView();
         await browser.pause(200);
         await lastAddButton.click();
-        await browser.pause(1000);
+        await browser.pause(500);
       }
       cellCount = await countCodeCells();
       console.log("Cell count after button click:", cellCount);
@@ -183,7 +183,7 @@ describe("Backspace Delete Cell", () => {
     // Step 6: Press backspace on empty cell to delete it
     console.log("Pressing Backspace to delete empty cell...");
     await browser.keys("Backspace");
-    await browser.pause(1000);
+    await browser.pause(500);
 
     await takeScreenshot("backspace-04-after-delete");
 
