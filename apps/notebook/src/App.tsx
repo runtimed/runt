@@ -276,6 +276,17 @@ function AppContent() {
           ? "conda"
           : null;
 
+  // Pre-start hint for the env badge (more specific than envType: distinguishes pixi)
+  const envTypeHint = envSource
+    ? null // backend has spoken, no hint needed
+    : pixiInfo?.has_dependencies
+      ? ("pixi" as const)
+      : envType === "conda"
+        ? ("conda" as const)
+        : envType === "uv"
+          ? ("uv" as const)
+          : null;
+
   // Environment preparation progress
   const envProgress = useEnvProgress();
 
@@ -453,6 +464,7 @@ function AppContent() {
       <NotebookToolbar
         kernelStatus={kernelStatus}
         envSource={envSource}
+        envTypeHint={envTypeHint}
         dirty={dirty}
         hasDependencies={hasDependencies}
         theme={theme}
