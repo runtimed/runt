@@ -1069,7 +1069,8 @@ impl NotebookKernel {
 
         // Use `uv run` to launch the kernel - this lets uv handle the environment
         // --with ipykernel adds it transiently without modifying pyproject.toml
-        let mut cmd = tokio::process::Command::new("uv");
+        let uv_path = tools::get_uv_path().await?;
+        let mut cmd = tokio::process::Command::new(&uv_path);
         cmd.args([
             "run",
             "--directory",
