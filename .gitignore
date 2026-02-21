@@ -42,6 +42,9 @@ __pycache__/
 .venv/
 **/.venv/
 
+# Fixture artifacts from test runs
+crates/notebook/fixtures/**/uv.lock
+
 # Agent workspace context (per-worktree state)
 .context/
 
