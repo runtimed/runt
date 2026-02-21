@@ -1030,6 +1030,14 @@ impl NotebookKernel {
         // Shutdown existing kernel if any
         self.shutdown().await.ok();
 
+        // Canonicalize project_dir so uv gets an absolute path
+        let project_dir = project_dir.canonicalize().map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to resolve project directory {:?}: {}",
+                project_dir,
+                e
+            )
+        })?;
         info!("Starting kernel with uv run in project {:?}", project_dir);
 
         // Reserve ports
@@ -1085,7 +1093,7 @@ impl NotebookKernel {
             "-f",
         ])
         .arg(&connection_file_path)
-        .current_dir(project_dir)
+        .current_dir(&project_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
         #[cfg(unix)]
