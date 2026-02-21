@@ -6,6 +6,10 @@
  */
 
 import { browser, expect } from "@wdio/globals";
+import os from "node:os";
+
+// macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
+const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
 
 /**
  * Screenshot helper for capturing milestone moments
@@ -111,7 +115,7 @@ describe("Notebook Execution Happy Path", () => {
     await browser.pause(200);
 
     // Clear any existing content
-    await browser.keys(["Control", "a"]);
+    await browser.keys([MOD_KEY, "a"]);
     await browser.pause(100);
 
     // Type code slowly to avoid dropped characters
@@ -153,7 +157,7 @@ describe("Notebook Execution Happy Path", () => {
     await browser.pause(200);
 
     // Select all and replace with new code
-    await browser.keys(["Control", "a"]);
+    await browser.keys([MOD_KEY, "a"]);
     await browser.pause(100);
 
     const newCode = 'print("second run")';

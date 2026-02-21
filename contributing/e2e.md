@@ -23,21 +23,22 @@ The app has a built-in WebDriver server activated by the `webdriver-test` featur
 This lets you run E2E tests natively on macOS without Docker.
 
 ```bash
-# 1. Build the frontend (once, or when frontend changes)
-pnpm run isolated-renderer:build && pnpm --dir apps/notebook build
+# 1. Build with WebDriver support (builds frontend + Rust binary)
+cargo xtask build-e2e
 
-# 2. Build the app with WebDriver support
-cargo build --features webdriver-test -p notebook
-
-# 3. Start the app with the WebDriver server
+# 2. Start the app with the WebDriver server
 ./target/debug/notebook --webdriver-port 4444
 
-# 4. In another terminal, run tests
+# 3. In another terminal, run tests
 pnpm test:e2e:native
 
 # Or run a single spec
 E2E_SPEC=e2e/specs/notebook-execution.spec.js pnpm test:e2e:native
 ```
+
+**Important:** You must use `cargo xtask build-e2e` (not plain `cargo build`) because
+`cargo tauri build` embeds the frontend assets into the binary. A plain `cargo build`
+would try to connect to a Vite dev server instead.
 
 ### Docker Mode (CI / Linux)
 

@@ -265,35 +265,106 @@
     el.focus();
 
     for (const char of text) {
-      const keyDown = new KeyboardEvent("keydown", {
-        key: char,
-        bubbles: true,
-        cancelable: true,
-      });
-      const keyPress = new KeyboardEvent("keypress", {
-        key: char,
-        bubbles: true,
-        cancelable: true,
-      });
-      const input = new InputEvent("input", {
-        data: char,
-        inputType: "insertText",
-        bubbles: true,
-        cancelable: true,
-      });
-      const keyUp = new KeyboardEvent("keyup", {
-        key: char,
-        bubbles: true,
-        cancelable: true,
-      });
+      const key = SPECIAL_KEYS[char] || char;
 
-      el.dispatchEvent(keyDown);
-      el.dispatchEvent(keyPress);
-      if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
-        el.value += char;
+      el.dispatchEvent(new KeyboardEvent("keydown", {
+        key: key, code: getKeyCode(key), bubbles: true, cancelable: true,
+      }));
+
+      if (key.length === 1 && !MODIFIER_KEYS.has(key)) {
+        // Use execCommand for contenteditable elements (CodeMirror)
+        if (el.isContentEditable || el.closest("[contenteditable]")) {
+          currentDocument.execCommand("insertText", false, key);
+        } else if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+          el.value += key;
+          el.dispatchEvent(new InputEvent("input", {
+            data: key, inputType: "insertText", bubbles: true, cancelable: true,
+          }));
+        }
       }
-      el.dispatchEvent(input);
-      el.dispatchEvent(keyUp);
+
+      el.dispatchEvent(new KeyboardEvent("keyup", {
+        key: key, code: getKeyCode(key), bubbles: true, cancelable: true,
+      }));
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * Send keys to the active element (legacy browser.keys() support).
+   * Uses execCommand("insertText") for printable chars (works with CodeMirror 6)
+   * and KeyboardEvent dispatch for special keys/shortcuts.
+   */
+  function sendKeys(text) {
+    const target = currentDocument.activeElement || currentDocument.body;
+    const modifiers = { shift: false, ctrl: false, alt: false, meta: false };
+    const heldModifiers = [];
+
+    for (const char of text) {
+      const key = SPECIAL_KEYS[char] || char;
+
+      // Null key (\uE000) releases all modifiers
+      if (char === "\uE000") {
+        for (const mod of heldModifiers) {
+          const upOpts = {
+            key: mod, code: getKeyCode(mod),
+            bubbles: true, cancelable: true,
+            shiftKey: modifiers.shift, ctrlKey: modifiers.ctrl,
+            altKey: modifiers.alt, metaKey: modifiers.meta,
+          };
+          target.dispatchEvent(new KeyboardEvent("keyup", upOpts));
+          if (mod === "Shift") modifiers.shift = false;
+          else if (mod === "Control") modifiers.ctrl = false;
+          else if (mod === "Alt") modifiers.alt = false;
+          else if (mod === "Meta") modifiers.meta = false;
+        }
+        heldModifiers.length = 0;
+        continue;
+      }
+
+      // Track modifier state
+      if (key === "Shift") { modifiers.shift = true; heldModifiers.push(key); }
+      else if (key === "Control") { modifiers.ctrl = true; heldModifiers.push(key); }
+      else if (key === "Alt") { modifiers.alt = true; heldModifiers.push(key); }
+      else if (key === "Meta") { modifiers.meta = true; heldModifiers.push(key); }
+
+      const eventOpts = {
+        key: key, code: getKeyCode(key),
+        bubbles: true, cancelable: true,
+        shiftKey: modifiers.shift, ctrlKey: modifiers.ctrl,
+        altKey: modifiers.alt, metaKey: modifiers.meta,
+      };
+
+      // Always dispatch keydown (CM6 uses this for keyboard shortcuts)
+      target.dispatchEvent(new KeyboardEvent("keydown", eventOpts));
+
+      // For printable, non-modifier, non-special characters without modifiers held:
+      // use execCommand("insertText") so CodeMirror 6 processes it correctly
+      const hasModifier = modifiers.ctrl || modifiers.alt || modifiers.meta;
+      if (!MODIFIER_KEYS.has(key) && key.length === 1 && !hasModifier) {
+        currentDocument.execCommand("insertText", false, key);
+      }
+
+      // Non-modifier keys get immediate keyup
+      if (!MODIFIER_KEYS.has(key)) {
+        target.dispatchEvent(new KeyboardEvent("keyup", eventOpts));
+      }
+    }
+
+    // Release any held modifiers at end
+    for (const mod of heldModifiers) {
+      if (mod === "Shift") modifiers.shift = false;
+      else if (mod === "Control") modifiers.ctrl = false;
+      else if (mod === "Alt") modifiers.alt = false;
+      else if (mod === "Meta") modifiers.meta = false;
+      const upOpts = {
+        key: mod, code: getKeyCode(mod),
+        bubbles: true, cancelable: true,
+        shiftKey: modifiers.shift, ctrlKey: modifiers.ctrl,
+        altKey: modifiers.alt, metaKey: modifiers.meta,
+      };
+      target.dispatchEvent(new KeyboardEvent("keyup", upOpts));
     }
 
     return { success: true };
@@ -687,6 +758,9 @@
             break;
           case "sendKeysToElement":
             result = sendKeysToElement(params.elementId, params.text);
+            break;
+          case "sendKeys":
+            result = sendKeys(params.text);
             break;
           case "performActions":
             result = performActions(params.actions);

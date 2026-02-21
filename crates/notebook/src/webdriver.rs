@@ -10,7 +10,7 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{Method, StatusCode, Uri},
     response::Json,
     routing::{delete, get, post},
     Router,
@@ -536,6 +536,32 @@ async fn release_actions(
     w3c_value(Value::Null)
 }
 
+/// POST /session/{session_id}/keys — Legacy sendKeys (used by browser.keys())
+async fn send_keys(
+    State(state): State<SharedState>,
+    Path(_session_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let keys = body
+        .get("value")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| w3c_error("invalid argument", "missing 'value' array"))?;
+
+    // Convert legacy keys format to a single string for the bridge
+    let text: String = keys
+        .iter()
+        .filter_map(|k| k.as_str())
+        .collect::<Vec<_>>()
+        .join("");
+
+    state
+        .exec_bridge("sendKeys", json!({ "text": text }))
+        .await
+        .map_err(|e| w3c_error("unknown error", &e))?;
+
+    Ok(w3c_value(Value::Null))
+}
+
 /// POST /session/{session_id}/frame — Switch to frame
 async fn switch_to_frame(
     State(state): State<SharedState>,
@@ -775,106 +801,119 @@ fn build_router(state: SharedState) -> Router {
         // Session management
         .route("/status", get(status))
         .route("/session", post(new_session))
-        .route("/session/{session_id}", delete(delete_session))
+        .route("/session/:session_id", delete(delete_session))
         // Timeouts
-        .route("/session/{session_id}/timeouts", post(set_timeouts))
+        .route("/session/:session_id/timeouts", post(set_timeouts))
         // Navigation
-        .route("/session/{session_id}/url", get(get_url))
-        .route("/session/{session_id}/title", get(get_title))
-        .route("/session/{session_id}/source", get(get_page_source))
+        .route("/session/:session_id/url", get(get_url))
+        .route("/session/:session_id/title", get(get_title))
+        .route("/session/:session_id/source", get(get_page_source))
         // Window
-        .route("/session/{session_id}/window", get(get_window_handle))
+        .route("/session/:session_id/window", get(get_window_handle))
         .route(
-            "/session/{session_id}/window/handles",
+            "/session/:session_id/window/handles",
             get(get_window_handles),
         )
         .route(
-            "/session/{session_id}/window/rect",
+            "/session/:session_id/window/rect",
             get(get_window_rect),
         )
         // Frame
-        .route("/session/{session_id}/frame", post(switch_to_frame))
+        .route("/session/:session_id/frame", post(switch_to_frame))
         .route(
-            "/session/{session_id}/frame/parent",
+            "/session/:session_id/frame/parent",
             post(switch_to_parent_frame),
         )
         // Elements
-        .route("/session/{session_id}/element", post(find_element))
+        .route("/session/:session_id/element", post(find_element))
         .route(
-            "/session/{session_id}/element/active",
+            "/session/:session_id/element/active",
             get(get_active_element),
         )
-        .route("/session/{session_id}/elements", post(find_elements))
+        .route("/session/:session_id/elements", post(find_elements))
         .route(
-            "/session/{session_id}/element/{element_id}/element",
+            "/session/:session_id/element/:element_id/element",
             post(find_element_from_element),
         )
         .route(
-            "/session/{session_id}/element/{element_id}/elements",
+            "/session/:session_id/element/:element_id/elements",
             post(find_elements_from_element),
         )
         .route(
-            "/session/{session_id}/element/{element_id}/click",
+            "/session/:session_id/element/:element_id/click",
             post(click_element),
         )
         .route(
-            "/session/{session_id}/element/{element_id}/text",
+            "/session/:session_id/element/:element_id/text",
             get(get_element_text),
         )
         .route(
-            "/session/{session_id}/element/{element_id}/name",
+            "/session/:session_id/element/:element_id/name",
             get(get_element_tag_name),
         )
         .route(
-            "/session/{session_id}/element/{element_id}/attribute/{name}",
+            "/session/:session_id/element/:element_id/attribute/:name",
             get(get_element_attribute),
         )
         .route(
-            "/session/{session_id}/element/{element_id}/css/{property_name}",
+            "/session/:session_id/element/:element_id/css/:property_name",
             get(get_element_css_value),
         )
         .route(
-            "/session/{session_id}/element/{element_id}/displayed",
+            "/session/:session_id/element/:element_id/displayed",
             get(is_element_displayed),
         )
         .route(
-            "/session/{session_id}/element/{element_id}/enabled",
+            "/session/:session_id/element/:element_id/enabled",
             get(is_element_enabled),
         )
         .route(
-            "/session/{session_id}/element/{element_id}/rect",
+            "/session/:session_id/element/:element_id/rect",
             get(get_element_rect),
         )
         .route(
-            "/session/{session_id}/element/{element_id}/clear",
+            "/session/:session_id/element/:element_id/clear",
             post(clear_element),
         )
         .route(
-            "/session/{session_id}/element/{element_id}/value",
+            "/session/:session_id/element/:element_id/value",
             post(send_keys_to_element),
         )
         // Actions
-        .route("/session/{session_id}/actions", post(perform_actions))
+        .route("/session/:session_id/actions", post(perform_actions))
         .route(
-            "/session/{session_id}/actions",
+            "/session/:session_id/actions",
             delete(release_actions),
         )
+        // Legacy keys endpoint (browser.keys() in WebdriverIO)
+        .route("/session/:session_id/keys", post(send_keys))
         // Screenshots
         .route(
-            "/session/{session_id}/screenshot",
+            "/session/:session_id/screenshot",
             get(take_screenshot),
         )
         .route(
-            "/session/{session_id}/element/{element_id}/screenshot",
+            "/session/:session_id/element/:element_id/screenshot",
             get(take_element_screenshot),
         )
         // Script execution
         .route(
-            "/session/{session_id}/execute/sync",
+            "/session/:session_id/execute/sync",
             post(execute_script),
         )
+        .fallback(fallback_handler)
         .layer(cors)
         .with_state(state)
+}
+
+/// Catch-all handler for unmatched routes — logs the request for debugging
+async fn fallback_handler(method: Method, uri: Uri) -> (StatusCode, Json<Value>) {
+    log::warn!(
+        "[webdriver] Unhandled request: {} {}",
+        method,
+        uri
+    );
+    w3c_error("unknown command", &format!("unhandled: {} {}", method, uri))
 }
 
 /// The JS bridge script to inject into the WebView

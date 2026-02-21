@@ -23,6 +23,7 @@ fn main() {
             let source = args.get(1).map(String::as_str);
             cmd_icons(source);
         }
+        "build-e2e" => cmd_build_e2e(),
         "build-dmg" => cmd_build_dmg(),
         "build-app" => cmd_build_app(),
         "--help" | "-h" | "help" => print_help(),
@@ -42,6 +43,7 @@ fn print_help() {
 Development:
   dev                   Start hot-reload dev server
   build                 Quick debug build (no DMG)
+  build-e2e             Debug build with built-in WebDriver server
   run [notebook.ipynb]  Build and run debug app
   watch-isolated        Watch and rebuild isolated renderer
 
@@ -112,6 +114,33 @@ fn cmd_run(notebook: Option<&str>) {
         Some(path) => run_cmd("./target/debug/notebook", &[path]),
         None => run_cmd("./target/debug/notebook", &[]),
     }
+}
+
+fn cmd_build_e2e() {
+    // Build runtimed daemon binary for bundling
+    build_runtimed_daemon();
+
+    // pnpm build runs: isolated-renderer + sidecar + notebook
+    println!("Building frontend (isolated-renderer, sidecar, notebook)...");
+    run_cmd("pnpm", &["build"]);
+
+    println!("Building debug binary with WebDriver server...");
+    run_cmd(
+        "cargo",
+        &[
+            "tauri",
+            "build",
+            "--debug",
+            "--no-bundle",
+            "--features",
+            "webdriver-test",
+            "--config",
+            r#"{"build":{"beforeBuildCommand":""}}"#,
+        ],
+    );
+
+    println!("Build complete: ./target/debug/notebook");
+    println!("Run with: ./target/debug/notebook --webdriver-port 4444");
 }
 
 fn cmd_icons(source: Option<&str>) {
