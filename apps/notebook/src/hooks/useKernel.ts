@@ -79,6 +79,8 @@ export function useKernel({
   onUpdateDisplayData,
 }: UseKernelOptions) {
   const [kernelStatus, setKernelStatus] = useState<string>("not started");
+  // Environment source from backend (e.g. "uv:inline", "uv:pyproject", "conda:prewarmed")
+  const [envSource, setEnvSource] = useState<string | null>(null);
   // Track whether we're in the process of auto-starting to avoid double starts
   const startingRef = useRef(false);
 
@@ -110,13 +112,17 @@ export function useKernel({
       }
     });
 
-    // Listen for kernel lifecycle events (auto-launch starting)
-    const lifecycleUnlisten = listen<{ state: string; runtime: string }>(
+    // Listen for kernel lifecycle events (auto-launch starting/ready/error)
+    const lifecycleUnlisten = listen<{ state: string; runtime: string; env_source?: string }>(
       "kernel:lifecycle",
       (event) => {
         if (cancelled) return;
         if (event.payload.state === "launching") {
           setKernelStatus("starting");
+        } else if (event.payload.state === "ready" && event.payload.env_source) {
+          setEnvSource(event.payload.env_source);
+        } else if (event.payload.state === "error") {
+          setKernelStatus("error");
         }
       }
     );
@@ -237,6 +243,7 @@ export function useKernel({
 
   const startKernel = useCallback(async (name: string) => {
     setKernelStatus("starting");
+    setEnvSource(null);
     try {
       console.log("[kernel] starting kernel:", name);
       await invoke("start_kernel", { kernelspecName: name });
@@ -272,6 +279,7 @@ export function useKernel({
       console.log("[kernel] starting uv-managed kernel");
       await invoke("start_kernel_with_uv");
       console.log("[kernel] start_kernel_with_uv succeeded");
+      setEnvSource("uv:inline");
       setKernelStatus("idle");
     } catch (e) {
       console.error("start_kernel_with_uv failed:", e);
@@ -285,6 +293,7 @@ export function useKernel({
       console.log("[kernel] starting conda-managed kernel");
       await invoke("start_kernel_with_conda");
       console.log("[kernel] start_kernel_with_conda succeeded");
+      setEnvSource("conda:inline");
       setKernelStatus("idle");
       // Notify that kernel started
       callbacksRef.current.onKernelStarted?.();
@@ -329,8 +338,9 @@ export function useKernel({
     setKernelStatus("starting");
     try {
       console.log("[kernel] starting default kernel (backend will choose uv or conda)");
-      const envType = await invoke<string>("start_default_kernel");
-      console.log(`[kernel] start_default_kernel succeeded, using ${envType}`);
+      const source = await invoke<string>("start_default_kernel");
+      console.log(`[kernel] start_default_kernel succeeded, source: ${source}`);
+      setEnvSource(source);
       setKernelStatus("idle");
       // Notify that kernel started (backend may have updated metadata)
       callbacksRef.current.onKernelStarted?.();
@@ -346,6 +356,7 @@ export function useKernel({
       console.log("[kernel] starting kernel with pyproject.toml");
       await invoke("start_kernel_with_pyproject");
       console.log("[kernel] start_kernel_with_pyproject succeeded");
+      setEnvSource("uv:pyproject");
       setKernelStatus("idle");
       callbacksRef.current.onKernelStarted?.();
     } catch (e) {
@@ -356,6 +367,7 @@ export function useKernel({
 
   const startKernelWithDeno = useCallback(async () => {
     setKernelStatus("starting");
+    setEnvSource(null);
     try {
       console.log("[kernel] starting Deno kernel");
       await invoke("start_kernel_with_deno");
@@ -374,6 +386,7 @@ export function useKernel({
       console.log("[kernel] starting kernel with environment.yml");
       await invoke("start_kernel_with_environment_yml");
       console.log("[kernel] start_kernel_with_environment_yml succeeded");
+      setEnvSource("conda:env_yml");
       setKernelStatus("idle");
       callbacksRef.current.onKernelStarted?.();
     } catch (e) {
@@ -505,6 +518,7 @@ export function useKernel({
       console.log("[kernel] shutting down kernel");
       await invoke("shutdown_kernel");
       setKernelStatus("not started");
+      setEnvSource(null);
       console.log("[kernel] shutdown complete");
     } catch (e) {
       console.error("shutdown_kernel failed:", e);
@@ -521,6 +535,7 @@ export function useKernel({
 
   return {
     kernelStatus,
+    envSource,
     startKernel,
     startKernelWithUv,
     startKernelWithConda,

@@ -1,4 +1,4 @@
-use crate::conda_env::{CondaDependencies, CondaEnvironment};
+use crate::conda_env::{CondaDependencies, CondaEnvironment, EnvProgressEvent, EnvProgressPhase};
 use crate::execution_queue::QueueCommand;
 use crate::tools;
 use crate::uv_env::{NotebookDependencies, UvEnvironment};
@@ -9,7 +9,7 @@ use jupyter_protocol::{
     InterruptRequest, JupyterMessage, JupyterMessageContent, KernelInfoRequest, Payload,
     ShutdownRequest,
 };
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -128,6 +128,17 @@ pub struct NotebookKernel {
     queue_tx: Option<mpsc::Sender<QueueCommand>>,
     /// Dependencies the kernel was started with (for dirty state detection)
     synced_dependencies: Option<Vec<String>>,
+}
+
+/// Emit a uv environment progress event to the frontend.
+fn emit_uv_progress(app: &AppHandle, phase: EnvProgressPhase) {
+    let event = EnvProgressEvent {
+        env_type: "uv".to_string(),
+        phase,
+    };
+    if let Err(e) = app.emit("env:progress", &event) {
+        error!("Failed to emit uv progress: {}", e);
+    }
 }
 
 impl Default for NotebookKernel {
@@ -1058,7 +1069,8 @@ impl NotebookKernel {
 
         // Use `uv run` to launch the kernel - this lets uv handle the environment
         // --with ipykernel adds it transiently without modifying pyproject.toml
-        let mut cmd = tokio::process::Command::new("uv");
+        let uv_path = tools::get_uv_path().await?;
+        let mut cmd = tokio::process::Command::new(&uv_path);
         cmd.args([
             "run",
             "--directory",
@@ -1073,10 +1085,10 @@ impl NotebookKernel {
         .arg(&connection_file_path)
         .current_dir(project_dir)
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
         #[cfg(unix)]
         cmd.process_group(0); // Create new process group for kernel and children
-        let process = cmd.kill_on_drop(true).spawn()?;
+        let mut process = cmd.kill_on_drop(true).spawn()?;
 
         // Store process group ID for cleanup
         #[cfg(unix)]
@@ -1084,19 +1096,147 @@ impl NotebookKernel {
             self.process_group_id = process.id().map(|pid| pid as i32);
         }
 
-        // Small delay to let the kernel start (uv run may need to sync first)
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        // Emit starting progress
+        emit_uv_progress(&app, EnvProgressPhase::Starting {
+            env_hash: "pyproject".to_string(),
+        });
 
+        // Spawn a task to read stderr and emit progress events from uv output
+        let stderr = process.stderr.take();
+        let stderr_app = app.clone();
+        let _stderr_task = tokio::spawn(async move {
+            if let Some(stderr) = stderr {
+                use tokio::io::{AsyncBufReadExt, BufReader};
+                let reader = BufReader::new(stderr);
+                let mut lines = reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    debug!("uv stderr: {}", line);
+                    let line_lower = line.to_lowercase();
+                    if line_lower.contains("resolved") && line_lower.contains("package") {
+                        emit_uv_progress(&stderr_app, EnvProgressPhase::Solving { spec_count: 0 });
+                    } else if (line_lower.contains("installed") || line_lower.contains("installing"))
+                        && line_lower.contains("package")
+                    {
+                        emit_uv_progress(&stderr_app, EnvProgressPhase::Installing { total: 0 });
+                    } else if line_lower.contains("audited") && line_lower.contains("package") {
+                        // uv found existing .venv, just auditing
+                        emit_uv_progress(&stderr_app, EnvProgressPhase::Installing { total: 0 });
+                    }
+                }
+            }
+        });
+
+        // Retry connecting to the kernel with increasing delays.
+        // uv run may need to create .venv and install deps before the kernel binds ports.
         self.session_id = Uuid::new_v4().to_string();
+        let delays_ms: &[u64] = &[2000, 3000, 5000, 10000, 15000, 15000, 15000, 15000];
+        let mut connected = false;
+        let mut last_error: Option<String> = None;
 
-        // Create iopub connection and spawn listener
-        let mut iopub = runtimelib::create_client_iopub_connection(
-            &connection_info,
-            "",
-            &self.session_id,
-        )
-        .await?;
+        let mut iopub_conn = None;
+        let mut shell_conn = None;
 
+        for (attempt, &delay) in delays_ms.iter().enumerate() {
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+
+            // Check if uv run process already exited (error case)
+            if let Ok(Some(status)) = process.try_wait() {
+                emit_uv_progress(&app, EnvProgressPhase::Error {
+                    message: format!("uv run exited with {}", status),
+                });
+                return Err(anyhow::anyhow!("uv run exited with {}", status));
+            }
+
+            // Try iopub connection
+            let iopub = match runtimelib::create_client_iopub_connection(
+                &connection_info,
+                "",
+                &self.session_id,
+            )
+            .await
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    info!("uv run: iopub attempt {} failed: {}", attempt + 1, e);
+                    last_error = Some(format!("iopub: {}", e));
+                    continue;
+                }
+            };
+
+            // Try shell connection
+            let identity = match runtimelib::peer_identity_for_session(&self.session_id) {
+                Ok(id) => id,
+                Err(e) => {
+                    last_error = Some(format!("identity: {}", e));
+                    continue;
+                }
+            };
+            let mut shell = match runtimelib::create_client_shell_connection_with_identity(
+                &connection_info,
+                &self.session_id,
+                identity,
+            )
+            .await
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    info!("uv run: shell attempt {} failed: {}", attempt + 1, e);
+                    last_error = Some(format!("shell: {}", e));
+                    continue;
+                }
+            };
+
+            // Try kernel_info handshake with a short timeout
+            let request: JupyterMessage = KernelInfoRequest::default().into();
+            if let Err(e) = shell.send(request).await {
+                warn!("uv run: kernel_info send failed attempt {}: {}", attempt + 1, e);
+                last_error = Some(format!("send: {}", e));
+                continue;
+            }
+
+            match tokio::time::timeout(std::time::Duration::from_secs(10), shell.read()).await {
+                Ok(Ok(msg)) => {
+                    info!(
+                        "uv run: kernel alive on attempt {} — got {} reply",
+                        attempt + 1,
+                        msg.header.msg_type
+                    );
+                    iopub_conn = Some(iopub);
+                    shell_conn = Some(shell);
+                    connected = true;
+                    break;
+                }
+                Ok(Err(e)) => {
+                    info!("uv run: kernel_info_reply error attempt {}: {}", attempt + 1, e);
+                    last_error = Some(format!("reply: {}", e));
+                }
+                Err(_) => {
+                    info!("uv run: kernel_info_reply timeout attempt {}", attempt + 1);
+                    last_error = Some("timeout".to_string());
+                }
+            }
+        }
+
+        if !connected {
+            let msg = format!(
+                "Kernel did not respond after {} attempts (last: {})",
+                delays_ms.len(),
+                last_error.unwrap_or_else(|| "unknown".to_string())
+            );
+            emit_uv_progress(&app, EnvProgressPhase::Error { message: msg.clone() });
+            return Err(anyhow::anyhow!(msg));
+        }
+
+        // Unwrap the successful connections
+        let mut iopub = iopub_conn.expect("iopub must be set when connected=true");
+        let shell = shell_conn.expect("shell must be set when connected=true");
+
+        emit_uv_progress(&app, EnvProgressPhase::Ready {
+            env_path: project_dir.to_string_lossy().to_string(),
+            python_path: "python".to_string(),
+        });
+
+        // Spawn iopub listener
         let app_handle = app.clone();
         let cell_id_map = self.cell_id_map.clone();
         let queue_tx = self.queue_tx.clone();
@@ -1151,34 +1291,6 @@ impl NotebookKernel {
                 }
             }
         });
-
-        // Create persistent shell connection
-        let identity = runtimelib::peer_identity_for_session(&self.session_id)?;
-        let mut shell = runtimelib::create_client_shell_connection_with_identity(
-            &connection_info,
-            &self.session_id,
-            identity,
-        )
-        .await?;
-
-        // Verify kernel is alive with kernel_info handshake
-        let request: JupyterMessage = KernelInfoRequest::default().into();
-        shell.send(request).await?;
-
-        let reply = tokio::time::timeout(std::time::Duration::from_secs(60), shell.read()).await;
-        match reply {
-            Ok(Ok(msg)) => {
-                info!("Kernel alive: got {} reply", msg.header.msg_type);
-            }
-            Ok(Err(e)) => {
-                error!("Error reading kernel_info_reply: {}", e);
-                return Err(anyhow::anyhow!("Kernel did not respond: {}", e));
-            }
-            Err(_) => {
-                error!("Timeout waiting for kernel_info_reply");
-                return Err(anyhow::anyhow!("Kernel did not respond within 60s"));
-            }
-        }
 
         // Split shell into persistent writer + reader
         let (shell_writer, mut shell_reader) = shell.split();

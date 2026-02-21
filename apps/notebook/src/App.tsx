@@ -126,6 +126,8 @@ function AppContent() {
     hasDependencies: hasCondaDependencies,
     isCondaConfigured,
     loading: condaDepsLoading,
+    syncing: condaSyncing,
+    syncState: condaSyncState,
     syncedWhileRunning: condaSyncedWhileRunning,
     needsKernelRestart: condaNeedsKernelRestart,
     loadDependencies: loadCondaDependencies,
@@ -135,6 +137,9 @@ function AppContent() {
     setPython: setCondaPython,
     environmentYmlInfo,
     environmentYmlDeps,
+    syncNow: syncCondaNow,
+    pixiInfo,
+    importFromPixi,
   } = useCondaDependencies();
 
   // Deno config detection and settings
@@ -144,15 +149,6 @@ function AppContent() {
     flexibleNpmImports,
     setFlexibleNpmImports,
   } = useDenoDependencies();
-
-  // Auto-detect environment type based on what's configured
-  // uv takes priority if metadata exists AND uv is available
-  // Falls back to conda if uv is not available or environment.yml is detected
-  const envType = isUvConfigured && uvAvailable !== false
-    ? "uv"
-    : isCondaConfigured || environmentYmlInfo?.has_dependencies || uvAvailable === false
-      ? "conda"
-      : null;
 
   // Combine hasDependencies for toolbar badge
   // For Deno, show badge if deno.json is found with imports
@@ -251,7 +247,9 @@ function AppContent() {
 
   const {
     kernelStatus,
+    envSource,
     ensureKernelStarted,
+    startKernelWithPyproject,
     interruptKernel,
     restartKernel,
     listKernelspecs,
@@ -264,6 +262,19 @@ function AppContent() {
     onPagePayload: handlePagePayload,
     onUpdateDisplayData: updateOutputByDisplayId,
   });
+
+  // When kernel is running and we know the env source, use it to determine panel type.
+  // This handles: both-deps (backend picks based on preference), pixi (auto-detected, no metadata).
+  // Fall back to metadata-based detection when kernel hasn't started yet.
+  const envType = envSource?.startsWith("conda:")
+    ? "conda"
+    : envSource?.startsWith("uv:")
+      ? "uv"
+      : isUvConfigured && uvAvailable !== false
+        ? "uv"
+        : isCondaConfigured || environmentYmlInfo?.has_dependencies || uvAvailable === false
+          ? "conda"
+          : null;
 
   // Environment preparation progress
   const envProgress = useEnvProgress();
@@ -441,6 +452,7 @@ function AppContent() {
       )}
       <NotebookToolbar
         kernelStatus={kernelStatus}
+        envSource={envSource}
         dirty={dirty}
         hasDependencies={hasDependencies}
         theme={theme}
@@ -455,6 +467,19 @@ function AppContent() {
         onToggleDependencies={() => setDependencyHeaderOpen((prev) => !prev)}
         listKernelspecs={listKernelspecs}
       />
+      {/* Dual-dependency warning: both UV and conda deps exist */}
+      {dependencyHeaderOpen && runtime === "python" && hasUvDependencies && hasCondaDependencies && (
+        <div className="border-b bg-amber-50/50 dark:bg-amber-950/20 px-3 py-2">
+          <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
+            <span className="shrink-0 mt-0.5">&#9888;</span>
+            <div>
+              <span className="font-medium">This notebook has both uv and conda dependencies.</span>
+              {" "}Using {envType === "conda" ? "conda" : "uv"} based on your preference.
+              Consider removing the unused {envType === "conda" ? "uv" : "conda"} dependencies to avoid confusion.
+            </div>
+          </div>
+        </div>
+      )}
       {dependencyHeaderOpen && runtime === "deno" && (
         <DenoDependencyHeader
           denoAvailable={denoAvailable}
@@ -469,16 +494,21 @@ function AppContent() {
           channels={condaDependencies?.channels ?? []}
           python={condaDependencies?.python ?? null}
           loading={condaDepsLoading}
+          syncing={condaSyncing}
+          syncState={condaSyncState}
           syncedWhileRunning={condaSyncedWhileRunning}
           needsKernelRestart={condaNeedsKernelRestart}
           onAdd={addCondaDependency}
           onRemove={removeCondaDependency}
           onSetChannels={setCondaChannels}
           onSetPython={setCondaPython}
+          onSyncNow={syncCondaNow}
           envProgress={envProgress.envType === "conda" ? envProgress : null}
           onResetProgress={envProgress.reset}
           environmentYmlInfo={environmentYmlInfo}
           environmentYmlDeps={environmentYmlDeps}
+          pixiInfo={pixiInfo}
+          onImportFromPixi={importFromPixi}
         />
       )}
       {dependencyHeaderOpen && runtime === "python" && envType !== "conda" && (
@@ -496,6 +526,8 @@ function AppContent() {
           pyprojectInfo={pyprojectInfo}
           pyprojectDeps={pyprojectDeps}
           onImportFromPyproject={importFromPyproject}
+          onUseProjectEnv={startKernelWithPyproject}
+          isUsingProjectEnv={envSource === "uv:pyproject"}
         />
       )}
       {showIsolationTest && <IsolationTest />}

@@ -1,0 +1,95 @@
+# Environments
+
+Runt automatically manages Python and Deno environments for your notebooks. You don't need to manually create virtual environments or install packages — Runt handles it based on what's in your notebook and what project files are nearby.
+
+## How It Works
+
+When you open a notebook, Runt looks for dependencies in this order:
+
+1. **Inline dependencies** stored in the notebook itself
+2. **pyproject.toml** in the notebook's directory (or parent directories)
+3. **pixi.toml** in the notebook's directory (or parent directories)
+4. **environment.yml** in the notebook's directory (or parent directories)
+5. If none found, a **prewarmed environment** with just the basics
+
+This means your notebook starts with the right packages automatically.
+
+## Inline Dependencies
+
+The simplest way to manage packages. Dependencies are stored directly in the notebook file, making it fully portable — anyone who opens the notebook gets the same packages.
+
+**Adding packages**: Use the dependency panel in the sidebar to add, remove, or sync packages. UV dependencies use pip-style package names (`pandas`, `numpy>=2.0`). Conda dependencies support conda channels.
+
+**How it's stored**: Dependencies live in the notebook's JSON metadata under `metadata.uv.dependencies` (for UV/pip packages) or `metadata.conda.dependencies` (for conda packages).
+
+## Working with pyproject.toml
+
+If your notebook is in a directory with a `pyproject.toml`, Runt auto-detects it and uses `uv run` to start the kernel in the project's virtual environment.
+
+- The project's `.venv/` is used directly — no separate cached environment
+- Dependencies stay in sync with the project
+- The dependency panel shows the project's deps in read-only mode
+
+The dependency panel offers two actions:
+- **Use project environment** — run the kernel in the project's `.venv` (keeps deps in sync with the project)
+- **Copy to notebook** — snapshot the project's dependencies into the notebook metadata (makes the notebook portable but deps may drift from the project)
+
+## Working with environment.yml
+
+Conda `environment.yml` files are auto-detected. Runt parses the channels, conda dependencies, and pip dependencies from the file and creates a conda environment using rattler.
+
+The dependency panel shows the environment.yml dependencies and offers an "Import to notebook" action to copy them into the notebook's conda metadata for portability.
+
+## Working with pixi.toml
+
+Pixi project files are auto-detected. Runt converts pixi dependencies to conda format and creates the environment using rattler. Both `[dependencies]` (conda packages) and `[pypi-dependencies]` (pip packages) are supported.
+
+The dependency panel shows pixi dependencies and offers an "Import to notebook" action.
+
+## Deno Notebooks
+
+For Deno/TypeScript notebooks, Runt detects `deno.json` or `deno.jsonc` configuration files. Deno manages its own dependencies through import maps and URL imports, so the environment setup is simpler — Runt just needs Deno installed.
+
+## User Preferences
+
+You can set your preferred default environment type in settings:
+
+- **UV** (default) — fast, pip-compatible package management
+- **Conda** — supports conda packages (useful for non-Python dependencies like CUDA libraries)
+
+This preference is used when no project files are detected and the notebook has no inline dependencies. When a project file is present, Runt picks the appropriate backend automatically (UV for pyproject.toml, Conda for environment.yml and pixi.toml).
+
+See [Settings](settings.md) for how to change the default.
+
+## Trust Dialog
+
+When you open a notebook with dependencies for the first time, Runt may show a trust dialog asking you to approve the dependency installation. This happens because:
+
+- Dependencies are signed with a per-machine key
+- Notebooks from other machines (shared by a colleague, cloned from a repo) have a different signature
+- Runt asks you to verify the dependencies before installing anything
+
+After you approve, the notebook is re-signed with your machine's key and won't prompt again.
+
+## Cache and Cleanup
+
+Runt caches environments so notebooks with the same dependencies share a single environment, making subsequent opens instant.
+
+| What | Location |
+|------|----------|
+| UV environments | `~/.cache/runt/envs/` |
+| Conda environments | `~/.cache/runt/conda-envs/` |
+| Tools (uv, deno) | `~/.cache/runt/tools/` |
+| Trust key | `~/.config/runt/trust-key` |
+
+To reclaim disk space, delete the environment cache directories. Runt will recreate environments as needed.
+
+## Troubleshooting
+
+**Packages aren't available after adding them**: Click "Sync Now" in the dependency panel to install pending changes, then restart the kernel.
+
+**Wrong environment**: If the kernel started with a prewarmed environment instead of your project's dependencies, check that your project file (pyproject.toml, environment.yml, pixi.toml) is in the notebook's directory or a parent directory.
+
+**Slow first start**: The first time a notebook opens with dependencies, Runt needs to download and install packages. Subsequent opens with the same dependencies are instant due to caching.
+
+**Trust dialog keeps appearing**: This happens when the notebook's dependency signature doesn't match your machine's key. Approve the dependencies once and Runt will re-sign the notebook.

@@ -55,8 +55,26 @@ function PythonIcon({ className }: { className?: string }) {
   );
 }
 
+/** Format an env source string for display in the toolbar. */
+function formatEnvSource(source: string | null): string | null {
+  if (!source) return null;
+  switch (source) {
+    case "uv:inline": return "uv";
+    case "uv:pyproject": return "pyproject.toml";
+    case "uv:prewarmed": return "uv";
+    case "uv:fresh": return "uv";
+    case "conda:inline": return "conda";
+    case "conda:pixi": return "pixi.toml";
+    case "conda:env_yml": return "environment.yml";
+    case "conda:prewarmed": return "conda";
+    case "conda:fresh": return "conda";
+    default: return source.split(":")[0] ?? source;
+  }
+}
+
 interface NotebookToolbarProps {
   kernelStatus: string;
+  envSource: string | null;
   dirty: boolean;
   hasDependencies: boolean;
   theme: ThemeMode;
@@ -80,6 +98,7 @@ const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
 
 export function NotebookToolbar({
   kernelStatus,
+  envSource,
   dirty,
   hasDependencies,
   theme,
@@ -119,7 +138,7 @@ export function NotebookToolbar({
 
   return (
     <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
-      <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
+      <header data-testid="notebook-toolbar" className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
         <div className="flex h-10 items-center gap-2 px-3">
           {/* Save */}
           <button
@@ -247,7 +266,12 @@ export function NotebookToolbar({
             />
             <span className="text-xs text-muted-foreground">
               {envProgress?.isActive ? envProgress.statusText : (
-                <span className="capitalize">{kernelStatus}</span>
+                <>
+                  <span className="capitalize">{kernelStatus}</span>
+                  {envSource && (kernelStatus === "idle" || kernelStatus === "busy") && (
+                    <span className="text-muted-foreground/70"> · {formatEnvSource(envSource)}</span>
+                  )}
+                </>
               )}
             </span>
           </div>

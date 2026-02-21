@@ -15,9 +15,9 @@ use std::path::PathBuf;
 #[serde(rename_all = "lowercase")]
 pub enum PythonEnvType {
     /// Use uv for Python package management (fast, pip-compatible)
+    #[default]
     Uv,
     /// Use conda/rattler for Python package management (supports conda packages)
-    #[default]
     Conda,
 }
 
@@ -46,7 +46,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             default_runtime: Runtime::Python,
-            default_python_env: PythonEnvType::Conda,
+            default_python_env: PythonEnvType::Uv,
         }
     }
 }
@@ -90,7 +90,7 @@ mod tests {
     fn test_default_settings() {
         let settings = AppSettings::default();
         assert_eq!(settings.default_runtime, Runtime::Python);
-        assert_eq!(settings.default_python_env, PythonEnvType::Conda);
+        assert_eq!(settings.default_python_env, PythonEnvType::Uv);
     }
 
     #[test]

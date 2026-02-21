@@ -17,10 +17,24 @@ const SCREENSHOT_FAILURES_DIR = path.join(SCREENSHOT_DIR, "failures");
 // Ensure screenshot directories exist
 fs.mkdirSync(SCREENSHOT_FAILURES_DIR, { recursive: true });
 
+// Specs that require a specific NOTEBOOK_PATH fixture — excluded from the default run
+const FIXTURE_SPECS = [
+  "pixi-env-detection.spec.js",
+  "pyproject-startup.spec.js",
+  "both-deps-panel.spec.js",
+];
+
 export const config = {
   runner: "local",
 
-  specs: [path.join(__dirname, "specs", "*.spec.js")],
+  specs: process.env.E2E_SPEC
+    ? [path.resolve(process.env.E2E_SPEC)]
+    : [path.join(__dirname, "specs", "*.spec.js")],
+
+  // Auto-exclude fixture-specific specs from the default run
+  exclude: process.env.E2E_SPEC
+    ? []
+    : FIXTURE_SPECS.map((s) => path.join(__dirname, "specs", s)),
 
   // Don't run tests in parallel - we have one app instance
   maxInstances: 1,
@@ -34,6 +48,8 @@ export const config = {
         // Path is relative to where tauri-driver runs (inside Docker at /app)
         application:
           process.env.TAURI_APP_PATH || "/app/target/release/notebook",
+        // Pass notebook path as arg to open a specific fixture
+        ...(process.env.NOTEBOOK_PATH ? { args: [process.env.NOTEBOOK_PATH] } : {}),
       },
     },
   ],

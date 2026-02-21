@@ -1,20 +1,24 @@
 import { useState, useCallback, type KeyboardEvent } from "react";
-import { X, Plus, Info, AlertCircle, FileText } from "lucide-react";
+import { X, Plus, Info, AlertCircle, FileText, RefreshCw, Download } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import type { EnvProgressState } from "../hooks/useEnvProgress";
-import type { EnvironmentYmlInfo, EnvironmentYmlDeps } from "../hooks/useCondaDependencies";
+import type { CondaSyncState, EnvironmentYmlInfo, EnvironmentYmlDeps } from "../hooks/useCondaDependencies";
+import type { PixiInfo } from "../types";
 
 interface CondaDependencyHeaderProps {
   dependencies: string[];
   channels: string[];
   python: string | null;
   loading: boolean;
+  syncing: boolean;
+  syncState: CondaSyncState | null;
   syncedWhileRunning: boolean;
   needsKernelRestart: boolean;
   onAdd: (pkg: string) => Promise<void>;
   onRemove: (pkg: string) => Promise<void>;
   onSetChannels: (channels: string[]) => Promise<void>;
   onSetPython: (python: string | null) => Promise<void>;
+  onSyncNow: () => Promise<boolean>;
   /** Environment preparation progress state */
   envProgress?: EnvProgressState | null;
   /** Callback to reset/dismiss error state */
@@ -22,6 +26,10 @@ interface CondaDependencyHeaderProps {
   // environment.yml support
   environmentYmlInfo?: EnvironmentYmlInfo | null;
   environmentYmlDeps?: EnvironmentYmlDeps | null;
+  /** Detected pixi.toml info */
+  pixiInfo?: PixiInfo | null;
+  /** Import pixi.toml deps into notebook conda metadata */
+  onImportFromPixi?: () => Promise<void>;
 }
 
 export function CondaDependencyHeader({
@@ -29,16 +37,21 @@ export function CondaDependencyHeader({
   channels,
   python,
   loading,
+  syncing,
+  syncState,
   syncedWhileRunning,
   needsKernelRestart,
   onAdd,
   onRemove,
   onSetChannels,
   onSetPython,
+  onSyncNow,
   envProgress,
   onResetProgress,
   environmentYmlInfo,
   environmentYmlDeps,
+  pixiInfo,
+  onImportFromPixi,
 }: CondaDependencyHeaderProps) {
   const [newDep, setNewDep] = useState("");
   const [newChannel, setNewChannel] = useState("");
@@ -214,6 +227,61 @@ export function CondaDependencyHeader({
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Sync Now notice for dirty environment */}
+        {syncState?.status === "dirty" && !needsKernelRestart && (
+          <div className="mb-3 flex items-center justify-between rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+            <div className="flex items-center gap-2">
+              <Info className="h-3.5 w-3.5 shrink-0" />
+              <span>Dependencies changed — sync to install into running environment</span>
+            </div>
+            <button
+              type="button"
+              onClick={onSyncNow}
+              disabled={syncing}
+              className="flex items-center gap-1 rounded bg-emerald-600 px-2 py-0.5 text-white text-xs font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />
+              Sync Now
+            </button>
+          </div>
+        )}
+
+        {/* pixi.toml detected banner */}
+        {pixiInfo?.has_dependencies && (
+          <div className="mb-3 rounded bg-emerald-500/10 px-2 py-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileText className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  <code className="rounded bg-emerald-500/20 px-1">
+                    {pixiInfo.relative_path}
+                  </code>
+                  {pixiInfo.workspace_name && (
+                    <span className="text-muted-foreground ml-1">
+                      ({pixiInfo.workspace_name})
+                    </span>
+                  )}
+                  <span className="text-muted-foreground ml-1">
+                    · {pixiInfo.dependency_count} dep{pixiInfo.dependency_count !== 1 ? "s" : ""}
+                  </span>
+                </span>
+              </div>
+              {onImportFromPixi && (
+                <button
+                  type="button"
+                  onClick={onImportFromPixi}
+                  disabled={loading}
+                  className="flex items-center gap-1 text-emerald-600/70 hover:text-emerald-700 dark:text-emerald-400/70 dark:hover:text-emerald-400 transition-colors disabled:opacity-50"
+                  title="Copy pixi.toml deps into notebook metadata for portable sharing"
+                >
+                  <Download className="h-3 w-3" />
+                  Copy to notebook
+                </button>
+              )}
+            </div>
           </div>
         )}
 

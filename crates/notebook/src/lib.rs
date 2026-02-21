@@ -53,6 +53,11 @@ struct GitInfo {
 struct KernelLifecycleEvent {
     state: String,
     runtime: String,
+    /// Environment source identifier, present when state is "ready".
+    /// Values: "uv:inline", "uv:pyproject", "uv:prewarmed", "uv:fresh",
+    ///         "conda:inline", "conda:pixi", "conda:prewarmed", "conda:fresh"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    env_source: Option<String>,
 }
 
 /// Environment sync state for dirty detection.
@@ -433,16 +438,9 @@ async fn clone_notebook_to_path(
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
         let mut cloned = state.notebook.clone();
 
-        // Update runt metadata with new env_id
+        // Update runt metadata with new env_id (canonical location for env_id)
         if let Some(runt_value) = cloned.metadata.additional.get_mut("runt") {
             if let Some(obj) = runt_value.as_object_mut() {
-                obj.insert("env_id".to_string(), serde_json::json!(new_env_id.clone()));
-            }
-        }
-
-        // Also update conda env_id if present
-        if let Some(conda_value) = cloned.metadata.additional.get_mut("conda") {
-            if let Some(obj) = conda_value.as_object_mut() {
                 obj.insert("env_id".to_string(), serde_json::json!(new_env_id.clone()));
             }
         }
@@ -1372,44 +1370,14 @@ async fn start_default_python_kernel_impl(
 
     // Check which env type actually has dependencies in the notebook metadata
     // This overrides user preference when deps exist in only one type
-    let (has_uv_deps, has_conda_deps, notebook_path_for_detection) = {
+    let (has_uv_deps, has_conda_deps) = {
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
         let uv_deps = uv_env::extract_dependencies(&state.notebook.metadata);
         let conda_deps = conda_env::extract_dependencies(&state.notebook.metadata);
         let has_uv = uv_deps.map(|d| !d.dependencies.is_empty()).unwrap_or(false);
         let has_conda = conda_deps.map(|d| !d.dependencies.is_empty()).unwrap_or(false);
-        (has_uv, has_conda, state.path.clone())
+        (has_uv, has_conda)
     };
-
-    // If no inline deps, check for project-level environment files
-    // environment.yml takes priority as a conda project file
-    if !has_uv_deps && !has_conda_deps {
-        if let Some(ref nb_path) = notebook_path_for_detection {
-            if let Some(yml_path) = environment_yml::find_environment_yml(nb_path) {
-                if let Ok(config) = environment_yml::parse_environment_yml(&yml_path) {
-                    if !config.dependencies.is_empty() {
-                        let deps = environment_yml::convert_to_conda_dependencies(&config);
-                        info!(
-                            "Found environment.yml at {} with {} deps, starting conda kernel",
-                            yml_path.display(),
-                            deps.dependencies.len()
-                        );
-                        let mut kernel = kernel_state.lock().await;
-                        kernel
-                            .start_with_conda(app, &deps, Some(nb_path))
-                            .await
-                            .map_err(|e| e.to_string())?;
-
-                        info!(
-                            "[kernel-ready] Started conda kernel via environment.yml in {}ms",
-                            kernel_start.elapsed().as_millis()
-                        );
-                        return Ok("conda".to_string());
-                    }
-                }
-            }
-        }
-    }
 
     // Determine which env type to actually use
     // Priority: 1) Use whichever has deps, 2) Fall back to user preference
@@ -1434,7 +1402,123 @@ async fn start_default_python_kernel_impl(
             settings::PythonEnvType::Conda => false,
         }
     } else {
-        // Neither has deps - use user preference (for prewarmed envs)
+        // Neither has inline deps - check for project files before falling back to prewarmed
+        // Detection priority: pyproject.toml → pixi.toml → (environment.yml) → prewarmed
+        let notebook_path_for_detection = {
+            let state = notebook_state.lock().map_err(|e| e.to_string())?;
+            state.path.clone()
+        };
+
+        // Priority 2: Check for pyproject.toml → use uv run
+        if uv_available {
+            if let Some(ref nb_path) = notebook_path_for_detection {
+                if let Some(pyproject_path) = pyproject::find_pyproject(nb_path) {
+                    if let Ok(config) = pyproject::parse_pyproject(&pyproject_path) {
+                        let info = pyproject::create_pyproject_info(&config, nb_path);
+                        if info.has_dependencies || info.has_venv {
+                            let project_dir = pyproject_path.parent()
+                                .ok_or_else(|| "Invalid pyproject.toml path".to_string())?;
+
+                            info!(
+                                "Auto-detected pyproject.toml at {}, starting with uv run",
+                                info.relative_path
+                            );
+
+                            let mut kernel = kernel_state.lock().await;
+                            kernel.start_with_uv_run(app, project_dir).await
+                                .map_err(|e| e.to_string())?;
+
+                            info!(
+                                "[kernel-ready] Started UV kernel in {}ms | Source: pyproject.toml (auto-detected)",
+                                kernel_start.elapsed().as_millis()
+                            );
+                            return Ok("uv:pyproject".to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Priority 3: Check for pixi.toml → convert to conda deps
+        if let Some(ref nb_path) = notebook_path_for_detection {
+            if let Some(pixi_path) = pixi::find_pixi_toml(nb_path) {
+                if let Ok(config) = pixi::parse_pixi_toml(&pixi_path) {
+                    if !config.dependencies.is_empty() {
+                        let pixi_info = pixi::create_pixi_info(&config, nb_path);
+                        info!(
+                            "Auto-detected pixi.toml at {} with {} dependencies, using conda/rattler path",
+                            pixi_info.relative_path,
+                            pixi_info.dependency_count
+                        );
+
+                        let mut deps = pixi::convert_to_conda_dependencies(&config);
+
+                        // Get or create env_id for this notebook
+                        let env_id = {
+                            let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
+                            let existing_id = state.notebook.metadata.additional
+                                .get("runt")
+                                .and_then(|v| v.get("env_id"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            match existing_id {
+                                Some(id) => id,
+                                None => {
+                                    let new_id = uuid::Uuid::new_v4().to_string();
+                                    state.notebook.metadata.additional.insert(
+                                        "runt".to_string(),
+                                        serde_json::json!({ "env_id": new_id }),
+                                    );
+                                    state.dirty = true;
+                                    new_id
+                                }
+                            }
+                        };
+                        deps.env_id = Some(env_id);
+
+                        let mut kernel = kernel_state.lock().await;
+                        kernel.start_with_conda(app, &deps, notebook_path_for_detection.as_deref())
+                            .await
+                            .map_err(|e| e.to_string())?;
+
+                        info!(
+                            "[kernel-ready] Started Conda kernel in {}ms | Source: pixi.toml (auto-detected)",
+                            kernel_start.elapsed().as_millis()
+                        );
+                        return Ok("conda:pixi".to_string());
+                    }
+                }
+            }
+        }
+
+        // Priority 4: Check for environment.yml → convert to conda deps
+        if let Some(ref nb_path) = notebook_path_for_detection {
+            if let Some(yml_path) = environment_yml::find_environment_yml(nb_path) {
+                if let Ok(config) = environment_yml::parse_environment_yml(&yml_path) {
+                    if !config.dependencies.is_empty() {
+                        let deps = environment_yml::convert_to_conda_dependencies(&config);
+                        info!(
+                            "Found environment.yml at {} with {} deps, starting conda kernel",
+                            yml_path.display(),
+                            deps.dependencies.len()
+                        );
+                        let mut kernel = kernel_state.lock().await;
+                        kernel
+                            .start_with_conda(app, &deps, Some(nb_path))
+                            .await
+                            .map_err(|e| e.to_string())?;
+
+                        info!(
+                            "[kernel-ready] Started conda kernel via environment.yml in {}ms",
+                            kernel_start.elapsed().as_millis()
+                        );
+                        return Ok("conda:env_yml".to_string());
+                    }
+                }
+            }
+        }
+
+        // No project file found - fall back to user preference (for prewarmed envs)
         match preferred_env {
             settings::PythonEnvType::Uv => {
                 if uv_available {
@@ -1519,7 +1603,7 @@ async fn start_default_python_kernel_impl(
                 "[kernel-ready] Started UV kernel in {}ms | Source: cached/fresh env with deps",
                 kernel_start.elapsed().as_millis()
             );
-            return Ok("uv".to_string());
+            return Ok("uv:inline".to_string());
         }
 
         // No dependencies - try to use a prewarmed environment (daemon first, then in-process pool)
@@ -1551,7 +1635,7 @@ async fn start_default_python_kernel_impl(
                                         "[kernel-ready] Started UV kernel in {}ms | Source: prewarmed",
                                         kernel_start.elapsed().as_millis()
                                     );
-                                    return Ok("uv".to_string());
+                                    return Ok("uv:prewarmed".to_string());
                                 }
                                 Err(e) => {
                                     log::warn!(
@@ -1596,7 +1680,7 @@ async fn start_default_python_kernel_impl(
             "[kernel-ready] Started UV kernel in {}ms | Source: fresh",
             kernel_start.elapsed().as_millis()
         );
-        Ok("uv".to_string())
+        Ok("uv:fresh".to_string())
     } else {
         info!("Using conda/rattler for default kernel (preferred: {:?})", preferred_env);
 
@@ -1701,7 +1785,7 @@ async fn start_default_python_kernel_impl(
                 "[kernel-ready] Started Conda kernel in {}ms | Source: cached/fresh env with deps",
                 kernel_start.elapsed().as_millis()
             );
-            return Ok("conda".to_string());
+            return Ok("conda:inline".to_string());
         }
 
         // No dependencies - try to use a prewarmed conda environment (daemon first, then in-process pool)
@@ -1730,7 +1814,7 @@ async fn start_default_python_kernel_impl(
                                     "[kernel-ready] Started Conda kernel in {}ms | Source: prewarmed",
                                     kernel_start.elapsed().as_millis()
                                 );
-                                return Ok("conda".to_string());
+                                return Ok("conda:prewarmed".to_string());
                             }
                             Err(e) => {
                                 error!(
@@ -1776,7 +1860,7 @@ async fn start_default_python_kernel_impl(
             "[kernel-ready] Started Conda kernel in {}ms | Source: fresh",
             kernel_start.elapsed().as_millis()
         );
-        Ok("conda".to_string())
+        Ok("conda:fresh".to_string())
     }
 }
 
@@ -2280,6 +2364,54 @@ async fn start_kernel_with_environment_yml(
         .map_err(|e| e.to_string())
 }
 
+/// Import dependencies from pixi.toml into notebook conda metadata.
+/// This converts pixi deps to conda format and stores them inline in the notebook.
+#[tauri::command]
+async fn import_pixi_dependencies(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<(), String> {
+    let notebook_path = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        state.path.clone()
+    };
+
+    let Some(notebook_path) = notebook_path else {
+        return Err("No notebook path set".to_string());
+    };
+
+    let Some(pixi_path) = pixi::find_pixi_toml(&notebook_path) else {
+        return Err("No pixi.toml found".to_string());
+    };
+
+    let config = pixi::parse_pixi_toml(&pixi_path).map_err(|e| e.to_string())?;
+    let conda_deps = pixi::convert_to_conda_dependencies(&config);
+
+    // Merge pixi deps into notebook conda metadata
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+
+    let mut conda_value = serde_json::json!({
+        "dependencies": conda_deps.dependencies,
+        "channels": conda_deps.channels,
+    });
+    if let Some(python) = &conda_deps.python {
+        conda_value["python"] = serde_json::json!(python);
+    }
+
+    state
+        .notebook
+        .metadata
+        .additional
+        .insert("conda".to_string(), conda_value);
+    state.dirty = true;
+
+    info!(
+        "Imported {} dependencies from pixi.toml into notebook conda metadata",
+        conda_deps.dependencies.len()
+    );
+
+    Ok(())
+}
+
 // ========== Deno kernel support ==========
 
 /// Check if Deno is available on the system
@@ -2754,6 +2886,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
             // pixi.toml support
             detect_pixi_toml,
             get_pixi_dependencies,
+            import_pixi_dependencies,
             // environment.yml support
             detect_environment_yml,
             get_environment_yml_dependencies,
@@ -2939,19 +3072,21 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                 auto_launch_flag.store(true, Ordering::SeqCst);
 
                 // Emit lifecycle event so frontend can show "Starting" status
+                let runtime_str = match runtime {
+                    Runtime::Python => "python".to_string(),
+                    Runtime::Deno => "deno".to_string(),
+                };
                 let lifecycle_event = KernelLifecycleEvent {
                     state: "launching".to_string(),
-                    runtime: match runtime {
-                        Runtime::Python => "python".to_string(),
-                        Runtime::Deno => "deno".to_string(),
-                    },
+                    runtime: runtime_str.clone(),
+                    env_source: None,
                 };
                 let _ = app_for_autolaunch.emit("kernel:lifecycle", &lifecycle_event);
 
-                match runtime {
+                let env_source = match runtime {
                     Runtime::Python => {
-                        if let Err(e) = start_default_python_kernel_impl(
-                            app_for_autolaunch,
+                        match start_default_python_kernel_impl(
+                            app_for_autolaunch.clone(),
                             &notebook_for_autolaunch,
                             &kernel_for_autolaunch,
                             &pool_for_autolaunch,
@@ -2959,23 +3094,46 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
                         )
                         .await
                         {
-                            log::warn!("Auto-launch kernel failed (will start on demand): {}", e);
+                            Ok(source) => Some(source),
+                            Err(e) => {
+                                log::error!("Auto-launch kernel failed: {}", e);
+                                None
+                            }
                         }
                     }
                     Runtime::Deno => {
-                        if let Err(e) = start_deno_kernel_impl(
-                            app_for_autolaunch,
+                        match start_deno_kernel_impl(
+                            app_for_autolaunch.clone(),
                             &notebook_for_autolaunch,
                             &kernel_for_autolaunch,
                         )
                         .await
                         {
-                            log::warn!(
-                                "Auto-launch Deno kernel failed (will start on demand): {}",
-                                e
-                            );
+                            Ok(()) => Some("deno".to_string()),
+                            Err(e) => {
+                                log::error!("Auto-launch Deno kernel failed: {}", e);
+                                None
+                            }
                         }
                     }
+                };
+
+                if let Some(source) = env_source {
+                    // Emit "ready" lifecycle event with environment source
+                    let ready_event = KernelLifecycleEvent {
+                        state: "ready".to_string(),
+                        runtime: runtime_str,
+                        env_source: Some(source),
+                    };
+                    let _ = app_for_autolaunch.emit("kernel:lifecycle", &ready_event);
+                } else {
+                    // Emit "error" lifecycle event so frontend can show the failure
+                    let error_event = KernelLifecycleEvent {
+                        state: "error".to_string(),
+                        runtime: runtime_str,
+                        env_source: None,
+                    };
+                    let _ = app_for_autolaunch.emit("kernel:lifecycle", &error_event);
                 }
 
                 // Clear auto-launch flag when done
