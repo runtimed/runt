@@ -183,6 +183,20 @@ export function useDependencies() {
     [loadDependencies, resignTrust, checkSyncState]
   );
 
+  // Remove the entire uv dependency section from notebook metadata
+  const clearAllDependencies = useCallback(async () => {
+    setLoading(true);
+    try {
+      await invoke("clear_dependency_section", { section: "uv" });
+      await loadDependencies();
+      await resignTrust();
+    } catch (e) {
+      console.error("Failed to clear UV dependencies:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [loadDependencies, resignTrust]);
+
   // Clear the synced notice (e.g., when kernel restarts)
   const clearSyncNotice = useCallback(() => {
     setSyncedWhileRunning(false);
@@ -270,6 +284,7 @@ export function useDependencies() {
     loadDependencies,
     addDependency,
     removeDependency,
+    clearAllDependencies,
     setRequiresPython,
     clearSyncNotice,
     // Environment sync state
