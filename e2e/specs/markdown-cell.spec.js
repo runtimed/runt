@@ -10,11 +10,11 @@
  */
 
 import { browser, expect } from "@wdio/globals";
+import { waitForAppReady } from "../helpers.js";
 
 describe("Markdown Cell", () => {
   before(async () => {
-    // Wait for app to fully load
-    await browser.pause(5000);
+    await waitForAppReady();
 
     const title = await browser.getTitle();
     console.log("Page title:", title);
@@ -23,7 +23,7 @@ describe("Markdown Cell", () => {
   /**
    * Helper to type text character by character with delay
    */
-  async function typeSlowly(text, delay = 50) {
+  async function typeSlowly(text, delay = 30) {
     for (const char of text) {
       await browser.keys(char);
       await browser.pause(delay);

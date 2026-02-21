@@ -8,39 +8,54 @@ E2E tests verify the full application works correctly from a user's perspective.
 
 - **WebdriverIO** - Browser automation framework
 - **Mocha** - Test runner
-- **Tauri WebDriver** - Drives the Tauri app via WebDriver protocol
-- **Docker** - Required because Tauri WebDriver has macOS sandboxing issues
+- **W3C WebDriver protocol** - Drives the Tauri app
+
+Two modes are available:
+
+1. **Native mode (macOS)** — The app includes a built-in WebDriver server. No Docker needed.
+2. **Docker mode** — Runs inside a Linux container with `tauri-driver`. Used in CI.
 
 ## Running Tests
 
-### CI Mode (Full Build)
+### Native Mode (macOS — Recommended for Development)
 
-For CI pipelines or when you need a clean, reproducible build:
+The app has a built-in WebDriver server activated by the `webdriver-test` feature flag.
+This lets you run E2E tests natively on macOS without Docker.
+
+```bash
+# 1. Build with WebDriver support (builds frontend + Rust binary)
+cargo xtask build-e2e
+
+# 2. Start the app with the WebDriver server
+./target/debug/notebook --webdriver-port 4444
+
+# 3. In another terminal, run tests
+pnpm test:e2e:native
+
+# Or run a single spec
+E2E_SPEC=e2e/specs/notebook-execution.spec.js pnpm test:e2e:native
+```
+
+**Important:** You must use `cargo xtask build-e2e` (not plain `cargo build`) because
+`cargo tauri build` embeds the frontend assets into the binary. A plain `cargo build`
+would try to connect to a Vite dev server instead.
+
+### Docker Mode (CI / Linux)
+
+For CI pipelines or when you need a reproducible Linux environment:
 
 ```bash
 pnpm test:e2e:docker
 ```
 
-This builds everything from scratch (~4-5 minutes).
+The Dockerfile uses [cargo-chef](https://github.com/LukeMathWalker/cargo-chef) for
+Rust dependency caching and overrides the release profile for faster compilation
+(no LTO, more codegen units). Source-only changes skip the expensive dependency build.
 
-### Dev Mode (Fast Iteration)
-
-For rapid iteration during development:
-
-```bash
-# First time only: Build base image with cached dependencies
-pnpm e2e:base:build
-
-# Then run tests quickly (~1-2 minutes)
-pnpm test:e2e:dev
-```
-
-### Interactive Debugging
-
-For debugging failing tests:
+### Interactive Debugging (Docker)
 
 ```bash
-pnpm e2e:dev:shell
+docker compose --profile dev run --rm tauri-e2e-shell
 ```
 
 Inside the container:
@@ -51,6 +66,42 @@ pnpm test:e2e
 # Run a single spec
 pnpm wdio run e2e/wdio.conf.js --spec e2e/specs/notebook-execution.spec.js
 ```
+
+## Architecture
+
+### Native Mode
+
+```
+┌──────────────┐    W3C WebDriver    ┌──────────────────────────┐
+│  WebdriverIO │    HTTP protocol    │   notebook binary        │
+│  Test Runner │ ◄─────────────────► │                          │
+│              │    localhost:4444    │  ┌────────────────────┐  │
+│  (test specs)│                     │  │ WebDriver Server   │  │
+│              │                     │  │ (axum HTTP server)  │  │
+│              │                     │  └────────┬───────────┘  │
+└──────────────┘                     │           │              │
+                                     │   eval()  │  fetch()     │
+                                     │           ▼              │
+                                     │  ┌────────────────────┐  │
+                                     │  │ WebView            │  │
+                                     │  │  ┌──────────────┐  │  │
+                                     │  │  │ Test Bridge   │  │  │
+                                     │  │  │ (injected JS) │  │  │
+                                     │  │  └──────────────┘  │  │
+                                     │  └────────────────────┘  │
+                                     └──────────────────────────┘
+```
+
+The built-in WebDriver server:
+1. Receives W3C WebDriver HTTP requests from WebdriverIO
+2. Translates them to JavaScript and executes via `webview.eval()`
+3. The JS bridge executes DOM operations and sends results back via `fetch()`
+4. Results are returned as WebDriver HTTP responses
+
+### Docker Mode
+
+Same WebdriverIO tests, but the app runs inside a Docker container with
+`tauri-driver` + `webkit2gtk-driver` providing the WebDriver protocol bridge.
 
 ## Writing Tests
 
@@ -64,7 +115,7 @@ e2e/
 │   ├── iframe-isolation.spec.js    # Security tests
 │   └── notebook-execution.spec.js  # Happy path tests
 ├── wdio.conf.js                    # WebdriverIO config
-└── Dockerfile                      # CI build
+└── Dockerfile                      # Docker build
 ```
 
 ### Basic Structure
@@ -256,27 +307,19 @@ Add pauses to observe behavior:
 await browser.pause(5000); // Pause for 5 seconds
 ```
 
-### Screenshots (not currently available)
-
-Note: Screenshot functionality requires additional setup in the Docker environment.
-
 ## Test Configuration
 
 Configuration is in `e2e/wdio.conf.js`:
 
 - **maxInstances**: 1 (single Tauri app instance)
-- **timeout**: 60000ms per test
+- **timeout**: 180000ms per test (3 minutes, for kernel startup scenarios)
 - **waitforTimeout**: 10000ms for waitFor* methods
 - **connectionRetryTimeout**: 120000ms for WebDriver connection
 
 ## CI Integration
 
-Tests run automatically in CI via `pnpm test:e2e:docker`. The Docker build ensures:
-
-- Consistent Linux environment
-- All dependencies installed
-- Xvfb for headless display
-- WebDriver properly configured
+Tests run in CI via Docker. The Docker build uses cargo-chef for dependency caching
+and overrides the release profile for faster compilation.
 
 ## Troubleshooting
 
@@ -305,6 +348,6 @@ Tests run automatically in CI via `pnpm test:e2e:docker`. The Docker build ensur
 # Force rebuild without cache
 docker compose build --no-cache tauri-e2e
 
-# Rebuild dev image after code changes
-pnpm e2e:dev:build
+# Inspect container for debugging
+docker compose --profile dev run --rm tauri-e2e-shell
 ```

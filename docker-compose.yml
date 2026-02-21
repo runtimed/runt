@@ -1,12 +1,14 @@
 services:
   # =============================================================================
-  # CI Mode: Full isolated build (default)
+  # E2E Tests: Build and run E2E tests in Docker
   # =============================================================================
-  # Used in CI pipelines. Builds everything from scratch for reproducibility.
+  # Uses cargo-chef for Rust dependency caching — source-only changes skip
+  # the expensive dependency build step. Release profile overrides disable
+  # LTO for faster compilation.
   #
   # Usage:
-  #   pnpm test:e2e:docker
-  #   docker compose run --rm tauri-e2e
+  #   pnpm test:e2e:docker              # Build + run all tests
+  #   docker compose run --rm tauri-e2e  # Same thing
   #
   tauri-e2e:
     platform: linux/amd64
@@ -32,51 +34,13 @@ services:
       "
 
   # =============================================================================
-  # Dev Mode: Fast iteration with cached base image
-  # =============================================================================
-  # Uses pre-built base image with dependencies cached. Much faster for
-  # iterating on code changes.
-  #
-  # First time setup (run once, or when deps change):
-  #   pnpm e2e:base:build
-  #   docker build -f e2e/Dockerfile.base -t vienna-e2e-base .
-  #
-  # Usage:
-  #   pnpm test:e2e:dev
-  #   docker compose run --rm tauri-e2e-dev
-  #
-  tauri-e2e-dev:
-    platform: linux/amd64
-    profiles: ["dev"]
-    build:
-      context: .
-      dockerfile: e2e/Dockerfile.dev
-    volumes:
-      # Mount e2e tests for live updates
-      - ./e2e:/app/e2e:ro
-      # Writable volume for screenshots
-      - ./e2e-screenshots:/app/e2e-screenshots
-    environment:
-      - DISPLAY=:99
-      - TAURI_APP_PATH=/app/target/release/notebook
-    command: >
-      bash -c "
-        Xvfb :99 -screen 0 1920x1080x24 &
-        sleep 2 &&
-        DISPLAY=:99 tauri-driver --port 4444 &
-        sleep 3 &&
-        cd /app &&
-        pnpm test:e2e
-      "
-
-  # =============================================================================
-  # Dev Shell: Interactive debugging
+  # E2E Shell: Interactive debugging
   # =============================================================================
   # Starts container with Xvfb and tauri-driver running, drops you into a shell.
   # Useful for debugging test failures interactively.
   #
   # Usage:
-  #   docker compose run --rm tauri-e2e-shell
+  #   docker compose --profile dev run --rm tauri-e2e-shell
   #
   # Then inside container:
   #   pnpm test:e2e                    # Run all tests
@@ -87,10 +51,9 @@ services:
     profiles: ["dev"]
     build:
       context: .
-      dockerfile: e2e/Dockerfile.dev
+      dockerfile: e2e/Dockerfile
     volumes:
       - ./e2e:/app/e2e:ro
-      # Writable volume for screenshots
       - ./e2e-screenshots:/app/e2e-screenshots
     environment:
       - DISPLAY=:99

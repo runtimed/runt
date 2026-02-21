@@ -18,6 +18,8 @@ pub mod tools;
 pub mod trust;
 pub mod typosquat;
 pub mod uv_env;
+#[cfg(feature = "webdriver-test")]
+pub mod webdriver;
 
 pub use runtime::Runtime;
 
@@ -2759,7 +2761,7 @@ fn create_new_notebook_state(path: &Path, runtime: Runtime) -> NotebookState {
 /// If `notebook_path` is Some, opens that file. If None, creates a new empty notebook.
 /// The `runtime` parameter specifies which runtime to use for new notebooks.
 /// If None, falls back to user's default runtime from settings.
-pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::Result<()> {
+pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>, #[allow(unused_variables)] webdriver_port: Option<u16>) -> anyhow::Result<()> {
     env_logger::init();
     shell_env::load_shell_environment();
 
@@ -2936,6 +2938,14 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>) -> anyhow::
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title(&window_title);
             }
+
+            // Start WebDriver server for native E2E testing (if enabled)
+            #[cfg(feature = "webdriver-test")]
+            if let Some(port) = webdriver_port {
+                log::info!("[webdriver] Starting built-in WebDriver server on port {}", port);
+                webdriver::start_server(app.handle().clone(), port);
+            }
+
             // Set up native menu bar
             let menu = crate::menu::create_menu(app.handle())?;
             app.set_menu(menu)?;

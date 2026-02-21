@@ -10,6 +10,11 @@
  */
 
 import { browser, expect } from "@wdio/globals";
+import os from "node:os";
+import { waitForAppReady } from "../helpers.js";
+
+// macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
+const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
 
 describe("Environment Detection", () => {
   // Allow extra time for environment creation on first run
@@ -19,19 +24,16 @@ describe("Environment Detection", () => {
   let codeCell;
 
   before(async () => {
-    // Wait for app to fully load
-    await browser.pause(5000);
+    await waitForAppReady();
 
     const title = await browser.getTitle();
-    const url = await browser.getUrl();
     console.log("Page title:", title);
-    console.log("Page URL:", url);
   });
 
   /**
    * Helper to type text character by character with delay to avoid dropped keys
    */
-  async function typeSlowly(text, delay = 50) {
+  async function typeSlowly(text, delay = 30) {
     for (const char of text) {
       await browser.keys(char);
       await browser.pause(delay);
@@ -85,7 +87,7 @@ describe("Environment Detection", () => {
     await browser.pause(200);
 
     // Clear any existing content
-    await browser.keys(["Control", "a"]);
+    await browser.keys([MOD_KEY, "a"]);
     await browser.pause(100);
 
     // Step 3: Type code to print the Python executable path
@@ -137,7 +139,7 @@ describe("Environment Detection", () => {
     await browser.pause(200);
 
     // Clear and type new code
-    await browser.keys(["Control", "a"]);
+    await browser.keys([MOD_KEY, "a"]);
     await browser.pause(100);
 
     const testCode = 'import ipykernel; print(f"ipykernel {ipykernel.__version__}")';
@@ -166,7 +168,7 @@ describe("Environment Detection", () => {
     await editor.click();
     await browser.pause(200);
 
-    await browser.keys(["Control", "a"]);
+    await browser.keys([MOD_KEY, "a"]);
     await browser.pause(100);
 
     // Simple computation to verify the kernel is working

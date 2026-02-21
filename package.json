@@ -12,12 +12,9 @@
     "test:run": "vitest run",
     "test:e2e": "wdio run e2e/wdio.conf.js",
     "test:e2e:docker": "docker compose run --rm tauri-e2e",
-    "test:e2e:dev": "docker compose --profile dev run --rm tauri-e2e-dev",
+    "test:e2e:native": "WEBDRIVER_PORT=4444 wdio run e2e/wdio.conf.js",
     "e2e:docker:build": "docker compose build tauri-e2e",
-    "e2e:docker:shell": "docker compose run --rm tauri-e2e bash",
-    "e2e:base:build": "docker build -f e2e/Dockerfile.base -t vienna-e2e-base .",
-    "e2e:dev:build": "docker compose --profile dev build tauri-e2e-dev",
-    "e2e:dev:shell": "docker compose --profile dev run --rm tauri-e2e-shell"
+    "e2e:docker:shell": "docker compose --profile dev run --rm tauri-e2e-shell"
   },
   "dependencies": {
     "@tauri-apps/api": "~2.5.0",
