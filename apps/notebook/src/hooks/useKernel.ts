@@ -473,49 +473,28 @@ export function useKernel({
           return;
         }
 
-        // Check for pyproject.toml (auto-detect if present).
-        // Pyproject-backed environments are preferred over notebook-level dependency
-        // configuration when both are present.
+        // Check if notebook has uv inline dependencies
         const uvAvailable = await invoke<boolean>("check_uv_available");
-        if (uvAvailable) {
-          const pyprojectInfo = await invoke<PyProjectInfo | null>("detect_pyproject");
-          if (pyprojectInfo?.has_dependencies || pyprojectInfo?.has_venv) {
-            console.log("[kernel] detected pyproject.toml (preferred backend):", pyprojectInfo.relative_path, "has_venv:", pyprojectInfo.has_venv);
-            await startKernelWithPyproject();
-            return;
-          }
-        }
-
-        // Check if notebook has uv dependencies
         const deps = await invoke<{ dependencies: string[] } | null>(
           "get_notebook_dependencies"
         );
 
-        console.log("[kernel] deps check:", { deps, uvAvailable });
-
         if (deps && deps.dependencies.length > 0 && uvAvailable) {
-          // Use uv-managed kernel for notebooks with dependencies
-          console.log("[kernel] starting uv-managed kernel with deps:", deps.dependencies);
+          console.log("[kernel] starting uv-managed kernel with inline deps:", deps.dependencies);
           await startKernelWithUv();
           return;
         }
 
-        // Check for environment.yml (conda environment spec)
-        const envYmlInfo = await invoke<{ has_dependencies: boolean; relative_path: string } | null>("detect_environment_yml");
-        if (envYmlInfo?.has_dependencies) {
-          console.log("[kernel] detected environment.yml:", envYmlInfo.relative_path);
-          await startKernelWithEnvironmentYml();
-          return;
-        }
-
-        // Fall back to default kernel (backend decides uv vs conda)
-        console.log("[kernel] falling back to default kernel");
+        // No inline deps — let the backend handle project file detection
+        // (pyproject.toml, pixi.toml, environment.yml) using "closest wins"
+        // semantics, then fall back to a prewarmed environment.
+        console.log("[kernel] no inline deps, deferring to backend (closest project file wins)");
         await startDefaultKernel();
       } finally {
         startingRef.current = false;
       }
     },
-    [startKernelWithUv, startKernelWithConda, startKernelWithPyproject, startKernelWithDeno, startKernelWithEnvironmentYml, startDefaultKernel]
+    [startKernelWithUv, startKernelWithConda, startKernelWithDeno, startDefaultKernel]
   );
 
   const shutdownKernel = useCallback(async () => {
