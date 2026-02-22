@@ -28,9 +28,13 @@ fs.mkdirSync(SCREENSHOT_FAILURES_DIR, { recursive: true });
 
 // Specs that require a specific NOTEBOOK_PATH fixture — excluded from the default run
 const FIXTURE_SPECS = [
-  "pixi-env-detection.spec.js",
-  "pyproject-startup.spec.js",
+  "vanilla-startup.spec.js",
+  "uv-inline-deps.spec.js",
+  "conda-inline-deps.spec.js",
   "both-deps-panel.spec.js",
+  "pyproject-startup.spec.js",
+  "pixi-env-detection.spec.js",
+  "environment-yml-detection.spec.js",
   "iframe-isolation.spec.js",
 ];
 

@@ -204,20 +204,39 @@ jobs:
 
           # Run fixture-specific specs with their required notebooks
           start_driver
+          NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/1-vanilla.ipynb \
+            E2E_SPEC=e2e/specs/vanilla-startup.spec.js \
+            pnpm test:e2e || FAIL=1
+
+          start_driver
+          NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/2-uv-inline.ipynb \
+            E2E_SPEC=e2e/specs/uv-inline-deps.spec.js \
+            pnpm test:e2e || FAIL=1
+
+          start_driver
+          NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/3-conda-inline.ipynb \
+            E2E_SPEC=e2e/specs/conda-inline-deps.spec.js \
+            pnpm test:e2e || FAIL=1
+
+          start_driver
+          NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/4-both-deps.ipynb \
+            E2E_SPEC=e2e/specs/both-deps-panel.spec.js \
+            pnpm test:e2e || FAIL=1
+
+          start_driver
+          NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/pyproject-project/5-pyproject.ipynb \
+            E2E_SPEC=e2e/specs/pyproject-startup.spec.js \
+            pnpm test:e2e || FAIL=1
+
+          start_driver
           NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/pixi-project/6-pixi.ipynb \
             E2E_SPEC=e2e/specs/pixi-env-detection.spec.js \
             pnpm test:e2e || FAIL=1
 
-          # TODO: enable once CI has trust key setup and uv run resolution is stable
-          # start_driver
-          # NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/pyproject-project/5-pyproject.ipynb \
-          #   E2E_SPEC=e2e/specs/pyproject-startup.spec.js \
-          #   pnpm test:e2e || FAIL=1
-
-          # start_driver
-          # NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/4-both-deps.ipynb \
-          #   E2E_SPEC=e2e/specs/both-deps-panel.spec.js \
-          #   pnpm test:e2e || FAIL=1
+          start_driver
+          NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/conda-env-project/7-environment-yml.ipynb \
+            E2E_SPEC=e2e/specs/environment-yml-detection.spec.js \
+            pnpm test:e2e || FAIL=1
 
           # Cleanup
           kill $DRIVER_PID 2>/dev/null || true

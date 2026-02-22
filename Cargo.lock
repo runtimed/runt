@@ -3174,6 +3174,7 @@ dependencies = [
  "bytes",
  "chrono",
  "clap",
+ "cocoa",
  "dirs 5.0.1",
  "env_logger",
  "futures",
