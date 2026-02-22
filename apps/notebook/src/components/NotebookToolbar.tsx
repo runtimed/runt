@@ -490,7 +490,8 @@ export function NotebookToolbar({
 
         {/* Collapsible settings panel */}
         <CollapsibleContent>
-          <div className="border-t bg-background px-4 py-3" data-testid="settings-panel">
+          <div className="border-t bg-background px-4 py-3 space-y-3" data-testid="settings-panel">
+            {/* Global settings */}
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
               {/* Theme */}
               <div className="flex items-center gap-3">
@@ -557,95 +558,108 @@ export function NotebookToolbar({
                   </div>
                 </div>
               )}
-
-              {/* Default Python Environment */}
-              {onDefaultPythonEnvChange && (
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    Default Python Env
-                  </span>
-                  <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5" data-testid="settings-python-env-group">
-                    <button
-                      type="button"
-                      onClick={() => onDefaultPythonEnvChange("uv")}
-                      className={cn(
-                        "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
-                        defaultPythonEnv === "uv"
-                          ? "bg-background text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <UvIcon className="h-3 w-3" />
-                      uv
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDefaultPythonEnvChange("conda")}
-                      className={cn(
-                        "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
-                        defaultPythonEnv === "conda"
-                          ? "bg-background text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <CondaIcon className="h-3 w-3" />
-                      Conda
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
-            {/* Default Packages — separate inputs for uv and conda */}
-            {onDefaultUvPackagesChange && (
-              <div className="flex items-center gap-3 mt-2">
-                <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                  Default uv Packages
+
+            {/* Python settings */}
+            {(onDefaultPythonEnvChange || onDefaultUvPackagesChange || onDefaultCondaPackagesChange) && (
+              <div className="space-y-2">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Python
                 </span>
-                <input
-                  type="text"
-                  defaultValue={defaultUvPackages}
-                  placeholder="numpy, pandas, scikit-learn"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  onBlur={(e) =>
-                    onDefaultUvPackagesChange(e.target.value)
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      onDefaultUvPackagesChange(e.currentTarget.value);
-                      e.currentTarget.blur();
-                    }
-                  }}
-                  className="h-7 flex-1 max-w-md rounded-md border bg-muted/50 px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-            )}
-            {onDefaultCondaPackagesChange && (
-              <div className="flex items-center gap-3 mt-1">
-                <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                  Default Conda Packages
-                </span>
-                <input
-                  type="text"
-                  defaultValue={defaultCondaPackages}
-                  placeholder="numpy, pandas, scikit-learn"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  onBlur={(e) =>
-                    onDefaultCondaPackagesChange(e.target.value)
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      onDefaultCondaPackagesChange(e.currentTarget.value);
-                      e.currentTarget.blur();
-                    }
-                  }}
-                  className="h-7 flex-1 max-w-md rounded-md border bg-muted/50 px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                />
+                <div className="grid gap-2" style={{ gridTemplateColumns: "auto 1fr" }}>
+                  {/* Default Python Env */}
+                  {onDefaultPythonEnvChange && (
+                    <>
+                      <span className="text-xs font-medium text-muted-foreground whitespace-nowrap self-center text-right">
+                        Environment
+                      </span>
+                      <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5 w-fit" data-testid="settings-python-env-group">
+                        <button
+                          type="button"
+                          onClick={() => onDefaultPythonEnvChange("uv")}
+                          className={cn(
+                            "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
+                            defaultPythonEnv === "uv"
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          <UvIcon className="h-3 w-3" />
+                          uv
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDefaultPythonEnvChange("conda")}
+                          className={cn(
+                            "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
+                            defaultPythonEnv === "conda"
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          <CondaIcon className="h-3 w-3" />
+                          Conda
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Default uv Packages */}
+                  {onDefaultUvPackagesChange && (
+                    <>
+                      <span className="text-xs font-medium text-muted-foreground whitespace-nowrap self-center text-right">
+                        uv Packages
+                      </span>
+                      <input
+                        type="text"
+                        defaultValue={defaultUvPackages}
+                        placeholder="numpy, pandas, scikit-learn"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        onBlur={(e) =>
+                          onDefaultUvPackagesChange(e.target.value)
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            onDefaultUvPackagesChange(e.currentTarget.value);
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        className="h-7 max-w-md rounded-md border bg-muted/50 px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                    </>
+                  )}
+
+                  {/* Default Conda Packages */}
+                  {onDefaultCondaPackagesChange && (
+                    <>
+                      <span className="text-xs font-medium text-muted-foreground whitespace-nowrap self-center text-right">
+                        Conda Packages
+                      </span>
+                      <input
+                        type="text"
+                        defaultValue={defaultCondaPackages}
+                        placeholder="numpy, pandas, scikit-learn"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        onBlur={(e) =>
+                          onDefaultCondaPackagesChange(e.target.value)
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            onDefaultCondaPackagesChange(e.currentTarget.value);
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        className="h-7 max-w-md rounded-md border bg-muted/50 px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                    </>
+                  )}
+                </div>
               </div>
             )}
           </div>
