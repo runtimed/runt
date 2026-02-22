@@ -69,7 +69,7 @@ function AppContent() {
   const { theme, setTheme } = useTheme("notebook-theme");
 
   // Execution queue - cells are queued and executed in FIFO order by the backend
-  const { queueCell, queuedCellIds: executingCellIds } = useExecutionQueue();
+  const { queueCell, runAllCells, queuedCellIds: executingCellIds } = useExecutionQueue();
 
   const [dependencyHeaderOpen, setDependencyHeaderOpen] = useState(false);
   const [showIsolationTest, setShowIsolationTest] = useState(false);
@@ -256,6 +256,7 @@ function AppContent() {
     startKernelWithPyproject,
     interruptKernel,
     restartKernel,
+    restartAndRunAll,
     listKernelspecs,
   } = useKernel({
     onOutput: handleOutput,
@@ -356,6 +357,21 @@ function AppContent() {
     [tryStartKernel]
   );
 
+  const handleRunAllCells = useCallback(async () => {
+    // Backend clears outputs and emits cells:outputs_cleared before queuing
+    await runAllCells();
+    // Start kernel if not running — queue processor retries until ready
+    if (kernelStatus === "not started") {
+      tryStartKernel();
+    }
+  }, [runAllCells, kernelStatus, tryStartKernel]);
+
+  const handleRestartAndRunAll = useCallback(async () => {
+    // Backend clears outputs and emits cells:outputs_cleared before queuing,
+    // then ensureKernelStarted restarts the kernel
+    await restartAndRunAll();
+  }, [restartAndRunAll]);
+
   // Cmd+S to save (keyboard and native menu)
   useEffect(() => {
     // Listen for native menu save event
@@ -410,6 +426,26 @@ function AppContent() {
       unlistenPromise.then((unlisten) => unlisten());
     };
   }, [cloneNotebook]);
+
+  // Kernel menu: Run All Cells
+  useEffect(() => {
+    const unlistenPromise = listen("menu:run-all", () => {
+      handleRunAllCells();
+    });
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, [handleRunAllCells]);
+
+  // Kernel menu: Restart & Run All Cells
+  useEffect(() => {
+    const unlistenPromise = listen("menu:restart-and-run-all", () => {
+      handleRestartAndRunAll();
+    });
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, [handleRestartAndRunAll]);
 
   // Zoom controls via native menu
   useEffect(() => {
@@ -480,6 +516,8 @@ function AppContent() {
         onStartKernel={handleStartKernel}
         onInterruptKernel={interruptKernel}
         onRestartKernel={restartKernel}
+        onRunAllCells={handleRunAllCells}
+        onRestartAndRunAll={handleRestartAndRunAll}
         onAddCell={handleAddCell}
         onToggleDependencies={() => setDependencyHeaderOpen((prev) => !prev)}
         listKernelspecs={listKernelspecs}

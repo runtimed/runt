@@ -599,6 +599,101 @@ async fn get_execution_queue_state(
     Ok(q.get_state())
 }
 
+/// Queue all code cells for execution in notebook order.
+/// Returns the list of cell IDs that were queued.
+#[tauri::command]
+async fn run_all_cells(
+    app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    queue_tx: tauri::State<'_, mpsc::Sender<QueueCommand>>,
+) -> Result<Vec<String>, String> {
+    let cell_ids = {
+        let mut nb = notebook_state.lock().map_err(|e| e.to_string())?;
+        let ids = nb.get_code_cell_ids();
+        for id in &ids {
+            nb.clear_cell_outputs(id);
+        }
+        ids
+    };
+    info!("run_all_cells: {} cells", cell_ids.len());
+
+    if !cell_ids.is_empty() {
+        // Notify frontend to clear outputs before queue state updates arrive
+        let _ = app.emit("cells:outputs_cleared", &cell_ids);
+
+        queue_tx
+            .send(QueueCommand::EnqueueAll {
+                cell_ids: cell_ids.clone(),
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(cell_ids)
+}
+
+/// Restart the kernel and run all code cells.
+/// Backend-coordinated: interrupt → clear queue → shutdown → clear outputs → queue all.
+/// Returns the list of cell IDs that were queued.
+#[tauri::command]
+async fn restart_and_run_all(
+    app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
+    queue_tx: tauri::State<'_, mpsc::Sender<QueueCommand>>,
+) -> Result<Vec<String>, String> {
+    info!("restart_and_run_all: starting");
+
+    // 1. Interrupt current execution and clear the queue
+    queue_tx
+        .send(QueueCommand::InterruptAndClear)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 2. Shutdown the kernel
+    {
+        let mut kernel = kernel_state.lock().await;
+        kernel.shutdown().await.map_err(|e| e.to_string())?;
+    }
+
+    // 3. Emit lifecycle event so frontend knows kernel is stopped
+    let event = KernelLifecycleEvent {
+        state: "not_started".to_string(),
+        runtime: String::new(),
+        env_source: None,
+        error_message: None,
+    };
+    let _ = app.emit("kernel:lifecycle", &event);
+
+    // 4. Get code cell IDs and clear their outputs
+    let cell_ids = {
+        let mut nb = notebook_state.lock().map_err(|e| e.to_string())?;
+        let ids = nb.get_code_cell_ids();
+        for id in &ids {
+            nb.clear_cell_outputs(id);
+        }
+        ids
+    };
+    info!("restart_and_run_all: queuing {} cells", cell_ids.len());
+
+    // 5. Notify frontend to clear outputs before queue state updates arrive
+    if !cell_ids.is_empty() {
+        let _ = app.emit("cells:outputs_cleared", &cell_ids);
+    }
+
+    // 6. Queue all code cells — the queue processor will retry until kernel is ready
+    if !cell_ids.is_empty() {
+        queue_tx
+            .send(QueueCommand::EnqueueAll {
+                cell_ids: cell_ids.clone(),
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(cell_ids)
+}
+
 #[tauri::command]
 async fn start_kernel(
     kernelspec_name: String,
@@ -2896,6 +2991,8 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>, #[allow(unu
             queue_execute_cell,
             clear_execution_queue,
             get_execution_queue_state,
+            run_all_cells,
+            restart_and_run_all,
             start_kernel,
             interrupt_kernel,
             shutdown_kernel,
@@ -3253,6 +3350,16 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>, #[allow(unu
                 crate::menu::MENU_ZOOM_RESET => {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.emit("menu:zoom-reset", ());
+                    }
+                }
+                crate::menu::MENU_RUN_ALL_CELLS => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("menu:run-all", ());
+                    }
+                }
+                crate::menu::MENU_RESTART_AND_RUN_ALL => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("menu:restart-and-run-all", ());
                     }
                 }
                 crate::menu::MENU_INSTALL_CLI => {

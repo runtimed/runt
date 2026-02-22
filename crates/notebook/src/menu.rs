@@ -13,6 +13,10 @@ pub const MENU_ZOOM_IN: &str = "zoom_in";
 pub const MENU_ZOOM_OUT: &str = "zoom_out";
 pub const MENU_ZOOM_RESET: &str = "zoom_reset";
 
+// Menu item IDs for kernel operations
+pub const MENU_RUN_ALL_CELLS: &str = "run_all_cells";
+pub const MENU_RESTART_AND_RUN_ALL: &str = "restart_and_run_all";
+
 // Menu item IDs for CLI installation
 pub const MENU_INSTALL_CLI: &str = "install_cli";
 
@@ -96,6 +100,24 @@ pub fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     edit_menu.append(&PredefinedMenuItem::paste(app, None)?)?;
     edit_menu.append(&PredefinedMenuItem::select_all(app, None)?)?;
     menu.append(&edit_menu)?;
+
+    // Kernel menu
+    let kernel_menu = Submenu::new(app, "Kernel", true)?;
+    kernel_menu.append(&MenuItem::with_id(
+        app,
+        MENU_RUN_ALL_CELLS,
+        "Run All Cells",
+        true,
+        None::<&str>,
+    )?)?;
+    kernel_menu.append(&MenuItem::with_id(
+        app,
+        MENU_RESTART_AND_RUN_ALL,
+        "Restart & Run All Cells",
+        true,
+        None::<&str>,
+    )?)?;
+    menu.append(&kernel_menu)?;
 
     // View menu
     let view_menu = Submenu::new(app, "View", true)?;

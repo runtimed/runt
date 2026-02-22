@@ -54,6 +54,23 @@ export function useNotebook() {
     };
   }, []);
 
+  // Listen for backend-initiated bulk output clearing (run all / restart & run all)
+  useEffect(() => {
+    const unlisten = listen<string[]>("cells:outputs_cleared", (event) => {
+      const clearedIds = new Set(event.payload);
+      setCells((prev) =>
+        prev.map((c) =>
+          clearedIds.has(c.id) && c.cell_type === "code"
+            ? { ...c, outputs: [], execution_count: null }
+            : c
+        )
+      );
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
   const updateCellSource = useCallback((cellId: string, source: string) => {
     setCells((prev) =>
       prev.map((c) => (c.id === cellId ? { ...c, source } : c))

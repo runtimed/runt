@@ -522,6 +522,20 @@ export function useKernel({
     await ensureKernelStarted();
   }, [shutdownKernel, ensureKernelStarted]);
 
+  const restartAndRunAll = useCallback(async (): Promise<string[]> => {
+    console.log("[kernel] restart and run all");
+    try {
+      // Backend handles: interrupt → clear → shutdown → clear outputs → queue all
+      const cellIds = await invoke<string[]>("restart_and_run_all");
+      // Now start the kernel — queue processor retries until it's ready
+      await ensureKernelStarted();
+      return cellIds;
+    } catch (e) {
+      console.error("restart_and_run_all failed:", e);
+      return [];
+    }
+  }, [ensureKernelStarted]);
+
   return {
     kernelStatus,
     kernelErrorMessage,
@@ -539,6 +553,7 @@ export function useKernel({
     interruptKernel,
     shutdownKernel,
     restartKernel,
+    restartAndRunAll,
     listKernelspecs,
   };
 }

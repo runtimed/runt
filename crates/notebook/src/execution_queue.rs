@@ -40,6 +40,8 @@ pub struct ExecutionQueueState {
 pub enum QueueCommand {
     /// Enqueue a cell for execution
     Enqueue { cell_id: String },
+    /// Enqueue multiple cells for execution (e.g. "run all cells")
+    EnqueueAll { cell_ids: Vec<String> },
     /// Clear all pending cells (keep currently executing)
     Clear,
     /// Interrupt current execution and clear queue
@@ -215,6 +217,19 @@ pub fn spawn_queue_processor(
                             {
                                 let mut q = queue.lock().unwrap();
                                 q.enqueue(cell_id);
+                                emit_queue_state(&app, &q);
+                            }
+                            // Try to process next
+                            process_next(&app, &queue, &notebook_state, &kernel, &tx).await;
+                        }
+
+                        QueueCommand::EnqueueAll { cell_ids } => {
+                            info!("[queue] Enqueue all: {} cells", cell_ids.len());
+                            {
+                                let mut q = queue.lock().unwrap();
+                                for cell_id in cell_ids {
+                                    q.enqueue(cell_id);
+                                }
                                 emit_queue_state(&app, &q);
                             }
                             // Try to process next
