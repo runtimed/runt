@@ -63,7 +63,7 @@ describe("Error Handling", () => {
 
     if (!cellExists) {
       console.log("No code cell found, adding one...");
-      const addCodeButton = await $("button*=Code");
+      const addCodeButton = await $('[data-testid="add-code-cell-button"]');
       await addCodeButton.waitForClickable({ timeout: 5000 });
       await addCodeButton.click();
       await browser.pause(500);

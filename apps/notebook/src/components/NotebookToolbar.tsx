@@ -252,6 +252,7 @@ export function NotebookToolbar({
               dirty ? "text-foreground" : "text-muted-foreground"
             )}
             title="Save (Cmd+S)"
+            data-testid="save-button"
           >
             <Save className="h-3.5 w-3.5" />
             {dirty && <span className="text-[10px]">&bull;</span>}
@@ -265,6 +266,7 @@ export function NotebookToolbar({
             onClick={() => onAddCell("code")}
             className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             title="Add code cell"
+            data-testid="add-code-cell-button"
           >
             <Plus className="h-3 w-3" />
             Code
@@ -274,6 +276,7 @@ export function NotebookToolbar({
             onClick={() => onAddCell("markdown")}
             className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             title="Add markdown cell"
+            data-testid="add-markdown-cell-button"
           >
             <Plus className="h-3 w-3" />
             Markdown
@@ -289,6 +292,7 @@ export function NotebookToolbar({
               disabled={kernelspecs.length === 0}
               className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
               title="Start kernel"
+              data-testid="start-kernel-button"
             >
               <Play className="h-3 w-3" fill="currentColor" />
               Start Kernel
@@ -310,6 +314,7 @@ export function NotebookToolbar({
                 onClick={onRestartKernel}
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title="Restart kernel"
+                data-testid="restart-kernel-button"
               >
                 <RotateCcw className="h-3 w-3" />
                 Restart
@@ -329,6 +334,7 @@ export function NotebookToolbar({
                 onClick={onInterruptKernel}
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title="Interrupt kernel"
+                data-testid="interrupt-kernel-button"
               >
                 <Square className="h-3 w-3" />
                 Interrupt
@@ -460,14 +466,14 @@ export function NotebookToolbar({
 
         {/* Collapsible settings panel */}
         <CollapsibleContent>
-          <div className="border-t bg-background px-4 py-3">
+          <div className="border-t bg-background px-4 py-3" data-testid="settings-panel">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
               {/* Theme */}
               <div className="flex items-center gap-3">
                 <span className="text-xs font-medium text-muted-foreground">
                   Theme
                 </span>
-                <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5">
+                <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5" data-testid="settings-theme-group">
                   {themeOptions.map((option) => {
                     const Icon = option.icon;
                     const isActive = theme === option.value;
@@ -497,7 +503,7 @@ export function NotebookToolbar({
                   <span className="text-xs font-medium text-muted-foreground">
                     Default Runtime
                   </span>
-                  <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5">
+                  <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5" data-testid="settings-runtime-group">
                     <button
                       type="button"
                       onClick={() => onDefaultRuntimeChange("python")}
@@ -534,7 +540,7 @@ export function NotebookToolbar({
                   <span className="text-xs font-medium text-muted-foreground">
                     Default Python Env
                   </span>
-                  <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5">
+                  <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5" data-testid="settings-python-env-group">
                     <button
                       type="button"
                       onClick={() => onDefaultPythonEnvChange("uv")}

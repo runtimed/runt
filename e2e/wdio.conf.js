@@ -40,6 +40,7 @@ const FIXTURE_SPECS = [
   "trust-decline.spec.js",
   "run-all-cells.spec.js",
   "iframe-isolation.spec.js",
+  "settings-panel.spec.js",
 ];
 
 export const config = {

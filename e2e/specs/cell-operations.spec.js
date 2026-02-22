@@ -102,7 +102,7 @@ describe("Cell Operations", () => {
       console.log("Initial code cell count:", initialCount);
 
       // Click the "Code" button to add a new code cell
-      const addCodeButton = await $("button*=Code");
+      const addCodeButton = await $('[data-testid="add-code-cell-button"]');
       const buttonExists = await addCodeButton.isExisting();
 
       if (buttonExists) {
@@ -132,7 +132,7 @@ describe("Cell Operations", () => {
       console.log("Initial markdown cell count:", initialMdCount);
 
       // Click the "Markdown" button
-      const addMdButton = await $("button*=Markdown");
+      const addMdButton = await $('[data-testid="add-markdown-cell-button"]');
       const buttonExists = await addMdButton.isExisting();
 
       if (buttonExists) {
@@ -154,7 +154,7 @@ describe("Cell Operations", () => {
   describe("Deleting cells", () => {
     it("should delete a cell when multiple cells exist", async () => {
       // First ensure we have multiple cells
-      const addCodeButton = await $("button*=Code");
+      const addCodeButton = await $('[data-testid="add-code-cell-button"]');
       if (await addCodeButton.isExisting()) {
         await addCodeButton.click();
         await browser.pause(300);
@@ -273,7 +273,7 @@ describe("Cell Operations", () => {
   describe("Cross-cell state", () => {
     it("should persist variables across cells", async () => {
       // Add a fresh code cell
-      const addCodeButton = await $("button*=Code");
+      const addCodeButton = await $('[data-testid="add-code-cell-button"]');
       if (await addCodeButton.isExisting()) {
         await addCodeButton.click();
         await browser.pause(300);
