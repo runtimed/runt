@@ -141,14 +141,17 @@ case "${1:-help}" in
       crates/notebook/fixtures/audit-test/pixi-project/6-pixi.ipynb \
       e2e/specs/pixi-env-detection.spec.js || FAIL=1
 
-    # TODO: enable once trust key setup is available locally
-    # $0 test-fixture \
-    #   crates/notebook/fixtures/audit-test/pyproject-project/5-pyproject.ipynb \
-    #   e2e/specs/pyproject-startup.spec.js || FAIL=1
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/pyproject-project/5-pyproject.ipynb \
+      e2e/specs/pyproject-startup.spec.js || FAIL=1
 
-    # $0 test-fixture \
-    #   crates/notebook/fixtures/audit-test/4-both-deps.ipynb \
-    #   e2e/specs/both-deps-panel.spec.js || FAIL=1
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/4-both-deps.ipynb \
+      e2e/specs/both-deps-panel.spec.js || FAIL=1
+
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/1-vanilla.ipynb \
+      e2e/specs/iframe-isolation.spec.js || FAIL=1
 
     exit $FAIL
     ;;
