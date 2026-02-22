@@ -34,12 +34,18 @@ describe("Pyproject Kernel Startup", () => {
     console.log("Pyproject startup test passed: kernel started without hanging");
   });
 
-  it("should show pyproject.toml in toolbar env source", async () => {
-    const toolbar = await $('[data-testid="notebook-toolbar"]');
-    if (await toolbar.isExisting()) {
-      const toolbarText = await toolbar.getText();
-      console.log("Toolbar text:", toolbarText);
-      expect(toolbarText.toLowerCase()).toContain("pyproject");
+  it("should show pyproject env source in toolbar", async () => {
+    // The env badge shows an icon with a title attribute like "Environment: uv:pyproject"
+    const envBadge = await browser.execute(() => {
+      const els = document.querySelectorAll('[data-testid="notebook-toolbar"] [title]');
+      for (const el of els) {
+        if (el.title.startsWith("Environment:")) return el.title;
+      }
+      return null;
+    });
+    console.log("Env badge title:", envBadge);
+    if (envBadge) {
+      expect(envBadge).toContain("pyproject");
     }
   });
 });
