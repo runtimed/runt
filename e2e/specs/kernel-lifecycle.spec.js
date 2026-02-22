@@ -120,8 +120,8 @@ describe("Kernel Lifecycle", () => {
       console.log("Found restart button, clicking...");
       await restartButton.click();
 
-      // Wait for kernel to restart
-      await waitForKernelStatus("idle", 15000);
+      // Wait for kernel to restart (full startup cycle, same as initial boot)
+      await waitForKernelStatus("idle", KERNEL_STARTUP_TIMEOUT);
 
       // Try to access the variable — should get NameError
       codeCell = await setupCodeCell();
