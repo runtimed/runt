@@ -201,37 +201,35 @@ fn install_with_admin_privileges(
     runt_dest: &std::path::Path,
     nb_dest: &std::path::Path,
 ) -> Result<(), String> {
-    let nb_script = r#"#!/bin/bash
-# nb - Runt Notebook CLI (shorthand for 'runt notebook')
-# Installed by runt-notebook.app
-exec runt notebook \"$@\"
-"#;
+    // Write nb wrapper to a temp file (no admin needed for temp dir),
+    // reusing create_nb_wrapper to avoid duplicating the script content.
+    let temp_nb = std::env::temp_dir().join("runt-nb-install-script");
+    create_nb_wrapper(&temp_nb)?;
 
-    // Build the shell commands to run with admin privileges
+    // Build shell commands — just copy and chmod, no embedded script content.
+    // This avoids escaping issues with AppleScript string parsing.
     let commands = format!(
-        r#"
-        cp '{}' '{}' && \
-        chmod 755 '{}' && \
-        echo '{}' > '{}' && \
-        chmod 755 '{}'
-        "#,
+        "cp '{}' '{}' && chmod 755 '{}' && cp '{}' '{}' && chmod 755 '{}'",
         bundled_runt.display(),
         runt_dest.display(),
         runt_dest.display(),
-        nb_script,
+        temp_nb.display(),
         nb_dest.display(),
         nb_dest.display()
     );
 
     let script = format!(
         r#"do shell script "{}" with administrator privileges"#,
-        commands.replace('"', r#"\""#).replace('\n', " ")
+        commands.replace('\\', "\\\\").replace('"', "\\\"")
     );
 
     let output = Command::new("osascript")
         .args(["-e", &script])
         .output()
         .map_err(|e| format!("Failed to run osascript: {}", e))?;
+
+    // Clean up temp file regardless of outcome
+    let _ = fs::remove_file(&temp_nb);
 
     if output.status.success() {
         Ok(())
