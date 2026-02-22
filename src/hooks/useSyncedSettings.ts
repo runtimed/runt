@@ -5,6 +5,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Theme } from "@tauri-apps/api/window";
 
 export type ThemeMode = "light" | "dark" | "system";
+export type RuntimeMode = "python" | "deno";
+export type PythonEnvMode = "uv" | "conda";
 
 interface SyncedSettings {
   theme: string;
@@ -45,27 +47,48 @@ function isValidTheme(value: string): value is ThemeMode {
   return value === "light" || value === "dark" || value === "system";
 }
 
-/**
- * Hook for theme that syncs across all notebook windows via runtimed.
- *
- * Uses the Automerge-backed settings sync in runtimed to keep theme
- * consistent across all open notebook windows. Falls back to localStorage
- * if the daemon is unavailable (e.g., in the sidecar viewer).
- */
-export function useSyncedTheme() {
-  const [theme, setThemeState] = useState<ThemeMode>(() => {
-    // Start with localStorage value for instant render (no flash)
-    try {
-      const stored = localStorage.getItem("notebook-theme");
-      if (stored && isValidTheme(stored)) return stored;
-    } catch {
-      // ignore
-    }
-    return "system";
-  });
+function isValidRuntime(value: string): value is RuntimeMode {
+  return value === "python" || value === "deno";
+}
 
-  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(() =>
-    resolveTheme(theme),
+function isValidPythonEnv(value: string): value is PythonEnvMode {
+  return value === "uv" || value === "conda";
+}
+
+function getStored<T extends string>(key: string, validate: (v: string) => v is T): T | null {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored && validate(stored)) return stored;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function setStored(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Hook for all synced settings across notebook windows via runtimed.
+ *
+ * Reads from the Automerge-backed settings sync daemon on mount,
+ * listens for cross-window changes, and falls back to localStorage
+ * when the daemon is unavailable.
+ */
+export function useSyncedSettings() {
+  const [theme, setThemeState] = useState<ThemeMode>(
+    () => getStored("notebook-theme", isValidTheme) ?? "system",
+  );
+  const [defaultRuntime, setDefaultRuntimeState] = useState<RuntimeMode>(
+    () => getStored("notebook-default-runtime", isValidRuntime) ?? "python",
+  );
+  const [defaultPythonEnv, setDefaultPythonEnvState] = useState<PythonEnvMode>(
+    () => getStored("notebook-default-python-env", isValidPythonEnv) ?? "uv",
   );
 
   // Load initial settings from daemon
@@ -74,36 +97,93 @@ export function useSyncedTheme() {
       .then((settings) => {
         if (isValidTheme(settings.theme)) {
           setThemeState(settings.theme);
-          // Also update localStorage as a cache for next startup
-          try {
-            localStorage.setItem("notebook-theme", settings.theme);
-          } catch {
-            // ignore
-          }
+          setStored("notebook-theme", settings.theme);
+        }
+        if (isValidRuntime(settings.default_runtime)) {
+          setDefaultRuntimeState(settings.default_runtime);
+          setStored("notebook-default-runtime", settings.default_runtime);
+        }
+        if (isValidPythonEnv(settings.default_python_env)) {
+          setDefaultPythonEnvState(settings.default_python_env);
+          setStored("notebook-default-python-env", settings.default_python_env);
         }
       })
       .catch(() => {
-        // Daemon unavailable, stick with localStorage value
+        // Daemon unavailable, stick with localStorage values
       });
   }, []);
 
   // Listen for cross-window settings changes via Tauri events
   useEffect(() => {
     const unlisten = listen<SyncedSettings>("settings:changed", (event) => {
-      const newTheme = event.payload.theme;
+      const { theme: newTheme, default_runtime, default_python_env } =
+        event.payload;
       if (isValidTheme(newTheme)) {
         setThemeState(newTheme);
-        try {
-          localStorage.setItem("notebook-theme", newTheme);
-        } catch {
-          // ignore
-        }
+        setStored("notebook-theme", newTheme);
+      }
+      if (isValidRuntime(default_runtime)) {
+        setDefaultRuntimeState(default_runtime);
+        setStored("notebook-default-runtime", default_runtime);
+      }
+      if (isValidPythonEnv(default_python_env)) {
+        setDefaultPythonEnvState(default_python_env);
+        setStored("notebook-default-python-env", default_python_env);
       }
     });
     return () => {
       unlisten.then((u) => u());
     };
   }, []);
+
+  const setTheme = useCallback((newTheme: ThemeMode) => {
+    setThemeState(newTheme);
+    setStored("notebook-theme", newTheme);
+    invoke("set_synced_setting", { key: "theme", value: newTheme }).catch(
+      () => {},
+    );
+  }, []);
+
+  const setDefaultRuntime = useCallback((newRuntime: RuntimeMode) => {
+    setDefaultRuntimeState(newRuntime);
+    setStored("notebook-default-runtime", newRuntime);
+    invoke("set_synced_setting", {
+      key: "default_runtime",
+      value: newRuntime,
+    }).catch(() => {});
+  }, []);
+
+  const setDefaultPythonEnv = useCallback((newEnv: PythonEnvMode) => {
+    setDefaultPythonEnvState(newEnv);
+    setStored("notebook-default-python-env", newEnv);
+    invoke("set_synced_setting", {
+      key: "default_python_env",
+      value: newEnv,
+    }).catch(() => {});
+  }, []);
+
+  return {
+    theme,
+    setTheme,
+    defaultRuntime,
+    setDefaultRuntime,
+    defaultPythonEnv,
+    setDefaultPythonEnv,
+  };
+}
+
+/**
+ * Hook for theme that syncs across all notebook windows via runtimed.
+ *
+ * Wraps useSyncedSettings() and adds DOM/native window theme application.
+ * Falls back to localStorage if the daemon is unavailable.
+ */
+export function useSyncedTheme() {
+  const { theme, setTheme } = useSyncedSettings();
+
+  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(() =>
+    resolveTheme(theme),
+  );
 
   // Apply theme to DOM and native window
   useEffect(() => {
@@ -123,24 +203,6 @@ export function useSyncedTheme() {
     mediaQuery.addEventListener("change", handleChange);
     return () => mediaQuery.removeEventListener("change", handleChange);
   }, [theme]);
-
-  const setTheme = useCallback((newTheme: ThemeMode) => {
-    setThemeState(newTheme);
-
-    // Update localStorage as cache
-    try {
-      localStorage.setItem("notebook-theme", newTheme);
-    } catch {
-      // ignore
-    }
-
-    // Push to daemon for cross-window sync
-    invoke("set_synced_setting", { key: "theme", value: newTheme }).catch(
-      () => {
-        // Daemon unavailable — localStorage is already updated
-      },
-    );
-  }, []);
 
   return { theme, setTheme, resolvedTheme };
 }
