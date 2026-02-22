@@ -38,6 +38,7 @@ const FIXTURE_SPECS = [
   "deps-panel.spec.js",
   "conda-deps-panel.spec.js",
   "trust-decline.spec.js",
+  "run-all-cells.spec.js",
   "iframe-isolation.spec.js",
 ];
 

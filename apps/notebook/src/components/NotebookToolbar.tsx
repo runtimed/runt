@@ -309,6 +309,7 @@ export function NotebookToolbar({
                 onClick={onRunAllCells}
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title="Run all cells"
+                data-testid="run-all-button"
               >
                 <ChevronsRight className="h-3.5 w-3.5" />
                 Run All
@@ -336,6 +337,7 @@ export function NotebookToolbar({
                 onClick={onRestartAndRunAll}
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title="Restart kernel and run all cells"
+                data-testid="restart-run-all-button"
               >
                 <RotateCcw className="h-3 w-3" />
                 <ChevronsRight className="h-3 w-3 -ml-1" />
