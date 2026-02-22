@@ -194,7 +194,13 @@ export async function waitForKernelStatus(status, timeout = 30000) {
  */
 export async function typeSlowly(text, delay = 30) {
   for (const char of text) {
-    await browser.keys(char);
+    // Newline characters must be sent as the Enter key — browser.keys('\n')
+    // doesn't produce Enter in all WebDriver environments (e.g. Linux/WRY).
+    if (char === "\n") {
+      await browser.keys("Enter");
+    } else {
+      await browser.keys(char);
+    }
     await browser.pause(delay);
   }
 }

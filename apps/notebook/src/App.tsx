@@ -24,6 +24,7 @@ import { WidgetStoreProvider, useWidgetStoreRequired } from "@/components/widget
 import { MediaProvider } from "@/components/outputs/media-provider";
 import { WidgetView } from "@/components/widgets/widget-view";
 import { IsolationTest } from "@/components/outputs/isolated";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { JupyterOutput, JupyterMessage } from "./types";
 
 /** Page payload data for a cell */
@@ -641,19 +642,52 @@ function AppContent() {
   );
 }
 
+function AppErrorFallback(_error: Error, resetErrorBoundary: () => void) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-4 bg-background p-8">
+      <div className="text-center">
+        <h1 className="text-lg font-semibold text-foreground">
+          Something went wrong
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          The notebook encountered an unexpected error.
+        </p>
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={resetErrorBoundary}
+          className="rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+        >
+          Try again
+        </button>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90 transition-opacity"
+        >
+          Reload
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   return (
-    <WidgetStoreProvider sendMessage={sendMessage}>
-      <MediaProvider
-        renderers={{
-          "application/vnd.jupyter.widget-view+json": ({ data }) => {
-            const { model_id } = data as { model_id: string };
-            return <WidgetView modelId={model_id} />;
-          },
-        }}
-      >
-        <AppContent />
-      </MediaProvider>
-    </WidgetStoreProvider>
+    <ErrorBoundary fallback={AppErrorFallback}>
+      <WidgetStoreProvider sendMessage={sendMessage}>
+        <MediaProvider
+          renderers={{
+            "application/vnd.jupyter.widget-view+json": ({ data }) => {
+              const { model_id } = data as { model_id: string };
+              return <WidgetView modelId={model_id} />;
+            },
+          }}
+        >
+          <AppContent />
+        </MediaProvider>
+      </WidgetStoreProvider>
+    </ErrorBoundary>
   );
 }
