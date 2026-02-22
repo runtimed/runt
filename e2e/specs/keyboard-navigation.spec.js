@@ -11,9 +11,9 @@
  * .cm-focused CSS class may not update.
  */
 
-import { browser, expect } from "@wdio/globals";
 import os from "node:os";
-import { waitForAppReady, typeSlowly } from "../helpers.js";
+import { browser, expect } from "@wdio/globals";
+import { typeSlowly, waitForAppReady } from "../helpers.js";
 
 const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
 
@@ -54,7 +54,9 @@ describe("Keyboard Navigation", () => {
 
     // Type known content in cell 1
     const cells1 = await $$('[data-cell-type="code"]');
-    const editor1 = await cells1[cell1Index].$('.cm-content[contenteditable="true"]');
+    const editor1 = await cells1[cell1Index].$(
+      '.cm-content[contenteditable="true"]',
+    );
     await editor1.waitForExist({ timeout: 5000 });
     await editor1.click();
     await browser.pause(200);
@@ -65,7 +67,9 @@ describe("Keyboard Navigation", () => {
 
     // Type known content in cell 2
     const cells2 = await $$('[data-cell-type="code"]');
-    const editor2 = await cells2[cell2Index].$('.cm-content[contenteditable="true"]');
+    const editor2 = await cells2[cell2Index].$(
+      '.cm-content[contenteditable="true"]',
+    );
     await editor2.waitForExist({ timeout: 5000 });
     await editor2.click();
     await browser.pause(200);
@@ -76,13 +80,20 @@ describe("Keyboard Navigation", () => {
 
     const text1 = await getCellEditorText(cell1Index);
     const text2 = await getCellEditorText(cell2Index);
-    console.log("Cell 1 text:", JSON.stringify(text1), "Cell 2 text:", JSON.stringify(text2));
+    console.log(
+      "Cell 1 text:",
+      JSON.stringify(text1),
+      "Cell 2 text:",
+      JSON.stringify(text2),
+    );
   });
 
   it("should navigate down from cell 1 to cell 2 with ArrowDown at end", async () => {
     // Focus cell 1, move cursor to end
     const cells = await $$('[data-cell-type="code"]');
-    const editor1 = await cells[cell1Index].$('.cm-content[contenteditable="true"]');
+    const editor1 = await cells[cell1Index].$(
+      '.cm-content[contenteditable="true"]',
+    );
     await editor1.click();
     await browser.pause(200);
     await browser.keys([MOD_KEY, "a"]);
@@ -101,7 +112,12 @@ describe("Keyboard Navigation", () => {
     // Cell 2 should now contain the marker
     const text2 = await getCellEditorText(cell2Index);
     const text1 = await getCellEditorText(cell1Index);
-    console.log("After ArrowDown+X: cell1:", JSON.stringify(text1), "cell2:", JSON.stringify(text2));
+    console.log(
+      "After ArrowDown+X: cell1:",
+      JSON.stringify(text1),
+      "cell2:",
+      JSON.stringify(text2),
+    );
     expect(text2).toContain("X");
     expect(text1).not.toContain("X");
 
@@ -113,7 +129,9 @@ describe("Keyboard Navigation", () => {
   it("should navigate up from cell 2 to cell 1 with ArrowUp at start", async () => {
     // Focus cell 2, move cursor to start
     const cells = await $$('[data-cell-type="code"]');
-    const editor2 = await cells[cell2Index].$('.cm-content[contenteditable="true"]');
+    const editor2 = await cells[cell2Index].$(
+      '.cm-content[contenteditable="true"]',
+    );
     await editor2.click();
     await browser.pause(200);
     await browser.keys([MOD_KEY, "a"]);
@@ -132,7 +150,12 @@ describe("Keyboard Navigation", () => {
     // Cell 1 should now contain the marker
     const text1 = await getCellEditorText(cell1Index);
     const text2 = await getCellEditorText(cell2Index);
-    console.log("After ArrowUp+Y: cell1:", JSON.stringify(text1), "cell2:", JSON.stringify(text2));
+    console.log(
+      "After ArrowUp+Y: cell1:",
+      JSON.stringify(text1),
+      "cell2:",
+      JSON.stringify(text2),
+    );
     expect(text1).toContain("Y");
     expect(text2).not.toContain("Y");
 
@@ -144,7 +167,9 @@ describe("Keyboard Navigation", () => {
   it("should NOT navigate when cursor is in the middle of content", async () => {
     // Focus cell 1, move cursor to middle (between first and second char)
     const cells = await $$('[data-cell-type="code"]');
-    const editor1 = await cells[cell1Index].$('.cm-content[contenteditable="true"]');
+    const editor1 = await cells[cell1Index].$(
+      '.cm-content[contenteditable="true"]',
+    );
     await editor1.click();
     await browser.pause(200);
     await browser.keys([MOD_KEY, "a"]);
@@ -164,7 +189,12 @@ describe("Keyboard Navigation", () => {
 
     const text1 = await getCellEditorText(cell1Index);
     const text2 = await getCellEditorText(cell2Index);
-    console.log("After mid-content ArrowDown+Z: cell1:", JSON.stringify(text1), "cell2:", JSON.stringify(text2));
+    console.log(
+      "After mid-content ArrowDown+Z: cell1:",
+      JSON.stringify(text1),
+      "cell2:",
+      JSON.stringify(text2),
+    );
     expect(text1).toContain("Z");
     expect(text2).not.toContain("Z");
 
