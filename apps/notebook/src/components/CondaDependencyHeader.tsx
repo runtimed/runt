@@ -109,7 +109,7 @@ export function CondaDependencyHeader({
       : 0;
 
   return (
-    <div className="border-b bg-emerald-50/50 dark:bg-emerald-950/20">
+    <div className="border-b bg-emerald-50/50 dark:bg-emerald-950/20" data-testid="conda-deps-panel">
       <div className="px-3 py-3">
         {/* Conda badge */}
         <div className="mb-2 flex items-center gap-2">
@@ -403,6 +403,7 @@ export function CondaDependencyHeader({
             onChange={(e) => setNewDep(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="package or package>=version"
+            data-testid="conda-deps-add-input"
             className="flex-1 rounded border bg-background px-2 py-1 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             disabled={loading}
             autoComplete="off"
@@ -412,6 +413,7 @@ export function CondaDependencyHeader({
             type="button"
             onClick={handleAdd}
             disabled={loading || !newDep.trim()}
+            data-testid="conda-deps-add-button"
             className="flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-xs text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
           >
             <Plus className="h-3 w-3" />
