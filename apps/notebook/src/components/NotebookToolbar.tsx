@@ -563,9 +563,14 @@ export function NotebookToolbar({
             {/* Python settings */}
             {(onDefaultPythonEnvChange || onDefaultUvPackagesChange || onDefaultCondaPackagesChange) && (
               <div className="space-y-2">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Python Defaults
-                </span>
+                <div>
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Python Defaults
+                  </span>
+                  <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                    Applied to new notebooks without project dependencies
+                  </p>
+                </div>
                 <div className="grid gap-2" style={{ gridTemplateColumns: "auto 1fr" }}>
                   {/* Default Python Env */}
                   {onDefaultPythonEnvChange && (
