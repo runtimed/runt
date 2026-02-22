@@ -535,7 +535,7 @@ export function NotebookToolbar({
                       className={cn(
                         "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
                         defaultRuntime === "python"
-                          ? "bg-background text-foreground shadow-sm"
+                          ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
                       )}
                     >
@@ -548,7 +548,7 @@ export function NotebookToolbar({
                       className={cn(
                         "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
                         defaultRuntime === "deno"
-                          ? "bg-background text-foreground shadow-sm"
+                          ? "bg-teal-500/15 text-teal-600 dark:text-teal-400 shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
                       )}
                     >
@@ -564,7 +564,7 @@ export function NotebookToolbar({
             {(onDefaultPythonEnvChange || onDefaultUvPackagesChange || onDefaultCondaPackagesChange) && (
               <div className="space-y-2">
                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Python
+                  Python Defaults
                 </span>
                 <div className="grid gap-2" style={{ gridTemplateColumns: "auto 1fr" }}>
                   {/* Default Python Env */}
@@ -580,7 +580,7 @@ export function NotebookToolbar({
                           className={cn(
                             "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
                             defaultPythonEnv === "uv"
-                              ? "bg-background text-foreground shadow-sm"
+                              ? "bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400 shadow-sm"
                               : "text-muted-foreground hover:text-foreground"
                           )}
                         >
@@ -593,7 +593,7 @@ export function NotebookToolbar({
                           className={cn(
                             "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
                             defaultPythonEnv === "conda"
-                              ? "bg-background text-foreground shadow-sm"
+                              ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shadow-sm"
                               : "text-muted-foreground hover:text-foreground"
                           )}
                         >
