@@ -2742,41 +2742,42 @@ async fn get_synced_settings() -> Result<runtimed::settings_doc::SyncedSettings,
 /// Update a synced setting via the daemon. Falls back to local storage.
 #[tauri::command]
 async fn set_synced_setting(key: String, value: String) -> Result<(), String> {
-    let socket_path = runtimed::default_sync_socket_path();
-
     #[cfg(unix)]
-    match runtimed::sync_client::SyncClient::connect(socket_path).await {
-        Ok(mut client) => {
-            client
-                .put(&key, &value)
-                .await
-                .map_err(|e| format!("sync error: {}", e))?;
-            Ok(())
-        }
-        Err(e) => {
-            log::warn!("[settings] Sync daemon unavailable ({}), saving locally", e);
-            // Fall back to local settings.json for known keys
-            match key.as_str() {
-                "default_runtime" => {
-                    let runtime: Runtime =
-                        serde_json::from_str(&format!("\"{}\"", value))
-                            .map_err(|e| e.to_string())?;
-                    let mut s = settings::load_settings();
-                    s.default_runtime = runtime;
-                    settings::save_settings(&s).map_err(|e| e.to_string())
+    {
+        let socket_path = runtimed::default_sync_socket_path();
+        match runtimed::sync_client::SyncClient::connect(socket_path).await {
+            Ok(mut client) => {
+                client
+                    .put(&key, &value)
+                    .await
+                    .map_err(|e| format!("sync error: {}", e))?;
+                Ok(())
+            }
+            Err(e) => {
+                log::warn!("[settings] Sync daemon unavailable ({}), saving locally", e);
+                // Fall back to local settings.json for known keys
+                match key.as_str() {
+                    "default_runtime" => {
+                        let runtime: Runtime =
+                            serde_json::from_str(&format!("\"{}\"", value))
+                                .map_err(|e| e.to_string())?;
+                        let mut s = settings::load_settings();
+                        s.default_runtime = runtime;
+                        settings::save_settings(&s).map_err(|e| e.to_string())
+                    }
+                    "default_python_env" => {
+                        let env_type = match value.as_str() {
+                            "uv" => settings::PythonEnvType::Uv,
+                            "conda" => settings::PythonEnvType::Conda,
+                            _ => return Err(format!("Invalid env type: {}", value)),
+                        };
+                        let mut s = settings::load_settings();
+                        s.default_python_env = env_type;
+                        settings::save_settings(&s).map_err(|e| e.to_string())
+                    }
+                    // Theme has no local fallback in settings.json (was in localStorage)
+                    _ => Ok(()),
                 }
-                "default_python_env" => {
-                    let env_type = match value.as_str() {
-                        "uv" => settings::PythonEnvType::Uv,
-                        "conda" => settings::PythonEnvType::Conda,
-                        _ => return Err(format!("Invalid env type: {}", value)),
-                    };
-                    let mut s = settings::load_settings();
-                    s.default_python_env = env_type;
-                    settings::save_settings(&s).map_err(|e| e.to_string())
-                }
-                // Theme has no local fallback in settings.json (was in localStorage)
-                _ => Ok(()),
             }
         }
     }
@@ -2784,7 +2785,28 @@ async fn set_synced_setting(key: String, value: String) -> Result<(), String> {
     #[cfg(windows)]
     {
         log::warn!("[settings] Windows sync client not yet implemented, saving locally");
-        Ok(())
+
+        match key.as_str() {
+            "default_runtime" => {
+                let runtime: Runtime =
+                    serde_json::from_str(&format!("\"{}\"", value)).map_err(|e| e.to_string())?;
+                let mut s = settings::load_settings();
+                s.default_runtime = runtime;
+                settings::save_settings(&s).map_err(|e| e.to_string())
+            }
+            "default_python_env" => {
+                let env_type = match value.as_str() {
+                    "uv" => settings::PythonEnvType::Uv,
+                    "conda" => settings::PythonEnvType::Conda,
+                    _ => return Err(format!("Invalid env type: {}", value)),
+                };
+                let mut s = settings::load_settings();
+                s.default_python_env = env_type;
+                settings::save_settings(&s).map_err(|e| e.to_string())
+            }
+            // Theme has no local fallback in settings.json (was in localStorage)
+            _ => Ok(()),
+        }
     }
 }
 
