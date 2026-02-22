@@ -28,10 +28,10 @@ describe("Trust Dialog Decline", () => {
     const dialog = await $('[data-testid="trust-dialog"]');
     await dialog.waitForExist({ timeout: 15000 });
 
-    // Verify dialog content mentions the dependency
+    // Verify dialog shows package review UI
     const dialogText = await dialog.getText();
     console.log("Trust dialog text:", dialogText);
-    expect(dialogText).toContain("requests");
+    expect(dialogText).toContain("PyPI Packages");
   });
 
   it("should not start kernel after clicking Don't Install", async () => {
