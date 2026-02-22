@@ -10,6 +10,7 @@
  */
 
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AnyWidgetView, isAnyWidget } from "./anywidget-view";
 import { useLayoutStyles } from "./use-layout-styles";
 import { getWidgetComponent } from "./widget-registry";
@@ -58,6 +59,32 @@ function UnsupportedWidget({ model, className }: UnsupportedWidgetProps) {
       </div>
       <div className="text-xs text-muted-foreground/70 mt-1">
         Module: {model.modelModule || "unknown"}
+      </div>
+    </div>
+  );
+}
+
+function WidgetErrorFallback({
+  error,
+  modelId,
+  className,
+}: {
+  error: Error;
+  modelId: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded border border-dashed border-destructive/50 p-3 text-sm",
+        className,
+      )}
+      data-widget-id={modelId}
+      data-widget-error="true"
+    >
+      <div className="font-medium text-destructive/80">Widget error</div>
+      <div className="text-xs text-muted-foreground mt-1 truncate">
+        {error.message}
       </div>
     </div>
   );
@@ -116,13 +143,28 @@ export function WidgetView({ modelId, className }: WidgetViewProps) {
     }
   }
 
+  // Wrap in error boundary to catch render failures in built-in widgets
+  const wrappedWidget = (
+    <ErrorBoundary
+      fallback={(error) => (
+        <WidgetErrorFallback
+          error={error}
+          modelId={modelId}
+          className={className}
+        />
+      )}
+    >
+      {renderedWidget}
+    </ErrorBoundary>
+  );
+
   // Wrap with layout positioning if the widget has grid placement styles
   const hasChildStyles = Object.keys(childStyle).length > 0;
   if (hasChildStyles) {
-    return <div style={childStyle}>{renderedWidget}</div>;
+    return <div style={childStyle}>{wrappedWidget}</div>;
   }
 
-  return renderedWidget;
+  return wrappedWidget;
 }
 
 export default WidgetView;

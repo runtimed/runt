@@ -3,6 +3,7 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import {
   AnsiErrorOutput,
   AnsiStreamOutput,
@@ -242,6 +243,20 @@ function renderOutput(
   }
 }
 
+function OutputErrorFallback({
+  error,
+  outputIndex,
+}: {
+  error: Error;
+  outputIndex: number;
+}) {
+  return (
+    <div className="rounded border border-dashed border-destructive/30 px-3 py-2 text-xs text-destructive/80">
+      Output {outputIndex + 1} failed to render: {error.message}
+    </div>
+  );
+}
+
 /**
  * OutputArea renders multiple Jupyter outputs with proper layout.
  *
@@ -463,9 +478,16 @@ export function OutputArea({
 
           {/* In-DOM outputs (when not using isolation) */}
           {!shouldIsolate &&
-            outputs.map((output, index) =>
-              renderOutput(output, index, renderers, priority, unsafe),
-            )}
+            outputs.map((output, index) => (
+              <ErrorBoundary
+                key={`error-boundary-${index}`}
+                fallback={(error) => (
+                  <OutputErrorFallback error={error} outputIndex={index} />
+                )}
+              >
+                {renderOutput(output, index, renderers, priority, unsafe)}
+              </ErrorBoundary>
+            ))}
         </div>
       )}
     </div>

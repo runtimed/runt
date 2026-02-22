@@ -4,6 +4,7 @@ import { CellContainer } from "@/components/cell/CellContainer";
 import { CompactExecutionButton } from "@/components/cell/CompactExecutionButton";
 import { OutputArea } from "@/components/cell/OutputArea";
 import { AnsiOutput } from "@/components/outputs/ansi-output";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import {
   CodeMirrorEditor,
   type CodeMirrorEditorRef,
@@ -241,10 +242,18 @@ export function CodeCell({
             {/* Page Payload (documentation from ? or ??) */}
             {pagePayload && (
               <div className="px-2 py-1">
-                <PagePayloadDisplay
-                  data={pagePayload.data}
-                  onDismiss={() => onClearPagePayload?.()}
-                />
+                <ErrorBoundary
+                  fallback={() => (
+                    <div className="text-xs text-muted-foreground italic px-1 py-2">
+                      Failed to render documentation
+                    </div>
+                  )}
+                >
+                  <PagePayloadDisplay
+                    data={pagePayload.data}
+                    onDismiss={() => onClearPagePayload?.()}
+                  />
+                </ErrorBoundary>
               </div>
             )}
           </>

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useMemo } from "react";
-import { Plus } from "lucide-react";
+import { Plus, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { CodeCell } from "./CodeCell";
 import { MarkdownCell } from "./MarkdownCell";
 import { EditorRegistryProvider, useEditorRegistry } from "../hooks/useEditorRegistry";
@@ -61,6 +62,53 @@ function AddCellButtons({
           >
             <Plus className="h-3 w-3" />
             Markdown
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CellErrorFallback({
+  error,
+  onRetry,
+  onDelete,
+}: {
+  error: Error;
+  onRetry: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="mx-4 my-2 rounded-md border border-destructive/50 bg-destructive/5 p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-destructive">
+            This cell encountered an error
+          </p>
+          <p className="mt-1 truncate text-xs text-muted-foreground">
+            {error.message}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onRetry}
+            className="h-7 gap-1 px-2 text-xs"
+            title="Retry rendering"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Retry
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onDelete}
+            className="h-7 gap-1 px-2 text-xs text-destructive hover:text-destructive"
+            title="Delete cell"
+          >
+            <X className="h-3 w-3" />
+            Delete
           </Button>
         </div>
       </div>
@@ -220,7 +268,17 @@ function NotebookViewContent({
               {index === 0 && (
                 <AddCellButtons afterCellId={null} onAdd={onAddCell} />
               )}
-              {renderCell(cell, index)}
+              <ErrorBoundary
+                fallback={(error, resetErrorBoundary) => (
+                  <CellErrorFallback
+                    error={error}
+                    onRetry={resetErrorBoundary}
+                    onDelete={() => onDeleteCell(cell.id)}
+                  />
+                )}
+              >
+                {renderCell(cell, index)}
+              </ErrorBoundary>
               <AddCellButtons afterCellId={cell.id} onAdd={onAddCell} />
             </div>
           ))}
