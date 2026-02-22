@@ -104,20 +104,74 @@ case "${1:-help}" in
     $0 test "${@:2}"
     ;;
 
+  test-fixture)
+    # Run a single fixture test with a fresh app instance
+    # Usage: ./e2e/dev.sh test-fixture <notebook-path> <spec-file>
+    NOTEBOOK="$2"
+    SPEC="$3"
+    if [ -z "$NOTEBOOK" ] || [ -z "$SPEC" ]; then
+      echo "Usage: ./e2e/dev.sh test-fixture <notebook-path> <spec-file>"
+      exit 1
+    fi
+    cd "$PROJECT_ROOT"
+    $0 stop 2>/dev/null || true
+    sleep 1
+    echo "Starting notebook with fixture: $NOTEBOOK"
+    RUST_LOG="${RUST_LOG:-info}" "$BINARY" --webdriver-port "$PORT" "$NOTEBOOK" &
+    echo "Waiting for WebDriver server..."
+    for i in $(seq 1 30); do
+      if curl -s "http://localhost:$PORT/status" >/dev/null 2>&1; then
+        echo "Server ready"
+        break
+      fi
+      sleep 1
+    done
+    TEST_EXIT=0
+    E2E_SPEC="$SPEC" WEBDRIVER_PORT="$PORT" pnpm exec wdio run e2e/wdio.conf.js || TEST_EXIT=$?
+    $0 stop 2>/dev/null || true
+    exit $TEST_EXIT
+    ;;
+
+  test-fixtures)
+    # Run all fixture-specific E2E tests (each gets a fresh app instance)
+    cd "$PROJECT_ROOT"
+    FAIL=0
+
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/pixi-project/6-pixi.ipynb \
+      e2e/specs/pixi-env-detection.spec.js || FAIL=1
+
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/pyproject-project/5-pyproject.ipynb \
+      e2e/specs/pyproject-startup.spec.js || FAIL=1
+
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/4-both-deps.ipynb \
+      e2e/specs/both-deps-panel.spec.js || FAIL=1
+
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/1-vanilla.ipynb \
+      e2e/specs/iframe-isolation.spec.js || FAIL=1
+
+    exit $FAIL
+    ;;
+
   help|*)
     echo "Usage: ./e2e/dev.sh <command> [args...]"
     echo ""
     echo "Commands:"
-    echo "  build       Rebuild Rust binary (incremental, embeds frontend)"
-    echo "  build-full  Full rebuild (frontend + sidecars + Rust)"
-    echo "  start       Start app with WebDriver server"
-    echo "  stop        Stop the running app"
-    echo "  restart     Stop + start"
-    echo "  test [spec] Run E2E tests (default: notebook-execution)"
-    echo "  status      Check if WebDriver server is running"
-    echo "  session     Create a session and print ID"
-    echo "  exec 'js'   Execute JS in the app"
-    echo "  cycle       Build + start + test in one shot"
-    echo "  help        Show this help"
+    echo "  build              Rebuild Rust binary (incremental, embeds frontend)"
+    echo "  build-full         Full rebuild (frontend + sidecars + Rust)"
+    echo "  start              Start app with WebDriver server"
+    echo "  stop               Stop the running app"
+    echo "  restart            Stop + start"
+    echo "  test [spec]        Run E2E tests (default: notebook-execution)"
+    echo "  test-fixture <nb> <spec>  Run a fixture test (fresh app per test)"
+    echo "  test-fixtures      Run all fixture tests"
+    echo "  status             Check if WebDriver server is running"
+    echo "  session            Create a session and print ID"
+    echo "  exec 'js'          Execute JS in the app"
+    echo "  cycle              Build + start + test in one shot"
+    echo "  help               Show this help"
     ;;
 esac
