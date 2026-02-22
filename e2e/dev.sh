@@ -177,6 +177,10 @@ case "${1:-help}" in
       crates/notebook/fixtures/audit-test/2-uv-inline.ipynb \
       e2e/specs/trust-decline.spec.js || FAIL=1
 
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/8-multi-cell.ipynb \
+      e2e/specs/run-all-cells.spec.js || FAIL=1
+
     exit $FAIL
     ;;
 
