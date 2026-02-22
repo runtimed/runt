@@ -6,7 +6,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import type { ThemeMode } from "@/hooks/useTheme";
+import type { ThemeMode, RuntimeMode, PythonEnvMode } from "@/hooks/useSyncedSettings";
 import type { KernelspecInfo } from "../types";
 import type { EnvProgressState } from "../hooks/useEnvProgress";
 
@@ -160,6 +160,10 @@ interface NotebookToolbarProps {
   envProgress: EnvProgressState | null;
   runtime?: Runtime;
   onThemeChange: (theme: ThemeMode) => void;
+  defaultRuntime?: RuntimeMode;
+  onDefaultRuntimeChange?: (runtime: RuntimeMode) => void;
+  defaultPythonEnv?: PythonEnvMode;
+  onDefaultPythonEnvChange?: (env: PythonEnvMode) => void;
   onSave: () => void;
   onStartKernel: (name: string) => void;
   onInterruptKernel: () => void;
@@ -188,6 +192,10 @@ export function NotebookToolbar({
   envProgress,
   runtime = "python",
   onThemeChange,
+  defaultRuntime = "python",
+  onDefaultRuntimeChange,
+  defaultPythonEnv = "uv",
+  onDefaultPythonEnvChange,
   onSave,
   onStartKernel,
   onInterruptKernel,
@@ -436,32 +444,109 @@ export function NotebookToolbar({
         {/* Collapsible settings panel */}
         <CollapsibleContent>
           <div className="border-t bg-background px-4 py-3">
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-medium text-muted-foreground">
-                Theme
-              </span>
-              <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5">
-                {themeOptions.map((option) => {
-                  const Icon = option.icon;
-                  const isActive = theme === option.value;
-                  return (
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              {/* Theme */}
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-medium text-muted-foreground">
+                  Theme
+                </span>
+                <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5">
+                  {themeOptions.map((option) => {
+                    const Icon = option.icon;
+                    const isActive = theme === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => onThemeChange(option.value)}
+                        className={cn(
+                          "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
+                          isActive
+                            ? "bg-background text-foreground shadow-sm"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Default Runtime */}
+              {onDefaultRuntimeChange && (
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Default Runtime
+                  </span>
+                  <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5">
                     <button
-                      key={option.value}
                       type="button"
-                      onClick={() => onThemeChange(option.value)}
+                      onClick={() => onDefaultRuntimeChange("python")}
                       className={cn(
                         "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
-                        isActive
+                        defaultRuntime === "python"
                           ? "bg-background text-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
                       )}
                     >
-                      <Icon className="h-3.5 w-3.5" />
-                      {option.label}
+                      <PythonIcon className="h-3.5 w-3.5" />
+                      Python
                     </button>
-                  );
-                })}
-              </div>
+                    <button
+                      type="button"
+                      onClick={() => onDefaultRuntimeChange("deno")}
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
+                        defaultRuntime === "deno"
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <DenoIcon className="h-3.5 w-3.5" />
+                      Deno
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Default Python Environment */}
+              {onDefaultPythonEnvChange && (
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Default Python Env
+                  </span>
+                  <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => onDefaultPythonEnvChange("uv")}
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
+                        defaultPythonEnv === "uv"
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <UvIcon className="h-3 w-3" />
+                      uv
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDefaultPythonEnvChange("conda")}
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
+                        defaultPythonEnv === "conda"
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <CondaIcon className="h-3 w-3" />
+                      Conda
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </CollapsibleContent>

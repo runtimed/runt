@@ -19,7 +19,7 @@ import { useGitInfo } from "./hooks/useGitInfo";
 import { usePrewarmStatus } from "./hooks/usePrewarmStatus";
 import { useEnvProgress } from "./hooks/useEnvProgress";
 import { useExecutionQueue } from "./hooks/useExecutionQueue";
-import { useSyncedTheme } from "@/hooks/useSyncedSettings";
+import { useSyncedTheme, useSyncedSettings } from "@/hooks/useSyncedSettings";
 import { WidgetStoreProvider, useWidgetStoreRequired } from "@/components/widgets/widget-store-context";
 import { MediaProvider } from "@/components/outputs/media-provider";
 import { WidgetView } from "@/components/widgets/widget-view";
@@ -67,6 +67,7 @@ function AppContent() {
   } = useNotebook();
 
   const { theme, setTheme } = useSyncedTheme();
+  const { defaultRuntime, setDefaultRuntime, defaultPythonEnv, setDefaultPythonEnv } = useSyncedSettings();
 
   // Execution queue - cells are queued and executed in FIFO order by the backend
   const { queueCell, runAllCells, queuedCellIds: executingCellIds } = useExecutionQueue();
@@ -512,6 +513,10 @@ function AppContent() {
         envProgress={envProgress.isActive || envProgress.error ? envProgress : null}
         runtime={runtime}
         onThemeChange={setTheme}
+        defaultRuntime={defaultRuntime}
+        onDefaultRuntimeChange={setDefaultRuntime}
+        defaultPythonEnv={defaultPythonEnv}
+        onDefaultPythonEnvChange={setDefaultPythonEnv}
         onSave={save}
         onStartKernel={handleStartKernel}
         onInterruptKernel={interruptKernel}
