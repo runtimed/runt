@@ -2845,9 +2845,38 @@ async fn get_synced_settings() -> Result<runtimed::settings_doc::SyncedSettings,
         .map_err(|e| e.to_string())
 }
 
-/// Update a synced setting via the daemon. Falls back to local storage.
+/// Persist a setting to local settings.json (for keys that have local representation).
+fn save_setting_locally(key: &str, value: &str) -> Result<(), String> {
+    match key {
+        "default_runtime" => {
+            let runtime: Runtime =
+                serde_json::from_str(&format!("\"{}\"", value)).map_err(|e| e.to_string())?;
+            let mut s = settings::load_settings();
+            s.default_runtime = runtime;
+            settings::save_settings(&s).map_err(|e| e.to_string())
+        }
+        "default_python_env" => {
+            let env_type = match value {
+                "uv" => settings::PythonEnvType::Uv,
+                "conda" => settings::PythonEnvType::Conda,
+                _ => return Err(format!("Invalid env type: {}", value)),
+            };
+            let mut s = settings::load_settings();
+            s.default_python_env = env_type;
+            settings::save_settings(&s).map_err(|e| e.to_string())
+        }
+        // Theme has no local fallback in settings.json (handled by localStorage)
+        _ => Ok(()),
+    }
+}
+
+/// Update a synced setting via the daemon and persist locally.
 #[tauri::command]
 async fn set_synced_setting(key: String, value: String) -> Result<(), String> {
+    // Always persist to local settings.json so the menu handler can read it synchronously
+    save_setting_locally(&key, &value)?;
+
+    // Also sync via daemon when available
     #[cfg(unix)]
     {
         let socket_path = runtimed::default_sync_socket_path();
@@ -2857,63 +2886,19 @@ async fn set_synced_setting(key: String, value: String) -> Result<(), String> {
                     .put(&key, &value)
                     .await
                     .map_err(|e| format!("sync error: {}", e))?;
-                Ok(())
             }
             Err(e) => {
-                log::warn!("[settings] Sync daemon unavailable ({}), saving locally", e);
-                // Fall back to local settings.json for known keys
-                match key.as_str() {
-                    "default_runtime" => {
-                        let runtime: Runtime =
-                            serde_json::from_str(&format!("\"{}\"", value))
-                                .map_err(|e| e.to_string())?;
-                        let mut s = settings::load_settings();
-                        s.default_runtime = runtime;
-                        settings::save_settings(&s).map_err(|e| e.to_string())
-                    }
-                    "default_python_env" => {
-                        let env_type = match value.as_str() {
-                            "uv" => settings::PythonEnvType::Uv,
-                            "conda" => settings::PythonEnvType::Conda,
-                            _ => return Err(format!("Invalid env type: {}", value)),
-                        };
-                        let mut s = settings::load_settings();
-                        s.default_python_env = env_type;
-                        settings::save_settings(&s).map_err(|e| e.to_string())
-                    }
-                    // Theme has no local fallback in settings.json (was in localStorage)
-                    _ => Ok(()),
-                }
+                log::warn!("[settings] Sync daemon unavailable ({}), local-only", e);
             }
         }
     }
 
     #[cfg(windows)]
     {
-        log::warn!("[settings] Windows sync client not yet implemented, saving locally");
-
-        match key.as_str() {
-            "default_runtime" => {
-                let runtime: Runtime =
-                    serde_json::from_str(&format!("\"{}\"", value)).map_err(|e| e.to_string())?;
-                let mut s = settings::load_settings();
-                s.default_runtime = runtime;
-                settings::save_settings(&s).map_err(|e| e.to_string())
-            }
-            "default_python_env" => {
-                let env_type = match value.as_str() {
-                    "uv" => settings::PythonEnvType::Uv,
-                    "conda" => settings::PythonEnvType::Conda,
-                    _ => return Err(format!("Invalid env type: {}", value)),
-                };
-                let mut s = settings::load_settings();
-                s.default_python_env = env_type;
-                settings::save_settings(&s).map_err(|e| e.to_string())
-            }
-            // Theme has no local fallback in settings.json (was in localStorage)
-            _ => Ok(()),
-        }
+        log::warn!("[settings] Windows sync client not yet implemented, local-only");
     }
+
+    Ok(())
 }
 
 /// Spawn a new notebook process with the specified runtime
@@ -3449,12 +3434,15 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>, #[allow(unu
         })
         .on_menu_event(|app, event| {
             match event.id().as_ref() {
+                crate::menu::MENU_NEW_NOTEBOOK => {
+                    // Spawn notebook using the user's default runtime preference
+                    let runtime = settings::load_settings().default_runtime;
+                    spawn_new_notebook(runtime);
+                }
                 crate::menu::MENU_NEW_PYTHON_NOTEBOOK => {
-                    // Spawn new Python notebook (uses default or settings preference)
                     spawn_new_notebook(Runtime::Python);
                 }
                 crate::menu::MENU_NEW_DENO_NOTEBOOK => {
-                    // Spawn new Deno/TypeScript notebook
                     spawn_new_notebook(Runtime::Deno);
                 }
                 crate::menu::MENU_OPEN => {
