@@ -165,6 +165,10 @@ case "${1:-help}" in
       crates/notebook/fixtures/audit-test/conda-env-project/7-environment-yml.ipynb \
       e2e/specs/environment-yml-detection.spec.js || FAIL=1
 
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/2-uv-inline.ipynb \
+      e2e/specs/deps-panel.spec.js || FAIL=1
+
     exit $FAIL
     ;;
 
