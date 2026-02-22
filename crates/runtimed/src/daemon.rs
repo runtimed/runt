@@ -215,7 +215,10 @@ impl Daemon {
         }
 
         // Write daemon info so clients can discover us
-        if let Err(e) = self._lock.write_info(&self.config.socket_path.to_string_lossy()) {
+        if let Err(e) = self
+            ._lock
+            .write_info(&self.config.socket_path.to_string_lossy())
+        {
             error!("[runtimed] Failed to write daemon info: {}", e);
         }
 
@@ -275,10 +278,7 @@ impl Daemon {
     #[cfg(unix)]
     async fn run_unix_server(self: &Arc<Self>) -> anyhow::Result<()> {
         let listener = UnixListener::bind(&self.config.socket_path)?;
-        info!(
-            "[runtimed] Listening on {:?}",
-            self.config.socket_path
-        );
+        info!("[runtimed] Listening on {:?}", self.config.socket_path);
 
         loop {
             tokio::select! {
@@ -494,10 +494,7 @@ impl Daemon {
 
                 match env {
                     Some(env) => {
-                        info!(
-                            "[runtimed] Took {} env: {:?}",
-                            env_type, env.venv_path
-                        );
+                        info!("[runtimed] Took {} env: {:?}", env_type, env.venv_path);
                         // Spawn replenishment
                         let daemon = self.clone();
                         match env_type {
@@ -638,9 +635,7 @@ impl Daemon {
             let (available, warming) = self.uv_pool.lock().await.stats();
             info!(
                 "[runtimed] UV pool: {}/{} available, {} warming",
-                available,
-                self.config.uv_pool_size,
-                warming
+                available, self.config.uv_pool_size, warming
             );
 
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
@@ -670,7 +665,10 @@ impl Daemon {
             let deficit = self.conda_pool.lock().await.deficit();
 
             if deficit > 0 {
-                info!("[runtimed] Conda pool deficit: {}, creating {} envs", deficit, deficit);
+                info!(
+                    "[runtimed] Conda pool deficit: {}, creating {} envs",
+                    deficit, deficit
+                );
 
                 // Mark as warming
                 self.conda_pool.lock().await.mark_warming(deficit);
@@ -737,7 +735,10 @@ impl Daemon {
         };
 
         if !extra_conda_packages.is_empty() {
-            info!("[runtimed] Including default conda packages: {:?}", extra_conda_packages);
+            info!(
+                "[runtimed] Including default conda packages: {:?}",
+                extra_conda_packages
+            );
         }
 
         // Build specs: python + ipykernel + ipywidgets + default packages
@@ -765,7 +766,10 @@ impl Daemon {
         let rattler_cache_dir = match default_cache_dir() {
             Ok(dir) => dir,
             Err(e) => {
-                error!("[runtimed] Could not determine rattler cache directory: {}", e);
+                error!(
+                    "[runtimed] Could not determine rattler cache directory: {}",
+                    e
+                );
                 self.conda_pool.lock().await.warming_failed();
                 return;
             }
@@ -1013,10 +1017,7 @@ print("warmup complete")
         }
 
         // Build install args: ipykernel + ipywidgets + default packages from settings
-        let mut install_packages = vec![
-            "ipykernel".to_string(),
-            "ipywidgets".to_string(),
-        ];
+        let mut install_packages = vec!["ipykernel".to_string(), "ipywidgets".to_string()];
 
         // Read default uv packages from synced settings
         {
@@ -1104,7 +1105,6 @@ print("warmup complete")
             python_path,
         });
     }
-
 }
 
 #[cfg(test)]
@@ -1280,7 +1280,10 @@ mod tests {
         let config = DaemonConfig::default();
         assert_eq!(config.uv_pool_size, 3);
         assert_eq!(config.conda_pool_size, 3);
-        assert!(config.socket_path.to_string_lossy().contains("runtimed.sock"));
+        assert!(config
+            .socket_path
+            .to_string_lossy()
+            .contains("runtimed.sock"));
     }
 
     #[test]

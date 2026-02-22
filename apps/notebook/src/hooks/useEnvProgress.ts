@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { useCallback, useEffect, useState } from "react";
 import type { EnvProgressEvent, EnvProgressPhase } from "../types";
 
 export interface EnvProgressState {
@@ -42,11 +42,17 @@ function getStatusText(event: EnvProgressEvent): string {
     case "cache_hit":
       return "Using cached environment";
     case "fetching_repodata": {
-      const e = event as Extract<EnvProgressPhase, { phase: "fetching_repodata" }>;
+      const e = event as Extract<
+        EnvProgressPhase,
+        { phase: "fetching_repodata" }
+      >;
       return `Fetching package index (${e.channels.join(", ")})`;
     }
     case "repodata_complete": {
-      const e = event as Extract<EnvProgressPhase, { phase: "repodata_complete" }>;
+      const e = event as Extract<
+        EnvProgressPhase,
+        { phase: "repodata_complete" }
+      >;
       return `Loaded ${e.record_count.toLocaleString()} packages`;
     }
     case "solving": {
@@ -62,8 +68,11 @@ function getStatusText(event: EnvProgressEvent): string {
       return `Installing ${e.total} packages...`;
     }
     case "download_progress": {
-      const e = event as Extract<EnvProgressPhase, { phase: "download_progress" }>;
-      const speed = formatBytes(e.bytes_per_second) + "/s";
+      const e = event as Extract<
+        EnvProgressPhase,
+        { phase: "download_progress" }
+      >;
+      const speed = `${formatBytes(e.bytes_per_second)}/s`;
       if (e.current_package) {
         return `Downloading ${e.completed}/${e.total} ${e.current_package} @ ${speed}`;
       }
@@ -90,11 +99,14 @@ function getStatusText(event: EnvProgressEvent): string {
 }
 
 function extractProgress(
-  event: EnvProgressEvent
+  event: EnvProgressEvent,
 ): { completed: number; total: number } | null {
   const phase = event.phase;
   if (phase === "download_progress") {
-    const e = event as Extract<EnvProgressPhase, { phase: "download_progress" }>;
+    const e = event as Extract<
+      EnvProgressPhase,
+      { phase: "download_progress" }
+    >;
     return { completed: e.completed, total: e.total };
   }
   if (phase === "link_progress") {
@@ -145,17 +157,26 @@ export function useEnvProgress() {
       // Extract bytes per second from download phase
       let bytesPerSecond: number | null = null;
       if (phase === "download_progress") {
-        const e = payload as Extract<EnvProgressPhase, { phase: "download_progress" }>;
+        const e = payload as Extract<
+          EnvProgressPhase,
+          { phase: "download_progress" }
+        >;
         bytesPerSecond = e.bytes_per_second;
       }
 
       // Extract current package
       let currentPackage: string | null = null;
       if (phase === "download_progress") {
-        const e = payload as Extract<EnvProgressPhase, { phase: "download_progress" }>;
+        const e = payload as Extract<
+          EnvProgressPhase,
+          { phase: "download_progress" }
+        >;
         currentPackage = e.current_package || null;
       } else if (phase === "link_progress") {
-        const e = payload as Extract<EnvProgressPhase, { phase: "link_progress" }>;
+        const e = payload as Extract<
+          EnvProgressPhase,
+          { phase: "link_progress" }
+        >;
         currentPackage = e.current_package || null;
       }
 

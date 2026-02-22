@@ -273,7 +273,10 @@ describe("Markdown Cell", () => {
         await browser.pause(500);
 
         const nowInEditMode = await isInEditMode(targetCell);
-        console.log("Cell in edit mode after clicking edit button:", nowInEditMode);
+        console.log(
+          "Cell in edit mode after clicking edit button:",
+          nowInEditMode,
+        );
         expect(nowInEditMode).toBe(true);
 
         console.log("Edit button test passed");
@@ -321,7 +324,7 @@ describe("Markdown Cell", () => {
       }
 
       // Verify we're in edit mode
-      let inEditMode = await isInEditMode(targetCell);
+      const inEditMode = await isInEditMode(targetCell);
       if (!inEditMode) {
         console.log("Cell not in edit mode, skipping");
         return;

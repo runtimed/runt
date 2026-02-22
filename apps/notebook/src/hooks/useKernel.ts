@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { JupyterMessage, JupyterOutput, KernelspecInfo } from "../types";
 
 /** MIME bundle type for page payloads */
@@ -17,7 +17,7 @@ interface UseKernelOptions {
   onOutput: (
     cellId: string,
     output: JupyterOutput,
-    meta?: { parentMsgId?: string }
+    meta?: { parentMsgId?: string },
   ) => void;
   onExecutionCount: (cellId: string, count: number) => void;
   onExecutionDone: (cellId: string) => void;
@@ -26,7 +26,11 @@ interface UseKernelOptions {
   /** Called when a page payload is received (triggered by ? or ?? in IPython) */
   onPagePayload?: (cellId: string, data: MimeBundle, start: number) => void;
   /** Called when an update_display_data message is received */
-  onUpdateDisplayData?: (displayId: string, data: Record<string, unknown>, metadata?: Record<string, unknown>) => void;
+  onUpdateDisplayData?: (
+    displayId: string,
+    data: Record<string, unknown>,
+    metadata?: Record<string, unknown>,
+  ) => void;
 }
 
 /** Info about a detected pyproject.toml */
@@ -80,15 +84,33 @@ export function useKernel({
 }: UseKernelOptions) {
   const [kernelStatus, setKernelStatus] = useState<string>("not started");
   // Error message from kernel launch failure
-  const [kernelErrorMessage, setKernelErrorMessage] = useState<string | null>(null);
+  const [kernelErrorMessage, setKernelErrorMessage] = useState<string | null>(
+    null,
+  );
   // Environment source from backend (e.g. "uv:inline", "uv:pyproject", "conda:prewarmed")
   const [envSource, setEnvSource] = useState<string | null>(null);
   // Track whether we're in the process of auto-starting to avoid double starts
   const startingRef = useRef(false);
 
   // Store callbacks in refs to avoid effect re-runs causing duplicate listeners
-  const callbacksRef = useRef({ onOutput, onExecutionCount, onExecutionDone, onCommMessage, onKernelStarted, onPagePayload, onUpdateDisplayData });
-  callbacksRef.current = { onOutput, onExecutionCount, onExecutionDone, onCommMessage, onKernelStarted, onPagePayload, onUpdateDisplayData };
+  const callbacksRef = useRef({
+    onOutput,
+    onExecutionCount,
+    onExecutionDone,
+    onCommMessage,
+    onKernelStarted,
+    onPagePayload,
+    onUpdateDisplayData,
+  });
+  callbacksRef.current = {
+    onOutput,
+    onExecutionCount,
+    onExecutionDone,
+    onCommMessage,
+    onKernelStarted,
+    onPagePayload,
+    onUpdateDisplayData,
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -105,42 +127,48 @@ export function useKernel({
     });
 
     // Listen for page payloads from introspection (? and ??)
-    const pageUnlisten = listen<PagePayloadEvent>("kernel:page_payload", (event) => {
-      if (cancelled) return;
-      const { onPagePayload } = callbacksRef.current;
-      if (onPagePayload) {
-        const { cell_id, data, start } = event.payload;
-        onPagePayload(cell_id, data, start);
-      }
-    });
-
-    // Listen for kernel lifecycle events (auto-launch starting/ready/error)
-    const lifecycleUnlisten = listen<{ state: string; runtime: string; env_source?: string; error_message?: string }>(
-      "kernel:lifecycle",
+    const pageUnlisten = listen<PagePayloadEvent>(
+      "kernel:page_payload",
       (event) => {
         if (cancelled) return;
-        if (event.payload.state === "launching") {
-          setKernelStatus("starting");
-          setKernelErrorMessage(null);
-        } else if (event.payload.state === "ready" && event.payload.env_source) {
-          setEnvSource(event.payload.env_source);
-          setKernelErrorMessage(null);
-        } else if (event.payload.state === "error") {
-          setKernelStatus("error");
-          setKernelErrorMessage(event.payload.error_message ?? null);
-        } else if (event.payload.state === "not started") {
-          setKernelStatus("not started");
-          setEnvSource(null);
-          setKernelErrorMessage(null);
-          startingRef.current = false;
+        const { onPagePayload } = callbacksRef.current;
+        if (onPagePayload) {
+          const { cell_id, data, start } = event.payload;
+          onPagePayload(cell_id, data, start);
         }
-      }
+      },
     );
+
+    // Listen for kernel lifecycle events (auto-launch starting/ready/error)
+    const lifecycleUnlisten = listen<{
+      state: string;
+      runtime: string;
+      env_source?: string;
+      error_message?: string;
+    }>("kernel:lifecycle", (event) => {
+      if (cancelled) return;
+      if (event.payload.state === "launching") {
+        setKernelStatus("starting");
+        setKernelErrorMessage(null);
+      } else if (event.payload.state === "ready" && event.payload.env_source) {
+        setEnvSource(event.payload.env_source);
+        setKernelErrorMessage(null);
+      } else if (event.payload.state === "error") {
+        setKernelStatus("error");
+        setKernelErrorMessage(event.payload.error_message ?? null);
+      } else if (event.payload.state === "not started") {
+        setKernelStatus("not started");
+        setEnvSource(null);
+        setKernelErrorMessage(null);
+        startingRef.current = false;
+      }
+    });
 
     const unlisten = listen<JupyterMessage>("kernel:iopub", (event) => {
       if (cancelled) return;
 
-      const { onOutput, onExecutionCount, onExecutionDone, onCommMessage } = callbacksRef.current;
+      const { onOutput, onExecutionCount, onExecutionDone, onCommMessage } =
+        callbacksRef.current;
       const msg = event.payload;
       const msgType = msg.header.msg_type;
       const cellId = msg.cell_id;
@@ -198,35 +226,47 @@ export function useKernel({
 
       if (msgType === "stream") {
         const content = msg.content as { name: string; text: string };
-        onOutput(cellId, {
-          output_type: "stream",
-          name: content.name as "stdout" | "stderr",
-          text: content.text,
-        }, { parentMsgId: msg.parent_header?.msg_id });
+        onOutput(
+          cellId,
+          {
+            output_type: "stream",
+            name: content.name as "stdout" | "stderr",
+            text: content.text,
+          },
+          { parentMsgId: msg.parent_header?.msg_id },
+        );
       } else if (msgType === "display_data") {
         const content = msg.content as {
           data: Record<string, unknown>;
           metadata: Record<string, unknown>;
           transient?: { display_id?: string };
         };
-        onOutput(cellId, {
-          output_type: "display_data",
-          data: content.data,
-          metadata: content.metadata,
-          display_id: content.transient?.display_id,
-        }, { parentMsgId: msg.parent_header?.msg_id });
+        onOutput(
+          cellId,
+          {
+            output_type: "display_data",
+            data: content.data,
+            metadata: content.metadata,
+            display_id: content.transient?.display_id,
+          },
+          { parentMsgId: msg.parent_header?.msg_id },
+        );
       } else if (msgType === "execute_result") {
         const content = msg.content as {
           data: Record<string, unknown>;
           metadata: Record<string, unknown>;
           execution_count: number;
         };
-        onOutput(cellId, {
-          output_type: "execute_result",
-          data: content.data,
-          metadata: content.metadata,
-          execution_count: content.execution_count,
-        }, { parentMsgId: msg.parent_header?.msg_id });
+        onOutput(
+          cellId,
+          {
+            output_type: "execute_result",
+            data: content.data,
+            metadata: content.metadata,
+            execution_count: content.execution_count,
+          },
+          { parentMsgId: msg.parent_header?.msg_id },
+        );
         onExecutionCount(cellId, content.execution_count);
       } else if (msgType === "error") {
         const content = msg.content as {
@@ -234,12 +274,16 @@ export function useKernel({
           evalue: string;
           traceback: string[];
         };
-        onOutput(cellId, {
-          output_type: "error",
-          ename: content.ename,
-          evalue: content.evalue,
-          traceback: content.traceback,
-        }, { parentMsgId: msg.parent_header?.msg_id });
+        onOutput(
+          cellId,
+          {
+            output_type: "error",
+            ename: content.ename,
+            evalue: content.evalue,
+            traceback: content.traceback,
+          },
+          { parentMsgId: msg.parent_header?.msg_id },
+        );
       }
     });
 
@@ -347,7 +391,9 @@ export function useKernel({
   const startDefaultKernel = useCallback(async () => {
     setKernelStatus("starting");
     try {
-      console.log("[kernel] starting default kernel (backend will choose uv or conda)");
+      console.log(
+        "[kernel] starting default kernel (backend will choose uv or conda)",
+      );
       const source = await invoke<string>("start_default_kernel");
       console.log(`[kernel] start_default_kernel succeeded, source: ${source}`);
       setEnvSource(source);
@@ -405,8 +451,15 @@ export function useKernel({
     }
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally stable — these inner functions use refs and don't change identity
   const ensureKernelStarted = useCallback(
-    async (opts?: { useUv?: boolean; useConda?: boolean; usePyproject?: boolean; useDeno?: boolean; useEnvironmentYml?: boolean }) => {
+    async (opts?: {
+      useUv?: boolean;
+      useConda?: boolean;
+      usePyproject?: boolean;
+      useDeno?: boolean;
+      useEnvironmentYml?: boolean;
+    }) => {
       if (startingRef.current) return;
       startingRef.current = true;
       try {
@@ -457,7 +510,9 @@ export function useKernel({
             await startKernelWithDeno();
             return;
           } else {
-            console.warn("[kernel] Deno not available, notebook requires Deno runtime");
+            console.warn(
+              "[kernel] Deno not available, notebook requires Deno runtime",
+            );
             setKernelStatus("error");
             setKernelErrorMessage("Deno not available");
             return;
@@ -468,12 +523,15 @@ export function useKernel({
 
         // Check if notebook has conda dependencies (priority over uv)
         const condaDeps = await invoke<{ dependencies: string[] } | null>(
-          "get_conda_dependencies"
+          "get_conda_dependencies",
         );
 
         if (condaDeps && condaDeps.dependencies.length > 0) {
           // Use conda-managed kernel for notebooks with conda dependencies
-          console.log("[kernel] starting conda-managed kernel with deps:", condaDeps.dependencies);
+          console.log(
+            "[kernel] starting conda-managed kernel with deps:",
+            condaDeps.dependencies,
+          );
           await startKernelWithConda();
           return;
         }
@@ -481,11 +539,14 @@ export function useKernel({
         // Check if notebook has uv inline dependencies
         const uvAvailable = await invoke<boolean>("check_uv_available");
         const deps = await invoke<{ dependencies: string[] } | null>(
-          "get_notebook_dependencies"
+          "get_notebook_dependencies",
         );
 
         if (deps && deps.dependencies.length > 0 && uvAvailable) {
-          console.log("[kernel] starting uv-managed kernel with inline deps:", deps.dependencies);
+          console.log(
+            "[kernel] starting uv-managed kernel with inline deps:",
+            deps.dependencies,
+          );
           await startKernelWithUv();
           return;
         }
@@ -493,13 +554,20 @@ export function useKernel({
         // No inline deps — let the backend handle project file detection
         // (pyproject.toml, pixi.toml, environment.yml) using "closest wins"
         // semantics, then fall back to a prewarmed environment.
-        console.log("[kernel] no inline deps, deferring to backend (closest project file wins)");
+        console.log(
+          "[kernel] no inline deps, deferring to backend (closest project file wins)",
+        );
         await startDefaultKernel();
       } finally {
         startingRef.current = false;
       }
     },
-    [startKernelWithUv, startKernelWithConda, startKernelWithDeno, startDefaultKernel]
+    [
+      startKernelWithUv,
+      startKernelWithConda,
+      startKernelWithDeno,
+      startDefaultKernel,
+    ],
   );
 
   const shutdownKernel = useCallback(async () => {

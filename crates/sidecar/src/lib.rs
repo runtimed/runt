@@ -21,8 +21,8 @@ use std::sync::{
 use std::time::Duration;
 
 use jupyter_protocol::{
-    media::MediaType, ConnectionInfo, ExecuteRequest, ExpressionResult,
-    JupyterMessage, JupyterMessageContent, KernelInfoRequest,
+    media::MediaType, ConnectionInfo, ExecuteRequest, ExpressionResult, JupyterMessage,
+    JupyterMessageContent, KernelInfoRequest,
 };
 use tauri_jupyter::WebViewJupyterMessage;
 
@@ -84,10 +84,7 @@ impl DumpEntry {
 }
 
 /// Write a dump entry to the file if dump is enabled
-fn write_dump_entry(
-    dump_file: &Option<Arc<Mutex<std::fs::File>>>,
-    entry: DumpEntry,
-) {
+fn write_dump_entry(dump_file: &Option<Arc<Mutex<std::fs::File>>>, entry: DumpEntry) {
     if let Some(ref file) = dump_file {
         if let Ok(json) = serde_json::to_string(&entry) {
             if let Ok(mut f) = file.lock() {
@@ -130,12 +127,8 @@ async fn run(
 
     let session_id = format!("sidecar-{}", uuid::Uuid::new_v4());
 
-    let mut iopub = runtimelib::create_client_iopub_connection(
-        &connection_info,
-        "",
-        &session_id,
-    )
-    .await?;
+    let mut iopub =
+        runtimelib::create_client_iopub_connection(&connection_info, "", &session_id).await?;
 
     // Create a single shell connection with explicit identity for stdin support
     let identity = runtimelib::peer_identity_for_session(&session_id)?;
@@ -322,10 +315,7 @@ async fn run(
             );
 
             // Dump message to file if enabled
-            write_dump_entry(
-                &dump_file,
-                DumpEntry::new("in", "iopub", message.clone()),
-            );
+            write_dump_entry(&dump_file, DumpEntry::new("in", "iopub", message.clone()));
 
             match event_loop_proxy.send_event(SidecarEvent::JupyterMessage(Box::new(message))) {
                 Ok(_) => {

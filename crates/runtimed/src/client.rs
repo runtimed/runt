@@ -73,7 +73,9 @@ impl PoolClient {
         match response {
             Response::Pong => Ok(()),
             Response::Error { message } => Err(ClientError::DaemonError(message)),
-            _ => Err(ClientError::ProtocolError("Unexpected response".to_string())),
+            _ => Err(ClientError::ProtocolError(
+                "Unexpected response".to_string(),
+            )),
         }
     }
 
@@ -96,7 +98,9 @@ impl PoolClient {
                 Ok(None)
             }
             Response::Error { message } => Err(ClientError::DaemonError(message)),
-            _ => Err(ClientError::ProtocolError("Unexpected response".to_string())),
+            _ => Err(ClientError::ProtocolError(
+                "Unexpected response".to_string(),
+            )),
         }
     }
 
@@ -106,7 +110,9 @@ impl PoolClient {
         match response {
             Response::Returned => Ok(()),
             Response::Error { message } => Err(ClientError::DaemonError(message)),
-            _ => Err(ClientError::ProtocolError("Unexpected response".to_string())),
+            _ => Err(ClientError::ProtocolError(
+                "Unexpected response".to_string(),
+            )),
         }
     }
 
@@ -116,7 +122,9 @@ impl PoolClient {
         match response {
             Response::Stats { stats } => Ok(stats),
             Response::Error { message } => Err(ClientError::DaemonError(message)),
-            _ => Err(ClientError::ProtocolError("Unexpected response".to_string())),
+            _ => Err(ClientError::ProtocolError(
+                "Unexpected response".to_string(),
+            )),
         }
     }
 
@@ -126,7 +134,9 @@ impl PoolClient {
         match response {
             Response::Flushed => Ok(()),
             Response::Error { message } => Err(ClientError::DaemonError(message)),
-            _ => Err(ClientError::ProtocolError("Unexpected response".to_string())),
+            _ => Err(ClientError::ProtocolError(
+                "Unexpected response".to_string(),
+            )),
         }
     }
 
@@ -136,7 +146,9 @@ impl PoolClient {
         match response {
             Response::ShuttingDown => Ok(()),
             Response::Error { message } => Err(ClientError::DaemonError(message)),
-            _ => Err(ClientError::ProtocolError("Unexpected response".to_string())),
+            _ => Err(ClientError::ProtocolError(
+                "Unexpected response".to_string(),
+            )),
         }
     }
 
@@ -144,11 +156,9 @@ impl PoolClient {
     async fn send_request(&self, request: Request) -> Result<Response, ClientError> {
         #[cfg(unix)]
         let stream = {
-            let connect_result = tokio::time::timeout(
-                self.connect_timeout,
-                UnixStream::connect(&self.socket_path),
-            )
-            .await;
+            let connect_result =
+                tokio::time::timeout(self.connect_timeout, UnixStream::connect(&self.socket_path))
+                    .await;
 
             match connect_result {
                 Ok(Ok(s)) => s,
@@ -160,23 +170,20 @@ impl PoolClient {
         #[cfg(windows)]
         let stream = {
             let pipe_name = self.socket_path.to_string_lossy().to_string();
-            let connect_result = tokio::time::timeout(
-                self.connect_timeout,
-                async {
-                    // Named pipes may need retry if server is between connections
-                    let mut attempts = 0;
-                    loop {
-                        match ClientOptions::new().open(&pipe_name) {
-                            Ok(client) => return Ok(client),
-                            Err(_) if attempts < 5 => {
-                                attempts += 1;
-                                tokio::time::sleep(Duration::from_millis(50)).await;
-                            }
-                            Err(e) => return Err(e),
+            let connect_result = tokio::time::timeout(self.connect_timeout, async {
+                // Named pipes may need retry if server is between connections
+                let mut attempts = 0;
+                loop {
+                    match ClientOptions::new().open(&pipe_name) {
+                        Ok(client) => return Ok(client),
+                        Err(_) if attempts < 5 => {
+                            attempts += 1;
+                            tokio::time::sleep(Duration::from_millis(50)).await;
                         }
+                        Err(e) => return Err(e),
                     }
-                },
-            )
+                }
+            })
             .await;
 
             match connect_result {
@@ -388,7 +395,10 @@ mod tests {
     fn test_client_default() {
         let client = PoolClient::default();
         #[cfg(unix)]
-        assert!(client.socket_path.to_string_lossy().contains("runtimed.sock"));
+        assert!(client
+            .socket_path
+            .to_string_lossy()
+            .contains("runtimed.sock"));
         #[cfg(windows)]
         assert!(client.socket_path.to_string_lossy().contains("runtimed"));
     }

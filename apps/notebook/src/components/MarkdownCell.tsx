@@ -1,5 +1,6 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { KeyBinding } from "@codemirror/view";
+import { Pencil, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CellContainer } from "@/components/cell/CellContainer";
 import {
   CodeMirrorEditor,
@@ -11,7 +12,6 @@ import {
 } from "@/components/outputs/isolated";
 import { isDarkMode as detectDarkMode } from "@/components/themes";
 import { cn } from "@/lib/utils";
-import { Trash2, Pencil } from "lucide-react";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
 import { useEditorRegistry } from "../hooks/useEditorRegistry";
 import type { MarkdownCell as MarkdownCellType } from "../types";
@@ -144,7 +144,7 @@ export function MarkdownCell({
         onFocusNext(cursorPosition);
       }
     },
-    [cell.source, isLastCell, onFocusNext, onInsertCellAfter]
+    [cell.source, isLastCell, onFocusNext, onInsertCellAfter],
   );
 
   // Get keyboard navigation bindings
@@ -169,7 +169,7 @@ export function MarkdownCell({
         },
       },
     ],
-    [navigationKeyMap, cell.source]
+    [navigationKeyMap, cell.source],
   );
 
   // Focus editor when entering edit mode (after initial mount)
@@ -242,7 +242,7 @@ export function MarkdownCell({
         tabIndex={0}
         className={cn(
           "py-2 cursor-text relative group/md outline-none",
-          editing && "hidden"
+          editing && "hidden",
         )}
         onDoubleClick={handleDoubleClick}
         onKeyDown={handleViewKeyDown}
@@ -257,13 +257,13 @@ export function MarkdownCell({
             onReady={handleFrameReady}
             onLinkClick={handleLinkClick}
             onDoubleClick={handleDoubleClick}
-            onError={(err) => console.error("[MarkdownCell] iframe error:", err)}
+            onError={(err) =>
+              console.error("[MarkdownCell] iframe error:", err)
+            }
             className="w-full"
           />
         ) : (
-          <p className="text-muted-foreground italic">
-            Double-click to edit
-          </p>
+          <p className="text-muted-foreground italic">Double-click to edit</p>
         )}
         <button
           type="button"

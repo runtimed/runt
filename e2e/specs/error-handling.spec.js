@@ -7,8 +7,8 @@
  * - ImportError for missing packages shows helpful message
  */
 
-import { browser, expect } from "@wdio/globals";
 import os from "node:os";
+import { browser, expect } from "@wdio/globals";
 import { waitForAppReady } from "../helpers.js";
 
 // macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
@@ -50,7 +50,7 @@ describe("Error Handling", () => {
         timeout,
         timeoutMsg: "Error output did not appear within timeout.",
         interval: 500,
-      }
+      },
     );
   }
 
@@ -106,7 +106,7 @@ describe("Error Handling", () => {
 
     // Should contain SyntaxError indication
     expect(
-      errorText.includes("SyntaxError") || errorText.includes("syntax")
+      errorText.includes("SyntaxError") || errorText.includes("syntax"),
     ).toBe(true);
 
     console.log("Syntax error test passed");
@@ -162,7 +162,7 @@ describe("Error Handling", () => {
     // Should contain ModuleNotFoundError or ImportError
     expect(
       errorText.includes("ModuleNotFoundError") ||
-        errorText.includes("ImportError")
+        errorText.includes("ImportError"),
     ).toBe(true);
 
     console.log("ImportError test passed");

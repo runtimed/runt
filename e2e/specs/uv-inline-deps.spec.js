@@ -10,10 +10,10 @@
 
 import { browser, expect } from "@wdio/globals";
 import {
-  waitForAppReady,
-  executeFirstCell,
-  waitForCellOutput,
   approveTrustDialog,
+  executeFirstCell,
+  waitForAppReady,
+  waitForCellOutput,
 } from "../helpers.js";
 
 describe("UV Inline Dependencies", () => {

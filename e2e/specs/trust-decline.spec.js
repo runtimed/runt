@@ -10,9 +10,9 @@
 
 import { browser, expect } from "@wdio/globals";
 import {
-  waitForAppReady,
   executeFirstCell,
   getKernelStatus,
+  waitForAppReady,
 } from "../helpers.js";
 
 describe("Trust Dialog Decline", () => {
@@ -42,10 +42,11 @@ describe("Trust Dialog Decline", () => {
 
     // Wait for dialog to close
     const dialog = await $('[data-testid="trust-dialog"]');
-    await browser.waitUntil(
-      async () => !(await dialog.isExisting()),
-      { timeout: 10000, interval: 300, timeoutMsg: "Trust dialog did not close" }
-    );
+    await browser.waitUntil(async () => !(await dialog.isExisting()), {
+      timeout: 10000,
+      interval: 300,
+      timeoutMsg: "Trust dialog did not close",
+    });
 
     // Give it a moment, then verify kernel did NOT start
     await browser.pause(2000);

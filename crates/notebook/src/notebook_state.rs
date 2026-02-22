@@ -68,7 +68,10 @@ fn source_to_lines(source: &str) -> Vec<String> {
     if source.is_empty() {
         return Vec::new();
     }
-    source.split_inclusive('\n').map(|s| s.to_string()).collect()
+    source
+        .split_inclusive('\n')
+        .map(|s| s.to_string())
+        .collect()
 }
 
 pub struct NotebookState {
@@ -380,9 +383,8 @@ impl NotebookState {
     }
 
     pub fn get_cell_source(&self, cell_id: &str) -> Option<String> {
-        self.find_cell_index(cell_id).map(|idx| {
-            self.notebook.cells[idx].source().join("")
-        })
+        self.find_cell_index(cell_id)
+            .map(|idx| self.notebook.cells[idx].source().join(""))
     }
 
     pub fn add_cell(

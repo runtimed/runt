@@ -9,8 +9,8 @@
  * - Execution count increments
  */
 
-import { browser, expect } from "@wdio/globals";
 import os from "node:os";
+import { browser, expect } from "@wdio/globals";
 import { waitForAppReady } from "../helpers.js";
 
 // macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
@@ -92,7 +92,7 @@ describe("Cell Operations", () => {
         timeout,
         timeoutMsg: `Output "${expectedText}" did not appear within timeout.`,
         interval: 500,
-      }
+      },
     );
   }
 
@@ -260,7 +260,10 @@ describe("Cell Operations", () => {
           await browser.pause(300);
 
           const afterAttempt = await countAllCells();
-          console.log("Cell count after attempting to delete last:", afterAttempt);
+          console.log(
+            "Cell count after attempting to delete last:",
+            afterAttempt,
+          );
 
           // Should still have at least 1 cell
           expect(afterAttempt).toBeGreaterThanOrEqual(1);
@@ -316,7 +319,7 @@ describe("Cell Operations", () => {
           timeout: KERNEL_STARTUP_TIMEOUT,
           interval: 1000,
           timeoutMsg: "First cell execution did not complete",
-        }
+        },
       );
       console.log("First cell execution completed");
 
@@ -341,7 +344,9 @@ describe("Cell Operations", () => {
       // Wait for output
       await waitForOutputInCell(secondCell, "200", EXECUTION_TIMEOUT);
 
-      const output = await secondCell.$('[data-slot="ansi-stream-output"]').getText();
+      const output = await secondCell
+        .$('[data-slot="ansi-stream-output"]')
+        .getText();
       expect(output).toContain("200");
 
       console.log("Variable persistence across cells test passed");
@@ -372,7 +377,7 @@ describe("Cell Operations", () => {
           const output = await codeCell.$('[data-slot="ansi-stream-output"]');
           return await output.isExisting();
         },
-        { timeout: KERNEL_STARTUP_TIMEOUT, interval: 500 }
+        { timeout: KERNEL_STARTUP_TIMEOUT, interval: 500 },
       );
 
       // Check for execution count display

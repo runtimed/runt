@@ -207,10 +207,7 @@ mod tests {
         write_file(temp.path(), "pixi.toml", "[project]\nname = \"test\"");
 
         // When pyproject is excluded (uv not available), pixi should be found
-        let no_pyproject = vec![
-            ProjectFileKind::PixiToml,
-            ProjectFileKind::EnvironmentYml,
-        ];
+        let no_pyproject = vec![ProjectFileKind::PixiToml, ProjectFileKind::EnvironmentYml];
 
         let found = find_nearest_project_file(&sub, &no_pyproject);
         assert!(found.is_some());

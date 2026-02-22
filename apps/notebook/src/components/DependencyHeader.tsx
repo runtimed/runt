@@ -1,6 +1,10 @@
-import { useState, useCallback, type KeyboardEvent } from "react";
-import { X, Plus, Info, FileText, Download, RefreshCw } from "lucide-react";
-import type { PyProjectInfo, PyProjectDeps, EnvSyncState } from "../hooks/useDependencies";
+import { Download, FileText, Info, Plus, RefreshCw, X } from "lucide-react";
+import { type KeyboardEvent, useCallback, useState } from "react";
+import type {
+  EnvSyncState,
+  PyProjectDeps,
+  PyProjectInfo,
+} from "../hooks/useDependencies";
 
 interface DependencyHeaderProps {
   dependencies: string[];
@@ -58,7 +62,7 @@ export function DependencyHeader({
         handleAdd();
       }
     },
-    [handleAdd]
+    [handleAdd],
   );
 
   return (
@@ -82,112 +86,126 @@ export function DependencyHeader({
           </div>
         )}
 
-          {/* Kernel restart needed notice */}
-          {needsKernelRestart && (
-            <div className="mb-3 flex items-start gap-2 rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+        {/* Kernel restart needed notice */}
+        {needsKernelRestart && (
+          <div className="mb-3 flex items-start gap-2 rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>
+              Restart kernel to use these dependencies. The current kernel
+              wasn&apos;t started with dependency management.
+            </span>
+          </div>
+        )}
+
+        {/* Sync Now notice for dirty environment */}
+        {syncState?.status === "dirty" && onSyncNow && (
+          <div className="mb-3 flex items-center justify-between rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+            <div className="flex items-center gap-2">
+              <Info className="h-3.5 w-3.5 shrink-0" />
               <span>
-                Restart kernel to use these dependencies. The current kernel
-                wasn&apos;t started with dependency management.
+                {syncState.added.length > 0 && (
+                  <span>
+                    {syncState.added.length} package
+                    {syncState.added.length > 1 ? "s" : ""} to install
+                  </span>
+                )}
+                {syncState.added.length > 0 &&
+                  syncState.removed.length > 0 &&
+                  ", "}
+                {syncState.removed.length > 0 && (
+                  <span>
+                    {syncState.removed.length} removed (restart to uninstall)
+                  </span>
+                )}
               </span>
             </div>
-          )}
+            <button
+              type="button"
+              onClick={onSyncNow}
+              disabled={loading}
+              data-testid="deps-sync-button"
+              className="flex items-center gap-1 rounded bg-amber-600 px-2 py-0.5 text-white text-xs font-medium hover:bg-amber-700 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`h-3 w-3 ${loading ? "animate-spin" : ""}`}
+              />
+              Sync Now
+            </button>
+          </div>
+        )}
 
-          {/* Sync Now notice for dirty environment */}
-          {syncState?.status === "dirty" && onSyncNow && (
-            <div className="mb-3 flex items-center justify-between rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+        {/* UV availability notice */}
+        {uvAvailable === false && (
+          <div className="mb-3 flex items-start gap-2 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
+            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>
+              <span className="font-medium">uv not found.</span> Install it with{" "}
+              <code className="rounded bg-uv/20 px-1">
+                curl -LsSf https://astral.sh/uv/install.sh | sh
+              </code>
+            </span>
+          </div>
+        )}
+
+        {/* pyproject.toml detected banner */}
+        {pyprojectInfo?.has_dependencies && (
+          <div className="mb-3 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Info className="h-3.5 w-3.5 shrink-0" />
+                <FileText className="h-3.5 w-3.5 shrink-0" />
                 <span>
-                  {syncState.added.length > 0 && (
-                    <span>{syncState.added.length} package{syncState.added.length > 1 ? "s" : ""} to install</span>
-                  )}
-                  {syncState.added.length > 0 && syncState.removed.length > 0 && ", "}
-                  {syncState.removed.length > 0 && (
-                    <span>{syncState.removed.length} removed (restart to uninstall)</span>
+                  <code className="rounded bg-uv/20 px-1">
+                    {pyprojectInfo.relative_path}
+                  </code>
+                  {pyprojectInfo.project_name && (
+                    <span className="text-muted-foreground ml-1">
+                      ({pyprojectInfo.project_name})
+                    </span>
                   )}
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={onSyncNow}
-                disabled={loading}
-                data-testid="deps-sync-button"
-                className="flex items-center gap-1 rounded bg-amber-600 px-2 py-0.5 text-white text-xs font-medium hover:bg-amber-700 transition-colors disabled:opacity-50"
-              >
-                <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-                Sync Now
-              </button>
-            </div>
-          )}
-
-          {/* UV availability notice */}
-          {uvAvailable === false && (
-            <div className="mb-3 flex items-start gap-2 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
-              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <span>
-                <span className="font-medium">uv not found.</span> Install it with{" "}
-                <code className="rounded bg-uv/20 px-1">
-                  curl -LsSf https://astral.sh/uv/install.sh | sh
-                </code>
-              </span>
-            </div>
-          )}
-
-          {/* pyproject.toml detected banner */}
-          {pyprojectInfo?.has_dependencies && (
-            <div className="mb-3 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <FileText className="h-3.5 w-3.5 shrink-0" />
-                  <span>
-                    <code className="rounded bg-uv/20 px-1">
-                      {pyprojectInfo.relative_path}
-                    </code>
-                    {pyprojectInfo.project_name && (
-                      <span className="text-muted-foreground ml-1">
-                        ({pyprojectInfo.project_name})
-                      </span>
-                    )}
+              <div className="flex items-center gap-2">
+                {onUseProjectEnv && !isUsingProjectEnv && (
+                  <button
+                    type="button"
+                    onClick={onUseProjectEnv}
+                    disabled={loading}
+                    className="flex items-center gap-1 rounded bg-uv px-2 py-0.5 text-white text-xs font-medium hover:bg-uv/90 transition-colors disabled:opacity-50"
+                    title="Start kernel with uv run — stays in sync with pyproject.toml"
+                  >
+                    Use project env
+                  </button>
+                )}
+                {isUsingProjectEnv && (
+                  <span className="rounded bg-uv/20 px-1.5 py-0.5 text-uv text-xs font-medium">
+                    Active
                   </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {onUseProjectEnv && !isUsingProjectEnv && (
-                    <button
-                      type="button"
-                      onClick={onUseProjectEnv}
-                      disabled={loading}
-                      className="flex items-center gap-1 rounded bg-uv px-2 py-0.5 text-white text-xs font-medium hover:bg-uv/90 transition-colors disabled:opacity-50"
-                      title="Start kernel with uv run — stays in sync with pyproject.toml"
-                    >
-                      Use project env
-                    </button>
-                  )}
-                  {isUsingProjectEnv && (
-                    <span className="rounded bg-uv/20 px-1.5 py-0.5 text-uv text-xs font-medium">
-                      Active
-                    </span>
-                  )}
-                  {onImportFromPyproject && (
-                    <button
-                      type="button"
-                      onClick={onImportFromPyproject}
-                      disabled={loading}
-                      className="flex items-center gap-1 text-uv/70 hover:text-uv transition-colors disabled:opacity-50"
-                      title="Copy deps into notebook metadata for portable sharing"
-                    >
-                      <Download className="h-3 w-3" />
-                      Copy to notebook
-                    </button>
-                  )}
-                </div>
+                )}
+                {onImportFromPyproject && (
+                  <button
+                    type="button"
+                    onClick={onImportFromPyproject}
+                    disabled={loading}
+                    className="flex items-center gap-1 text-uv/70 hover:text-uv transition-colors disabled:opacity-50"
+                    title="Copy deps into notebook metadata for portable sharing"
+                  >
+                    <Download className="h-3 w-3" />
+                    Copy to notebook
+                  </button>
+                )}
               </div>
-              {pyprojectDeps && (pyprojectDeps.dependencies.length > 0 || pyprojectDeps.dev_dependencies.length > 0) && (
+            </div>
+            {pyprojectDeps &&
+              (pyprojectDeps.dependencies.length > 0 ||
+                pyprojectDeps.dev_dependencies.length > 0) && (
                 <div className="mt-2 text-xs text-uv/80">
                   {pyprojectDeps.dependencies.length > 0 && (
                     <div className="flex flex-wrap gap-1 mb-1">
                       {pyprojectDeps.dependencies.map((dep) => (
-                        <span key={dep} className="rounded bg-uv/20 px-1.5 py-0.5 font-mono">
+                        <span
+                          key={dep}
+                          className="rounded bg-uv/20 px-1.5 py-0.5 font-mono"
+                        >
                           {dep}
                         </span>
                       ))}
@@ -197,7 +215,10 @@ export function DependencyHeader({
                     <div className="flex flex-wrap gap-1">
                       <span className="text-muted-foreground">dev:</span>
                       {pyprojectDeps.dev_dependencies.map((dep) => (
-                        <span key={dep} className="rounded bg-uv/10 px-1.5 py-0.5 font-mono">
+                        <span
+                          key={dep}
+                          className="rounded bg-uv/10 px-1.5 py-0.5 font-mono"
+                        >
                           {dep}
                         </span>
                       ))}
@@ -205,59 +226,61 @@ export function DependencyHeader({
                   )}
                 </div>
               )}
-            </div>
-          )}
+          </div>
+        )}
 
-          {/* Project-managed state: read-only view when using uv run */}
-          {isUsingProjectEnv && (
-            <div className="mb-3 flex items-start gap-2 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
-              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <span>
-                Managed by <code className="rounded bg-uv/20 px-1">{pyprojectInfo?.relative_path ?? "pyproject.toml"}</code> — restart kernel to pick up dependency changes.
-              </span>
-            </div>
-          )}
+        {/* Project-managed state: read-only view when using uv run */}
+        {isUsingProjectEnv && (
+          <div className="mb-3 flex items-start gap-2 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
+            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>
+              Managed by{" "}
+              <code className="rounded bg-uv/20 px-1">
+                {pyprojectInfo?.relative_path ?? "pyproject.toml"}
+              </code>{" "}
+              — restart kernel to pick up dependency changes.
+            </span>
+          </div>
+        )}
 
-          {/* Python version */}
-          {requiresPython && (
-            <div className="mb-2 text-xs text-muted-foreground">
-              Python: <span className="font-mono">{requiresPython}</span>
-            </div>
-          )}
+        {/* Python version */}
+        {requiresPython && (
+          <div className="mb-2 text-xs text-muted-foreground">
+            Python: <span className="font-mono">{requiresPython}</span>
+          </div>
+        )}
 
-          {/* Dependencies list (read-only when using project env) */}
-          {!isUsingProjectEnv && (
-            <>
-              {dependencies.length > 0 ? (
-                <div className="mb-3 flex flex-wrap gap-1.5">
-                  {dependencies.map((dep) => (
-                    <div
-                      key={dep}
-                      className="flex items-center gap-1 rounded bg-background px-2 py-1 text-xs border"
-                    >
-                      <span className="font-mono">{dep}</span>
-                      <button
-                        type="button"
-                        onClick={() => onRemove(dep)}
-                        className="text-muted-foreground hover:text-foreground transition-colors"
-                        disabled={loading}
-                        title={`Remove ${dep}`}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
+        {/* Dependencies list (read-only when using project env) */}
+        {!isUsingProjectEnv &&
+          (dependencies.length > 0 ? (
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {dependencies.map((dep) => (
+                <div
+                  key={dep}
+                  className="flex items-center gap-1 rounded bg-background px-2 py-1 text-xs border"
+                >
+                  <span className="font-mono">{dep}</span>
+                  <button
+                    type="button"
+                    onClick={() => onRemove(dep)}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    disabled={loading}
+                    title={`Remove ${dep}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
                 </div>
-              ) : (
-                <div className="mb-3 text-xs text-muted-foreground">
-                  No inline dependencies. Add packages to create an isolated environment.
-                </div>
-              )}
-            </>
-          )}
+              ))}
+            </div>
+          ) : (
+            <div className="mb-3 text-xs text-muted-foreground">
+              No inline dependencies. Add packages to create an isolated
+              environment.
+            </div>
+          ))}
 
-          {/* Add dependency input (hidden when using project env) */}
-          {!isUsingProjectEnv && (
+        {/* Add dependency input (hidden when using project env) */}
+        {!isUsingProjectEnv && (
           <div className="flex gap-2">
             <input
               type="text"
@@ -282,7 +305,7 @@ export function DependencyHeader({
               Add
             </button>
           </div>
-          )}
+        )}
       </div>
     </div>
   );

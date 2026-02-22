@@ -1,9 +1,9 @@
 import {
   createContext,
+  type ReactNode,
+  useCallback,
   useContext,
   useRef,
-  useCallback,
-  type ReactNode,
 } from "react";
 
 export interface EditorRef {
@@ -18,7 +18,7 @@ interface EditorRegistryContextType {
 }
 
 const EditorRegistryContext = createContext<EditorRegistryContextType | null>(
-  null
+  null,
 );
 
 export function EditorRegistryProvider({ children }: { children: ReactNode }) {
@@ -40,14 +40,14 @@ export function EditorRegistryProvider({ children }: { children: ReactNode }) {
         editor.focus();
         // Scroll the cell into view
         const cellElement = document.querySelector(
-          `[data-cell-id="${cellId}"]`
+          `[data-cell-id="${cellId}"]`,
         );
         if (cellElement) {
           cellElement.scrollIntoView({ behavior: "smooth", block: "nearest" });
         }
       }
     },
-    []
+    [],
   );
 
   return (
@@ -63,7 +63,7 @@ export function useEditorRegistry() {
   const context = useContext(EditorRegistryContext);
   if (!context) {
     throw new Error(
-      "useEditorRegistry must be used within EditorRegistryProvider"
+      "useEditorRegistry must be used within EditorRegistryProvider",
     );
   }
   return context;

@@ -37,11 +37,17 @@ pub enum EnvProgressPhase {
     /// Fetching package metadata from channels
     FetchingRepodata { channels: Vec<String> },
     /// Repodata fetch complete
-    RepodataComplete { record_count: usize, elapsed_ms: u64 },
+    RepodataComplete {
+        record_count: usize,
+        elapsed_ms: u64,
+    },
     /// Solving dependency graph
     Solving { spec_count: usize },
     /// Solve complete
-    SolveComplete { package_count: usize, elapsed_ms: u64 },
+    SolveComplete {
+        package_count: usize,
+        elapsed_ms: u64,
+    },
     /// Installing packages (legacy phase, kept for backward compat)
     Installing { total: usize },
     /// Download progress for individual packages
@@ -71,7 +77,10 @@ pub enum EnvProgressPhase {
     /// Installation complete
     InstallComplete { elapsed_ms: u64 },
     /// Environment is ready
-    Ready { env_path: String, python_path: String },
+    Ready {
+        env_path: String,
+        python_path: String,
+    },
     /// An error occurred
     Error { message: String },
 }
@@ -237,7 +246,10 @@ impl Reporter for ProgressReporter {
     fn on_populate_cache_start(&self, cache_entry: usize, record: &RepoDataRecord) -> usize {
         // Store the package name for later reference
         let name = record.package_record.name.as_source().to_string();
-        self.package_names.write().unwrap().insert(cache_entry, name);
+        self.package_names
+            .write()
+            .unwrap()
+            .insert(cache_entry, name);
         cache_entry
     }
 
@@ -293,7 +305,10 @@ impl Reporter for ProgressReporter {
 
     fn on_link_start(&self, operation: usize, record: &RepoDataRecord) -> usize {
         let name = record.package_record.name.as_source().to_string();
-        self.package_names.write().unwrap().insert(operation, name.clone());
+        self.package_names
+            .write()
+            .unwrap()
+            .insert(operation, name.clone());
         self.emit_link_progress(name);
         operation
     }
@@ -424,7 +439,12 @@ pub async fn prepare_environment(
     let cache_dir = get_cache_dir();
     let env_path = cache_dir.join(&hash);
 
-    emit_progress(app, EnvProgressPhase::Starting { env_hash: hash.clone() });
+    emit_progress(
+        app,
+        EnvProgressPhase::Starting {
+            env_hash: hash.clone(),
+        },
+    );
 
     // Determine python path based on platform
     #[cfg(target_os = "windows")]
@@ -435,13 +455,19 @@ pub async fn prepare_environment(
     // Check if cached environment exists and is valid
     if env_path.exists() && python_path.exists() {
         info!("Using cached conda environment at {:?}", env_path);
-        emit_progress(app, EnvProgressPhase::CacheHit {
-            env_path: env_path.to_string_lossy().to_string(),
-        });
-        emit_progress(app, EnvProgressPhase::Ready {
-            env_path: env_path.to_string_lossy().to_string(),
-            python_path: python_path.to_string_lossy().to_string(),
-        });
+        emit_progress(
+            app,
+            EnvProgressPhase::CacheHit {
+                env_path: env_path.to_string_lossy().to_string(),
+            },
+        );
+        emit_progress(
+            app,
+            EnvProgressPhase::Ready {
+                env_path: env_path.to_string_lossy().to_string(),
+                python_path: python_path.to_string_lossy().to_string(),
+            },
+        );
         return Ok(CondaEnvironment {
             env_path,
             python_path,
@@ -479,7 +505,10 @@ pub async fn prepare_environment(
 
     // Add python version constraint
     if let Some(ref py) = deps.python {
-        specs.push(MatchSpec::from_str(&format!("python={}", py), match_spec_options)?);
+        specs.push(MatchSpec::from_str(
+            &format!("python={}", py),
+            match_spec_options,
+        )?);
     } else {
         specs.push(MatchSpec::from_str("python>=3.9", match_spec_options)?);
     }
@@ -521,7 +550,12 @@ pub async fn prepare_environment(
 
     // Query repodata from channels with retry logic for transient failures
     info!("Fetching repodata from channels: {:?}", channels);
-    emit_progress(app, EnvProgressPhase::FetchingRepodata { channels: channel_names });
+    emit_progress(
+        app,
+        EnvProgressPhase::FetchingRepodata {
+            channels: channel_names,
+        },
+    );
 
     let repodata_start = Instant::now();
 
@@ -574,7 +608,12 @@ pub async fn prepare_environment(
                 }
 
                 let error_msg = format!("Failed to fetch package metadata: {}", e);
-                emit_progress(app, EnvProgressPhase::Error { message: error_msg.clone() });
+                emit_progress(
+                    app,
+                    EnvProgressPhase::Error {
+                        message: error_msg.clone(),
+                    },
+                );
                 return Err(anyhow!(error_msg));
             }
         }
@@ -586,9 +625,16 @@ pub async fn prepare_environment(
             let error_msg = format!(
                 "Failed to fetch package metadata after {} retries: {}",
                 MAX_RETRIES,
-                last_error.map(|e| e.to_string()).unwrap_or_else(|| "unknown error".to_string())
+                last_error
+                    .map(|e| e.to_string())
+                    .unwrap_or_else(|| "unknown error".to_string())
             );
-            emit_progress(app, EnvProgressPhase::Error { message: error_msg.clone() });
+            emit_progress(
+                app,
+                EnvProgressPhase::Error {
+                    message: error_msg.clone(),
+                },
+            );
             return Err(anyhow!(error_msg));
         }
     };
@@ -597,13 +643,15 @@ pub async fn prepare_environment(
     let repodata_elapsed = repodata_start.elapsed();
     info!(
         "Loaded {} package records in {:?}",
-        total_records,
-        repodata_elapsed
+        total_records, repodata_elapsed
     );
-    emit_progress(app, EnvProgressPhase::RepodataComplete {
-        record_count: total_records,
-        elapsed_ms: repodata_elapsed.as_millis() as u64,
-    });
+    emit_progress(
+        app,
+        EnvProgressPhase::RepodataComplete {
+            record_count: total_records,
+            elapsed_ms: repodata_elapsed.as_millis() as u64,
+        },
+    );
 
     // Detect virtual packages (system capabilities like __glibc, __cuda, etc.)
     let virt_start = Instant::now();
@@ -622,7 +670,12 @@ pub async fn prepare_environment(
 
     // Solve dependencies
     info!("Solving dependencies...");
-    emit_progress(app, EnvProgressPhase::Solving { spec_count: specs.len() });
+    emit_progress(
+        app,
+        EnvProgressPhase::Solving {
+            spec_count: specs.len(),
+        },
+    );
 
     let solve_start = Instant::now();
     let solver_task = SolverTask {
@@ -635,7 +688,12 @@ pub async fn prepare_environment(
         Ok(result) => result,
         Err(e) => {
             let error_msg = format!("Failed to solve dependencies: {}", e);
-            emit_progress(app, EnvProgressPhase::Error { message: error_msg.clone() });
+            emit_progress(
+                app,
+                EnvProgressPhase::Error {
+                    message: error_msg.clone(),
+                },
+            );
             return Err(anyhow!(error_msg));
         }
     };
@@ -647,14 +705,22 @@ pub async fn prepare_environment(
         required_packages.len(),
         solve_elapsed
     );
-    emit_progress(app, EnvProgressPhase::SolveComplete {
-        package_count: required_packages.len(),
-        elapsed_ms: solve_elapsed.as_millis() as u64,
-    });
+    emit_progress(
+        app,
+        EnvProgressPhase::SolveComplete {
+            package_count: required_packages.len(),
+            elapsed_ms: solve_elapsed.as_millis() as u64,
+        },
+    );
 
     // Install packages to the environment prefix
     info!("Installing packages to {:?}", env_path);
-    emit_progress(app, EnvProgressPhase::Installing { total: required_packages.len() });
+    emit_progress(
+        app,
+        EnvProgressPhase::Installing {
+            total: required_packages.len(),
+        },
+    );
 
     // Create progress reporter for granular progress updates
     let reporter = ProgressReporter::new(app.cloned());
@@ -670,7 +736,12 @@ pub async fn prepare_environment(
         Ok(result) => result,
         Err(e) => {
             let error_msg = format!("Failed to install packages: {}", e);
-            emit_progress(app, EnvProgressPhase::Error { message: error_msg.clone() });
+            emit_progress(
+                app,
+                EnvProgressPhase::Error {
+                    message: error_msg.clone(),
+                },
+            );
             return Err(anyhow!(error_msg));
         }
     };
@@ -678,16 +749,21 @@ pub async fn prepare_environment(
     let install_elapsed = install_start.elapsed();
     info!(
         "Conda environment ready at {:?} (install took {:?})",
-        env_path,
-        install_elapsed
+        env_path, install_elapsed
     );
-    emit_progress(app, EnvProgressPhase::InstallComplete {
-        elapsed_ms: install_elapsed.as_millis() as u64,
-    });
-    emit_progress(app, EnvProgressPhase::Ready {
-        env_path: env_path.to_string_lossy().to_string(),
-        python_path: python_path.to_string_lossy().to_string(),
-    });
+    emit_progress(
+        app,
+        EnvProgressPhase::InstallComplete {
+            elapsed_ms: install_elapsed.as_millis() as u64,
+        },
+    );
+    emit_progress(
+        app,
+        EnvProgressPhase::Ready {
+            env_path: env_path.to_string_lossy().to_string(),
+            python_path: python_path.to_string_lossy().to_string(),
+        },
+    );
 
     Ok(CondaEnvironment {
         env_path,
@@ -828,7 +904,9 @@ pub async fn sync_dependencies(env: &CondaEnvironment, deps: &CondaDependencies)
         anyhow!(
             "Failed to fetch package metadata after {} retries: {}",
             MAX_RETRIES,
-            last_error.map(|e| e.to_string()).unwrap_or_else(|| "unknown error".to_string())
+            last_error
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "unknown error".to_string())
         )
     })?;
 
@@ -841,8 +919,7 @@ pub async fn sync_dependencies(env: &CondaEnvironment, deps: &CondaDependencies)
     .collect::<Vec<_>>();
 
     // Get currently installed packages
-    let installed_packages =
-        PrefixRecord::collect_from_prefix::<PrefixRecord>(&env.env_path)?;
+    let installed_packages = PrefixRecord::collect_from_prefix::<PrefixRecord>(&env.env_path)?;
 
     // Solve dependencies
     info!("Solving dependencies for sync...");
@@ -905,7 +982,10 @@ pub async fn create_prewarmed_conda_environment(
     #[cfg(not(target_os = "windows"))]
     let python_path = env_path.join("bin").join("python");
 
-    info!("[prewarm] Creating prewarmed conda environment at {:?}", env_path);
+    info!(
+        "[prewarm] Creating prewarmed conda environment at {:?}",
+        env_path
+    );
 
     // Ensure cache directory exists
     tokio::fs::create_dir_all(&cache_dir).await?;
@@ -927,7 +1007,10 @@ pub async fn create_prewarmed_conda_environment(
     // Reuse the core environment creation logic
     create_environment_at_path(&env_path, &deps, app).await?;
 
-    info!("[prewarm] Prewarmed conda environment created at {:?}", env_path);
+    info!(
+        "[prewarm] Prewarmed conda environment created at {:?}",
+        env_path
+    );
 
     let env = CondaEnvironment {
         env_path,
@@ -946,7 +1029,10 @@ pub async fn create_prewarmed_conda_environment(
 /// dramatically reducing kernel startup time on subsequent use.
 pub async fn warmup_conda_environment(env: &CondaEnvironment) -> Result<()> {
     let warmup_start = std::time::Instant::now();
-    info!("[prewarm] Warming up conda environment at {:?}", env.env_path);
+    info!(
+        "[prewarm] Warming up conda environment at {:?}",
+        env.env_path
+    );
 
     // Script that imports key packages to trigger .pyc compilation
     let warmup_script = r#"
@@ -1015,9 +1101,12 @@ async fn create_environment_at_path(
             .collect::<Result<Vec<_>, _>>()?
     };
 
-    emit_progress(app, EnvProgressPhase::FetchingRepodata {
-        channels: deps.channels.clone(),
-    });
+    emit_progress(
+        app,
+        EnvProgressPhase::FetchingRepodata {
+            channels: deps.channels.clone(),
+        },
+    );
 
     // Build specs: base packages plus dependencies
     let match_spec_options = ParseMatchSpecOptions::strict();
@@ -1039,7 +1128,12 @@ async fn create_environment_at_path(
         }
     }
 
-    emit_progress(app, EnvProgressPhase::Solving { spec_count: specs.len() });
+    emit_progress(
+        app,
+        EnvProgressPhase::Solving {
+            spec_count: specs.len(),
+        },
+    );
 
     // Find rattler cache directory
     let rattler_cache_dir = default_cache_dir()
@@ -1108,9 +1202,12 @@ async fn create_environment_at_path(
                     last_error = Some(e);
                     continue;
                 }
-                emit_progress(app, EnvProgressPhase::Error {
-                    message: format!("Failed to fetch package metadata: {}", e),
-                });
+                emit_progress(
+                    app,
+                    EnvProgressPhase::Error {
+                        message: format!("Failed to fetch package metadata: {}", e),
+                    },
+                );
                 return Err(anyhow!("Failed to fetch package metadata: {}", e));
             }
         }
@@ -1120,9 +1217,16 @@ async fn create_environment_at_path(
         let msg = format!(
             "Failed to fetch package metadata after {} retries: {}",
             MAX_RETRIES,
-            last_error.map(|e| e.to_string()).unwrap_or_else(|| "unknown error".to_string())
+            last_error
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "unknown error".to_string())
         );
-        emit_progress(app, EnvProgressPhase::Error { message: msg.clone() });
+        emit_progress(
+            app,
+            EnvProgressPhase::Error {
+                message: msg.clone(),
+            },
+        );
         anyhow!(msg)
     })?;
 
@@ -1132,10 +1236,13 @@ async fn create_environment_at_path(
         "Fetched repodata with {} records in {:?}",
         record_count, repodata_elapsed
     );
-    emit_progress(app, EnvProgressPhase::RepodataComplete {
-        record_count,
-        elapsed_ms: repodata_elapsed.as_millis() as u64,
-    });
+    emit_progress(
+        app,
+        EnvProgressPhase::RepodataComplete {
+            record_count,
+            elapsed_ms: repodata_elapsed.as_millis() as u64,
+        },
+    );
 
     // Detect virtual packages
     let virtual_packages = rattler_virtual_packages::VirtualPackage::detect(
@@ -1159,7 +1266,12 @@ async fn create_environment_at_path(
         Ok(result) => result,
         Err(e) => {
             let msg = format!("Failed to solve dependencies: {}", e);
-            emit_progress(app, EnvProgressPhase::Error { message: msg.clone() });
+            emit_progress(
+                app,
+                EnvProgressPhase::Error {
+                    message: msg.clone(),
+                },
+            );
             return Err(anyhow!(msg));
         }
     };
@@ -1171,10 +1283,13 @@ async fn create_environment_at_path(
         required_packages.len(),
         solve_elapsed
     );
-    emit_progress(app, EnvProgressPhase::SolveComplete {
-        package_count: required_packages.len(),
-        elapsed_ms: solve_elapsed.as_millis() as u64,
-    });
+    emit_progress(
+        app,
+        EnvProgressPhase::SolveComplete {
+            package_count: required_packages.len(),
+            elapsed_ms: solve_elapsed.as_millis() as u64,
+        },
+    );
 
     // Install packages
     let install_start = std::time::Instant::now();
@@ -1183,9 +1298,12 @@ async fn create_environment_at_path(
         required_packages.len(),
         env_path
     );
-    emit_progress(app, EnvProgressPhase::Installing {
-        total: required_packages.len(),
-    });
+    emit_progress(
+        app,
+        EnvProgressPhase::Installing {
+            total: required_packages.len(),
+        },
+    );
 
     // Create progress reporter if we have an app handle
     let reporter = app.map(|a| ProgressReporter::new(Some(a.clone())));
@@ -1206,12 +1324,14 @@ async fn create_environment_at_path(
     let install_elapsed = install_start.elapsed();
     info!(
         "Conda environment ready at {:?} (install took {:?})",
-        env_path,
-        install_elapsed
+        env_path, install_elapsed
     );
-    emit_progress(app, EnvProgressPhase::InstallComplete {
-        elapsed_ms: install_elapsed.as_millis() as u64,
-    });
+    emit_progress(
+        app,
+        EnvProgressPhase::InstallComplete {
+            elapsed_ms: install_elapsed.as_millis() as u64,
+        },
+    );
 
     Ok(())
 }
@@ -1266,10 +1386,7 @@ pub async fn claim_prewarmed_conda_environment(
         }
         Err(e) => {
             // Rename failed (possibly cross-filesystem), fall back to copy+delete
-            info!(
-                "[prewarm] Rename failed ({}), falling back to copy",
-                e
-            );
+            info!("[prewarm] Rename failed ({}), falling back to copy", e);
             copy_dir_recursive(&prewarmed.env_path, &dest_path).await?;
             tokio::fs::remove_dir_all(&prewarmed.env_path).await.ok();
             info!("[prewarm] Conda environment claimed via copy");
@@ -1349,7 +1466,10 @@ pub async fn find_existing_prewarmed_conda_environments() -> Vec<CondaEnvironmen
             continue;
         }
 
-        info!("[prewarm] Found existing prewarmed conda environment: {:?}", env_path);
+        info!(
+            "[prewarm] Found existing prewarmed conda environment: {:?}",
+            env_path
+        );
         found.push(CondaEnvironment {
             env_path,
             python_path,

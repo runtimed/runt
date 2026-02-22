@@ -137,10 +137,7 @@ pub fn parse_pyproject(path: &Path) -> Result<PyProjectConfig> {
             .unwrap_or_default();
 
         // Convert pep440 VersionSpecifiers to string
-        let python = project
-            .requires_python
-            .as_ref()
-            .map(|v| v.to_string());
+        let python = project.requires_python.as_ref().map(|v| v.to_string());
 
         (name, deps, python)
     } else {
@@ -164,10 +161,12 @@ pub fn parse_pyproject(path: &Path) -> Result<PyProjectConfig> {
 
 /// Create PyProjectInfo from a config for sending to the frontend.
 pub fn create_pyproject_info(config: &PyProjectConfig, notebook_path: &Path) -> PyProjectInfo {
-    let relative_path =
-        pathdiff::diff_paths(&config.path, notebook_path.parent().unwrap_or(notebook_path))
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| config.path.display().to_string());
+    let relative_path = pathdiff::diff_paths(
+        &config.path,
+        notebook_path.parent().unwrap_or(notebook_path),
+    )
+    .map(|p| p.display().to_string())
+    .unwrap_or_else(|| config.path.display().to_string());
 
     // Check if .venv exists in the project directory
     let has_venv = config
@@ -458,9 +457,6 @@ dev-dependencies = ["pytest", "ruff"]
 
         let pyproject_path = found.unwrap();
         assert!(pyproject_path.ends_with("pyproject.toml"));
-        assert!(pyproject_path
-            .parent()
-            .unwrap()
-            .ends_with("sample-project"));
+        assert!(pyproject_path.parent().unwrap().ends_with("sample-project"));
     }
 }

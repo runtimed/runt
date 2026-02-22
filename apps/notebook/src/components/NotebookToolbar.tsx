@@ -1,14 +1,32 @@
+import {
+  ChevronsRight,
+  Info,
+  Monitor,
+  Moon,
+  Package,
+  Play,
+  Plus,
+  RotateCcw,
+  Save,
+  Settings,
+  Square,
+  Sun,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Save, Play, Square, Plus, Package, Settings, Sun, Moon, Monitor, RotateCcw, ChevronsRight, Info, X } from "lucide-react";
-import { cn } from "@/lib/utils";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import type { ThemeMode, RuntimeMode, PythonEnvMode } from "@/hooks/useSyncedSettings";
-import type { KernelspecInfo } from "../types";
+import type {
+  PythonEnvMode,
+  RuntimeMode,
+  ThemeMode,
+} from "@/hooks/useSyncedSettings";
+import { cn } from "@/lib/utils";
 import type { EnvProgressState } from "../hooks/useEnvProgress";
+import type { KernelspecInfo } from "../types";
 
 /** Notebook runtime type */
 export type Runtime = "python" | "deno";
@@ -80,11 +98,31 @@ function CondaIcon({ className }: { className?: string }) {
       strokeWidth="0.25px"
       className={className}
     >
-      <path d="M47.3 23.46c-.69-1.27-2.08-3.82-4.51-6.25-.81 3.47-.81 6.48-.69 7.99-.12 0 2.2-1.16 5.2-1.74zM36.54 28.32c-1.27-1.04-3.7-2.89-7.28-4.4.92 3.82 2.43 6.6 3.24 7.99 0 .23 1.62-1.74 4.05-3.59zM50.67 20.08c.81-2.08 2.31-5.09 4.74-8.22-1.5-2.66-3.58-5.32-6.36-7.64-2.2 2.78-3.7 5.56-4.74 8.33 3.12 2.66 5.09 5.44 6.36 7.52zM29.15 36.66c-1.22-.22-2.56-.41-4-.52a40.19 40.19 0 0 0-5.77-.06c1.01 1.29 2.24 2.71 3.73 4.14A39.43 39.43 0 0 0 26.35 43c.35-1.03.77-2.12 1.28-3.28a43.76 43.76 0 0 1 1.51-3.06zM11.92 49.15c4.16-2.66 8.09-3.82 10.75-4.17-2.08-1.74-5.09-4.51-7.52-8.33-3.47.69-7.01 2.02-10.36 4.33 1.97 3.47 4.47 6.2 7.12 8.17zM25.21 48.11c-1.62.12-5.56.34-10.19 3.12 4.28 2.66 8.22 4.06 10.19 4.52-.35-2.55-.35-5.21 0-7.64zM39.21 14.02c-2.54-1.74-5.78-3.24-9.83-4.17-.81 3.47-.92 6.71-.69 9.49 3.93 1.27 6.94 3.12 9.02 4.63 0-2.31.35-5.9 1.5-9.95z" fillRule="evenodd" transform="matrix(.26458 0 0 .26458 -.189 -.253)" />
-      <path d="M14.22 17.73c1.52-.19 3.32-.3 5.35-.22 1.82.08 3.44.3 4.83.56.29-3.12.58-6.24.88-9.37a45.326 45.326 0 0 0-5.82 4.02 45.63 45.63 0 0 0-5.23 5z" fillRule="evenodd" strokeLinecap="round" transform="matrix(.26458 0 0 .26458 -.189 -.253)" />
-      <path d="M31.2 5.66c2.19.64 4.61 1.55 7.12 2.84.75.38 1.46.78 2.13 1.17a33.466 33.466 0 0 1 4.63-8.01c-2.15.36-4.53.88-7.08 1.62-2.53.73-4.8 1.55-6.8 2.38Z" transform="matrix(.26458 0 0 .26458 -.189 -.253)" />
-      <path d="M9.14 51.23c-2.66-2.2-5.32-5.09-7.4-8.68C.58 48.45.58 54.7 1.51 60.49c2.2-4.05 4.86-6.94 7.63-9.26ZM86.84 81.09c-7.28-6.94-8.79-11.46-14.91-6.71C55.17 87.57 31 79.7 25.91 59.22c-.92-.12-7.4-1.39-13.99-5.9-3.24 2.55-6.59 6.48-9.37 12.15h-.12c10.52 39.81 61.74 49.07 85.44 24.19 3.93-4.17.35-7.06-1.04-8.56zM69.26 6.58c-3.35 1.62-6.01 3.7-8.09 5.9 1.73 3.7 2.54 7.06 3.01 9.14 3.24-2.55 6.47-4.05 8.44-4.86-.23-2.31-1.04-6.6-3.35-10.18zM57.59 16.75a26.405 26.405 0 0 0-3.02 6.27c.8.04 1.66.12 2.56.23.82.1 1.6.23 2.32.38-.13-.88-.3-1.84-.55-2.86-.38-1.52-.84-2.87-1.32-4.02zM58.67 8.08c1.04-.98 2.3-2.05 3.78-3.1 1.32-.94 2.58-1.7 3.74-2.31-1.92-.46-4.1-.88-6.51-1.17-2.52-.3-4.83-.4-6.88-.38 2.42 2.21 4.38 4.64 5.87 6.96z" fillRule="evenodd" transform="matrix(.26458 0 0 .26458 -.189 -.253)" />
-      <path d="M74.58 5.55s3.24 9.95 3.35 15.04c-3.93.93-7.4 2.31-11.21 5.56 2.08 1.04 3.93 2.31 5.67 3.82 1.85 1.62 3.58 2.31 6.01 1.16 1.39-.93 9.13-8.91 9.94-9.95 1.85-1.97 1.39-5.21-.58-6.71-4.86-4.51-13.18-8.91-13.18-8.91ZM2.82 37.77c3.47-2.31 6.94-3.82 10.41-4.63-1.5-3.12-2.54-6.71-2.77-10.88C7.11 27 4.45 32.33 2.83 37.77zM28.59 32.72c-1.16-2.2-2.66-5.79-3.47-10.18-3.12-.69-6.59-1.04-10.64-.46.23 4.05 1.39 7.52 2.89 10.53 4.62-.69 8.56-.35 11.22.12z" fillRule="evenodd" transform="matrix(.26458 0 0 .26458 -.189 -.253)" />
+      <path
+        d="M47.3 23.46c-.69-1.27-2.08-3.82-4.51-6.25-.81 3.47-.81 6.48-.69 7.99-.12 0 2.2-1.16 5.2-1.74zM36.54 28.32c-1.27-1.04-3.7-2.89-7.28-4.4.92 3.82 2.43 6.6 3.24 7.99 0 .23 1.62-1.74 4.05-3.59zM50.67 20.08c.81-2.08 2.31-5.09 4.74-8.22-1.5-2.66-3.58-5.32-6.36-7.64-2.2 2.78-3.7 5.56-4.74 8.33 3.12 2.66 5.09 5.44 6.36 7.52zM29.15 36.66c-1.22-.22-2.56-.41-4-.52a40.19 40.19 0 0 0-5.77-.06c1.01 1.29 2.24 2.71 3.73 4.14A39.43 39.43 0 0 0 26.35 43c.35-1.03.77-2.12 1.28-3.28a43.76 43.76 0 0 1 1.51-3.06zM11.92 49.15c4.16-2.66 8.09-3.82 10.75-4.17-2.08-1.74-5.09-4.51-7.52-8.33-3.47.69-7.01 2.02-10.36 4.33 1.97 3.47 4.47 6.2 7.12 8.17zM25.21 48.11c-1.62.12-5.56.34-10.19 3.12 4.28 2.66 8.22 4.06 10.19 4.52-.35-2.55-.35-5.21 0-7.64zM39.21 14.02c-2.54-1.74-5.78-3.24-9.83-4.17-.81 3.47-.92 6.71-.69 9.49 3.93 1.27 6.94 3.12 9.02 4.63 0-2.31.35-5.9 1.5-9.95z"
+        fillRule="evenodd"
+        transform="matrix(.26458 0 0 .26458 -.189 -.253)"
+      />
+      <path
+        d="M14.22 17.73c1.52-.19 3.32-.3 5.35-.22 1.82.08 3.44.3 4.83.56.29-3.12.58-6.24.88-9.37a45.326 45.326 0 0 0-5.82 4.02 45.63 45.63 0 0 0-5.23 5z"
+        fillRule="evenodd"
+        strokeLinecap="round"
+        transform="matrix(.26458 0 0 .26458 -.189 -.253)"
+      />
+      <path
+        d="M31.2 5.66c2.19.64 4.61 1.55 7.12 2.84.75.38 1.46.78 2.13 1.17a33.466 33.466 0 0 1 4.63-8.01c-2.15.36-4.53.88-7.08 1.62-2.53.73-4.8 1.55-6.8 2.38Z"
+        transform="matrix(.26458 0 0 .26458 -.189 -.253)"
+      />
+      <path
+        d="M9.14 51.23c-2.66-2.2-5.32-5.09-7.4-8.68C.58 48.45.58 54.7 1.51 60.49c2.2-4.05 4.86-6.94 7.63-9.26ZM86.84 81.09c-7.28-6.94-8.79-11.46-14.91-6.71C55.17 87.57 31 79.7 25.91 59.22c-.92-.12-7.4-1.39-13.99-5.9-3.24 2.55-6.59 6.48-9.37 12.15h-.12c10.52 39.81 61.74 49.07 85.44 24.19 3.93-4.17.35-7.06-1.04-8.56zM69.26 6.58c-3.35 1.62-6.01 3.7-8.09 5.9 1.73 3.7 2.54 7.06 3.01 9.14 3.24-2.55 6.47-4.05 8.44-4.86-.23-2.31-1.04-6.6-3.35-10.18zM57.59 16.75a26.405 26.405 0 0 0-3.02 6.27c.8.04 1.66.12 2.56.23.82.1 1.6.23 2.32.38-.13-.88-.3-1.84-.55-2.86-.38-1.52-.84-2.87-1.32-4.02zM58.67 8.08c1.04-.98 2.3-2.05 3.78-3.1 1.32-.94 2.58-1.7 3.74-2.31-1.92-.46-4.1-.88-6.51-1.17-2.52-.3-4.83-.4-6.88-.38 2.42 2.21 4.38 4.64 5.87 6.96z"
+        fillRule="evenodd"
+        transform="matrix(.26458 0 0 .26458 -.189 -.253)"
+      />
+      <path
+        d="M74.58 5.55s3.24 9.95 3.35 15.04c-3.93.93-7.4 2.31-11.21 5.56 2.08 1.04 3.93 2.31 5.67 3.82 1.85 1.62 3.58 2.31 6.01 1.16 1.39-.93 9.13-8.91 9.94-9.95 1.85-1.97 1.39-5.21-.58-6.71-4.86-4.51-13.18-8.91-13.18-8.91ZM2.82 37.77c3.47-2.31 6.94-3.82 10.41-4.63-1.5-3.12-2.54-6.71-2.77-10.88C7.11 27 4.45 32.33 2.83 37.77zM28.59 32.72c-1.16-2.2-2.66-5.79-3.47-10.18-3.12-.69-6.59-1.04-10.64-.46.23 4.05 1.39 7.52 2.89 10.53 4.62-.69 8.56-.35 11.22.12z"
+        fillRule="evenodd"
+        transform="matrix(.26458 0 0 .26458 -.189 -.253)"
+      />
     </svg>
   );
 }
@@ -323,7 +361,7 @@ export function NotebookToolbar({
   const handleStartKernel = useCallback(() => {
     // Default to python3 or first available
     const python = kernelspecs.find(
-      (k) => k.name === "python3" || k.name === "python"
+      (k) => k.name === "python3" || k.name === "python",
     );
     const spec = python ?? kernelspecs[0];
     if (spec) {
@@ -348,7 +386,10 @@ export function NotebookToolbar({
 
   return (
     <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
-      <header data-testid="notebook-toolbar" className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
+      <header
+        data-testid="notebook-toolbar"
+        className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60"
+      >
         <div className="flex h-10 items-center gap-2 px-3">
           {/* Save */}
           <button
@@ -356,7 +397,7 @@ export function NotebookToolbar({
             onClick={onSave}
             className={cn(
               "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors hover:bg-muted",
-              dirty ? "text-foreground" : "text-muted-foreground"
+              dirty ? "text-foreground" : "text-muted-foreground",
             )}
             title="Save (Cmd+S)"
             data-testid="save-button"
@@ -458,7 +499,7 @@ export function NotebookToolbar({
             data-testid="deps-toggle"
             className={cn(
               "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors hover:bg-muted",
-              hasDependencies ? "text-foreground" : "text-muted-foreground"
+              hasDependencies ? "text-foreground" : "text-muted-foreground",
             )}
             title="Manage dependencies"
           >
@@ -471,13 +512,17 @@ export function NotebookToolbar({
             <div
               className={cn(
                 "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                envBadgeClasses(envBadgeInfo.variant)
+                envBadgeClasses(envBadgeInfo.variant),
               )}
               title={`Environment: ${envSource}`}
             >
               {envBadgeInfo.variant === "uv" && <UvIcon className="h-2 w-2" />}
-              {envBadgeInfo.variant === "conda" && <CondaIcon className="h-2.5 w-2.5" />}
-              {envBadgeInfo.variant === "pixi" && <PixiIcon className="h-2 w-2" />}
+              {envBadgeInfo.variant === "conda" && (
+                <CondaIcon className="h-2.5 w-2.5" />
+              )}
+              {envBadgeInfo.variant === "pixi" && (
+                <PixiIcon className="h-2 w-2" />
+              )}
             </div>
           )}
 
@@ -487,9 +532,13 @@ export function NotebookToolbar({
               "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
               runtime === "deno"
                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                : "bg-blue-500/10 text-blue-600 dark:text-blue-400",
             )}
-            title={runtime === "deno" ? "Deno/TypeScript notebook" : "Python notebook"}
+            title={
+              runtime === "deno"
+                ? "Deno/TypeScript notebook"
+                : "Python notebook"
+            }
           >
             {runtime === "deno" ? (
               <>
@@ -533,17 +582,26 @@ export function NotebookToolbar({
                 kernelStatus === "idle" && "bg-green-500",
                 kernelStatus === "busy" && "bg-amber-500",
                 kernelStatus === "starting" && "bg-blue-500 animate-pulse",
-                kernelStatus === "not started" && "bg-gray-400 dark:bg-gray-500",
-                kernelStatus === "error" && "bg-red-500"
+                kernelStatus === "not started" &&
+                  "bg-gray-400 dark:bg-gray-500",
+                kernelStatus === "error" && "bg-red-500",
               )}
             />
             <span className="text-xs text-muted-foreground truncate">
-              {envProgress?.isActive ? envProgress.statusText : envProgress?.error ? (
+              {envProgress?.isActive ? (
+                envProgress.statusText
+              ) : envProgress?.error ? (
                 <span className="text-red-600 dark:text-red-400">
                   {envProgress.statusText}
                 </span>
               ) : (
-                <span className={cn("capitalize", kernelStatus === "error" && "text-red-600 dark:text-red-400")}>
+                <span
+                  className={cn(
+                    "capitalize",
+                    kernelStatus === "error" &&
+                      "text-red-600 dark:text-red-400",
+                  )}
+                >
                   {kernelStatus === "not started"
                     ? "off"
                     : kernelStatus === "starting"
@@ -562,7 +620,7 @@ export function NotebookToolbar({
               type="button"
               className={cn(
                 "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                settingsOpen && "bg-muted text-foreground"
+                settingsOpen && "bg-muted text-foreground",
               )}
               aria-label="Settings"
             >
@@ -572,24 +630,30 @@ export function NotebookToolbar({
         </div>
 
         {/* Deno install prompt */}
-        {runtime === "deno" && kernelStatus === "error" && kernelErrorMessage && (
-          <div className="border-t px-3 py-2">
-            <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
-              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <span>
-                <span className="font-medium">Deno not available.</span> Auto-install failed. Install manually with{" "}
-                <code className="rounded bg-amber-500/20 px-1">
-                  curl -fsSL https://deno.land/install.sh | sh
-                </code>{" "}
-                and restart.
-              </span>
+        {runtime === "deno" &&
+          kernelStatus === "error" &&
+          kernelErrorMessage && (
+            <div className="border-t px-3 py-2">
+              <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
+                <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>
+                  <span className="font-medium">Deno not available.</span>{" "}
+                  Auto-install failed. Install manually with{" "}
+                  <code className="rounded bg-amber-500/20 px-1">
+                    curl -fsSL https://deno.land/install.sh | sh
+                  </code>{" "}
+                  and restart.
+                </span>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* Collapsible settings panel */}
         <CollapsibleContent>
-          <div className="border-t bg-background px-4 py-3 space-y-3" data-testid="settings-panel">
+          <div
+            className="border-t bg-background px-4 py-3 space-y-3"
+            data-testid="settings-panel"
+          >
             {/* Global settings */}
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
               {/* Theme */}
@@ -597,7 +661,10 @@ export function NotebookToolbar({
                 <span className="text-xs font-medium text-muted-foreground">
                   Theme
                 </span>
-                <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5" data-testid="settings-theme-group">
+                <div
+                  className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5"
+                  data-testid="settings-theme-group"
+                >
                   {themeOptions.map((option) => {
                     const Icon = option.icon;
                     const isActive = theme === option.value;
@@ -610,7 +677,7 @@ export function NotebookToolbar({
                           "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
                           isActive
                             ? "bg-background text-foreground shadow-sm"
-                            : "text-muted-foreground hover:text-foreground"
+                            : "text-muted-foreground hover:text-foreground",
                         )}
                       >
                         <Icon className="h-3.5 w-3.5" />
@@ -627,7 +694,10 @@ export function NotebookToolbar({
                   <span className="text-xs font-medium text-muted-foreground">
                     Default Runtime
                   </span>
-                  <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5" data-testid="settings-runtime-group">
+                  <div
+                    className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5"
+                    data-testid="settings-runtime-group"
+                  >
                     <button
                       type="button"
                       onClick={() => onDefaultRuntimeChange("python")}
@@ -635,7 +705,7 @@ export function NotebookToolbar({
                         "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
                         defaultRuntime === "python"
                           ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
+                          : "text-muted-foreground hover:text-foreground",
                       )}
                     >
                       <PythonIcon className="h-3.5 w-3.5" />
@@ -648,7 +718,7 @@ export function NotebookToolbar({
                         "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
                         defaultRuntime === "deno"
                           ? "bg-teal-500/15 text-teal-600 dark:text-teal-400 shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
+                          : "text-muted-foreground hover:text-foreground",
                       )}
                     >
                       <DenoIcon className="h-3.5 w-3.5" />
@@ -660,7 +730,9 @@ export function NotebookToolbar({
             </div>
 
             {/* Python settings */}
-            {(onDefaultPythonEnvChange || onDefaultUvPackagesChange || onDefaultCondaPackagesChange) && (
+            {(onDefaultPythonEnvChange ||
+              onDefaultUvPackagesChange ||
+              onDefaultCondaPackagesChange) && (
               <div className="space-y-2">
                 <div>
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -670,14 +742,20 @@ export function NotebookToolbar({
                     Applied to new notebooks without project-based dependencies
                   </p>
                 </div>
-                <div className="grid gap-2" style={{ gridTemplateColumns: "auto 1fr" }}>
+                <div
+                  className="grid gap-2"
+                  style={{ gridTemplateColumns: "auto 1fr" }}
+                >
                   {/* Default Python Env */}
                   {onDefaultPythonEnvChange && (
                     <>
                       <span className="text-xs font-medium text-muted-foreground whitespace-nowrap self-center text-right">
                         Environment
                       </span>
-                      <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5 w-fit" data-testid="settings-python-env-group">
+                      <div
+                        className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5 w-fit"
+                        data-testid="settings-python-env-group"
+                      >
                         <button
                           type="button"
                           onClick={() => onDefaultPythonEnvChange("uv")}
@@ -685,7 +763,7 @@ export function NotebookToolbar({
                             "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
                             defaultPythonEnv === "uv"
                               ? "bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400 shadow-sm"
-                              : "text-muted-foreground hover:text-foreground"
+                              : "text-muted-foreground hover:text-foreground",
                           )}
                         >
                           <UvIcon className="h-3 w-3" />
@@ -698,7 +776,7 @@ export function NotebookToolbar({
                             "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
                             defaultPythonEnv === "conda"
                               ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shadow-sm"
-                              : "text-muted-foreground hover:text-foreground"
+                              : "text-muted-foreground hover:text-foreground",
                           )}
                         >
                           <CondaIcon className="h-3 w-3" />
@@ -721,18 +799,19 @@ export function NotebookToolbar({
                       />
                     </>
                   )}
-                  {defaultPythonEnv === "conda" && onDefaultCondaPackagesChange && (
-                    <>
-                      <span className="text-xs font-medium text-muted-foreground whitespace-nowrap self-center text-right">
-                        Packages
-                      </span>
-                      <PackageBadgeInput
-                        packages={defaultCondaPackages}
-                        onChange={onDefaultCondaPackagesChange}
-                        placeholder="Add packages…"
-                      />
-                    </>
-                  )}
+                  {defaultPythonEnv === "conda" &&
+                    onDefaultCondaPackagesChange && (
+                      <>
+                        <span className="text-xs font-medium text-muted-foreground whitespace-nowrap self-center text-right">
+                          Packages
+                        </span>
+                        <PackageBadgeInput
+                          packages={defaultCondaPackages}
+                          onChange={onDefaultCondaPackagesChange}
+                          placeholder="Add packages…"
+                        />
+                      </>
+                    )}
                 </div>
               </div>
             )}

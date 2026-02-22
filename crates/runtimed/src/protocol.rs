@@ -229,7 +229,9 @@ mod tests {
 
         let parsed = Response::from_line(&line).unwrap();
         match parsed {
-            Response::Stats { stats: parsed_stats } => {
+            Response::Stats {
+                stats: parsed_stats,
+            } => {
                 assert_eq!(parsed_stats.uv_available, 3);
                 assert_eq!(parsed_stats.uv_warming, 1);
                 assert_eq!(parsed_stats.conda_available, 2);

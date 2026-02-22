@@ -123,11 +123,11 @@ pub fn find_pixi_toml(start_path: &Path) -> Option<PathBuf> {
 
 /// Parse a pixi.toml file and extract relevant configuration.
 pub fn parse_pixi_toml(path: &Path) -> Result<PixiConfig> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| anyhow!("Failed to read pixi.toml: {}", e))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| anyhow!("Failed to read pixi.toml: {}", e))?;
 
-    let raw: RawPixiToml = toml::from_str(&content)
-        .map_err(|e| anyhow!("Failed to parse pixi.toml: {}", e))?;
+    let raw: RawPixiToml =
+        toml::from_str(&content).map_err(|e| anyhow!("Failed to parse pixi.toml: {}", e))?;
 
     // Get workspace/project name (prefer workspace over project for newer pixi)
     let workspace_name = raw
@@ -274,10 +274,12 @@ fn extract_python_version(version: &toml::Value) -> Option<String> {
 
 /// Create PixiInfo from a config for sending to the frontend.
 pub fn create_pixi_info(config: &PixiConfig, notebook_path: &Path) -> PixiInfo {
-    let relative_path =
-        pathdiff::diff_paths(&config.path, notebook_path.parent().unwrap_or(notebook_path))
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| config.path.display().to_string());
+    let relative_path = pathdiff::diff_paths(
+        &config.path,
+        notebook_path.parent().unwrap_or(notebook_path),
+    )
+    .map(|p| p.display().to_string())
+    .unwrap_or_else(|| config.path.display().to_string());
 
     PixiInfo {
         path: config.path.display().to_string(),
@@ -304,7 +306,10 @@ pub fn convert_to_conda_dependencies(config: &PixiConfig) -> CondaDependencies {
 
 /// Get all dependencies from a pixi config (conda + pypi).
 pub fn get_all_dependencies(config: &PixiConfig) -> (Vec<String>, Vec<String>) {
-    (config.dependencies.clone(), config.pypi_dependencies.clone())
+    (
+        config.dependencies.clone(),
+        config.pypi_dependencies.clone(),
+    )
 }
 
 impl PixiConfig {
@@ -439,7 +444,10 @@ fastapi = "*"
 
         let config = parse_pixi_toml(&temp.path().join("pixi.toml")).unwrap();
         assert!(config.has_pypi_dependencies());
-        assert!(config.pypi_dependencies.iter().any(|d| d.contains("requests")));
+        assert!(config
+            .pypi_dependencies
+            .iter()
+            .any(|d| d.contains("requests")));
         assert!(config.pypi_dependencies.iter().any(|d| d == "fastapi"));
     }
 

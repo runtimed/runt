@@ -147,14 +147,10 @@ impl DaemonLock {
             started_at: Utc::now(),
         };
 
-        let json = serde_json::to_string_pretty(&info)
-            .map_err(std::io::Error::other)?;
+        let json = serde_json::to_string_pretty(&info).map_err(std::io::Error::other)?;
 
         std::fs::write(&self.info_path, json)?;
-        info!(
-            "[singleton] Wrote daemon info to {:?}",
-            self.info_path
-        );
+        info!("[singleton] Wrote daemon info to {:?}", self.info_path);
 
         Ok(())
     }

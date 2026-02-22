@@ -5,8 +5,8 @@
  * and moves focus to the previous cell.
  */
 
-import { browser, expect } from "@wdio/globals";
 import os from "node:os";
+import { browser, expect } from "@wdio/globals";
 import { waitForAppReady } from "../helpers.js";
 
 // macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
@@ -67,7 +67,7 @@ describe("Backspace Delete Cell", () => {
 
   it("should delete an empty cell on backspace and focus previous cell", async () => {
     // Step 1: Ensure we have at least one code cell
-    let cells = await $$('[data-cell-type="code"]');
+    const cells = await $$('[data-cell-type="code"]');
     const initialCellCount = cells.length;
     console.log("Initial cell count:", initialCellCount);
 
@@ -86,7 +86,9 @@ describe("Backspace Delete Cell", () => {
     const firstCellId = await firstCell.getAttribute("data-cell-id");
     console.log("First cell ID:", firstCellId);
 
-    const firstEditor = await firstCell.$('.cm-content[contenteditable="true"]');
+    const firstEditor = await firstCell.$(
+      '.cm-content[contenteditable="true"]',
+    );
     await firstEditor.waitForExist({ timeout: 5000 });
 
     // Click to focus and wait
@@ -100,7 +102,10 @@ describe("Backspace Delete Cell", () => {
 
     // Verify we typed something by reading back
     let firstCellContent = await firstEditor.getText();
-    console.log("First cell content after typing:", JSON.stringify(firstCellContent));
+    console.log(
+      "First cell content after typing:",
+      JSON.stringify(firstCellContent),
+    );
 
     // If typing didn't work, try using setValue as fallback
     if (!firstCellContent.includes("ABC")) {
@@ -118,7 +123,10 @@ describe("Backspace Delete Cell", () => {
       await browser.pause(500);
 
       firstCellContent = await firstEditor.getText();
-      console.log("Content after alternative typing:", JSON.stringify(firstCellContent));
+      console.log(
+        "Content after alternative typing:",
+        JSON.stringify(firstCellContent),
+      );
     }
 
     await takeScreenshot("backspace-02-first-cell-with-content");
@@ -167,7 +175,9 @@ describe("Backspace Delete Cell", () => {
     const secondCellId = await secondCell.getAttribute("data-cell-id");
     console.log("Second cell ID:", secondCellId);
 
-    const secondEditor = await secondCell.$('.cm-content[contenteditable="true"]');
+    const secondEditor = await secondCell.$(
+      '.cm-content[contenteditable="true"]',
+    );
     await secondEditor.click();
     await browser.pause(500);
 

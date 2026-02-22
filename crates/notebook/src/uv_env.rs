@@ -12,7 +12,6 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::process::Stdio;
 
-
 /// Dependencies extracted from notebook metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotebookDependencies {
@@ -376,7 +375,10 @@ pub async fn find_existing_prewarmed_environments() -> Vec<UvEnvironment> {
             continue;
         }
 
-        info!("[prewarm] Found existing prewarmed environment: {:?}", venv_path);
+        info!(
+            "[prewarm] Found existing prewarmed environment: {:?}",
+            venv_path
+        );
         found.push(UvEnvironment {
             venv_path,
             python_path,
@@ -408,7 +410,10 @@ pub async fn create_prewarmed_environment() -> Result<UvEnvironment> {
     #[cfg(not(target_os = "windows"))]
     let python_path = venv_path.join("bin").join("python");
 
-    info!("[prewarm] Creating prewarmed environment at {:?}", venv_path);
+    info!(
+        "[prewarm] Creating prewarmed environment at {:?}",
+        venv_path
+    );
 
     // Get uv path (from PATH or bootstrapped via rattler)
     let uv_path = tools::get_uv_path().await?;
@@ -453,7 +458,9 @@ pub async fn create_prewarmed_environment() -> Result<UvEnvironment> {
     if !install_status.success() {
         // Clean up failed environment
         tokio::fs::remove_dir_all(&venv_path).await.ok();
-        return Err(anyhow!("Failed to install ipykernel in prewarmed environment"));
+        return Err(anyhow!(
+            "Failed to install ipykernel in prewarmed environment"
+        ));
     }
 
     info!("[prewarm] Prewarmed environment ready at {:?}", venv_path);
@@ -517,10 +524,7 @@ pub async fn claim_prewarmed_environment(
         }
         Err(e) => {
             // Rename failed (possibly cross-filesystem), fall back to copy+delete
-            info!(
-                "[prewarm] Rename failed ({}), falling back to copy",
-                e
-            );
+            info!("[prewarm] Rename failed ({}), falling back to copy", e);
             copy_dir_recursive(&prewarmed.venv_path, &dest_path).await?;
             tokio::fs::remove_dir_all(&prewarmed.venv_path).await.ok();
             info!("[prewarm] Environment claimed via copy");
@@ -626,7 +630,10 @@ mod tests {
             requires_python: None,
         };
 
-        assert_eq!(compute_env_hash(&deps1, None), compute_env_hash(&deps2, None));
+        assert_eq!(
+            compute_env_hash(&deps1, None),
+            compute_env_hash(&deps2, None)
+        );
     }
 
     #[test]
@@ -641,6 +648,9 @@ mod tests {
             requires_python: None,
         };
 
-        assert_ne!(compute_env_hash(&deps1, None), compute_env_hash(&deps2, None));
+        assert_ne!(
+            compute_env_hash(&deps1, None),
+            compute_env_hash(&deps2, None)
+        );
     }
 }

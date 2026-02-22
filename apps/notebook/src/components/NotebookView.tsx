@@ -1,12 +1,15 @@
-import { useCallback, useRef, useMemo } from "react";
 import { Plus, RotateCcw, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useCallback, useMemo, useRef } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { Button } from "@/components/ui/button";
+import type { CellPagePayload } from "../App";
+import {
+  EditorRegistryProvider,
+  useEditorRegistry,
+} from "../hooks/useEditorRegistry";
+import type { NotebookCell } from "../types";
 import { CodeCell } from "./CodeCell";
 import { MarkdownCell } from "./MarkdownCell";
-import { EditorRegistryProvider, useEditorRegistry } from "../hooks/useEditorRegistry";
-import type { NotebookCell } from "../types";
-import type { CellPagePayload } from "../App";
 import type { Runtime } from "./NotebookToolbar";
 
 interface NotebookViewProps {
@@ -205,10 +208,7 @@ function NotebookViewContent({
 
       // Raw cells rendered as plain text for now
       return (
-        <div
-          key={cell.id}
-          className="px-4 py-2"
-        >
+        <div key={cell.id} className="px-4 py-2">
           <pre className="text-sm text-muted-foreground whitespace-pre-wrap">
             {cell.source}
           </pre>
@@ -231,11 +231,14 @@ function NotebookViewContent({
       onClearPagePayload,
       onFormatCell,
       focusCell,
-    ]
+    ],
   );
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto overflow-x-hidden py-4 pl-8 pr-4">
+    <div
+      ref={containerRef}
+      className="flex-1 overflow-y-auto overflow-x-hidden py-4 pl-8 pr-4"
+    >
       {cells.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
           <p className="text-sm">Empty notebook</p>
@@ -262,6 +265,7 @@ function NotebookViewContent({
           </div>
         </div>
       ) : (
+        // biome-ignore lint/complexity/noUselessFragments: ternary else branch requires single expression
         <>
           {cells.map((cell, index) => (
             <div key={cell.id}>

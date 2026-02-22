@@ -1,5 +1,5 @@
 import { GitBranch, Zap } from "lucide-react";
-import { PoolStatus } from "../hooks/usePrewarmStatus";
+import type { PoolStatus } from "../hooks/usePrewarmStatus";
 
 interface DebugBannerProps {
   branch: string;
@@ -40,7 +40,8 @@ export function DebugBanner({
                 UV: {uvPoolStatus.available}/{uvPoolStatus.target}
                 {uvPoolStatus.creating > 0 && (
                   <span className="text-violet-300">
-                    {" "}(+{uvPoolStatus.creating})
+                    {" "}
+                    (+{uvPoolStatus.creating})
                   </span>
                 )}
               </>
@@ -51,7 +52,8 @@ export function DebugBanner({
                 Conda: {condaPoolStatus.available}/{condaPoolStatus.target}
                 {condaPoolStatus.creating > 0 && (
                   <span className="text-violet-300">
-                    {" "}(+{condaPoolStatus.creating})
+                    {" "}
+                    (+{condaPoolStatus.creating})
                   </span>
                 )}
               </>

@@ -10,11 +10,11 @@
 
 import { browser, expect } from "@wdio/globals";
 import {
-  waitForAppReady,
-  executeFirstCell,
-  waitForCellOutput,
   approveTrustDialog,
+  executeFirstCell,
   typeSlowly,
+  waitForAppReady,
+  waitForCellOutput,
 } from "../helpers.js";
 
 describe("Dependencies Panel", () => {
@@ -74,7 +74,11 @@ describe("Dependencies Panel", () => {
         const panelText = await $('[data-testid="deps-panel"]').getText();
         return panelText.includes("httpx");
       },
-      { timeout: 10000, interval: 500, timeoutMsg: "httpx did not appear in deps panel" }
+      {
+        timeout: 10000,
+        interval: 500,
+        timeoutMsg: "httpx did not appear in deps panel",
+      },
     );
 
     console.log("Added dependency 'httpx'");
@@ -83,13 +87,15 @@ describe("Dependencies Panel", () => {
   it("should remove the added dependency", async () => {
     // Find the remove button for httpx (X button next to the dep badge)
     const removeButton = await browser.execute(() => {
-      const badges = document.querySelectorAll('[data-testid="deps-panel"] .font-mono');
+      const badges = document.querySelectorAll(
+        '[data-testid="deps-panel"] .font-mono',
+      );
       for (const badge of badges) {
         if (badge.textContent.trim() === "httpx") {
           // The X button is a sibling of the text span
           const container = badge.closest("div");
           const btn = container?.querySelector("button");
-          return btn ? true : false;
+          return !!btn;
         }
       }
       return false;
@@ -99,7 +105,9 @@ describe("Dependencies Panel", () => {
 
     // Click the remove button via execute to target the right one
     await browser.execute(() => {
-      const badges = document.querySelectorAll('[data-testid="deps-panel"] .font-mono');
+      const badges = document.querySelectorAll(
+        '[data-testid="deps-panel"] .font-mono',
+      );
       for (const badge of badges) {
         if (badge.textContent.trim() === "httpx") {
           const container = badge.closest("div");
@@ -116,7 +124,11 @@ describe("Dependencies Panel", () => {
         const panelText = await $('[data-testid="deps-panel"]').getText();
         return !panelText.includes("httpx");
       },
-      { timeout: 10000, interval: 500, timeoutMsg: "httpx was not removed from deps panel" }
+      {
+        timeout: 10000,
+        interval: 500,
+        timeoutMsg: "httpx was not removed from deps panel",
+      },
     );
 
     // requests should still be there

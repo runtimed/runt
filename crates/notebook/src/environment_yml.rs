@@ -173,10 +173,7 @@ pub fn parse_environment_yml(path: &Path) -> Result<EnvironmentYmlConfig> {
 ///
 /// Matches "python", "python=3.10", "python>=3.9", etc.
 fn is_python_dep(dep: &str) -> bool {
-    let name = dep
-        .split(['=', '>', '<', '!', ' '])
-        .next()
-        .unwrap_or("");
+    let name = dep.split(['=', '>', '<', '!', ' ']).next().unwrap_or("");
     name == "python"
 }
 
@@ -225,10 +222,12 @@ pub fn create_environment_yml_info(
     config: &EnvironmentYmlConfig,
     notebook_path: &Path,
 ) -> EnvironmentYmlInfo {
-    let relative_path =
-        pathdiff::diff_paths(&config.path, notebook_path.parent().unwrap_or(notebook_path))
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| config.path.display().to_string());
+    let relative_path = pathdiff::diff_paths(
+        &config.path,
+        notebook_path.parent().unwrap_or(notebook_path),
+    )
+    .map(|p| p.display().to_string())
+    .unwrap_or_else(|| config.path.display().to_string());
 
     EnvironmentYmlInfo {
         path: config.path.display().to_string(),
@@ -569,7 +568,9 @@ dependencies:
         assert_eq!(config.dependencies.len(), 1);
         assert!(config.dependencies.contains(&"numpy".to_string()));
         assert_eq!(config.pip_dependencies.len(), 2);
-        assert!(config.pip_dependencies.contains(&"requests>=2.0".to_string()));
+        assert!(config
+            .pip_dependencies
+            .contains(&"requests>=2.0".to_string()));
         assert!(config.pip_dependencies.contains(&"fastapi".to_string()));
     }
 
@@ -600,7 +601,9 @@ dependencies:
         assert!(config.dependencies.contains(&"pandas".to_string()));
         // Pip deps: transformers
         assert_eq!(config.pip_dependencies.len(), 1);
-        assert!(config.pip_dependencies.contains(&"transformers".to_string()));
+        assert!(config
+            .pip_dependencies
+            .contains(&"transformers".to_string()));
     }
 
     #[test]
@@ -638,10 +641,7 @@ dependencies:
         );
 
         let config = parse_environment_yml(&temp.path().join("environment.yml")).unwrap();
-        assert_eq!(
-            config.channels,
-            vec!["conda-forge", "defaults", "bioconda"]
-        );
+        assert_eq!(config.channels, vec!["conda-forge", "defaults", "bioconda"]);
     }
 
     #[test]
@@ -998,10 +998,7 @@ dependencies:
 
     #[test]
     fn test_extract_python_version_major_only() {
-        assert_eq!(
-            extract_python_version("python=3"),
-            Some("3".to_string())
-        );
+        assert_eq!(extract_python_version("python=3"), Some("3".to_string()));
     }
 
     #[test]

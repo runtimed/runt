@@ -5,8 +5,8 @@
  * instead of relying on arbitrary pauses.
  */
 
-import { browser } from "@wdio/globals";
 import os from "node:os";
+import { browser } from "@wdio/globals";
 
 // macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
 const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
@@ -27,7 +27,7 @@ export async function waitForAppReady() {
       timeout: 15000,
       interval: 300,
       timeoutMsg: "App not ready — toolbar not found within 15s",
-    }
+    },
   );
 }
 
@@ -43,7 +43,7 @@ export async function waitForKernelReady() {
       const text = await getKernelStatus();
       return text === "idle" || text === "busy";
     },
-    { timeout: 30000, interval: 200, timeoutMsg: "Kernel not ready" }
+    { timeout: 30000, interval: 200, timeoutMsg: "Kernel not ready" },
   );
 }
 
@@ -87,7 +87,7 @@ export async function waitForCellOutput(cell, timeout = 120000) {
       timeout,
       timeoutMsg: `No output appeared within ${timeout / 1000}s`,
       interval: 1000,
-    }
+    },
   );
 
   return await cell.$('[data-slot="ansi-stream-output"]').getText();
@@ -97,7 +97,11 @@ export async function waitForCellOutput(cell, timeout = 120000) {
  * Wait for stream output containing specific text.
  * Returns the full output text.
  */
-export async function waitForOutputContaining(cell, expectedText, timeout = 120000) {
+export async function waitForOutputContaining(
+  cell,
+  expectedText,
+  timeout = 120000,
+) {
   await browser.waitUntil(
     async () => {
       const streamOutput = await cell.$('[data-slot="ansi-stream-output"]');
@@ -111,7 +115,7 @@ export async function waitForOutputContaining(cell, expectedText, timeout = 1200
       timeout,
       timeoutMsg: `Output "${expectedText}" did not appear within ${timeout / 1000}s`,
       interval: 500,
-    }
+    },
   );
 
   return await cell.$('[data-slot="ansi-stream-output"]').getText();
@@ -131,7 +135,7 @@ export async function waitForErrorOutput(cell, timeout = 30000) {
       timeout,
       timeoutMsg: `Error output did not appear within ${timeout / 1000}s`,
       interval: 500,
-    }
+    },
   );
 
   return await cell.$('[data-slot="ansi-error-output"]').getText();
@@ -155,7 +159,7 @@ export async function approveTrustDialog(timeout = 15000) {
     async () => {
       return !(await dialog.isExisting());
     },
-    { timeout: 10000, interval: 300, timeoutMsg: "Trust dialog did not close" }
+    { timeout: 10000, interval: 300, timeoutMsg: "Trust dialog did not close" },
   );
 }
 
@@ -165,7 +169,7 @@ export async function approveTrustDialog(timeout = 15000) {
 export async function getKernelStatus() {
   return await browser.execute(() => {
     const el = document.querySelector(
-      '[data-testid="notebook-toolbar"] .capitalize'
+      '[data-testid="notebook-toolbar"] .capitalize',
     );
     return el ? el.textContent.trim().toLowerCase() : "";
   });
@@ -184,7 +188,7 @@ export async function waitForKernelStatus(status, timeout = 30000) {
       timeout,
       interval: 300,
       timeoutMsg: `Kernel did not reach "${status}" status within ${timeout / 1000}s`,
-    }
+    },
   );
 }
 
@@ -215,9 +219,7 @@ export async function findButton(labelPatterns) {
       if (await button.isExisting()) {
         return button;
       }
-    } catch (e) {
-      continue;
-    }
+    } catch (_e) {}
   }
   return null;
 }

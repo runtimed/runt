@@ -268,13 +268,10 @@ fn get_host_target() -> String {
 }
 
 fn run_cmd(cmd: &str, args: &[&str]) {
-    let status = Command::new(cmd)
-        .args(args)
-        .status()
-        .unwrap_or_else(|e| {
-            eprintln!("Failed to run {cmd}: {e}");
-            exit(1);
-        });
+    let status = Command::new(cmd).args(args).status().unwrap_or_else(|e| {
+        eprintln!("Failed to run {cmd}: {e}");
+        exit(1);
+    });
 
     if !status.success() {
         eprintln!("Command failed: {cmd} {}", args.join(" "));

@@ -5,8 +5,8 @@
  * Also verifies that outputs are properly cleared on re-execution.
  */
 
-import { browser, expect } from "@wdio/globals";
 import os from "node:os";
+import { browser, expect } from "@wdio/globals";
 import { waitForAppReady } from "../helpers.js";
 
 // macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
@@ -60,7 +60,9 @@ describe("Notebook Execution Happy Path", () => {
   async function waitForOutput(expectedText, timeout) {
     await browser.waitUntil(
       async () => {
-        const streamOutput = await codeCell.$('[data-slot="ansi-stream-output"]');
+        const streamOutput = await codeCell.$(
+          '[data-slot="ansi-stream-output"]',
+        );
         if (!(await streamOutput.isExisting())) {
           return false;
         }
@@ -72,7 +74,7 @@ describe("Notebook Execution Happy Path", () => {
         timeout,
         timeoutMsg: `Output "${expectedText}" did not appear within timeout.`,
         interval: 500,
-      }
+      },
     );
   }
 
@@ -132,7 +134,9 @@ describe("Notebook Execution Happy Path", () => {
     console.log("First execution output appeared!");
 
     // Step 5: Verify output
-    let outputText = await codeCell.$('[data-slot="ansi-stream-output"]').getText();
+    const outputText = await codeCell
+      .$('[data-slot="ansi-stream-output"]')
+      .getText();
     expect(outputText).toContain("hello world");
     console.log("First execution verified successfully");
 
@@ -177,7 +181,9 @@ describe("Notebook Execution Happy Path", () => {
     expect(finalOutputCount).toBe(1);
 
     // Verify the output is the NEW text, not old + new
-    const outputText = await codeCell.$('[data-slot="ansi-stream-output"]').getText();
+    const outputText = await codeCell
+      .$('[data-slot="ansi-stream-output"]')
+      .getText();
     console.log("Final output text:", JSON.stringify(outputText));
 
     // Should contain new output

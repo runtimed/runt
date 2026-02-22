@@ -59,9 +59,18 @@ mod tests {
 
     #[test]
     fn test_runtime_serde() {
-        assert_eq!(serde_json::to_string(&Runtime::Python).unwrap(), "\"python\"");
+        assert_eq!(
+            serde_json::to_string(&Runtime::Python).unwrap(),
+            "\"python\""
+        );
         assert_eq!(serde_json::to_string(&Runtime::Deno).unwrap(), "\"deno\"");
-        assert_eq!(serde_json::from_str::<Runtime>("\"python\"").unwrap(), Runtime::Python);
-        assert_eq!(serde_json::from_str::<Runtime>("\"deno\"").unwrap(), Runtime::Deno);
+        assert_eq!(
+            serde_json::from_str::<Runtime>("\"python\"").unwrap(),
+            Runtime::Python
+        );
+        assert_eq!(
+            serde_json::from_str::<Runtime>("\"deno\"").unwrap(),
+            Runtime::Deno
+        );
     }
 }

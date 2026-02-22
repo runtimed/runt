@@ -1,16 +1,25 @@
-import { useEffect, useCallback, useState, useMemo, useRef, memo, useDeferredValue } from "react";
+import {
+  memo,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import {
   oneDark,
   oneLight,
 } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { isDarkMode } from "@/components/themes";
 import {
   Command,
-  CommandInput,
-  CommandList,
   CommandEmpty,
   CommandGroup,
+  CommandInput,
   CommandItem,
+  CommandList,
 } from "@/components/ui/command";
 import {
   Dialog,
@@ -19,11 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { isDarkMode } from "@/components/themes";
-import {
-  useHistorySearch,
-  type HistoryEntry,
-} from "../hooks/useHistorySearch";
+import { type HistoryEntry, useHistorySearch } from "../hooks/useHistorySearch";
 
 interface HistorySearchDialogProps {
   open: boolean;
@@ -32,14 +37,20 @@ interface HistorySearchDialogProps {
 }
 
 /** Syntax-highlighted code preview for history entries (memoized to avoid re-renders) */
-const CodePreview = memo(function CodePreview({ code, maxLines = 8 }: { code: string; maxLines?: number }) {
+const CodePreview = memo(function CodePreview({
+  code,
+  maxLines = 8,
+}: {
+  code: string;
+  maxLines?: number;
+}) {
   const isDark = isDarkMode();
 
   // Truncate to maxLines
   const lines = code.split("\n");
   const truncated = lines.length > maxLines;
   const displayCode = truncated
-    ? lines.slice(0, maxLines).join("\n") + "\n..."
+    ? `${lines.slice(0, maxLines).join("\n")}\n...`
     : code;
 
   return (
@@ -119,7 +130,7 @@ export function HistorySearchDialog({
     }
     const search = deferredSearchValue.toLowerCase();
     return entries.filter((entry) =>
-      entry.source.toLowerCase().includes(search)
+      entry.source.toLowerCase().includes(search),
     );
   }, [entries, deferredSearchValue]);
 
@@ -128,7 +139,7 @@ export function HistorySearchDialog({
       onSelect(entry.source);
       onOpenChange(false);
     },
-    [onSelect, onOpenChange]
+    [onSelect, onOpenChange],
   );
 
   // Determine what empty message to show
@@ -161,7 +172,10 @@ export function HistorySearchDialog({
           Search through your IPython command history (Ctrl+R)
         </DialogDescription>
       </DialogHeader>
-      <DialogContent className="overflow-hidden p-0 max-w-2xl" showCloseButton={false}>
+      <DialogContent
+        className="overflow-hidden p-0 max-w-2xl"
+        showCloseButton={false}
+      >
         <Command
           shouldFilter={false}
           className="[&_[cmdk-group-heading]]:text-muted-foreground **:data-[slot=command-input-wrapper]:h-12 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group]]:px-2 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-1 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5"
@@ -175,7 +189,9 @@ export function HistorySearchDialog({
             {emptyMessage ? (
               <CommandEmpty>{emptyMessage}</CommandEmpty>
             ) : (
-              <CommandGroup heading={`History${isLoading ? " (searching...)" : ""}`}>
+              <CommandGroup
+                heading={`History${isLoading ? " (searching...)" : ""}`}
+              >
                 {filteredEntries.map((entry, index) => (
                   <CommandItem
                     key={`${entry.session}-${entry.line}-${index}`}

@@ -20,7 +20,8 @@ const __dirname = path.dirname(__filename);
 
 // Screenshot directory: configurable via env, defaults to ./e2e-screenshots
 const SCREENSHOT_DIR =
-  process.env.E2E_SCREENSHOT_DIR || path.join(__dirname, "..", "e2e-screenshots");
+  process.env.E2E_SCREENSHOT_DIR ||
+  path.join(__dirname, "..", "e2e-screenshots");
 const SCREENSHOT_FAILURES_DIR = path.join(SCREENSHOT_DIR, "failures");
 
 // Ensure screenshot directories exist
@@ -69,14 +70,22 @@ export const config = {
         application:
           process.env.TAURI_APP_PATH || "/app/target/release/notebook",
         // Pass notebook path as arg to open a specific fixture
-        ...(process.env.NOTEBOOK_PATH ? { args: [process.env.NOTEBOOK_PATH] } : {}),
+        ...(process.env.NOTEBOOK_PATH
+          ? { args: [process.env.NOTEBOOK_PATH] }
+          : {}),
       },
     },
   ],
 
   // WebDriver connection settings
   hostname: process.env.WEBDRIVER_HOST || "localhost",
-  port: parseInt(process.env.WEBDRIVER_PORT || process.env.CONDUCTOR_PORT || process.env.PORT || "4444", 10),
+  port: parseInt(
+    process.env.WEBDRIVER_PORT ||
+      process.env.CONDUCTOR_PORT ||
+      process.env.PORT ||
+      "4444",
+    10,
+  ),
 
   logLevel: "warn",
 
@@ -98,13 +107,13 @@ export const config = {
    * Hook that gets executed after a test
    * Captures screenshot on failure for debugging
    */
-  afterTest: async function (test, context, { error }) {
+  afterTest: async (test, context, { error }) => {
     if (error) {
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const safeName = test.title.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 50);
       const screenshotPath = path.join(
         SCREENSHOT_FAILURES_DIR,
-        `${safeName}-${timestamp}.png`
+        `${safeName}-${timestamp}.png`,
       );
       try {
         const { browser } = await import("@wdio/globals");

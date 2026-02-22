@@ -393,7 +393,7 @@ async fn process_next(
             {
                 let mut q = queue.lock().unwrap();
                 q.complete(&cell_id); // Remove from executing
-                // Re-add to front of queue
+                                      // Re-add to front of queue
                 q.pending.push_front(cell_id);
                 emit_queue_state(app, &q);
             }

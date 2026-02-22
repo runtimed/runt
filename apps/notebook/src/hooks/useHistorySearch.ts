@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useRef, useState } from "react";
 
 export interface HistoryEntry {
   session: number;

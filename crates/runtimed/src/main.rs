@@ -87,19 +87,32 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         None | Some(Commands::Run { .. }) => {
             // Extract run args from command or use defaults
-            let (socket, sync_socket, cache_dir, uv_pool_size, conda_pool_size) =
-                match cli.command {
-                    Some(Commands::Run {
-                        socket,
-                        sync_socket,
-                        cache_dir,
-                        uv_pool_size,
-                        conda_pool_size,
-                    }) => (socket, sync_socket, cache_dir, uv_pool_size, conda_pool_size),
-                    _ => (None, None, None, 3, 3),
-                };
+            let (socket, sync_socket, cache_dir, uv_pool_size, conda_pool_size) = match cli.command
+            {
+                Some(Commands::Run {
+                    socket,
+                    sync_socket,
+                    cache_dir,
+                    uv_pool_size,
+                    conda_pool_size,
+                }) => (
+                    socket,
+                    sync_socket,
+                    cache_dir,
+                    uv_pool_size,
+                    conda_pool_size,
+                ),
+                _ => (None, None, None, 3, 3),
+            };
 
-            run_daemon(socket, sync_socket, cache_dir, uv_pool_size, conda_pool_size).await
+            run_daemon(
+                socket,
+                sync_socket,
+                cache_dir,
+                uv_pool_size,
+                conda_pool_size,
+            )
+            .await
         }
         Some(Commands::Install { binary }) => install_service(binary),
         Some(Commands::Uninstall) => uninstall_service(),
@@ -150,9 +163,8 @@ async fn run_daemon(
 }
 
 fn install_service(binary: Option<PathBuf>) -> anyhow::Result<()> {
-    let source_binary = binary.unwrap_or_else(|| {
-        std::env::current_exe().expect("Failed to get current executable path")
-    });
+    let source_binary = binary
+        .unwrap_or_else(|| std::env::current_exe().expect("Failed to get current executable path"));
 
     println!("Installing runtimed service...");
     println!("Source binary: {}", source_binary.display());
@@ -227,11 +239,11 @@ async fn status(json: bool) -> anyhow::Result<()> {
     } else {
         println!("runtimed Status");
         println!("===============");
-        println!("Service installed: {}", if installed { "yes" } else { "no" });
         println!(
-            "Daemon running:    {}",
-            if running { "yes" } else { "no" }
+            "Service installed: {}",
+            if installed { "yes" } else { "no" }
         );
+        println!("Daemon running:    {}", if running { "yes" } else { "no" });
 
         if let Some(info) = daemon_info {
             println!();
@@ -245,8 +257,16 @@ async fn status(json: bool) -> anyhow::Result<()> {
         if let Some(stats) = stats {
             println!();
             println!("Pool Statistics:");
-            println!("  UV:    {}/{} available", stats.uv_available, stats.uv_available + stats.uv_warming);
-            println!("  Conda: {}/{} available", stats.conda_available, stats.conda_available + stats.conda_warming);
+            println!(
+                "  UV:    {}/{} available",
+                stats.uv_available,
+                stats.uv_available + stats.uv_warming
+            );
+            println!(
+                "  Conda: {}/{} available",
+                stats.conda_available,
+                stats.conda_available + stats.conda_warming
+            );
         }
     }
 

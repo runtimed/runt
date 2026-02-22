@@ -9,13 +9,13 @@
 
 import { browser, expect } from "@wdio/globals";
 import {
-  waitForAppReady,
+  findButton,
   setupCodeCell,
   typeSlowly,
-  waitForOutputContaining,
+  waitForAppReady,
   waitForErrorOutput,
   waitForKernelStatus,
-  findButton,
+  waitForOutputContaining,
 } from "../helpers.js";
 
 describe("Kernel Lifecycle", () => {
@@ -40,7 +40,11 @@ describe("Kernel Lifecycle", () => {
     await browser.keys(["Shift", "Enter"]);
     console.log("Triggered execution (kernel will start)");
 
-    const outputText = await waitForOutputContaining(codeCell, "x is 42", KERNEL_STARTUP_TIMEOUT);
+    const outputText = await waitForOutputContaining(
+      codeCell,
+      "x is 42",
+      KERNEL_STARTUP_TIMEOUT,
+    );
     expect(outputText).toContain("x is 42");
 
     console.log("Initial execution passed");
@@ -61,7 +65,9 @@ describe("Kernel Lifecycle", () => {
     await browser.pause(2000);
 
     // Try keyboard interrupt first
-    const MOD_KEY = (await browser.execute(() => navigator.platform)).includes("Mac")
+    const MOD_KEY = (await browser.execute(() => navigator.platform)).includes(
+      "Mac",
+    )
       ? "Meta"
       : "Control";
     await browser.keys([MOD_KEY, "c"]);
@@ -86,7 +92,7 @@ describe("Kernel Lifecycle", () => {
       console.log("Error output:", errorText);
       expect(errorText).toContain("KeyboardInterrupt");
       console.log("Interrupt test passed");
-    } catch (e) {
+    } catch (_e) {
       console.log("No explicit error, but interrupt may have worked");
     }
   });
@@ -106,7 +112,11 @@ describe("Kernel Lifecycle", () => {
         const cellText = await codeCell.getText();
         return cellText.match(/\[\d+/);
       },
-      { timeout: KERNEL_STARTUP_TIMEOUT, interval: 500, timeoutMsg: "Variable setup did not complete" }
+      {
+        timeout: KERNEL_STARTUP_TIMEOUT,
+        interval: 500,
+        timeoutMsg: "Variable setup did not complete",
+      },
     );
 
     // Find and click the restart button
@@ -130,7 +140,10 @@ describe("Kernel Lifecycle", () => {
       await browser.pause(300);
       await browser.keys(["Shift", "Enter"]);
 
-      const errorText = await waitForErrorOutput(codeCell, KERNEL_STARTUP_TIMEOUT);
+      const errorText = await waitForErrorOutput(
+        codeCell,
+        KERNEL_STARTUP_TIMEOUT,
+      );
       console.log("Error after restart:", errorText);
 
       expect(errorText).toContain("NameError");
@@ -153,7 +166,11 @@ describe("Kernel Lifecycle", () => {
     console.log("Content before:", contentBefore);
 
     await browser.keys(["Shift", "Enter"]);
-    await waitForOutputContaining(codeCell, "preserved_content_test", KERNEL_STARTUP_TIMEOUT);
+    await waitForOutputContaining(
+      codeCell,
+      "preserved_content_test",
+      KERNEL_STARTUP_TIMEOUT,
+    );
 
     // Verify content is still there
     const contentAfter = await editor.getText();
@@ -172,7 +189,11 @@ describe("Kernel Lifecycle", () => {
 
     await browser.keys(["Shift", "Enter"]);
 
-    const outputText = await waitForOutputContaining(codeCell, "kernel works after restart", EXECUTION_TIMEOUT);
+    const outputText = await waitForOutputContaining(
+      codeCell,
+      "kernel works after restart",
+      EXECUTION_TIMEOUT,
+    );
     expect(outputText).toContain("kernel works after restart");
 
     console.log("Post-restart execution test passed");

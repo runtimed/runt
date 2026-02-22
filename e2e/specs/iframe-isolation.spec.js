@@ -16,9 +16,9 @@
 
 import { browser, expect } from "@wdio/globals";
 import {
+  executeFirstCell,
   waitForAppReady,
   waitForKernelReady,
-  executeFirstCell,
 } from "../helpers.js";
 
 /**
@@ -40,11 +40,13 @@ async function evalInIframe(code, timeout = 10000) {
       }
     });
 
-    const iframe = document.querySelector('iframe[title="Isolated output frame"]');
-    if (iframe && iframe.contentWindow) {
+    const iframe = document.querySelector(
+      'iframe[title="Isolated output frame"]',
+    );
+    if (iframe?.contentWindow) {
       iframe.contentWindow.postMessage(
         { type: "eval", payload: { code: code } },
-        "*"
+        "*",
       );
     } else {
       window.__iframeEvalResult = { success: false, error: "iframe not found" };
@@ -57,7 +59,11 @@ async function evalInIframe(code, timeout = 10000) {
     async () => {
       return await browser.execute(() => window.__iframeEvalDone === true);
     },
-    { timeout, interval: 100, timeoutMsg: `Iframe eval timed out for: ${code}` }
+    {
+      timeout,
+      interval: 100,
+      timeoutMsg: `Iframe eval timed out for: ${code}`,
+    },
   );
 
   // Step 3: Retrieve and clean up result
@@ -92,7 +98,11 @@ describe("Iframe Isolation Security", () => {
         const iframe = await $('iframe[title="Isolated output frame"]');
         return await iframe.isExisting();
       },
-      { timeout: 120000, interval: 500, timeoutMsg: "Isolated output frame did not appear" }
+      {
+        timeout: 120000,
+        interval: 500,
+        timeoutMsg: "Isolated output frame did not appear",
+      },
     );
     console.log("IsolatedFrame found");
   });
@@ -123,7 +133,9 @@ describe("Iframe Isolation Security", () => {
   });
 
   it('should have opaque "null" origin from blob: URL', async () => {
-    const result = await evalInIframe("window.origin || window.location.origin");
+    const result = await evalInIframe(
+      "window.origin || window.location.origin",
+    );
     console.log("Iframe origin:", result);
     expect(result.success).toBe(true);
     expect(result.result).toBe("null");
@@ -131,7 +143,7 @@ describe("Iframe Isolation Security", () => {
 
   it("should block access to parent document (cross-origin)", async () => {
     const result = await evalInIframe(
-      "try { window.parent.document.body; 'accessible' } catch(e) { 'blocked:' + e.name }"
+      "try { window.parent.document.body; 'accessible' } catch(e) { 'blocked:' + e.name }",
     );
     console.log("Parent document access result:", result);
     expect(result.success).toBe(true);
@@ -140,7 +152,7 @@ describe("Iframe Isolation Security", () => {
 
   it("should block localStorage access (opaque origin)", async () => {
     const result = await evalInIframe(
-      "try { window.localStorage.getItem('test'); 'accessible' } catch(e) { 'blocked:' + e.name }"
+      "try { window.localStorage.getItem('test'); 'accessible' } catch(e) { 'blocked:' + e.name }",
     );
     console.log("localStorage access result:", result);
     expect(result.success).toBe(true);

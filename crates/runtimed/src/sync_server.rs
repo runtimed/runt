@@ -25,10 +25,7 @@ use tokio::net::windows::named_pipe::ServerOptions;
 use crate::settings_doc::SettingsDoc;
 
 /// Send a length-prefixed message over a writer.
-async fn send_framed<W: AsyncWrite + Unpin>(
-    writer: &mut W,
-    data: &[u8],
-) -> std::io::Result<()> {
+async fn send_framed<W: AsyncWrite + Unpin>(writer: &mut W, data: &[u8]) -> std::io::Result<()> {
     let len = (data.len() as u32).to_be_bytes();
     writer.write_all(&len).await?;
     writer.write_all(data).await?;
@@ -38,9 +35,7 @@ async fn send_framed<W: AsyncWrite + Unpin>(
 
 /// Receive a length-prefixed message from a reader.
 /// Returns `None` on clean disconnect (EOF).
-async fn recv_framed<R: AsyncRead + Unpin>(
-    reader: &mut R,
-) -> std::io::Result<Option<Vec<u8>>> {
+async fn recv_framed<R: AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<Option<Vec<u8>>> {
     let mut len_buf = [0u8; 4];
     match reader.read_exact(&mut len_buf).await {
         Ok(_) => {}
@@ -76,8 +71,14 @@ pub async fn run_sync_server(
 ) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
-        run_unix_sync_server(socket_path, settings, settings_changed, shutdown, shutdown_notify)
-            .await
+        run_unix_sync_server(
+            socket_path,
+            settings,
+            settings_changed,
+            shutdown,
+            shutdown_notify,
+        )
+        .await
     }
 
     #[cfg(windows)]

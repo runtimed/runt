@@ -1,27 +1,37 @@
-import { useCallback, useRef, useEffect, useMemo, useState, lazy, Suspense } from "react";
 import type { KeyBinding } from "@codemirror/view";
+import { Trash2, X } from "lucide-react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { CellContainer } from "@/components/cell/CellContainer";
 import { CompactExecutionButton } from "@/components/cell/CompactExecutionButton";
 import { OutputArea } from "@/components/cell/OutputArea";
-import { AnsiOutput } from "@/components/outputs/ansi-output";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import {
   CodeMirrorEditor,
   type CodeMirrorEditorRef,
 } from "@/components/editor/codemirror-editor";
 import type { SupportedLanguage } from "@/components/editor/languages";
-import { Trash2, X } from "lucide-react";
-import { kernelCompletionExtension } from "../lib/kernel-completion";
+import { AnsiOutput } from "@/components/outputs/ansi-output";
+import type { CellPagePayload } from "../App";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
 import { useEditorRegistry } from "../hooks/useEditorRegistry";
-import type { CodeCell as CodeCellType } from "../types";
-import type { CellPagePayload } from "../App";
 import type { MimeBundle } from "../hooks/useKernel";
+import { kernelCompletionExtension } from "../lib/kernel-completion";
+import type { CodeCell as CodeCellType } from "../types";
 
 // Lazy load HistorySearchDialog - it pulls in react-syntax-highlighter (~800KB)
 // Only loaded when user opens history search (Ctrl+R)
 const HistorySearchDialog = lazy(() =>
-  import("./HistorySearchDialog").then((m) => ({ default: m.HistorySearchDialog }))
+  import("./HistorySearchDialog").then((m) => ({
+    default: m.HistorySearchDialog,
+  })),
 );
 
 /** Page payload display component - Zed REPL style */
@@ -41,7 +51,9 @@ function PagePayloadDisplay({
         {typeof htmlContent === "string" ? (
           <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
         ) : typeof textContent === "string" ? (
-          <AnsiOutput className="cm-page-payload-text">{textContent}</AnsiOutput>
+          <AnsiOutput className="cm-page-payload-text">
+            {textContent}
+          </AnsiOutput>
         ) : (
           <pre className="cm-page-payload-text">
             {JSON.stringify(data, null, 2)}
@@ -145,7 +157,7 @@ export function CodeCell({
         onFocusNext(cursorPosition);
       }
     },
-    [isLastCell, onFocusNext, onInsertCellAfter]
+    [isLastCell, onFocusNext, onInsertCellAfter],
   );
 
   // Get keyboard navigation bindings
@@ -172,7 +184,7 @@ export function CodeCell({
         return true;
       },
     }),
-    []
+    [],
   );
 
   // Handle history selection - replace cell content
@@ -180,13 +192,13 @@ export function CodeCell({
     (source: string) => {
       onUpdateSource(source);
     },
-    [onUpdateSource]
+    [onUpdateSource],
   );
 
   // Merge navigation keybindings (navigation bindings take precedence for Shift-Enter)
   const keyMap: KeyBinding[] = useMemo(
     () => [...navigationKeyMap, historyKeyBinding],
-    [navigationKeyMap, historyKeyBinding]
+    [navigationKeyMap, historyKeyBinding],
   );
 
   const handleExecute = useCallback(() => {
