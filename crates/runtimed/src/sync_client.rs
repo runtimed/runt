@@ -10,7 +10,9 @@ use std::time::Duration;
 use automerge::sync::{self, SyncDoc};
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ReadDoc};
-use log::{info, warn};
+use log::info;
+#[cfg(unix)]
+use log::warn;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::settings_doc::SyncedSettings;
@@ -77,15 +79,14 @@ async fn recv_framed<R: AsyncRead + Unpin>(
     Ok(Some(buf))
 }
 
+#[cfg(unix)]
 impl SyncClient<tokio::net::UnixStream> {
     /// Connect to the daemon's sync socket and perform initial sync.
-    #[cfg(unix)]
     pub async fn connect(socket_path: PathBuf) -> Result<Self, SyncClientError> {
         Self::connect_with_timeout(socket_path, Duration::from_secs(2)).await
     }
 
     /// Connect with a custom timeout.
-    #[cfg(unix)]
     pub async fn connect_with_timeout(
         socket_path: PathBuf,
         timeout: Duration,
@@ -105,7 +106,8 @@ impl SyncClient<tokio::net::UnixStream> {
 }
 
 #[cfg(windows)]
-impl SyncClient<tokio::net::windows::named_pipe::ClientOptions> {
+impl SyncClient<tokio::net::windows::named_pipe::NamedPipeClient> {
+    /// Connect to the daemon's sync socket and perform initial sync.
     pub async fn connect(socket_path: PathBuf) -> Result<Self, SyncClientError> {
         let pipe_name = socket_path.to_string_lossy().to_string();
         let client = tokio::net::windows::named_pipe::ClientOptions::new()
@@ -258,10 +260,8 @@ fn get_all_from_doc(doc: &AutoCommit) -> SyncedSettings {
 
 /// Convenience: try to connect and get settings, returning defaults on failure.
 pub async fn try_get_synced_settings() -> SyncedSettings {
-    let socket_path = crate::default_sync_socket_path();
-
     #[cfg(unix)]
-    match SyncClient::connect(socket_path).await {
+    match SyncClient::connect(crate::default_sync_socket_path()).await {
         Ok(client) => {
             let settings = client.get_all();
             info!("[sync-client] Got settings from daemon: {:?}", settings);
