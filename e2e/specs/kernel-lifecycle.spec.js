@@ -8,11 +8,15 @@
  */
 
 import { browser, expect } from "@wdio/globals";
-import os from "node:os";
-import { waitForAppReady } from "../helpers.js";
-
-// macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
-const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
+import {
+  waitForAppReady,
+  setupCodeCell,
+  typeSlowly,
+  waitForOutputContaining,
+  waitForErrorOutput,
+  waitForKernelStatus,
+  findButton,
+} from "../helpers.js";
 
 describe("Kernel Lifecycle", () => {
   const KERNEL_STARTUP_TIMEOUT = 90000;
@@ -22,161 +26,50 @@ describe("Kernel Lifecycle", () => {
 
   before(async () => {
     await waitForAppReady();
-
-    const title = await browser.getTitle();
-    console.log("Page title:", title);
+    console.log("Page title:", await browser.getTitle());
   });
 
-  /**
-   * Helper to type text character by character with delay
-   */
-  async function typeSlowly(text, delay = 30) {
-    for (const char of text) {
-      await browser.keys(char);
-      await browser.pause(delay);
-    }
-  }
-
-  /**
-   * Helper to find a button by trying multiple selectors
-   */
-  async function findButton(labelPatterns) {
-    for (const pattern of labelPatterns) {
-      try {
-        const button = await $(pattern);
-        if (await button.isExisting()) {
-          return button;
-        }
-      } catch (e) {
-        // Selector might be invalid, try next
-        continue;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Helper to wait for output containing specific text
-   */
-  async function waitForOutput(expectedText, timeout) {
-    await browser.waitUntil(
-      async () => {
-        const streamOutput = await codeCell.$('[data-slot="ansi-stream-output"]');
-        if (!(await streamOutput.isExisting())) {
-          return false;
-        }
-        const text = await streamOutput.getText();
-        return text.includes(expectedText);
-      },
-      {
-        timeout,
-        timeoutMsg: `Output "${expectedText}" did not appear within timeout.`,
-        interval: 500,
-      }
-    );
-  }
-
-  /**
-   * Helper to wait for error output
-   */
-  async function waitForError(timeout) {
-    await browser.waitUntil(
-      async () => {
-        const errorOutput = await codeCell.$('[data-slot="ansi-error-output"]');
-        return await errorOutput.isExisting();
-      },
-      {
-        timeout,
-        timeoutMsg: "Error output did not appear within timeout.",
-        interval: 500,
-      }
-    );
-  }
-
-  /**
-   * Helper to ensure we have a code cell and focus the editor
-   */
-  async function setupCodeCell() {
-    codeCell = await $('[data-cell-type="code"]');
-    const cellExists = await codeCell.isExisting();
-
-    if (!cellExists) {
-      console.log("No code cell found, adding one...");
-      const addCodeButton = await $("button*=Code");
-      await addCodeButton.waitForClickable({ timeout: 5000 });
-      await addCodeButton.click();
-      await browser.pause(500);
-
-      codeCell = await $('[data-cell-type="code"]');
-      await codeCell.waitForExist({ timeout: 5000 });
-    }
-
-    const editor = await codeCell.$('.cm-content[contenteditable="true"]');
-    await editor.waitForExist({ timeout: 5000 });
-    await editor.click();
-    await browser.pause(200);
-
-    // Clear any existing content
-    await browser.keys([MOD_KEY, "a"]);
-    await browser.pause(100);
-  }
-
-  /**
-   * Helper to get editor content
-   */
-  async function getEditorContent() {
-    const editor = await codeCell.$('.cm-content[contenteditable="true"]');
-    return await editor.getText();
-  }
-
   it("should start kernel and execute initial code", async () => {
-    await setupCodeCell();
+    codeCell = await setupCodeCell();
 
-    // Define a variable
     const testCode = 'x = 42; print("x is", x)';
     console.log("Typing code:", testCode);
     await typeSlowly(testCode);
     await browser.pause(300);
 
-    // Execute
     await browser.keys(["Shift", "Enter"]);
     console.log("Triggered execution (kernel will start)");
 
-    // Wait for output
-    await waitForOutput("x is 42", KERNEL_STARTUP_TIMEOUT);
-
-    const outputText = await codeCell.$('[data-slot="ansi-stream-output"]').getText();
+    const outputText = await waitForOutputContaining(codeCell, "x is 42", KERNEL_STARTUP_TIMEOUT);
     expect(outputText).toContain("x is 42");
 
     console.log("Initial execution passed");
   });
 
   it("should interrupt long-running execution", async () => {
-    await setupCodeCell();
+    codeCell = await setupCodeCell();
 
-    // Start an infinite loop
     const testCode = "import time\nwhile True:\n    time.sleep(0.1)";
     console.log("Typing long-running code");
     await typeSlowly(testCode);
     await browser.pause(300);
 
-    // Execute
     await browser.keys(["Shift", "Enter"]);
     console.log("Triggered long-running execution");
 
-    // Wait a moment for execution to start
+    // Wait for execution to start
     await browser.pause(2000);
 
-    // Send interrupt (Ctrl+C or Cmd+C equivalent - uses kernel interrupt)
-    // In Jupyter, this is typically Ctrl+C or there's an interrupt button
     // Try keyboard interrupt first
+    const MOD_KEY = (await browser.execute(() => navigator.platform)).includes("Mac")
+      ? "Meta"
+      : "Control";
     await browser.keys([MOD_KEY, "c"]);
     console.log("Sent interrupt signal");
 
-    // Wait a moment
     await browser.pause(1000);
 
-    // If Ctrl+C didn't work, try the interrupt button if it exists
+    // If keyboard shortcut didn't work, try the interrupt button
     const interruptButton = await findButton([
       'button[aria-label*="interrupt"]',
       'button[aria-label*="Interrupt"]',
@@ -189,31 +82,25 @@ describe("Kernel Lifecycle", () => {
 
     // Wait for KeyboardInterrupt error
     try {
-      await waitForError(10000);
-      const errorOutput = await codeCell.$('[data-slot="ansi-error-output"]');
-      const errorText = await errorOutput.getText();
+      const errorText = await waitForErrorOutput(codeCell, 10000);
       console.log("Error output:", errorText);
-
-      // Should show KeyboardInterrupt
       expect(errorText).toContain("KeyboardInterrupt");
       console.log("Interrupt test passed");
     } catch (e) {
-      // If no error appeared, check if the cell is no longer executing
-      // This might indicate the interrupt worked differently
       console.log("No explicit error, but interrupt may have worked");
     }
   });
 
   it("should restart kernel and clear variables", async () => {
-    // First, set up a variable
-    await setupCodeCell();
+    // Set up a variable
+    codeCell = await setupCodeCell();
 
     const setupCode = 'restart_test_var = "before_restart"';
     await typeSlowly(setupCode);
     await browser.pause(300);
     await browser.keys(["Shift", "Enter"]);
 
-    // Wait for execution to complete (exec count or output)
+    // Wait for execution to complete
     await browser.waitUntil(
       async () => {
         const cellText = await codeCell.getText();
@@ -222,90 +109,71 @@ describe("Kernel Lifecycle", () => {
       { timeout: KERNEL_STARTUP_TIMEOUT, interval: 500, timeoutMsg: "Variable setup did not complete" }
     );
 
-    // Now find and click the restart button
+    // Find and click the restart button
     const restartButton = await findButton([
       'button[title="Restart kernel"]',
       'button[aria-label*="restart"]',
       'button[aria-label*="Restart"]',
+      "button*=Restart",
     ]);
 
     if (restartButton) {
       console.log("Found restart button, clicking...");
       await restartButton.click();
 
-      // Wait for kernel to restart by watching toolbar status cycle back to idle
-      await browser.waitUntil(
-        async () => {
-          const text = await browser.execute(() => {
-            const el = document.querySelector('[data-testid="notebook-toolbar"] .capitalize');
-            return el ? el.textContent.trim().toLowerCase() : '';
-          });
-          return text === 'idle' || text === 'not started';
-        },
-        { timeout: 15000, interval: 300, timeoutMsg: "Kernel did not restart" }
-      );
+      // Wait for kernel to restart
+      await waitForKernelStatus("idle", 15000);
 
-      // Now try to access the variable - should get NameError
-      await setupCodeCell();
+      // Try to access the variable — should get NameError
+      codeCell = await setupCodeCell();
       const testCode = "print(restart_test_var)";
       await typeSlowly(testCode);
       await browser.pause(300);
       await browser.keys(["Shift", "Enter"]);
 
-      // Wait for error
-      await waitForError(KERNEL_STARTUP_TIMEOUT);
-
-      const errorOutput = await codeCell.$('[data-slot="ansi-error-output"]');
-      const errorText = await errorOutput.getText();
+      const errorText = await waitForErrorOutput(codeCell, KERNEL_STARTUP_TIMEOUT);
       console.log("Error after restart:", errorText);
 
       expect(errorText).toContain("NameError");
-      console.log("Restart cleared variables - test passed");
+      console.log("Restart cleared variables — test passed");
     } else {
       console.log("No restart button found, skipping restart test");
     }
   });
 
   it("should preserve cell content after restart", async () => {
-    // After restart, the cell content should still be there
-    await setupCodeCell();
+    codeCell = await setupCodeCell();
 
-    // Type some code (single-line to avoid issues with typeSlowly and newlines)
     const testCode = 'print("preserved_content_test")';
     await typeSlowly(testCode);
     await browser.pause(300);
 
-    // Get the content before execution
-    const contentBefore = await getEditorContent();
+    // Get content before execution
+    const editor = await codeCell.$('.cm-content[contenteditable="true"]');
+    const contentBefore = await editor.getText();
     console.log("Content before:", contentBefore);
 
-    // Execute to verify it works
     await browser.keys(["Shift", "Enter"]);
-    await waitForOutput("preserved_content_test", KERNEL_STARTUP_TIMEOUT);
+    await waitForOutputContaining(codeCell, "preserved_content_test", KERNEL_STARTUP_TIMEOUT);
 
-    // Verify content is still there after execution
-    const contentAfter = await getEditorContent();
+    // Verify content is still there
+    const contentAfter = await editor.getText();
     console.log("Content after execution:", contentAfter);
 
-    // Content should be preserved
     expect(contentAfter).toContain("preserved_content_test");
-
     console.log("Cell content preservation test passed");
   });
 
   it("should execute successfully after kernel restart", async () => {
-    await setupCodeCell();
+    codeCell = await setupCodeCell();
 
-    // Simple execution to verify kernel is functional after restart
     const testCode = 'print("kernel works after restart")';
     await typeSlowly(testCode);
     await browser.pause(300);
 
     await browser.keys(["Shift", "Enter"]);
 
-    await waitForOutput("kernel works after restart", EXECUTION_TIMEOUT);
-
-    const outputText = await codeCell.$('[data-slot="ansi-stream-output"]').getText();
+    const outputText = await waitForOutputContaining(codeCell, "kernel works after restart", EXECUTION_TIMEOUT);
     expect(outputText).toContain("kernel works after restart");
 
     console.log("Post-restart execution test passed");

@@ -62,7 +62,7 @@ export function DependencyHeader({
   );
 
   return (
-    <div className="border-b bg-uv/5 dark:bg-uv/10">
+    <div className="border-b bg-uv/5 dark:bg-uv/10" data-testid="deps-panel">
       <div className="px-3 py-3">
         {/* uv badge */}
         <div className="mb-2 flex items-center gap-2">
@@ -112,6 +112,7 @@ export function DependencyHeader({
                 type="button"
                 onClick={onSyncNow}
                 disabled={loading}
+                data-testid="deps-sync-button"
                 className="flex items-center gap-1 rounded bg-amber-600 px-2 py-0.5 text-white text-xs font-medium hover:bg-amber-700 transition-colors disabled:opacity-50"
               >
                 <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
@@ -264,6 +265,7 @@ export function DependencyHeader({
               onChange={(e) => setNewDep(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="package or package>=version"
+              data-testid="deps-add-input"
               className="flex-1 rounded border bg-background px-2 py-1 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               disabled={loading}
               autoComplete="off"
@@ -273,6 +275,7 @@ export function DependencyHeader({
               type="button"
               onClick={handleAdd}
               disabled={loading || !newDep.trim()}
+              data-testid="deps-add-button"
               className="flex items-center gap-1 rounded bg-uv px-2 py-1 text-xs text-white transition-colors hover:bg-uv/90 disabled:opacity-50"
             >
               <Plus className="h-3 w-3" />

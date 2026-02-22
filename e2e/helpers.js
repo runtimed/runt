@@ -40,12 +40,7 @@ export async function waitForKernelReady() {
   await waitForAppReady();
   await browser.waitUntil(
     async () => {
-      const text = await browser.execute(() => {
-        const el = document.querySelector(
-          '[data-testid="notebook-toolbar"] .capitalize'
-        );
-        return el ? el.textContent.trim().toLowerCase() : "";
-      });
+      const text = await getKernelStatus();
       return text === "idle" || text === "busy";
     },
     { timeout: 30000, interval: 200, timeoutMsg: "Kernel not ready" }
@@ -99,6 +94,50 @@ export async function waitForCellOutput(cell, timeout = 120000) {
 }
 
 /**
+ * Wait for stream output containing specific text.
+ * Returns the full output text.
+ */
+export async function waitForOutputContaining(cell, expectedText, timeout = 120000) {
+  await browser.waitUntil(
+    async () => {
+      const streamOutput = await cell.$('[data-slot="ansi-stream-output"]');
+      if (!(await streamOutput.isExisting())) {
+        return false;
+      }
+      const text = await streamOutput.getText();
+      return text.includes(expectedText);
+    },
+    {
+      timeout,
+      timeoutMsg: `Output "${expectedText}" did not appear within ${timeout / 1000}s`,
+      interval: 500,
+    }
+  );
+
+  return await cell.$('[data-slot="ansi-stream-output"]').getText();
+}
+
+/**
+ * Wait for error output to appear in a cell.
+ * Returns the error text.
+ */
+export async function waitForErrorOutput(cell, timeout = 30000) {
+  await browser.waitUntil(
+    async () => {
+      const errorOutput = await cell.$('[data-slot="ansi-error-output"]');
+      return await errorOutput.isExisting();
+    },
+    {
+      timeout,
+      timeoutMsg: `Error output did not appear within ${timeout / 1000}s`,
+      interval: 500,
+    }
+  );
+
+  return await cell.$('[data-slot="ansi-error-output"]').getText();
+}
+
+/**
  * Wait for the trust dialog to appear and click "Trust & Install".
  * Call this after executing a cell in an untrusted notebook with inline deps.
  * The trust dialog appears because the kernel won't start until deps are approved.
@@ -118,4 +157,92 @@ export async function approveTrustDialog(timeout = 15000) {
     },
     { timeout: 10000, interval: 300, timeoutMsg: "Trust dialog did not close" }
   );
+}
+
+/**
+ * Get the current kernel status text from the toolbar.
+ */
+export async function getKernelStatus() {
+  return await browser.execute(() => {
+    const el = document.querySelector(
+      '[data-testid="notebook-toolbar"] .capitalize'
+    );
+    return el ? el.textContent.trim().toLowerCase() : "";
+  });
+}
+
+/**
+ * Wait for the kernel to reach a specific status.
+ */
+export async function waitForKernelStatus(status, timeout = 30000) {
+  await browser.waitUntil(
+    async () => {
+      const current = await getKernelStatus();
+      return current === status;
+    },
+    {
+      timeout,
+      interval: 300,
+      timeoutMsg: `Kernel did not reach "${status}" status within ${timeout / 1000}s`,
+    }
+  );
+}
+
+/**
+ * Type text character by character with delay.
+ * Use this when typing into CodeMirror editors where bulk input may drop keys.
+ */
+export async function typeSlowly(text, delay = 30) {
+  for (const char of text) {
+    await browser.keys(char);
+    await browser.pause(delay);
+  }
+}
+
+/**
+ * Find a button by trying multiple selectors. Returns the first match, or null.
+ */
+export async function findButton(labelPatterns) {
+  for (const pattern of labelPatterns) {
+    try {
+      const button = await $(pattern);
+      if (await button.isExisting()) {
+        return button;
+      }
+    } catch (e) {
+      continue;
+    }
+  }
+  return null;
+}
+
+/**
+ * Set up a code cell for typing: find (or create) a code cell,
+ * focus its editor, and select all content.
+ * Returns the cell element.
+ */
+export async function setupCodeCell() {
+  let codeCell = await $('[data-cell-type="code"]');
+  const cellExists = await codeCell.isExisting();
+
+  if (!cellExists) {
+    const addCodeButton = await $("button*=Code");
+    await addCodeButton.waitForClickable({ timeout: 5000 });
+    await addCodeButton.click();
+    await browser.pause(500);
+
+    codeCell = await $('[data-cell-type="code"]');
+    await codeCell.waitForExist({ timeout: 5000 });
+  }
+
+  const editor = await codeCell.$('.cm-content[contenteditable="true"]');
+  await editor.waitForExist({ timeout: 5000 });
+  await editor.click();
+  await browser.pause(200);
+
+  // Select all to prepare for replacement
+  await browser.keys([MOD_KEY, "a"]);
+  await browser.pause(100);
+
+  return codeCell;
 }

@@ -273,6 +273,7 @@ export function NotebookToolbar({
           <button
             type="button"
             onClick={onToggleDependencies}
+            data-testid="deps-toggle"
             className={cn(
               "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors hover:bg-muted",
               hasDependencies ? "text-foreground" : "text-muted-foreground"

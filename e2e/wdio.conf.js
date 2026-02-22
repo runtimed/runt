@@ -35,6 +35,7 @@ const FIXTURE_SPECS = [
   "pyproject-startup.spec.js",
   "pixi-env-detection.spec.js",
   "environment-yml-detection.spec.js",
+  "deps-panel.spec.js",
   "iframe-isolation.spec.js",
 ];
 
