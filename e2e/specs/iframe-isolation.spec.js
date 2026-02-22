@@ -1,237 +1,149 @@
 /**
- * E2E Security Tests for Iframe Isolation
+ * E2E Security Tests: Iframe Isolation (Fixture)
  *
- * These tests verify that the isolated iframe properly blocks access to:
- * - Tauri APIs (window.__TAURI__, window.__TAURI_INTERNALS__)
- * - Parent document (cross-origin restriction)
- * - Parent localStorage (cross-origin restriction)
+ * Opens a notebook that produces HTML output (9-html-output.ipynb).
+ * Executes the cell, which triggers an IsolatedFrame iframe, then verifies
+ * that the iframe sandbox properly blocks Tauri API leakage and cross-origin access.
  *
- * The iframe should have an opaque "null" origin from the blob: URL.
+ * Note: browser.switchToFrame() and browser.executeAsync() are not supported in
+ * wry's built-in WebDriver. We test the iframe's internal state via the production
+ * postMessage eval channel (frame-html.ts handles { type: "eval" } messages).
+ * We use browser.execute() + browser.waitUntil() polling to work around the lack
+ * of async script execution.
+ *
+ * Requires: NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/9-html-output.ipynb
  */
 
 import { browser, expect } from "@wdio/globals";
+import {
+  waitForAppReady,
+  waitForKernelReady,
+  executeFirstCell,
+} from "../helpers.js";
+
+/**
+ * Execute code inside the isolated iframe via postMessage eval channel.
+ * Uses synchronous browser.execute() + polling since wry doesn't support executeAsync.
+ * Returns the eval_result payload: { success: boolean, result?: string, error?: string }
+ */
+async function evalInIframe(code, timeout = 10000) {
+  // Step 1: Set up listener in parent and send eval message to iframe
+  await browser.execute((code) => {
+    window.__iframeEvalResult = undefined;
+    window.__iframeEvalDone = false;
+
+    window.addEventListener("message", function handler(event) {
+      if (event.data && event.data.type === "eval_result") {
+        window.__iframeEvalResult = event.data.payload;
+        window.__iframeEvalDone = true;
+        window.removeEventListener("message", handler);
+      }
+    });
+
+    const iframe = document.querySelector('iframe[title="Isolated output frame"]');
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage(
+        { type: "eval", payload: { code: code } },
+        "*"
+      );
+    } else {
+      window.__iframeEvalResult = { success: false, error: "iframe not found" };
+      window.__iframeEvalDone = true;
+    }
+  }, code);
+
+  // Step 2: Poll until result arrives
+  await browser.waitUntil(
+    async () => {
+      return await browser.execute(() => window.__iframeEvalDone === true);
+    },
+    { timeout, interval: 100, timeoutMsg: `Iframe eval timed out for: ${code}` }
+  );
+
+  // Step 3: Retrieve and clean up result
+  const result = await browser.execute(() => {
+    const r = window.__iframeEvalResult;
+    delete window.__iframeEvalResult;
+    delete window.__iframeEvalDone;
+    return r;
+  });
+
+  return result;
+}
 
 describe("Iframe Isolation Security", () => {
   before(async () => {
-    // Wait for app to fully load
-    await browser.pause(5000);
+    await waitForAppReady();
+    console.log("Page title:", await browser.getTitle());
 
-    // Debug: Get the page title and URL
-    const title = await browser.getTitle();
-    const url = await browser.getUrl();
-    console.log("Page title:", title);
-    console.log("Page URL:", url);
+    // Kernel auto-launches for vanilla notebooks (no deps)
+    await waitForKernelReady();
+    console.log("Kernel ready");
 
-    // Try to trigger the isolation test panel via keyboard
-    // First try Control (Linux)
-    await browser.keys(["Control", "Shift", "i"]);
-    await browser.pause(2000);
+    // Execute the cell — produces HTML display output via IPython.display
+    // When a cell has HTML output, ALL outputs (including stream) get routed
+    // to the IsolatedFrame iframe, so we wait for the iframe directly.
+    await executeFirstCell();
+    console.log("Triggered execution");
 
-    // Check if the panel appeared
-    let isolationPanel = await $('[data-testid="isolation-test"]');
-    const panelExists = await isolationPanel.isExisting();
-
-    if (!panelExists) {
-      console.log("Keyboard shortcut did not work, trying to inject state change");
-      // Try to find React root and trigger state change via JS
-      // This is a fallback for headless testing
-      await browser.execute(() => {
-        // Dispatch a keyboard event programmatically
-        const event = new KeyboardEvent("keydown", {
-          key: "i",
-          code: "KeyI",
-          ctrlKey: true,
-          shiftKey: true,
-          bubbles: true,
-        });
-        window.dispatchEvent(event);
-      });
-      await browser.pause(2000);
-    }
-
-    // Debug: Get page source to see what's rendered
-    const pageSource = await browser.getPageSource();
-    console.log(
-      "Page contains isolation-test:",
-      pageSource.includes("isolation-test")
+    // Wait for the IsolatedFrame iframe to appear (HTML output triggers it)
+    await browser.waitUntil(
+      async () => {
+        const iframe = await $('iframe[title="Isolated output frame"]');
+        return await iframe.isExisting();
+      },
+      { timeout: 120000, interval: 500, timeoutMsg: "Isolated output frame did not appear" }
     );
-    console.log(
-      "Page contains IsolatedFrame:",
-      pageSource.includes("Isolated output frame")
-    );
+    console.log("IsolatedFrame found");
   });
 
-  it("should have the isolation test panel or IsolatedFrame accessible", async () => {
-    // Check for either the test panel or any isolated iframe
-    const isolationTest = await $('[data-testid="isolation-test"]');
-    const isolatedFrame = await $('iframe[title="Isolated output frame"]');
-    const testFrame = await $('iframe[title="Isolation Test Frame"]');
+  it("should render HTML output in a sandboxed iframe", async () => {
+    const iframe = await $('iframe[title="Isolated output frame"]');
+    const sandbox = await iframe.getAttribute("sandbox");
+    console.log("Sandbox attribute:", sandbox);
 
-    const testPanelExists = await isolationTest.isExisting();
-    const productionFrameExists = await isolatedFrame.isExisting();
-    const testFrameExists = await testFrame.isExisting();
-
-    console.log("Test panel exists:", testPanelExists);
-    console.log("Production frame exists:", productionFrameExists);
-    console.log("Test frame exists:", testFrameExists);
-
-    // At least one should exist for testing
-    expect(testPanelExists || productionFrameExists || testFrameExists).toBe(
-      true
-    );
+    // Critical: allow-same-origin must NOT be present (would give iframe access to Tauri APIs)
+    expect(sandbox).not.toContain("allow-same-origin");
+    // allow-scripts is required for interactive content
+    expect(sandbox).toContain("allow-scripts");
   });
 
-  describe("Security Properties (if panel is visible)", () => {
-    let iframeElement;
+  it("should not expose window.__TAURI__ inside iframe", async () => {
+    const result = await evalInIframe("typeof window.__TAURI__");
+    console.log("__TAURI__ type in iframe:", result);
+    expect(result.success).toBe(true);
+    expect(result.result).toBe("undefined");
+  });
 
-    before(async () => {
-      // Try to find any isolated iframe
-      iframeElement = await $('iframe[sandbox]');
-      const exists = await iframeElement.isExisting();
+  it("should not expose window.__TAURI_INTERNALS__ inside iframe", async () => {
+    const result = await evalInIframe("typeof window.__TAURI_INTERNALS__");
+    console.log("__TAURI_INTERNALS__ type in iframe:", result);
+    expect(result.success).toBe(true);
+    expect(result.result).toBe("undefined");
+  });
 
-      if (!exists) {
-        console.log("No sandboxed iframe found, skipping security tests");
-        // Mark as skipped
-        this.skip();
-      }
-    });
+  it('should have opaque "null" origin from blob: URL', async () => {
+    const result = await evalInIframe("window.origin || window.location.origin");
+    console.log("Iframe origin:", result);
+    expect(result.success).toBe(true);
+    expect(result.result).toBe("null");
+  });
 
-    it("sandbox should NOT include allow-same-origin", async () => {
-      if (!iframeElement || !(await iframeElement.isExisting())) {
-        console.log("Skipping: No iframe found");
-        return;
-      }
+  it("should block access to parent document (cross-origin)", async () => {
+    const result = await evalInIframe(
+      "try { window.parent.document.body; 'accessible' } catch(e) { 'blocked:' + e.name }"
+    );
+    console.log("Parent document access result:", result);
+    expect(result.success).toBe(true);
+    expect(result.result).toContain("blocked");
+  });
 
-      const sandbox = await iframeElement.getAttribute("sandbox");
-      console.log("Sandbox attribute:", sandbox);
-      expect(sandbox).not.toContain("allow-same-origin");
-      expect(sandbox).toContain("allow-scripts");
-    });
-
-    it("window.__TAURI__ should be undefined in iframe", async () => {
-      if (!iframeElement || !(await iframeElement.isExisting())) {
-        console.log("Skipping: No iframe found");
-        return;
-      }
-
-      await browser.switchToFrame(iframeElement);
-
-      const hasTauri = await browser.execute(() => {
-        return typeof window.__TAURI__ !== "undefined";
-      });
-
-      expect(hasTauri).toBe(false);
-      await browser.switchToParentFrame();
-    });
-
-    it("window.__TAURI_INTERNALS__ should be undefined in iframe", async () => {
-      if (!iframeElement || !(await iframeElement.isExisting())) {
-        console.log("Skipping: No iframe found");
-        return;
-      }
-
-      await browser.switchToFrame(iframeElement);
-
-      const hasTauriInternals = await browser.execute(() => {
-        return typeof window.__TAURI_INTERNALS__ !== "undefined";
-      });
-
-      expect(hasTauriInternals).toBe(false);
-      await browser.switchToParentFrame();
-    });
-
-    it("accessing parent.document should throw cross-origin error", async () => {
-      if (!iframeElement || !(await iframeElement.isExisting())) {
-        console.log("Skipping: No iframe found");
-        return;
-      }
-
-      await browser.switchToFrame(iframeElement);
-
-      let securityErrorThrown = false;
-      let result = null;
-
-      try {
-        result = await browser.execute(() => {
-          try {
-            const _body = window.parent.document.body;
-            return { success: true, error: null };
-          } catch (e) {
-            return { success: false, error: e.name || e.message };
-          }
-        });
-      } catch (e) {
-        // WebDriver may throw the SecurityError directly instead of catching it
-        // This is actually the expected behavior - the security restriction is working
-        if (e.name === "SecurityError" || e.message.includes("SecurityError")) {
-          securityErrorThrown = true;
-        } else {
-          throw e;
-        }
-      }
-
-      // Test passes if either:
-      // 1. WebDriver threw a SecurityError (security restriction working)
-      // 2. The JS caught the error and returned success: false
-      const accessBlocked = securityErrorThrown || (result && result.success === false);
-      expect(accessBlocked).toBe(true);
-
-      await browser.switchToParentFrame();
-    });
-
-    it('window.origin should be "null" (opaque origin)', async () => {
-      if (!iframeElement || !(await iframeElement.isExisting())) {
-        console.log("Skipping: No iframe found");
-        return;
-      }
-
-      await browser.switchToFrame(iframeElement);
-
-      const origin = await browser.execute(() => {
-        return window.origin || window.location.origin;
-      });
-
-      expect(origin).toBe("null");
-      await browser.switchToParentFrame();
-    });
-
-    it("accessing localStorage should throw security error", async () => {
-      if (!iframeElement || !(await iframeElement.isExisting())) {
-        console.log("Skipping: No iframe found");
-        return;
-      }
-
-      await browser.switchToFrame(iframeElement);
-
-      let securityErrorThrown = false;
-      let result = null;
-
-      try {
-        result = await browser.execute(() => {
-          try {
-            // Accessing localStorage from an opaque origin should throw
-            const _test = window.localStorage.getItem("test");
-            return { success: true, error: null };
-          } catch (e) {
-            return { success: false, error: e.name || e.message };
-          }
-        });
-      } catch (e) {
-        // WebDriver may throw the SecurityError directly
-        if (e.name === "SecurityError" || e.message.includes("SecurityError")) {
-          securityErrorThrown = true;
-        } else {
-          throw e;
-        }
-      }
-
-      // Test passes if either:
-      // 1. WebDriver threw a SecurityError (security restriction working)
-      // 2. The JS caught the error and returned success: false
-      const accessBlocked = securityErrorThrown || (result && result.success === false);
-      expect(accessBlocked).toBe(true);
-
-      await browser.switchToParentFrame();
-    });
+  it("should block localStorage access (opaque origin)", async () => {
+    const result = await evalInIframe(
+      "try { window.localStorage.getItem('test'); 'accessible' } catch(e) { 'blocked:' + e.name }"
+    );
+    console.log("localStorage access result:", result);
+    expect(result.success).toBe(true);
+    expect(result.result).toContain("blocked");
   });
 });
