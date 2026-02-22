@@ -627,10 +627,21 @@ async fn interrupt_kernel(
 
 #[tauri::command]
 async fn shutdown_kernel(
+    app: tauri::AppHandle,
     kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
     let mut kernel = kernel_state.lock().await;
-    kernel.shutdown().await.map_err(|e| e.to_string())
+    kernel.shutdown().await.map_err(|e| e.to_string())?;
+
+    let event = KernelLifecycleEvent {
+        state: "not started".to_string(),
+        runtime: String::new(),
+        env_source: None,
+        error_message: None,
+    };
+    let _ = app.emit("kernel:lifecycle", &event);
+
+    Ok(())
 }
 
 #[tauri::command]
