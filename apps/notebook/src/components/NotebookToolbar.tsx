@@ -460,14 +460,14 @@ export function NotebookToolbar({
 
         {/* Collapsible settings panel */}
         <CollapsibleContent>
-          <div className="border-t bg-background px-4 py-3">
+          <div className="border-t bg-background px-4 py-3" data-testid="settings-panel">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
               {/* Theme */}
               <div className="flex items-center gap-3">
                 <span className="text-xs font-medium text-muted-foreground">
                   Theme
                 </span>
-                <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5">
+                <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5" data-testid="settings-theme-group">
                   {themeOptions.map((option) => {
                     const Icon = option.icon;
                     const isActive = theme === option.value;
@@ -497,7 +497,7 @@ export function NotebookToolbar({
                   <span className="text-xs font-medium text-muted-foreground">
                     Default Runtime
                   </span>
-                  <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5">
+                  <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5" data-testid="settings-runtime-group">
                     <button
                       type="button"
                       onClick={() => onDefaultRuntimeChange("python")}
@@ -534,7 +534,7 @@ export function NotebookToolbar({
                   <span className="text-xs font-medium text-muted-foreground">
                     Default Python Env
                   </span>
-                  <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5">
+                  <div className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5" data-testid="settings-python-env-group">
                     <button
                       type="button"
                       onClick={() => onDefaultPythonEnvChange("uv")}

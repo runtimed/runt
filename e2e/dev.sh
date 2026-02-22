@@ -185,6 +185,10 @@ case "${1:-help}" in
       crates/notebook/fixtures/audit-test/9-html-output.ipynb \
       e2e/specs/iframe-isolation.spec.js || FAIL=1
 
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/1-vanilla.ipynb \
+      e2e/specs/settings-panel.spec.js || FAIL=1
+
     exit $FAIL
     ;;
 
