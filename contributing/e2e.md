@@ -552,6 +552,40 @@ await browser.pause(5000);
 
 ## Troubleshooting
 
+### "E2E binary not found"
+
+The WebDriver-enabled binary hasn't been built yet. `dev.sh` will tell you exactly what to run:
+
+```bash
+./e2e/dev.sh build       # fast: recompiles Rust only (skips frontend)
+./e2e/dev.sh build-full  # full: rebuilds frontend + sidecars + Rust
+```
+
+Use `build-full` the first time or after changing React components (e.g., adding `data-testid`). After that, `build` is much faster for Rust-only changes.
+
+### "No WebDriver server on port 4444"
+
+You ran `./e2e/dev.sh test` without starting the app first. The `test` command connects to an already-running app — it does **not** start one.
+
+Either:
+- Start the app in one terminal (`./e2e/dev.sh start`) and run tests in another (`./e2e/dev.sh test`)
+- Use `./e2e/dev.sh cycle` to build + start + test in one shot
+- Use `./e2e/dev.sh test-fixture` which starts a fresh app instance automatically
+
+**Key distinction:** `test` requires a running app. `test-fixture` manages its own app lifecycle.
+
+### "Notebook file not found" / "Spec file not found"
+
+Paths are relative to the project root. `dev.sh` will list available fixtures and specs when it can't find a file.
+
+```bash
+# Correct:
+./e2e/dev.sh test-fixture crates/notebook/fixtures/audit-test/1-vanilla.ipynb e2e/specs/vanilla-startup.spec.js
+
+# Wrong — don't use absolute paths or paths from other directories:
+./e2e/dev.sh test-fixture /Users/me/runt/crates/notebook/fixtures/audit-test/1-vanilla.ipynb ...
+```
+
 ### "Malformed type for elementId parameter"
 
 You're hitting the wry text-selector bug. Replace `$("button*=Text")` with `$('[data-testid="..."]')`. See [wry WebDriver Quirks](#wry-webdriver-quirks).
@@ -561,6 +595,16 @@ You're hitting the wry text-selector bug. Replace `$("button*=Text")` with `$('[
 - Element may not be rendered yet — add `waitForExist()` or `waitForClickable()`
 - Selector may be wrong — verify with `browser.getPageSource()`
 - Element may be in an iframe — use the postMessage eval pattern (not `switchToFrame`)
+
+### Connection failures (11 WebDriver errors)
+
+If you see many `Request failed with status 500` or connection errors, the app is not running or not listening on the expected port. Check:
+
+```bash
+./e2e/dev.sh status    # should print JSON response, not "Not running"
+```
+
+The port fallback chain is `WEBDRIVER_PORT > CONDUCTOR_PORT > PORT > 4444`. If you're in a worktree with `CONDUCTOR_PORT` set, tests will use that port — make sure the app was started with the same port.
 
 ### Timeout Errors
 
@@ -574,6 +618,7 @@ You're hitting the wry text-selector bug. Replace `$("button*=Text")` with `$('[
 - Use `typeSlowly()` for CodeMirror input
 - Use `data-testid` selectors instead of text selectors
 - If testing features with daemon interaction, follow the [daemon-independent pattern](#daemon-independent-testing)
+- On CI (Linux), React re-renders may not be atomic — use `waitUntil()` to poll for class changes rather than asserting immediately after a click
 
 ### Docker Build Issues
 
