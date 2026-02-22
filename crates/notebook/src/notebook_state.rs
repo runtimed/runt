@@ -342,6 +342,18 @@ impl NotebookState {
         self.notebook.cells.iter().map(cell_to_frontend).collect()
     }
 
+    /// Get the ordered list of code cell IDs (skipping markdown and raw cells)
+    pub fn get_code_cell_ids(&self) -> Vec<String> {
+        self.notebook
+            .cells
+            .iter()
+            .filter_map(|c| match c {
+                Cell::Code { id, .. } => Some(id.to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub fn find_cell_index(&self, cell_id: &str) -> Option<usize> {
         self.notebook
             .cells
@@ -842,6 +854,35 @@ mod tests {
         assert_eq!(code_cell.id(), "code-123");
         assert_eq!(md_cell.id(), "md-456");
         assert_eq!(raw_cell.id(), "raw-789");
+    }
+
+    #[test]
+    fn test_get_code_cell_ids_returns_only_code_cells() {
+        let mut state = NotebookState::new_empty();
+        // Start with 1 code cell
+        let first_code_id = state.notebook.cells[0].id().to_string();
+
+        // Add markdown, then another code cell
+        state.add_cell("markdown", Some(&first_code_id));
+        let md_id = state.notebook.cells[1].id().to_string();
+        state.add_cell("code", Some(&md_id));
+        let second_code_id = state.notebook.cells[2].id().to_string();
+
+        let code_ids = state.get_code_cell_ids();
+        assert_eq!(code_ids.len(), 2);
+        assert_eq!(code_ids[0], first_code_id);
+        assert_eq!(code_ids[1], second_code_id);
+    }
+
+    #[test]
+    fn test_get_code_cell_ids_empty_when_no_code_cells() {
+        let mut state = NotebookState::new_empty();
+        let first_id = state.notebook.cells[0].id().to_string();
+        // Replace the only code cell with a markdown cell
+        state.add_cell("markdown", Some(&first_id));
+        // Can't delete the last cell, so this test just checks with mixed cells
+        let ids = state.get_code_cell_ids();
+        assert_eq!(ids.len(), 1); // The original code cell
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Save, Play, Square, Plus, Package, Settings, Sun, Moon, Monitor, RotateCcw } from "lucide-react";
+import { Save, Play, Square, Plus, Package, Settings, Sun, Moon, Monitor, RotateCcw, ChevronsRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Collapsible,
@@ -164,6 +164,8 @@ interface NotebookToolbarProps {
   onStartKernel: (name: string) => void;
   onInterruptKernel: () => void;
   onRestartKernel: () => void;
+  onRunAllCells: () => void;
+  onRestartAndRunAll: () => void;
   onAddCell: (type: "code" | "markdown") => void;
   onToggleDependencies: () => void;
   listKernelspecs: () => Promise<KernelspecInfo[]>;
@@ -190,6 +192,8 @@ export function NotebookToolbar({
   onStartKernel,
   onInterruptKernel,
   onRestartKernel,
+  onRunAllCells,
+  onRestartAndRunAll,
   onAddCell,
   onToggleDependencies,
   listKernelspecs,
@@ -301,6 +305,15 @@ export function NotebookToolbar({
             <>
               <button
                 type="button"
+                onClick={onRunAllCells}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                title="Run all cells"
+              >
+                <ChevronsRight className="h-3.5 w-3.5" />
+                Run All
+              </button>
+              <button
+                type="button"
                 onClick={onInterruptKernel}
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title="Interrupt kernel"
@@ -316,6 +329,15 @@ export function NotebookToolbar({
               >
                 <RotateCcw className="h-3 w-3" />
                 Restart
+              </button>
+              <button
+                type="button"
+                onClick={onRestartAndRunAll}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                title="Restart kernel and run all cells"
+              >
+                <RotateCcw className="h-3 w-3" />
+                <ChevronsRight className="h-3 w-3 -ml-1" />
               </button>
             </>
           )}

@@ -99,6 +99,17 @@ export function useExecutionQueue(options: UseExecutionQueueOptions = {}) {
     }
   }, []);
 
+  /** Queue all code cells for execution in notebook order */
+  const runAllCells = useCallback(async (): Promise<string[]> => {
+    console.log("[queue] run all cells");
+    try {
+      return await invoke<string[]>("run_all_cells");
+    } catch (e) {
+      console.error("[queue] run_all_cells failed:", e);
+      return [];
+    }
+  }, []);
+
   /** Check if a specific cell is in the queue (pending or executing) */
   const isCellQueued = useCallback(
     (cellId: string) => queueState.cells.some((c) => c.cell_id === cellId),
@@ -131,6 +142,8 @@ export function useExecutionQueue(options: UseExecutionQueueOptions = {}) {
     queueState,
     /** Queue a cell for execution */
     queueCell,
+    /** Queue all code cells for execution */
+    runAllCells,
     /** Clear all pending cells */
     clearQueue,
     /** Check if a cell is queued */
