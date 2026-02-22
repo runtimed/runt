@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Save, Play, Square, Plus, Package, Settings, Sun, Moon, Monitor, RotateCcw, ChevronsRight } from "lucide-react";
+import { Save, Play, Square, Plus, Package, Settings, Sun, Moon, Monitor, RotateCcw, ChevronsRight, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Collapsible,
@@ -463,6 +463,22 @@ export function NotebookToolbar({
             </button>
           </CollapsibleTrigger>
         </div>
+
+        {/* Deno install prompt */}
+        {runtime === "deno" && kernelStatus === "error" && kernelErrorMessage && (
+          <div className="border-t px-3 py-2">
+            <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
+              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                <span className="font-medium">Deno not available.</span> Auto-install failed. Install manually with{" "}
+                <code className="rounded bg-amber-500/20 px-1">
+                  curl -fsSL https://deno.land/install.sh | sh
+                </code>{" "}
+                and restart.
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Collapsible settings panel */}
         <CollapsibleContent>

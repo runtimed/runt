@@ -459,7 +459,7 @@ export function useKernel({
           } else {
             console.warn("[kernel] Deno not available, notebook requires Deno runtime");
             setKernelStatus("error");
-            // TODO: Show install prompt
+            setKernelErrorMessage("Deno not available");
             return;
           }
         }
