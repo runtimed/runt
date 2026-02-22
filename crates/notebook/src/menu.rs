@@ -2,6 +2,7 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Wry};
 
 // Menu item IDs for new notebook types
+pub const MENU_NEW_NOTEBOOK: &str = "new_notebook";
 pub const MENU_NEW_PYTHON_NOTEBOOK: &str = "new_python_notebook";
 pub const MENU_NEW_DENO_NOTEBOOK: &str = "new_deno_notebook";
 pub const MENU_OPEN: &str = "open";
@@ -48,21 +49,30 @@ pub fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     // File menu
     let file_menu = Submenu::new(app, "File", true)?;
 
-    // New Notebook submenu with Python and Deno options
-    let new_notebook_submenu = Submenu::new(app, "New Notebook", true)?;
+    // New Notebook: Cmd+N uses the user's default runtime setting
+    file_menu.append(&MenuItem::with_id(
+        app,
+        MENU_NEW_NOTEBOOK,
+        "New Notebook",
+        true,
+        Some("CmdOrCtrl+N"),
+    )?)?;
+
+    // Explicit runtime overrides in a submenu
+    let new_notebook_submenu = Submenu::new(app, "New Notebook As...", true)?;
     new_notebook_submenu.append(&MenuItem::with_id(
         app,
         MENU_NEW_PYTHON_NOTEBOOK,
         "Python",
         true,
-        Some("CmdOrCtrl+N"),
+        None::<&str>,
     )?)?;
     new_notebook_submenu.append(&MenuItem::with_id(
         app,
         MENU_NEW_DENO_NOTEBOOK,
         "Deno (TypeScript)",
         true,
-        Some("CmdOrCtrl+Shift+N"),
+        None::<&str>,
     )?)?;
     file_menu.append(&new_notebook_submenu)?;
 

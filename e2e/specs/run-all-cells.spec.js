@@ -49,7 +49,12 @@ describe("Run All Cells", () => {
   });
 
   it("should execute all cells with Run All", async () => {
-    // Kernel auto-launches for vanilla notebooks (no deps)
+    // Start the kernel explicitly (auto-launch may be slow in CI)
+    const startButton = await $("button*=Start Kernel");
+    if (await startButton.isExisting()) {
+      await startButton.click();
+      console.log("Clicked Start Kernel");
+    }
     await waitForKernelReady();
     console.log("Kernel ready");
 
