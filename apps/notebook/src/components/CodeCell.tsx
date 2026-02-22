@@ -243,6 +243,7 @@ export function CodeCell({
             {pagePayload && (
               <div className="px-2 py-1">
                 <ErrorBoundary
+                  resetKeys={[pagePayload.data]}
                   fallback={() => (
                     <div className="text-xs text-muted-foreground italic px-1 py-2">
                       Failed to render documentation

@@ -480,7 +480,8 @@ export function OutputArea({
           {!shouldIsolate &&
             outputs.map((output, index) => (
               <ErrorBoundary
-                key={`error-boundary-${index}`}
+                key={`output-${index}`}
+                resetKeys={[output]}
                 fallback={(error) => (
                   <OutputErrorFallback error={error} outputIndex={index} />
                 )}

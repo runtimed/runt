@@ -143,9 +143,11 @@ export function WidgetView({ modelId, className }: WidgetViewProps) {
     }
   }
 
-  // Wrap in error boundary to catch render failures in built-in widgets
+  // Wrap in error boundary to catch render failures in built-in widgets.
+  // resetKeys tracks the model state so the boundary auto-recovers on updates.
   const wrappedWidget = (
     <ErrorBoundary
+      resetKeys={[model.state]}
       fallback={(error) => (
         <WidgetErrorFallback
           error={error}
