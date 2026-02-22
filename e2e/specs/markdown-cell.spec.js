@@ -75,7 +75,7 @@ describe("Markdown Cell", () => {
       console.log("Initial markdown cell count:", initialCount);
 
       // Click the "Markdown" button to add a new markdown cell
-      const addMdButton = await $("button*=Markdown");
+      const addMdButton = await $('[data-testid="add-markdown-cell-button"]');
       const buttonExists = await addMdButton.isExisting();
 
       if (buttonExists) {
@@ -188,7 +188,7 @@ describe("Markdown Cell", () => {
 
       if (!targetCell) {
         // Create a markdown cell and add content
-        const addMdButton = await $("button*=Markdown");
+        const addMdButton = await $('[data-testid="add-markdown-cell-button"]');
         if (await addMdButton.isExisting()) {
           await addMdButton.click();
           await browser.pause(500);
@@ -299,7 +299,7 @@ describe("Markdown Cell", () => {
 
       if (!targetCell) {
         // Create or enter edit mode on a cell
-        const addMdButton = await $("button*=Markdown");
+        const addMdButton = await $('[data-testid="add-markdown-cell-button"]');
         if (await addMdButton.isExisting()) {
           await addMdButton.click();
           await browser.pause(500);

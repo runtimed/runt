@@ -71,9 +71,9 @@ describe("Kernel Lifecycle", () => {
 
     // If keyboard shortcut didn't work, try the interrupt button
     const interruptButton = await findButton([
+      '[data-testid="interrupt-kernel-button"]',
       'button[aria-label*="interrupt"]',
       'button[aria-label*="Interrupt"]',
-      "button*=Interrupt",
     ]);
     if (interruptButton) {
       console.log("Clicking interrupt button");
@@ -111,10 +111,9 @@ describe("Kernel Lifecycle", () => {
 
     // Find and click the restart button
     const restartButton = await findButton([
+      '[data-testid="restart-kernel-button"]',
       'button[title="Restart kernel"]',
       'button[aria-label*="restart"]',
-      'button[aria-label*="Restart"]',
-      "button*=Restart",
     ]);
 
     if (restartButton) {

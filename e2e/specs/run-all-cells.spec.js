@@ -49,14 +49,12 @@ describe("Run All Cells", () => {
   });
 
   it("should execute all cells with Run All", async () => {
-    // Start the kernel explicitly if it hasn't auto-launched yet.
-    // Use browser.execute() — wry's WebDriver returns broken element refs for text selectors.
-    const clicked = await browser.execute(() => {
-      const btn = document.querySelector('button[title="Start kernel"]');
-      if (btn) { btn.click(); return true; }
-      return false;
-    });
-    if (clicked) console.log("Clicked Start Kernel");
+    // Start the kernel explicitly if it hasn't auto-launched yet
+    const startButton = await $('[data-testid="start-kernel-button"]');
+    if (await startButton.isExisting()) {
+      await startButton.click();
+      console.log("Clicked Start Kernel");
+    }
     await waitForKernelReady();
     console.log("Kernel ready");
 

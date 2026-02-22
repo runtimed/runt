@@ -74,7 +74,7 @@ describe("Backspace Delete Cell", () => {
     if (initialCellCount === 0) {
       // Add first cell
       console.log("No code cell found, adding one...");
-      const addCodeButton = await $("button*=Code");
+      const addCodeButton = await $('[data-testid="add-code-cell-button"]');
       await addCodeButton.waitForClickable({ timeout: 5000 });
       await addCodeButton.click();
       await browser.pause(500);
@@ -141,7 +141,7 @@ describe("Backspace Delete Cell", () => {
     // If Alt+Enter didn't create a cell, try clicking the add button
     if (cellCount < 2) {
       console.log("Alt+Enter didn't create cell, trying button...");
-      const addButtons = await $$("button*=Code");
+      const addButtons = await $$('[data-testid="add-code-cell-button"]');
       if (addButtons.length > 0) {
         // Scroll the last button into view and click
         const lastAddButton = addButtons[addButtons.length - 1];

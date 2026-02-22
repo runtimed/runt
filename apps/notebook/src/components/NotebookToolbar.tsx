@@ -252,6 +252,7 @@ export function NotebookToolbar({
               dirty ? "text-foreground" : "text-muted-foreground"
             )}
             title="Save (Cmd+S)"
+            data-testid="save-button"
           >
             <Save className="h-3.5 w-3.5" />
             {dirty && <span className="text-[10px]">&bull;</span>}
@@ -265,6 +266,7 @@ export function NotebookToolbar({
             onClick={() => onAddCell("code")}
             className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             title="Add code cell"
+            data-testid="add-code-cell-button"
           >
             <Plus className="h-3 w-3" />
             Code
@@ -274,6 +276,7 @@ export function NotebookToolbar({
             onClick={() => onAddCell("markdown")}
             className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             title="Add markdown cell"
+            data-testid="add-markdown-cell-button"
           >
             <Plus className="h-3 w-3" />
             Markdown
@@ -289,6 +292,7 @@ export function NotebookToolbar({
               disabled={kernelspecs.length === 0}
               className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
               title="Start kernel"
+              data-testid="start-kernel-button"
             >
               <Play className="h-3 w-3" fill="currentColor" />
               Start Kernel
@@ -310,6 +314,7 @@ export function NotebookToolbar({
                 onClick={onRestartKernel}
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title="Restart kernel"
+                data-testid="restart-kernel-button"
               >
                 <RotateCcw className="h-3 w-3" />
                 Restart
@@ -329,6 +334,7 @@ export function NotebookToolbar({
                 onClick={onInterruptKernel}
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title="Interrupt kernel"
+                data-testid="interrupt-kernel-button"
               >
                 <Square className="h-3 w-3" />
                 Interrupt
