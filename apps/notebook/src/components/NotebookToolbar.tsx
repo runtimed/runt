@@ -281,23 +281,6 @@ export function NotebookToolbar({
 
           <div className="h-4 w-px bg-border" />
 
-          {/* Dependencies */}
-          <button
-            type="button"
-            onClick={onToggleDependencies}
-            data-testid="deps-toggle"
-            className={cn(
-              "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors hover:bg-muted",
-              hasDependencies ? "text-foreground" : "text-muted-foreground"
-            )}
-            title="Manage dependencies"
-          >
-            <Package className="h-3.5 w-3.5" />
-            Deps
-          </button>
-
-          <div className="flex-1" />
-
           {/* Kernel controls */}
           {!isKernelRunning ? (
             <button
@@ -324,15 +307,6 @@ export function NotebookToolbar({
               </button>
               <button
                 type="button"
-                onClick={onInterruptKernel}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                title="Interrupt kernel"
-              >
-                <Square className="h-3 w-3" />
-                Interrupt
-              </button>
-              <button
-                type="button"
                 onClick={onRestartKernel}
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title="Restart kernel"
@@ -350,7 +324,48 @@ export function NotebookToolbar({
                 <RotateCcw className="h-3 w-3" />
                 <ChevronsRight className="h-3 w-3 -ml-1" />
               </button>
+              <button
+                type="button"
+                onClick={onInterruptKernel}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                title="Interrupt kernel"
+              >
+                <Square className="h-3 w-3" />
+                Interrupt
+              </button>
             </>
+          )}
+
+          <div className="flex-1" />
+
+          {/* Dependencies */}
+          <button
+            type="button"
+            onClick={onToggleDependencies}
+            data-testid="deps-toggle"
+            className={cn(
+              "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors hover:bg-muted",
+              hasDependencies ? "text-foreground" : "text-muted-foreground"
+            )}
+            title="Manage dependencies"
+          >
+            <Package className="h-3.5 w-3.5" />
+            Deps
+          </button>
+
+          {/* Env source badge */}
+          {envBadgeInfo && (
+            <div
+              className={cn(
+                "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                envBadgeClasses(envBadgeInfo.variant)
+              )}
+              title={`Environment: ${envSource}`}
+            >
+              {envBadgeInfo.variant === "uv" && <UvIcon className="h-2 w-2" />}
+              {envBadgeInfo.variant === "conda" && <CondaIcon className="h-2.5 w-2.5" />}
+              {envBadgeInfo.variant === "pixi" && <PixiIcon className="h-2 w-2" />}
+            </div>
           )}
 
           {/* Runtime badge */}
@@ -376,26 +391,32 @@ export function NotebookToolbar({
             )}
           </div>
 
-          {/* Env source badge — Python only */}
-          {envBadgeInfo && (
-            <div
-              className={cn(
-                "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                envBadgeClasses(envBadgeInfo.variant)
-              )}
-              title={`Environment: ${envSource}`}
-            >
-              {envBadgeInfo.variant === "uv" && <UvIcon className="h-2 w-2" />}
-              {envBadgeInfo.variant === "conda" && <CondaIcon className="h-2.5 w-2.5" />}
-              {envBadgeInfo.variant === "pixi" && <PixiIcon className="h-2 w-2" />}
-            </div>
-          )}
-
           {/* Kernel status */}
-          <div className="flex items-center gap-1.5">
+          <div
+            className="flex w-[3rem] items-center gap-1.5"
+            role="status"
+            aria-label={`Kernel: ${
+              envProgress?.isActive
+                ? envProgress.statusText
+                : envProgress?.error
+                  ? envProgress.statusText
+                  : kernelStatus === "error" && kernelErrorMessage
+                    ? `Error \u2014 ${kernelErrorMessage}`
+                    : kernelStatus
+            }`}
+            title={
+              envProgress?.isActive
+                ? envProgress.statusText
+                : envProgress?.error
+                  ? envProgress.error
+                  : kernelStatus === "error" && kernelErrorMessage
+                    ? `Error \u2014 ${kernelErrorMessage}`
+                    : kernelStatus
+            }
+          >
             <div
               className={cn(
-                "h-2 w-2 rounded-full",
+                "h-2 w-2 shrink-0 rounded-full",
                 kernelStatus === "idle" && "bg-green-500",
                 kernelStatus === "busy" && "bg-amber-500",
                 kernelStatus === "starting" && "bg-blue-500 animate-pulse",
@@ -403,25 +424,19 @@ export function NotebookToolbar({
                 kernelStatus === "error" && "bg-red-500"
               )}
             />
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-muted-foreground truncate">
               {envProgress?.isActive ? envProgress.statusText : envProgress?.error ? (
-                <span className="text-red-600 dark:text-red-400" title={envProgress.error}>
+                <span className="text-red-600 dark:text-red-400">
                   {envProgress.statusText}
                 </span>
               ) : (
-                <>
-                  <span className="capitalize">{kernelStatus}</span>
-                  {kernelStatus === "error" && kernelErrorMessage && (
-                    <span
-                      className="text-red-600 dark:text-red-400"
-                      title={kernelErrorMessage}
-                    >
-                      {" "}&mdash; {kernelErrorMessage.length > 80
-                        ? `${kernelErrorMessage.substring(0, 80)}...`
-                        : kernelErrorMessage}
-                    </span>
-                  )}
-                </>
+                <span className={cn("capitalize", kernelStatus === "error" && "text-red-600 dark:text-red-400")}>
+                  {kernelStatus === "not started"
+                    ? "off"
+                    : kernelStatus === "starting"
+                      ? "init"
+                      : kernelStatus}
+                </span>
               )}
             </span>
           </div>
