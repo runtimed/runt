@@ -20,6 +20,8 @@ pub struct SyncedSettings {
     pub theme: String,
     pub default_runtime: String,
     pub default_python_env: String,
+    pub default_uv_packages: String,
+    pub default_conda_packages: String,
 }
 
 impl Default for SyncedSettings {
@@ -28,6 +30,8 @@ impl Default for SyncedSettings {
             theme: "system".to_string(),
             default_runtime: "python".to_string(),
             default_python_env: "uv".to_string(),
+            default_uv_packages: String::new(),
+            default_conda_packages: String::new(),
         }
     }
 }
@@ -51,6 +55,16 @@ impl SettingsDoc {
             automerge::ROOT,
             "default_python_env",
             defaults.default_python_env,
+        );
+        let _ = doc.put(
+            automerge::ROOT,
+            "default_uv_packages",
+            defaults.default_uv_packages,
+        );
+        let _ = doc.put(
+            automerge::ROOT,
+            "default_conda_packages",
+            defaults.default_conda_packages,
         );
         Self { doc }
     }
@@ -111,6 +125,18 @@ impl SettingsDoc {
             .and_then(|v| v.as_str())
         {
             settings.put("default_python_env", env);
+        }
+        if let Some(pkgs) = json
+            .get("default_uv_packages")
+            .and_then(|v| v.as_str())
+        {
+            settings.put("default_uv_packages", pkgs);
+        }
+        if let Some(pkgs) = json
+            .get("default_conda_packages")
+            .and_then(|v| v.as_str())
+        {
+            settings.put("default_conda_packages", pkgs);
         }
         // Theme was never in settings.json, so it stays at the default ("system").
 
@@ -177,6 +203,12 @@ impl SettingsDoc {
             default_python_env: self
                 .get("default_python_env")
                 .unwrap_or(defaults.default_python_env),
+            default_uv_packages: self
+                .get("default_uv_packages")
+                .unwrap_or(defaults.default_uv_packages),
+            default_conda_packages: self
+                .get("default_conda_packages")
+                .unwrap_or(defaults.default_conda_packages),
         }
     }
 

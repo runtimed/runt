@@ -120,6 +120,16 @@ impl PoolClient {
         }
     }
 
+    /// Flush all pooled environments and trigger rebuild with current settings.
+    pub async fn flush_pool(&self) -> Result<(), ClientError> {
+        let response = self.send_request(Request::FlushPool).await?;
+        match response {
+            Response::Flushed => Ok(()),
+            Response::Error { message } => Err(ClientError::DaemonError(message)),
+            _ => Err(ClientError::ProtocolError("Unexpected response".to_string())),
+        }
+    }
+
     /// Request daemon shutdown.
     pub async fn shutdown(&self) -> Result<(), ClientError> {
         let response = self.send_request(Request::Shutdown).await?;

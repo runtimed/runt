@@ -67,7 +67,7 @@ function AppContent() {
   } = useNotebook();
 
   const { theme, setTheme } = useSyncedTheme();
-  const { defaultRuntime, setDefaultRuntime, defaultPythonEnv, setDefaultPythonEnv } = useSyncedSettings();
+  const { defaultRuntime, setDefaultRuntime, defaultPythonEnv, setDefaultPythonEnv, defaultUvPackages, setDefaultUvPackages, defaultCondaPackages, setDefaultCondaPackages } = useSyncedSettings();
 
   // Execution queue - cells are queued and executed in FIFO order by the backend
   const { queueCell, runAllCells, queuedCellIds: executingCellIds } = useExecutionQueue();
@@ -517,6 +517,10 @@ function AppContent() {
         onDefaultRuntimeChange={setDefaultRuntime}
         defaultPythonEnv={defaultPythonEnv}
         onDefaultPythonEnvChange={setDefaultPythonEnv}
+        defaultUvPackages={defaultUvPackages}
+        onDefaultUvPackagesChange={setDefaultUvPackages}
+        defaultCondaPackages={defaultCondaPackages}
+        onDefaultCondaPackagesChange={setDefaultCondaPackages}
         onSave={save}
         onStartKernel={handleStartKernel}
         onInterruptKernel={interruptKernel}

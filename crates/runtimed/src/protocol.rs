@@ -25,6 +25,9 @@ pub enum Request {
 
     /// Request daemon shutdown (for clean termination).
     Shutdown,
+
+    /// Flush all pooled environments and rebuild with current settings.
+    FlushPool,
 }
 
 /// Responses from the daemon to clients.
@@ -48,6 +51,9 @@ pub enum Response {
 
     /// Shutdown acknowledged.
     ShuttingDown,
+
+    /// Pool flush acknowledged — environments will be rebuilt.
+    Flushed,
 
     /// An error occurred.
     Error { message: String },
@@ -249,6 +255,26 @@ mod tests {
 
         let parsed = Response::from_line(&line).unwrap();
         assert!(matches!(parsed, Response::ShuttingDown));
+    }
+
+    #[test]
+    fn test_request_flush_pool() {
+        let req = Request::FlushPool;
+        let line = req.to_line().unwrap();
+        assert!(line.contains("flush_pool"));
+
+        let parsed = Request::from_line(&line).unwrap();
+        assert!(matches!(parsed, Request::FlushPool));
+    }
+
+    #[test]
+    fn test_response_flushed() {
+        let resp = Response::Flushed;
+        let line = resp.to_line().unwrap();
+        assert!(line.contains("flushed"));
+
+        let parsed = Response::from_line(&line).unwrap();
+        assert!(matches!(parsed, Response::Flushed));
     }
 
     #[test]

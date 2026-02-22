@@ -164,6 +164,10 @@ interface NotebookToolbarProps {
   onDefaultRuntimeChange?: (runtime: RuntimeMode) => void;
   defaultPythonEnv?: PythonEnvMode;
   onDefaultPythonEnvChange?: (env: PythonEnvMode) => void;
+  defaultUvPackages?: string;
+  onDefaultUvPackagesChange?: (packages: string) => void;
+  defaultCondaPackages?: string;
+  onDefaultCondaPackagesChange?: (packages: string) => void;
   onSave: () => void;
   onStartKernel: (name: string) => void;
   onInterruptKernel: () => void;
@@ -196,6 +200,10 @@ export function NotebookToolbar({
   onDefaultRuntimeChange,
   defaultPythonEnv = "uv",
   onDefaultPythonEnvChange,
+  defaultUvPackages = "",
+  onDefaultUvPackagesChange,
+  defaultCondaPackages = "",
+  onDefaultCondaPackagesChange,
   onSave,
   onStartKernel,
   onInterruptKernel,
@@ -587,6 +595,59 @@ export function NotebookToolbar({
                 </div>
               )}
             </div>
+            {/* Default Packages — separate inputs for uv and conda */}
+            {onDefaultUvPackagesChange && (
+              <div className="flex items-center gap-3 mt-2">
+                <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                  Default uv Packages
+                </span>
+                <input
+                  type="text"
+                  defaultValue={defaultUvPackages}
+                  placeholder="numpy, pandas, scikit-learn"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  onBlur={(e) =>
+                    onDefaultUvPackagesChange(e.target.value)
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      onDefaultUvPackagesChange(e.currentTarget.value);
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  className="h-7 flex-1 max-w-md rounded-md border bg-muted/50 px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+            )}
+            {onDefaultCondaPackagesChange && (
+              <div className="flex items-center gap-3 mt-1">
+                <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                  Default Conda Packages
+                </span>
+                <input
+                  type="text"
+                  defaultValue={defaultCondaPackages}
+                  placeholder="numpy, pandas, scikit-learn"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  onBlur={(e) =>
+                    onDefaultCondaPackagesChange(e.target.value)
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      onDefaultCondaPackagesChange(e.currentTarget.value);
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  className="h-7 flex-1 max-w-md rounded-md border bg-muted/50 px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+            )}
           </div>
         </CollapsibleContent>
       </header>

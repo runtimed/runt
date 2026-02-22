@@ -1808,8 +1808,22 @@ async fn start_default_python_kernel_impl(
 
         // No prewarmed env available, create one normally
         info!("[prewarm:uv] No prewarmed environment available, creating fresh");
+
+        // Include default uv packages from settings
+        let default_deps: Vec<String> = {
+            let s = settings::load_settings();
+            s.default_uv_packages
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        };
+        if !default_deps.is_empty() {
+            info!("[prewarm:uv] Including default packages: {:?}", default_deps);
+        }
+
         let deps = uv_env::NotebookDependencies {
-            dependencies: vec![],
+            dependencies: default_deps,
             requires_python: None,
         };
 
@@ -1985,9 +1999,24 @@ async fn start_default_python_kernel_impl(
         // No prewarmed env available (or prewarmed failed), create one normally
         info!("[prewarm:conda] No prewarmed conda environment available, creating fresh");
 
-        // Create minimal deps with just ipykernel and the unique env_id
+        // Include default conda packages from settings
+        let mut conda_deps_list = vec!["ipykernel".to_string()];
+        {
+            let s = settings::load_settings();
+            let extra: Vec<String> = s
+                .default_conda_packages
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !extra.is_empty() {
+                info!("[prewarm:conda] Including default packages: {:?}", extra);
+                conda_deps_list.extend(extra);
+            }
+        }
+
         let deps = conda_env::CondaDependencies {
-            dependencies: vec!["ipykernel".to_string()],
+            dependencies: conda_deps_list,
             channels: vec!["conda-forge".to_string()],
             python: None,
             env_id: Some(env_id.clone()),
@@ -2863,6 +2892,16 @@ fn save_setting_locally(key: &str, value: &str) -> Result<(), String> {
             };
             let mut s = settings::load_settings();
             s.default_python_env = env_type;
+            settings::save_settings(&s).map_err(|e| e.to_string())
+        }
+        "default_uv_packages" => {
+            let mut s = settings::load_settings();
+            s.default_uv_packages = value.to_string();
+            settings::save_settings(&s).map_err(|e| e.to_string())
+        }
+        "default_conda_packages" => {
+            let mut s = settings::load_settings();
+            s.default_conda_packages = value.to_string();
             settings::save_settings(&s).map_err(|e| e.to_string())
         }
         // Theme has no local fallback in settings.json (handled by localStorage)

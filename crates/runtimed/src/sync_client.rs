@@ -253,6 +253,10 @@ fn get_all_from_doc(doc: &AutoCommit) -> SyncedSettings {
         theme: get_str("theme").unwrap_or(defaults.theme),
         default_runtime: get_str("default_runtime").unwrap_or(defaults.default_runtime),
         default_python_env: get_str("default_python_env").unwrap_or(defaults.default_python_env),
+        default_uv_packages: get_str("default_uv_packages")
+            .unwrap_or(defaults.default_uv_packages),
+        default_conda_packages: get_str("default_conda_packages")
+            .unwrap_or(defaults.default_conda_packages),
     }
 }
 

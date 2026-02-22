@@ -573,6 +573,33 @@ impl Daemon {
                 self.shutdown_notify.notify_one();
                 Response::ShuttingDown
             }
+
+            Request::FlushPool => {
+                info!("[runtimed] Flushing all pooled environments");
+
+                // Drain UV pool and delete env directories
+                {
+                    let mut pool = self.uv_pool.lock().await;
+                    let entries: Vec<_> = pool.available.drain(..).collect();
+                    for entry in entries {
+                        info!("[runtimed] Removing UV env: {:?}", entry.env.venv_path);
+                        tokio::fs::remove_dir_all(&entry.env.venv_path).await.ok();
+                    }
+                }
+
+                // Drain Conda pool and delete env directories
+                {
+                    let mut pool = self.conda_pool.lock().await;
+                    let entries: Vec<_> = pool.available.drain(..).collect();
+                    for entry in entries {
+                        info!("[runtimed] Removing Conda env: {:?}", entry.env.venv_path);
+                        tokio::fs::remove_dir_all(&entry.env.venv_path).await.ok();
+                    }
+                }
+
+                // Warming loops will detect the deficit and rebuild on their next iteration
+                Response::Flushed
+            }
         }
     }
 
@@ -702,14 +729,34 @@ impl Daemon {
             }
         };
 
-        // Build specs: python + ipykernel + ipywidgets
+        // Read default conda packages from synced settings
+        let extra_conda_packages: Vec<String> = {
+            let settings = self.settings.read().await;
+            let synced = settings.get_all();
+            synced
+                .default_conda_packages
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        };
+
+        if !extra_conda_packages.is_empty() {
+            info!("[runtimed] Including default conda packages: {:?}", extra_conda_packages);
+        }
+
+        // Build specs: python + ipykernel + ipywidgets + default packages
         let match_spec_options = ParseMatchSpecOptions::strict();
         let specs: Vec<MatchSpec> = match (|| -> anyhow::Result<Vec<MatchSpec>> {
-            Ok(vec![
+            let mut specs = vec![
                 MatchSpec::from_str("python>=3.9", match_spec_options)?,
                 MatchSpec::from_str("ipykernel", match_spec_options)?,
                 MatchSpec::from_str("ipywidgets", match_spec_options)?,
-            ])
+            ];
+            for pkg in &extra_conda_packages {
+                specs.push(MatchSpec::from_str(pkg, match_spec_options)?);
+            }
+            Ok(specs)
         })() {
             Ok(s) => s,
             Err(e) => {
@@ -970,18 +1017,41 @@ print("warmup complete")
             }
         }
 
-        // Install ipykernel (120 second timeout)
+        // Build install args: ipykernel + ipywidgets + default packages from settings
+        let mut install_packages = vec![
+            "ipykernel".to_string(),
+            "ipywidgets".to_string(),
+        ];
+
+        // Read default uv packages from synced settings
+        {
+            let settings = self.settings.read().await;
+            let synced = settings.get_all();
+            let extra: Vec<String> = synced
+                .default_uv_packages
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !extra.is_empty() {
+                info!("[runtimed] Including default uv packages: {:?}", extra);
+                install_packages.extend(extra);
+            }
+        }
+
+        // Install packages (120 second timeout)
+        let mut install_args = vec![
+            "pip".to_string(),
+            "install".to_string(),
+            "--python".to_string(),
+            python_path.to_string_lossy().to_string(),
+        ];
+        install_args.extend(install_packages);
+
         let install_result = tokio::time::timeout(
             std::time::Duration::from_secs(120),
             tokio::process::Command::new("uv")
-                .args([
-                    "pip",
-                    "install",
-                    "--python",
-                    &python_path.to_string_lossy(),
-                    "ipykernel",
-                    "ipywidgets",
-                ])
+                .args(&install_args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .status(),

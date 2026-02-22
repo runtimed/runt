@@ -40,6 +40,14 @@ pub struct AppSettings {
     /// Default Python environment type (uv or conda)
     #[serde(default)]
     pub default_python_env: PythonEnvType,
+
+    /// Default packages for prewarmed uv environments (comma-separated)
+    #[serde(default)]
+    pub default_uv_packages: String,
+
+    /// Default packages for prewarmed conda environments (comma-separated)
+    #[serde(default)]
+    pub default_conda_packages: String,
 }
 
 impl Default for AppSettings {
@@ -47,6 +55,8 @@ impl Default for AppSettings {
         Self {
             default_runtime: Runtime::Python,
             default_python_env: PythonEnvType::Uv,
+            default_uv_packages: String::new(),
+            default_conda_packages: String::new(),
         }
     }
 }
@@ -98,6 +108,8 @@ mod tests {
         let settings = AppSettings {
             default_runtime: Runtime::Deno,
             default_python_env: PythonEnvType::Uv,
+            default_uv_packages: String::new(),
+            default_conda_packages: String::new(),
         };
 
         let json = serde_json::to_string(&settings).unwrap();
