@@ -82,19 +82,6 @@ function setStoredTheme(value: ThemeMode) {
   }
 }
 
-/** Join a string array into a comma-separated display string. */
-function joinPackages(packages: string[]): string {
-  return packages.join(", ");
-}
-
-/** Split a comma-separated string into a trimmed, non-empty array. */
-function splitPackages(str: string): string[] {
-  return str
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
 /**
  * Hook for all synced settings across notebook windows via runtimed.
  *
@@ -112,8 +99,10 @@ export function useSyncedSettings() {
     useState<RuntimeMode>("python");
   const [defaultPythonEnv, setDefaultPythonEnvState] =
     useState<PythonEnvMode>("uv");
-  const [defaultUvPackages, setDefaultUvPackagesState] = useState("");
-  const [defaultCondaPackages, setDefaultCondaPackagesState] = useState("");
+  const [defaultUvPackages, setDefaultUvPackagesState] = useState<string[]>([]);
+  const [defaultCondaPackages, setDefaultCondaPackagesState] = useState<
+    string[]
+  >([]);
 
   // Load initial settings from daemon
   useEffect(() => {
@@ -130,12 +119,10 @@ export function useSyncedSettings() {
           setDefaultPythonEnvState(settings.default_python_env);
         }
         if (Array.isArray(settings.uv?.default_packages)) {
-          setDefaultUvPackagesState(joinPackages(settings.uv.default_packages));
+          setDefaultUvPackagesState(settings.uv.default_packages);
         }
         if (Array.isArray(settings.conda?.default_packages)) {
-          setDefaultCondaPackagesState(
-            joinPackages(settings.conda.default_packages),
-          );
+          setDefaultCondaPackagesState(settings.conda.default_packages);
         }
       })
       .catch(() => {
@@ -159,14 +146,10 @@ export function useSyncedSettings() {
         setDefaultPythonEnvState(default_python_env);
       }
       if (Array.isArray(event.payload.uv?.default_packages)) {
-        setDefaultUvPackagesState(
-          joinPackages(event.payload.uv.default_packages),
-        );
+        setDefaultUvPackagesState(event.payload.uv.default_packages);
       }
       if (Array.isArray(event.payload.conda?.default_packages)) {
-        setDefaultCondaPackagesState(
-          joinPackages(event.payload.conda.default_packages),
-        );
+        setDefaultCondaPackagesState(event.payload.conda.default_packages);
       }
     });
     return () => {
@@ -198,19 +181,19 @@ export function useSyncedSettings() {
     }).catch(() => {});
   }, []);
 
-  const setDefaultUvPackages = useCallback((packagesStr: string) => {
-    setDefaultUvPackagesState(packagesStr);
+  const setDefaultUvPackages = useCallback((packages: string[]) => {
+    setDefaultUvPackagesState(packages);
     invoke("set_synced_setting", {
       key: "uv.default_packages",
-      value: splitPackages(packagesStr),
+      value: packages,
     }).catch(() => {});
   }, []);
 
-  const setDefaultCondaPackages = useCallback((packagesStr: string) => {
-    setDefaultCondaPackagesState(packagesStr);
+  const setDefaultCondaPackages = useCallback((packages: string[]) => {
+    setDefaultCondaPackagesState(packages);
     invoke("set_synced_setting", {
       key: "conda.default_packages",
-      value: splitPackages(packagesStr),
+      value: packages,
     }).catch(() => {});
   }, []);
 

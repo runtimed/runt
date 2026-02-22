@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Save, Play, Square, Plus, Package, Settings, Sun, Moon, Monitor, RotateCcw, ChevronsRight, Info } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Save, Play, Square, Plus, Package, Settings, Sun, Moon, Monitor, RotateCcw, ChevronsRight, Info, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Collapsible,
@@ -164,10 +164,10 @@ interface NotebookToolbarProps {
   onDefaultRuntimeChange?: (runtime: RuntimeMode) => void;
   defaultPythonEnv?: PythonEnvMode;
   onDefaultPythonEnvChange?: (env: PythonEnvMode) => void;
-  defaultUvPackages?: string;
-  onDefaultUvPackagesChange?: (packages: string) => void;
-  defaultCondaPackages?: string;
-  onDefaultCondaPackagesChange?: (packages: string) => void;
+  defaultUvPackages?: string[];
+  onDefaultUvPackagesChange?: (packages: string[]) => void;
+  defaultCondaPackages?: string[];
+  onDefaultCondaPackagesChange?: (packages: string[]) => void;
   onSave: () => void;
   onStartKernel: (name: string) => void;
   onInterruptKernel: () => void;
@@ -185,6 +185,105 @@ const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: "system", label: "System", icon: Monitor },
 ];
 
+/** Badge input for managing a list of package names */
+function PackageBadgeInput({
+  packages,
+  onChange,
+  placeholder,
+}: {
+  packages: string[];
+  onChange: (packages: string[]) => void;
+  placeholder?: string;
+}) {
+  const [inputValue, setInputValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const addPackages = useCallback(
+    (raw: string) => {
+      const names = raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (names.length === 0) return;
+      const unique = names.filter((n) => !packages.includes(n));
+      if (unique.length > 0) {
+        onChange([...packages, ...unique]);
+      }
+      setInputValue("");
+    },
+    [packages, onChange],
+  );
+
+  const removePackage = useCallback(
+    (index: number) => {
+      onChange(packages.filter((_, i) => i !== index));
+    },
+    [packages, onChange],
+  );
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1 min-h-7 max-w-md rounded-md border bg-muted/50 px-1.5 py-1 cursor-text"
+      onClick={() => inputRef.current?.focus()}
+    >
+      {packages.map((pkg, i) => (
+        <span
+          key={`${pkg}-${i}`}
+          className="inline-flex items-center gap-0.5 rounded-md bg-secondary text-secondary-foreground pl-1.5 pr-0.5 py-0 text-xs leading-5"
+        >
+          {pkg}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              removePackage(i);
+            }}
+            className="rounded-sm p-0 hover:bg-muted-foreground/20"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+      <input
+        ref={inputRef}
+        type="text"
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === ",") {
+            e.preventDefault();
+            addPackages(inputValue);
+          } else if (
+            e.key === "Backspace" &&
+            inputValue === "" &&
+            packages.length > 0
+          ) {
+            removePackage(packages.length - 1);
+          }
+        }}
+        onBlur={() => {
+          if (inputValue.trim()) {
+            addPackages(inputValue);
+          }
+        }}
+        onPaste={(e) => {
+          const text = e.clipboardData.getData("text");
+          if (text.includes(",")) {
+            e.preventDefault();
+            addPackages(text);
+          }
+        }}
+        placeholder={packages.length === 0 ? placeholder : ""}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        className="flex-1 min-w-[80px] bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none h-5"
+      />
+    </div>
+  );
+}
+
 export function NotebookToolbar({
   kernelStatus,
   kernelErrorMessage,
@@ -200,9 +299,9 @@ export function NotebookToolbar({
   onDefaultRuntimeChange,
   defaultPythonEnv = "uv",
   onDefaultPythonEnvChange,
-  defaultUvPackages = "",
+  defaultUvPackages = [],
   onDefaultUvPackagesChange,
-  defaultCondaPackages = "",
+  defaultCondaPackages = [],
   onDefaultCondaPackagesChange,
   onSave,
   onStartKernel,
@@ -609,58 +708,28 @@ export function NotebookToolbar({
                     </>
                   )}
 
-                  {/* Default uv Packages */}
-                  {onDefaultUvPackagesChange && (
+                  {/* Packages — show only the input matching the selected env */}
+                  {defaultPythonEnv === "uv" && onDefaultUvPackagesChange && (
                     <>
                       <span className="text-xs font-medium text-muted-foreground whitespace-nowrap self-center text-right">
-                        uv Packages
+                        Packages
                       </span>
-                      <input
-                        type="text"
-                        defaultValue={defaultUvPackages}
-                        placeholder="numpy, pandas, scikit-learn"
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="off"
-                        spellCheck={false}
-                        onBlur={(e) =>
-                          onDefaultUvPackagesChange(e.target.value)
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            onDefaultUvPackagesChange(e.currentTarget.value);
-                            e.currentTarget.blur();
-                          }
-                        }}
-                        className="h-7 max-w-md rounded-md border bg-muted/50 px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                      <PackageBadgeInput
+                        packages={defaultUvPackages}
+                        onChange={onDefaultUvPackagesChange}
+                        placeholder="Add packages…"
                       />
                     </>
                   )}
-
-                  {/* Default Conda Packages */}
-                  {onDefaultCondaPackagesChange && (
+                  {defaultPythonEnv === "conda" && onDefaultCondaPackagesChange && (
                     <>
                       <span className="text-xs font-medium text-muted-foreground whitespace-nowrap self-center text-right">
-                        Conda Packages
+                        Packages
                       </span>
-                      <input
-                        type="text"
-                        defaultValue={defaultCondaPackages}
-                        placeholder="numpy, pandas, scikit-learn"
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="off"
-                        spellCheck={false}
-                        onBlur={(e) =>
-                          onDefaultCondaPackagesChange(e.target.value)
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            onDefaultCondaPackagesChange(e.currentTarget.value);
-                            e.currentTarget.blur();
-                          }
-                        }}
-                        className="h-7 max-w-md rounded-md border bg-muted/50 px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                      <PackageBadgeInput
+                        packages={defaultCondaPackages}
+                        onChange={onDefaultCondaPackagesChange}
+                        placeholder="Add packages…"
                       />
                     </>
                   )}
