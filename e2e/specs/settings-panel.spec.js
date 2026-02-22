@@ -189,7 +189,32 @@ describe("Settings Panel", () => {
 
   describe("Active button states", () => {
     it("should highlight the active theme button", async () => {
-      // After the previous test, "Light" should be the active theme
+      // After the previous test, "Light" should be the active theme.
+      // Wait for React re-render to propagate to button classes — on CI Linux
+      // the HTML class update and button re-render can happen in separate frames.
+      await browser.waitUntil(
+        async () => {
+          return await browser.execute(() => {
+            const group = document.querySelector(
+              '[data-testid="settings-theme-group"]'
+            );
+            const buttons = group?.querySelectorAll("button");
+            for (const btn of buttons || []) {
+              if (btn.textContent?.includes("Light")) {
+                return btn.className.includes("shadow-sm");
+              }
+            }
+            return false;
+          });
+        },
+        {
+          timeout: 3000,
+          interval: 100,
+          timeoutMsg:
+            "Light button did not get active styling (shadow-sm) after theme switch",
+        }
+      );
+
       const activeClass = await browser.execute(() => {
         const group = document.querySelector(
           '[data-testid="settings-theme-group"]'
@@ -233,7 +258,25 @@ describe("Settings Panel", () => {
         { timeout: 2000, interval: 100 }
       );
 
-      // Dark button should now be active
+      // Wait for Dark button to get active styling
+      await browser.waitUntil(
+        async () => {
+          return await browser.execute(() => {
+            const group = document.querySelector(
+              '[data-testid="settings-theme-group"]'
+            );
+            const buttons = group?.querySelectorAll("button");
+            for (const btn of buttons || []) {
+              if (btn.textContent?.includes("Dark")) {
+                return btn.className.includes("shadow-sm");
+              }
+            }
+            return false;
+          });
+        },
+        { timeout: 3000, interval: 100 }
+      );
+
       const darkClass = await browser.execute(() => {
         const group = document.querySelector(
           '[data-testid="settings-theme-group"]'
