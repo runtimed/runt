@@ -2729,6 +2729,62 @@ async fn set_default_python_env(env_type: String) -> Result<(), String> {
     settings::save_settings(&settings).map_err(|e| e.to_string())
 }
 
+/// Get synced settings from the Automerge settings document via runtimed.
+/// Falls back to local settings.json if the daemon is unavailable.
+#[tauri::command]
+async fn get_synced_settings() -> runtimed::settings_doc::SyncedSettings {
+    runtimed::sync_client::try_get_synced_settings().await
+}
+
+/// Update a synced setting via the daemon. Falls back to local storage.
+#[tauri::command]
+async fn set_synced_setting(key: String, value: String) -> Result<(), String> {
+    let socket_path = runtimed::default_sync_socket_path();
+
+    #[cfg(unix)]
+    match runtimed::sync_client::SyncClient::connect(socket_path).await {
+        Ok(mut client) => {
+            client
+                .put(&key, &value)
+                .await
+                .map_err(|e| format!("sync error: {}", e))?;
+            Ok(())
+        }
+        Err(e) => {
+            log::warn!("[settings] Sync daemon unavailable ({}), saving locally", e);
+            // Fall back to local settings.json for known keys
+            match key.as_str() {
+                "default_runtime" => {
+                    let runtime: Runtime =
+                        serde_json::from_str(&format!("\"{}\"", value))
+                            .map_err(|e| e.to_string())?;
+                    let mut s = settings::load_settings();
+                    s.default_runtime = runtime;
+                    settings::save_settings(&s).map_err(|e| e.to_string())
+                }
+                "default_python_env" => {
+                    let env_type = match value.as_str() {
+                        "uv" => settings::PythonEnvType::Uv,
+                        "conda" => settings::PythonEnvType::Conda,
+                        _ => return Err(format!("Invalid env type: {}", value)),
+                    };
+                    let mut s = settings::load_settings();
+                    s.default_python_env = env_type;
+                    settings::save_settings(&s).map_err(|e| e.to_string())
+                }
+                // Theme has no local fallback in settings.json (was in localStorage)
+                _ => Ok(()),
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        log::warn!("[settings] Windows sync client not yet implemented, saving locally");
+        Ok(())
+    }
+}
+
 /// Spawn a new notebook process with the specified runtime
 fn spawn_new_notebook(runtime: Runtime) {
     if let Ok(exe) = std::env::current_exe() {
@@ -2736,6 +2792,56 @@ fn spawn_new_notebook(runtime: Runtime) {
             .args(["--runtime", &runtime.to_string()])
             .spawn();
     }
+}
+
+/// Background task that subscribes to settings changes from the runtimed daemon
+/// and emits Tauri events to all windows when settings change.
+///
+/// Reconnects automatically with backoff if the connection drops.
+#[cfg(unix)]
+async fn run_settings_sync(app: tauri::AppHandle) {
+    use tauri::Emitter;
+
+    let socket_path = runtimed::default_sync_socket_path();
+
+    loop {
+        match runtimed::sync_client::SyncClient::connect(socket_path.clone()).await {
+            Ok(mut client) => {
+                // Emit initial settings
+                let settings = client.get_all();
+                let _ = app.emit("settings:changed", &settings);
+
+                // Watch for changes
+                loop {
+                    match client.recv_changes().await {
+                        Ok(settings) => {
+                            log::info!("[settings-sync] Settings changed: {:?}", settings);
+                            let _ = app.emit("settings:changed", &settings);
+                        }
+                        Err(e) => {
+                            log::warn!("[settings-sync] Disconnected: {}", e);
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::info!(
+                    "[settings-sync] Cannot connect to sync daemon: {}. Retrying in 5s.",
+                    e
+                );
+            }
+        }
+
+        // Backoff before reconnecting
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+}
+
+#[cfg(windows)]
+async fn run_settings_sync(_app: tauri::AppHandle) {
+    // TODO: Windows named pipe sync client
+    log::info!("[settings-sync] Windows sync not yet implemented");
 }
 
 /// Create initial notebook state for a new notebook, detecting project-level config for Python.
@@ -2951,6 +3057,9 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>, #[allow(unu
             get_settings,
             set_default_runtime,
             set_default_python_env,
+            // Synced settings (via runtimed Automerge)
+            get_synced_settings,
+            set_synced_setting,
             // Debug info
             get_git_info,
             get_prewarm_status,
@@ -2998,6 +3107,7 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>, #[allow(unu
             // Try to ensure runtimed is running (non-blocking, optional)
             // The daemon provides centralized prewarming across all notebook windows
             let app_for_daemon = app.handle().clone();
+            let app_for_sync = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 // Get path to bundled runtimed binary (for auto-installation)
                 let binary_path = get_bundled_runtimed_path(&app_for_daemon);
@@ -3010,6 +3120,9 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>, #[allow(unu
                         log::info!("[startup] runtimed not available: {}. Using in-process prewarming.", e);
                     }
                 }
+
+                // Start settings sync subscription (reconnects automatically)
+                run_settings_sync(app_for_sync).await;
             });
 
             // Spawn the UV environment prewarming loop

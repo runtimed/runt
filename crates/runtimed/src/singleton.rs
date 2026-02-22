@@ -143,7 +143,7 @@ impl DaemonLock {
         let info = DaemonInfo {
             endpoint: endpoint.to_string(),
             pid: std::process::id(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: format!("{}+{}", env!("CARGO_PKG_VERSION"), env!("GIT_COMMIT")),
             started_at: Utc::now(),
         };
 

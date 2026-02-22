@@ -41,6 +41,9 @@ rattler_virtual_packages = "2.3"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 reqwest-middleware = "0.4"
 
+# Automerge CRDT for settings sync
+automerge = "0.6"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
