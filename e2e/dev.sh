@@ -138,20 +138,32 @@ case "${1:-help}" in
     FAIL=0
 
     $0 test-fixture \
-      crates/notebook/fixtures/audit-test/pixi-project/6-pixi.ipynb \
-      e2e/specs/pixi-env-detection.spec.js || FAIL=1
+      crates/notebook/fixtures/audit-test/1-vanilla.ipynb \
+      e2e/specs/vanilla-startup.spec.js || FAIL=1
 
     $0 test-fixture \
-      crates/notebook/fixtures/audit-test/pyproject-project/5-pyproject.ipynb \
-      e2e/specs/pyproject-startup.spec.js || FAIL=1
+      crates/notebook/fixtures/audit-test/2-uv-inline.ipynb \
+      e2e/specs/uv-inline-deps.spec.js || FAIL=1
+
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/3-conda-inline.ipynb \
+      e2e/specs/conda-inline-deps.spec.js || FAIL=1
 
     $0 test-fixture \
       crates/notebook/fixtures/audit-test/4-both-deps.ipynb \
       e2e/specs/both-deps-panel.spec.js || FAIL=1
 
     $0 test-fixture \
-      crates/notebook/fixtures/audit-test/1-vanilla.ipynb \
-      e2e/specs/iframe-isolation.spec.js || FAIL=1
+      crates/notebook/fixtures/audit-test/pyproject-project/5-pyproject.ipynb \
+      e2e/specs/pyproject-startup.spec.js || FAIL=1
+
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/pixi-project/6-pixi.ipynb \
+      e2e/specs/pixi-env-detection.spec.js || FAIL=1
+
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/conda-env-project/7-environment-yml.ipynb \
+      e2e/specs/environment-yml-detection.spec.js || FAIL=1
 
     exit $FAIL
     ;;

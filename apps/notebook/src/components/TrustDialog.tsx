@@ -80,7 +80,7 @@ export function TrustDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg" showCloseButton={false}>
+      <DialogContent className="max-w-lg" showCloseButton={false} data-testid="trust-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShieldAlertIcon className="size-5 text-amber-500" />
@@ -154,10 +154,10 @@ export function TrustDialog({
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={handleDecline} disabled={loading}>
+          <Button variant="outline" onClick={handleDecline} disabled={loading} data-testid="trust-decline-button">
             Don't Install
           </Button>
-          <Button onClick={handleApprove} disabled={loading}>
+          <Button onClick={handleApprove} disabled={loading} data-testid="trust-approve-button">
             {loading ? "Approving..." : "Trust & Install"}
           </Button>
         </DialogFooter>
