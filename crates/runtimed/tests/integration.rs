@@ -14,6 +14,7 @@ use tokio::time::sleep;
 fn test_config(temp_dir: &TempDir) -> DaemonConfig {
     DaemonConfig {
         socket_path: temp_dir.path().join("test-runtimed.sock"),
+        sync_socket_path: temp_dir.path().join("test-runtimed-sync.sock"),
         cache_dir: temp_dir.path().join("envs"),
         uv_pool_size: 0, // Don't create real envs in tests
         conda_pool_size: 0,
@@ -130,6 +131,7 @@ async fn test_singleton_prevents_second_daemon() {
     // Try to start second daemon with same paths - should fail
     let config2 = DaemonConfig {
         socket_path: socket_path.clone(),
+        sync_socket_path: temp_dir.path().join("test-runtimed-sync.sock"),
         cache_dir: temp_dir.path().join("envs"),
         uv_pool_size: 0,
         conda_pool_size: 0,

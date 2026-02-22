@@ -262,8 +262,8 @@ pub async fn ensure_daemon_running(
     let client = PoolClient::default();
     let manager = ServiceManager::default();
 
-    // Version of the bundled/calling binary
-    let bundled_version = env!("CARGO_PKG_VERSION");
+    // Version of the bundled/calling binary (includes git commit for dev builds)
+    let bundled_version = format!("{}+{}", env!("CARGO_PKG_VERSION"), env!("GIT_COMMIT"));
 
     // First, try to ping the daemon
     if client.ping().await.is_ok() {

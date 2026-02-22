@@ -28,9 +28,13 @@ struct Cli {
 enum Commands {
     /// Run the daemon (default if no command specified)
     Run {
-        /// Socket path for IPC (default: ~/.cache/runt/runtimed.sock)
+        /// Socket path for pool IPC (default: ~/.cache/runt/runtimed.sock)
         #[arg(long)]
         socket: Option<PathBuf>,
+
+        /// Socket path for settings sync (default: ~/.cache/runt/runtimed-sync.sock)
+        #[arg(long)]
+        sync_socket: Option<PathBuf>,
 
         /// Cache directory for environments (default: ~/.cache/runt/envs)
         #[arg(long)]
@@ -80,17 +84,19 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         None | Some(Commands::Run { .. }) => {
             // Extract run args from command or use defaults
-            let (socket, cache_dir, uv_pool_size, conda_pool_size) = match cli.command {
-                Some(Commands::Run {
-                    socket,
-                    cache_dir,
-                    uv_pool_size,
-                    conda_pool_size,
-                }) => (socket, cache_dir, uv_pool_size, conda_pool_size),
-                _ => (None, None, 3, 3),
-            };
+            let (socket, sync_socket, cache_dir, uv_pool_size, conda_pool_size) =
+                match cli.command {
+                    Some(Commands::Run {
+                        socket,
+                        sync_socket,
+                        cache_dir,
+                        uv_pool_size,
+                        conda_pool_size,
+                    }) => (socket, sync_socket, cache_dir, uv_pool_size, conda_pool_size),
+                    _ => (None, None, None, 3, 3),
+                };
 
-            run_daemon(socket, cache_dir, uv_pool_size, conda_pool_size).await
+            run_daemon(socket, sync_socket, cache_dir, uv_pool_size, conda_pool_size).await
         }
         Some(Commands::Install { binary }) => install_service(binary),
         Some(Commands::Uninstall) => uninstall_service(),
@@ -102,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
 
 async fn run_daemon(
     socket: Option<PathBuf>,
+    sync_socket: Option<PathBuf>,
     cache_dir: Option<PathBuf>,
     uv_pool_size: usize,
     conda_pool_size: usize,
@@ -110,6 +117,7 @@ async fn run_daemon(
 
     let config = DaemonConfig {
         socket_path: socket.unwrap_or_else(runtimed::default_socket_path),
+        sync_socket_path: sync_socket.unwrap_or_else(runtimed::default_sync_socket_path),
         cache_dir: cache_dir.unwrap_or_else(runtimed::default_cache_dir),
         uv_pool_size,
         conda_pool_size,
@@ -117,7 +125,8 @@ async fn run_daemon(
     };
 
     info!("Configuration:");
-    info!("  Socket: {:?}", config.socket_path);
+    info!("  Pool socket: {:?}", config.socket_path);
+    info!("  Sync socket: {:?}", config.sync_socket_path);
     info!("  Cache dir: {:?}", config.cache_dir);
     info!("  UV pool size: {}", config.uv_pool_size);
     info!("  Conda pool size: {}", config.conda_pool_size);

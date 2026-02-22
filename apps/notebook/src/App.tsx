@@ -19,7 +19,7 @@ import { useGitInfo } from "./hooks/useGitInfo";
 import { usePrewarmStatus } from "./hooks/usePrewarmStatus";
 import { useEnvProgress } from "./hooks/useEnvProgress";
 import { useExecutionQueue } from "./hooks/useExecutionQueue";
-import { useTheme } from "@/hooks/useTheme";
+import { useSyncedTheme } from "@/hooks/useSyncedSettings";
 import { WidgetStoreProvider, useWidgetStoreRequired } from "@/components/widgets/widget-store-context";
 import { MediaProvider } from "@/components/outputs/media-provider";
 import { WidgetView } from "@/components/widgets/widget-view";
@@ -66,7 +66,7 @@ function AppContent() {
     formatCell,
   } = useNotebook();
 
-  const { theme, setTheme } = useTheme("notebook-theme");
+  const { theme, setTheme } = useSyncedTheme();
 
   // Execution queue - cells are queued and executed in FIFO order by the backend
   const { queueCell, runAllCells, queuedCellIds: executingCellIds } = useExecutionQueue();

@@ -4,6 +4,11 @@
 //! Python environments (UV and Conda). Notebook windows communicate with the
 //! daemon via IPC (Unix domain sockets on Unix, named pipes on Windows) to
 //! request and return environments.
+//!
+//! It also provides an Automerge-based settings sync service. A second Unix
+//! socket (named pipe on Windows) speaks the Automerge sync protocol, allowing
+//! multiple notebook windows to synchronize settings (theme, default runtime,
+//! etc.) in real time.
 
 use std::path::PathBuf;
 
@@ -13,7 +18,10 @@ pub mod client;
 pub mod daemon;
 pub mod protocol;
 pub mod service;
+pub mod settings_doc;
 pub mod singleton;
+pub mod sync_client;
+pub mod sync_server;
 
 /// Environment types supported by the pool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,4 +85,35 @@ pub fn default_cache_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("runt")
         .join("envs")
+}
+
+/// Get the default sync socket path for the settings sync service.
+#[cfg(unix)]
+pub fn default_sync_socket_path() -> PathBuf {
+    dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("runt")
+        .join("runtimed-sync.sock")
+}
+
+/// Get the default sync socket path for the settings sync service.
+#[cfg(windows)]
+pub fn default_sync_socket_path() -> PathBuf {
+    PathBuf::from(r"\\.\pipe\runtimed-sync")
+}
+
+/// Get the default path for the persisted Automerge settings document.
+pub fn default_settings_doc_path() -> PathBuf {
+    dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("runt")
+        .join("settings.automerge")
+}
+
+/// Get the path to the JSON settings file (for migration and fallback).
+pub fn settings_json_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("runt-notebook")
+        .join("settings.json")
 }

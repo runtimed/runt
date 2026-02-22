@@ -19,15 +19,20 @@ use tokio::net::UnixListener;
 #[cfg(windows)]
 use tokio::net::windows::named_pipe::ServerOptions;
 
+use tokio::sync::RwLock;
+
 use crate::protocol::{Request, Response};
+use crate::settings_doc::SettingsDoc;
 use crate::singleton::{DaemonInfo, DaemonLock};
 use crate::{default_cache_dir, default_socket_path, EnvType, PoolStats, PooledEnv};
 
 /// Configuration for the pool daemon.
 #[derive(Debug, Clone)]
 pub struct DaemonConfig {
-    /// Socket path for IPC.
+    /// Socket path for pool IPC.
     pub socket_path: PathBuf,
+    /// Socket path for the Automerge settings sync service.
+    pub sync_socket_path: PathBuf,
     /// Cache directory for environments.
     pub cache_dir: PathBuf,
     /// Target number of UV environments to maintain.
@@ -44,6 +49,7 @@ impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
             socket_path: default_socket_path(),
+            sync_socket_path: crate::default_sync_socket_path(),
             cache_dir: default_cache_dir(),
             uv_pool_size: 3,
             conda_pool_size: 3,
@@ -146,11 +152,15 @@ pub struct Daemon {
     config: DaemonConfig,
     uv_pool: Mutex<Pool>,
     conda_pool: Mutex<Pool>,
-    shutdown: Mutex<bool>,
-    /// Notifier to wake up accept loop on shutdown.
-    shutdown_notify: Notify,
+    shutdown: Arc<Mutex<bool>>,
+    /// Notifier to wake up accept loops on shutdown.
+    shutdown_notify: Arc<Notify>,
     /// Singleton lock - kept alive while daemon is running.
     _lock: DaemonLock,
+    /// Shared Automerge settings document.
+    settings: Arc<RwLock<SettingsDoc>>,
+    /// Broadcast channel to notify sync connections of settings changes.
+    settings_changed: tokio::sync::broadcast::Sender<()>,
 }
 
 /// Error returned when another daemon is already running.
@@ -169,13 +179,22 @@ impl Daemon {
         let lock = DaemonLock::try_acquire(config.lock_dir.as_ref())
             .map_err(|info| DaemonAlreadyRunning { info })?;
 
+        // Load or create the settings document
+        let automerge_path = crate::default_settings_doc_path();
+        let json_path = crate::settings_json_path();
+        let settings = SettingsDoc::load_or_create(&automerge_path, Some(&json_path));
+
+        let (settings_changed, _) = tokio::sync::broadcast::channel(16);
+
         Ok(Arc::new(Self {
             uv_pool: Mutex::new(Pool::new(config.uv_pool_size, config.max_age_secs)),
             conda_pool: Mutex::new(Pool::new(config.conda_pool_size, config.max_age_secs)),
             config,
-            shutdown: Mutex::new(false),
-            shutdown_notify: Notify::new(),
+            shutdown: Arc::new(Mutex::new(false)),
+            shutdown_notify: Arc::new(Notify::new()),
             _lock: lock,
+            settings: Arc::new(RwLock::new(settings)),
+            settings_changed,
         }))
     }
 
@@ -212,6 +231,26 @@ impl Daemon {
         let conda_daemon = self.clone();
         tokio::spawn(async move {
             conda_daemon.conda_warming_loop().await;
+        });
+
+        // Spawn the settings sync server
+        let sync_socket_path = self.config.sync_socket_path.clone();
+        let sync_settings = self.settings.clone();
+        let sync_changed = self.settings_changed.clone();
+        let sync_shutdown = self.shutdown.clone();
+        let sync_shutdown_notify = self.shutdown_notify.clone();
+        tokio::spawn(async move {
+            if let Err(e) = crate::sync_server::run_sync_server(
+                sync_socket_path,
+                sync_settings,
+                sync_changed,
+                sync_shutdown,
+                sync_shutdown_notify,
+            )
+            .await
+            {
+                error!("[runtimed] Sync server error: {}", e);
+            }
         });
 
         // Platform-specific accept loop
