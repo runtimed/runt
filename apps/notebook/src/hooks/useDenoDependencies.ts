@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useState } from "react";
 
 export interface DenoConfigInfo {
   path: string;
@@ -11,8 +11,11 @@ export interface DenoConfigInfo {
 
 export function useDenoDependencies() {
   const [denoAvailable, setDenoAvailable] = useState<boolean | null>(null);
-  const [denoConfigInfo, setDenoConfigInfo] = useState<DenoConfigInfo | null>(null);
-  const [flexibleNpmImports, setFlexibleNpmImportsState] = useState<boolean>(true);
+  const [denoConfigInfo, setDenoConfigInfo] = useState<DenoConfigInfo | null>(
+    null,
+  );
+  const [flexibleNpmImports, setFlexibleNpmImportsState] =
+    useState<boolean>(true);
 
   // Check Deno availability, detect config, and load settings on mount
   useEffect(() => {
@@ -21,7 +24,9 @@ export function useDenoDependencies() {
         const available = await invoke<boolean>("check_deno_available");
         setDenoAvailable(available);
 
-        const config = await invoke<DenoConfigInfo | null>("detect_deno_config");
+        const config = await invoke<DenoConfigInfo | null>(
+          "detect_deno_config",
+        );
         setDenoConfigInfo(config);
 
         const flexible = await invoke<boolean>("get_deno_flexible_npm_imports");

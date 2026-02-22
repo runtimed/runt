@@ -123,7 +123,10 @@ pub fn install_cli(app: &tauri::AppHandle) -> Result<(), String> {
             return Ok(());
         }
         Err(e) => {
-            log::debug!("[cli_install] Direct install failed: {}, trying with admin privileges", e);
+            log::debug!(
+                "[cli_install] Direct install failed: {}, trying with admin privileges",
+                e
+            );
         }
     }
 
@@ -146,8 +149,7 @@ fn try_install_direct(
     nb_dest: &std::path::Path,
 ) -> Result<(), String> {
     // Copy runt binary
-    fs::copy(bundled_runt, runt_dest)
-        .map_err(|e| format!("Failed to copy runt: {}", e))?;
+    fs::copy(bundled_runt, runt_dest).map_err(|e| format!("Failed to copy runt: {}", e))?;
 
     // Make it executable
     #[cfg(unix)]
@@ -174,8 +176,8 @@ fn create_nb_wrapper(nb_dest: &std::path::Path) -> Result<(), String> {
 exec runt notebook "$@"
 "#;
 
-    let mut file = fs::File::create(nb_dest)
-        .map_err(|e| format!("Failed to create nb script: {}", e))?;
+    let mut file =
+        fs::File::create(nb_dest).map_err(|e| format!("Failed to create nb script: {}", e))?;
 
     file.write_all(script.as_bytes())
         .map_err(|e| format!("Failed to write nb script: {}", e))?;

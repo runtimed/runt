@@ -1,5 +1,6 @@
-import { useCallback } from "react";
 import { AlertTriangleIcon, PackageIcon, ShieldAlertIcon } from "lucide-react";
+import { useCallback } from "react";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +9,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import type { TrustInfo, TyposquatWarning } from "../hooks/useTrust";
 
 interface TrustDialogProps {
@@ -71,7 +71,10 @@ export function TrustDialog({
   }
 
   const getWarning = (pkg: string): TyposquatWarning | undefined => {
-    const name = pkg.split(/[><=!~\[;@]/)[0].trim().toLowerCase();
+    const name = pkg
+      .split(/[><=!~[;@]/)[0]
+      .trim()
+      .toLowerCase();
     return warningMap.get(name);
   };
 
@@ -80,7 +83,11 @@ export function TrustDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg" showCloseButton={false} data-testid="trust-dialog">
+      <DialogContent
+        className="max-w-lg"
+        showCloseButton={false}
+        data-testid="trust-dialog"
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShieldAlertIcon className="size-5 text-amber-500" />
@@ -104,11 +111,7 @@ export function TrustDialog({
               </h4>
               <div className="border rounded-md divide-y">
                 {trustInfo.uv_dependencies.map((pkg) => (
-                  <PackageItem
-                    key={pkg}
-                    pkg={pkg}
-                    warning={getWarning(pkg)}
-                  />
+                  <PackageItem key={pkg} pkg={pkg} warning={getWarning(pkg)} />
                 ))}
               </div>
             </div>
@@ -127,11 +130,7 @@ export function TrustDialog({
               </h4>
               <div className="border rounded-md divide-y">
                 {trustInfo.conda_dependencies.map((pkg) => (
-                  <PackageItem
-                    key={pkg}
-                    pkg={pkg}
-                    warning={getWarning(pkg)}
-                  />
+                  <PackageItem key={pkg} pkg={pkg} warning={getWarning(pkg)} />
                 ))}
               </div>
             </div>
@@ -146,7 +145,8 @@ export function TrustDialog({
                   Potential typosquatting detected
                 </p>
                 <p className="text-amber-700 dark:text-amber-300 mt-1">
-                  Some package names are similar to popular packages. Verify these are intentional before approving.
+                  Some package names are similar to popular packages. Verify
+                  these are intentional before approving.
                 </p>
               </div>
             </div>
@@ -154,10 +154,19 @@ export function TrustDialog({
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={handleDecline} disabled={loading} data-testid="trust-decline-button">
+          <Button
+            variant="outline"
+            onClick={handleDecline}
+            disabled={loading}
+            data-testid="trust-decline-button"
+          >
             Don't Install
           </Button>
-          <Button onClick={handleApprove} disabled={loading} data-testid="trust-approve-button">
+          <Button
+            onClick={handleApprove}
+            disabled={loading}
+            data-testid="trust-approve-button"
+          >
             {loading ? "Approving..." : "Trust & Install"}
           </Button>
         </DialogFooter>

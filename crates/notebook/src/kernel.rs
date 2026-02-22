@@ -56,7 +56,9 @@ fn kernel_cwd(notebook_path: Option<&std::path::Path>) -> std::path::PathBuf {
     // so child processes get a valid working directory even when the notebook was opened
     // with a relative path, e.g. via Cmd-O file dialog)
     if let Some(parent) = notebook_path.and_then(|p| p.parent()) {
-        return parent.canonicalize().unwrap_or_else(|_| parent.to_path_buf());
+        return parent
+            .canonicalize()
+            .unwrap_or_else(|_| parent.to_path_buf());
     }
 
     // Check if we're running from CLI (cwd is something other than `/`)
@@ -241,9 +243,9 @@ impl NotebookKernel {
         let runtime_dir = runtimelib::dirs::runtime_dir();
         tokio::fs::create_dir_all(&runtime_dir).await?;
 
-        let kernel_id: String = petname::petname(2, "-").unwrap_or_else(|| Uuid::new_v4().to_string());
-        let connection_file_path =
-            runtime_dir.join(format!("runt-kernel-{}.json", kernel_id));
+        let kernel_id: String =
+            petname::petname(2, "-").unwrap_or_else(|| Uuid::new_v4().to_string());
+        let connection_file_path = runtime_dir.join(format!("runt-kernel-{}.json", kernel_id));
 
         tokio::fs::write(
             &connection_file_path,
@@ -251,10 +253,16 @@ impl NotebookKernel {
         )
         .await?;
 
-        info!("Starting kernel {} at {:?}", kernelspec_name, connection_file_path);
+        info!(
+            "Starting kernel {} at {:?}",
+            kernelspec_name, connection_file_path
+        );
 
-        let mut cmd = kernelspec
-            .command(&connection_file_path, Some(Stdio::null()), Some(Stdio::null()))?;
+        let mut cmd = kernelspec.command(
+            &connection_file_path,
+            Some(Stdio::null()),
+            Some(Stdio::null()),
+        )?;
         cmd.current_dir(kernel_cwd(notebook_path));
         #[cfg(unix)]
         cmd.process_group(0); // Create new process group for kernel and children
@@ -272,288 +280,9 @@ impl NotebookKernel {
         self.session_id = Uuid::new_v4().to_string();
 
         // Create iopub connection and spawn listener
-        let mut iopub = runtimelib::create_client_iopub_connection(
-            &connection_info,
-            "",
-            &self.session_id,
-        )
-        .await?;
-
-        let app_handle = app.clone();
-        let cell_id_map = self.cell_id_map.clone();
-        let queue_tx = self.queue_tx.clone();
-        let iopub_task = tokio::spawn(async move {
-            loop {
-                match iopub.read().await {
-                    Ok(message) => {
-                        debug!(
-                            "iopub: type={} parent_msg_id={:?}",
-                            message.header.msg_type,
-                            message.parent_header.as_ref().map(|h| &h.msg_id)
-                        );
-
-                        // Look up cell_id from the msg_id → cell_id map
-                        let cell_id = message
-                            .parent_header
-                            .as_ref()
-                            .and_then(|h| cell_id_map.lock().ok()?.get(&h.msg_id).cloned());
-
-                        // Check for status: idle to signal execution completion
-                        if let JupyterMessageContent::Status(ref status) = message.content {
-                            if status.execution_state == jupyter_protocol::ExecutionState::Idle {
-                                if let Some(ref cid) = cell_id {
-                                    if let Some(ref tx) = queue_tx {
-                                        let _ = tx.try_send(QueueCommand::ExecutionDone {
-                                            cell_id: cid.clone(),
-                                        });
-                                    }
-                                }
-                            }
-                        }
-
-                        let tauri_msg = TauriJupyterMessage {
-                            header: message.header,
-                            parent_header: message.parent_header,
-                            metadata: message.metadata,
-                            content: message.content,
-                            buffers: message.buffers,
-                            channel: message.channel,
-                            cell_id,
-                        };
-
-                        if let Err(e) = app_handle.emit("kernel:iopub", &tauri_msg) {
-                            error!("Failed to emit kernel:iopub: {}", e);
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        error!("iopub read error: {}", e);
-                        break;
-                    }
-                }
-            }
-        });
-
-        // Create persistent shell connection
-        let identity = runtimelib::peer_identity_for_session(&self.session_id)?;
-        let mut shell =
-            runtimelib::create_client_shell_connection_with_identity(&connection_info, &self.session_id, identity).await?;
-
-        // Verify kernel is alive with kernel_info handshake
-        let request: JupyterMessage = KernelInfoRequest::default().into();
-        shell.send(request).await?;
-
-        let reply = tokio::time::timeout(std::time::Duration::from_secs(30), shell.read()).await;
-        match reply {
-            Ok(Ok(msg)) => {
-                info!("Kernel alive: got {} reply", msg.header.msg_type);
-            }
-            Ok(Err(e)) => {
-                error!("Error reading kernel_info_reply: {}", e);
-                return Err(anyhow::anyhow!("Kernel did not respond: {}", e));
-            }
-            Err(_) => {
-                error!("Timeout waiting for kernel_info_reply");
-                return Err(anyhow::anyhow!("Kernel did not respond within 30s"));
-            }
-        }
-
-        // Split shell into persistent writer + reader
-        let (shell_writer, mut shell_reader) = shell.split();
-
-        let pending = self.pending_completions.clone();
-        let pending_hist = self.pending_history.clone();
-        let shell_app = app.clone();
-        let shell_cell_id_map = self.cell_id_map.clone();
-        let shell_reader_task = tokio::spawn(async move {
-            loop {
-                match shell_reader.read().await {
-                    Ok(msg) => {
-                        let parent_msg_id = msg
-                            .parent_header
-                            .as_ref()
-                            .map(|h| h.msg_id.clone());
-
-                        match msg.content {
-                            JupyterMessageContent::CompleteReply(reply) => {
-                                if let Some(ref msg_id) = parent_msg_id {
-                                    if let Some(sender) =
-                                        pending.lock().unwrap().remove(msg_id)
-                                    {
-                                        let _ = sender.send(CompletionResult {
-                                            matches: reply.matches,
-                                            cursor_start: reply.cursor_start,
-                                            cursor_end: reply.cursor_end,
-                                        });
-                                    }
-                                }
-                            }
-                            JupyterMessageContent::HistoryReply(reply) => {
-                                if let Some(ref msg_id) = parent_msg_id {
-                                    if let Some(sender) =
-                                        pending_hist.lock().unwrap().remove(msg_id)
-                                    {
-                                        let entries = reply
-                                            .history
-                                            .into_iter()
-                                            .map(|entry| match entry {
-                                                jupyter_protocol::HistoryEntry::Input(
-                                                    session,
-                                                    line,
-                                                    source,
-                                                ) => HistoryEntryData {
-                                                    session,
-                                                    line,
-                                                    source,
-                                                },
-                                                jupyter_protocol::HistoryEntry::InputOutput(
-                                                    session,
-                                                    line,
-                                                    (source, _),
-                                                ) => HistoryEntryData {
-                                                    session,
-                                                    line,
-                                                    source,
-                                                },
-                                            })
-                                            .collect();
-                                        let _ = sender.send(HistoryResult { entries });
-                                    }
-                                }
-                            }
-                            JupyterMessageContent::ExecuteReply(ref reply) => {
-                                // Handle page payloads from introspection (? and ??)
-                                for payload in &reply.payload {
-                                    if let Payload::Page { data, start } = payload {
-                                        // Look up cell_id from msg_id
-                                        let cell_id = parent_msg_id.as_ref().and_then(|msg_id| {
-                                            shell_cell_id_map.lock().ok()?.get(msg_id).cloned()
-                                        });
-
-                                        if let Some(cell_id) = cell_id {
-                                            let event = PagePayloadEvent {
-                                                cell_id,
-                                                data: data.clone(),
-                                                start: *start,
-                                            };
-                                            if let Err(e) =
-                                                shell_app.emit("kernel:page_payload", &event)
-                                            {
-                                                error!("Failed to emit page_payload: {}", e);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            _ => {
-                                debug!("shell reply: type={}", msg.header.msg_type);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("shell read error: {}", e);
-                        break;
-                    }
-                }
-            }
-        });
-
-        self.connection_info = Some(connection_info);
-        self.connection_file = Some(connection_file_path);
-        self.iopub_task = Some(iopub_task);
-        self.shell_reader_task = Some(shell_reader_task);
-        self.shell_writer = Some(shell_writer);
-        self._process = Some(process);
-
-        info!("Kernel started: {}", kernel_id);
-        Ok(())
-    }
-
-    /// Start a kernel with uv-managed dependencies.
-    ///
-    /// Creates an ephemeral virtual environment using uv with the specified
-    /// dependencies, installs ipykernel, and launches the kernel from that environment.
-    ///
-    /// The `env_id` parameter enables per-notebook isolation for empty deps.
-    pub async fn start_with_uv(
-        &mut self,
-        app: AppHandle,
-        deps: &NotebookDependencies,
-        env_id: Option<&str>,
-        notebook_path: Option<&std::path::Path>,
-    ) -> Result<()> {
-        // Shutdown existing kernel if any
-        self.shutdown().await.ok();
-
-        info!("Preparing uv environment with deps: {:?}", deps.dependencies);
-
-        // Prepare the uv environment
-        let env = crate::uv_env::prepare_environment(deps, env_id).await?;
-
-        // Reserve ports
-        let ip = std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-        let ports = runtimelib::peek_ports(ip, 5).await?;
-
-        let connection_info = ConnectionInfo {
-            transport: jupyter_protocol::connection_info::Transport::TCP,
-            ip: ip.to_string(),
-            stdin_port: ports[0],
-            control_port: ports[1],
-            hb_port: ports[2],
-            shell_port: ports[3],
-            iopub_port: ports[4],
-            signature_scheme: "hmac-sha256".to_string(),
-            key: Uuid::new_v4().to_string(),
-            kernel_name: Some("python3".to_string()),
-        };
-
-        let runtime_dir = runtimelib::dirs::runtime_dir();
-        tokio::fs::create_dir_all(&runtime_dir).await?;
-
-        let kernel_id: String =
-            petname::petname(2, "-").unwrap_or_else(|| Uuid::new_v4().to_string());
-        let connection_file_path = runtime_dir.join(format!("runt-kernel-{}.json", kernel_id));
-
-        tokio::fs::write(
-            &connection_file_path,
-            serde_json::to_string_pretty(&connection_info)?,
-        )
-        .await?;
-
-        info!(
-            "Starting uv-managed kernel at {:?} with python {:?}",
-            connection_file_path, env.python_path
-        );
-
-        // Spawn kernel using python from the uv environment
-        let mut cmd = tokio::process::Command::new(&env.python_path);
-        cmd.args(["-m", "ipykernel_launcher", "-f"])
-            .arg(&connection_file_path)
-            .current_dir(kernel_cwd(notebook_path))
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        #[cfg(unix)]
-        cmd.process_group(0); // Create new process group for kernel and children
-        let process = cmd.kill_on_drop(true).spawn()?;
-
-        // Store process group ID for cleanup
-        #[cfg(unix)]
-        {
-            self.process_group_id = process.id().map(|pid| pid as i32);
-        }
-
-        // Small delay to let the kernel start
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-        self.session_id = Uuid::new_v4().to_string();
-
-        // Create iopub connection and spawn listener
-        let mut iopub = runtimelib::create_client_iopub_connection(
-            &connection_info,
-            "",
-            &self.session_id,
-        )
-        .await?;
+        let mut iopub =
+            runtimelib::create_client_iopub_connection(&connection_info, "", &self.session_id)
+                .await?;
 
         let app_handle = app.clone();
         let cell_id_map = self.cell_id_map.clone();
@@ -665,7 +394,283 @@ impl NotebookKernel {
                             }
                             JupyterMessageContent::HistoryReply(reply) => {
                                 if let Some(ref msg_id) = parent_msg_id {
-                                    if let Some(sender) = pending_hist.lock().unwrap().remove(msg_id)
+                                    if let Some(sender) =
+                                        pending_hist.lock().unwrap().remove(msg_id)
+                                    {
+                                        let entries = reply
+                                            .history
+                                            .into_iter()
+                                            .map(|entry| match entry {
+                                                jupyter_protocol::HistoryEntry::Input(
+                                                    session,
+                                                    line,
+                                                    source,
+                                                ) => HistoryEntryData {
+                                                    session,
+                                                    line,
+                                                    source,
+                                                },
+                                                jupyter_protocol::HistoryEntry::InputOutput(
+                                                    session,
+                                                    line,
+                                                    (source, _),
+                                                ) => HistoryEntryData {
+                                                    session,
+                                                    line,
+                                                    source,
+                                                },
+                                            })
+                                            .collect();
+                                        let _ = sender.send(HistoryResult { entries });
+                                    }
+                                }
+                            }
+                            JupyterMessageContent::ExecuteReply(ref reply) => {
+                                // Handle page payloads from introspection (? and ??)
+                                for payload in &reply.payload {
+                                    if let Payload::Page { data, start } = payload {
+                                        // Look up cell_id from msg_id
+                                        let cell_id = parent_msg_id.as_ref().and_then(|msg_id| {
+                                            shell_cell_id_map.lock().ok()?.get(msg_id).cloned()
+                                        });
+
+                                        if let Some(cell_id) = cell_id {
+                                            let event = PagePayloadEvent {
+                                                cell_id,
+                                                data: data.clone(),
+                                                start: *start,
+                                            };
+                                            if let Err(e) =
+                                                shell_app.emit("kernel:page_payload", &event)
+                                            {
+                                                error!("Failed to emit page_payload: {}", e);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {
+                                debug!("shell reply: type={}", msg.header.msg_type);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("shell read error: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        self.connection_info = Some(connection_info);
+        self.connection_file = Some(connection_file_path);
+        self.iopub_task = Some(iopub_task);
+        self.shell_reader_task = Some(shell_reader_task);
+        self.shell_writer = Some(shell_writer);
+        self._process = Some(process);
+
+        info!("Kernel started: {}", kernel_id);
+        Ok(())
+    }
+
+    /// Start a kernel with uv-managed dependencies.
+    ///
+    /// Creates an ephemeral virtual environment using uv with the specified
+    /// dependencies, installs ipykernel, and launches the kernel from that environment.
+    ///
+    /// The `env_id` parameter enables per-notebook isolation for empty deps.
+    pub async fn start_with_uv(
+        &mut self,
+        app: AppHandle,
+        deps: &NotebookDependencies,
+        env_id: Option<&str>,
+        notebook_path: Option<&std::path::Path>,
+    ) -> Result<()> {
+        // Shutdown existing kernel if any
+        self.shutdown().await.ok();
+
+        info!(
+            "Preparing uv environment with deps: {:?}",
+            deps.dependencies
+        );
+
+        // Prepare the uv environment
+        let env = crate::uv_env::prepare_environment(deps, env_id).await?;
+
+        // Reserve ports
+        let ip = std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+        let ports = runtimelib::peek_ports(ip, 5).await?;
+
+        let connection_info = ConnectionInfo {
+            transport: jupyter_protocol::connection_info::Transport::TCP,
+            ip: ip.to_string(),
+            stdin_port: ports[0],
+            control_port: ports[1],
+            hb_port: ports[2],
+            shell_port: ports[3],
+            iopub_port: ports[4],
+            signature_scheme: "hmac-sha256".to_string(),
+            key: Uuid::new_v4().to_string(),
+            kernel_name: Some("python3".to_string()),
+        };
+
+        let runtime_dir = runtimelib::dirs::runtime_dir();
+        tokio::fs::create_dir_all(&runtime_dir).await?;
+
+        let kernel_id: String =
+            petname::petname(2, "-").unwrap_or_else(|| Uuid::new_v4().to_string());
+        let connection_file_path = runtime_dir.join(format!("runt-kernel-{}.json", kernel_id));
+
+        tokio::fs::write(
+            &connection_file_path,
+            serde_json::to_string_pretty(&connection_info)?,
+        )
+        .await?;
+
+        info!(
+            "Starting uv-managed kernel at {:?} with python {:?}",
+            connection_file_path, env.python_path
+        );
+
+        // Spawn kernel using python from the uv environment
+        let mut cmd = tokio::process::Command::new(&env.python_path);
+        cmd.args(["-m", "ipykernel_launcher", "-f"])
+            .arg(&connection_file_path)
+            .current_dir(kernel_cwd(notebook_path))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(unix)]
+        cmd.process_group(0); // Create new process group for kernel and children
+        let process = cmd.kill_on_drop(true).spawn()?;
+
+        // Store process group ID for cleanup
+        #[cfg(unix)]
+        {
+            self.process_group_id = process.id().map(|pid| pid as i32);
+        }
+
+        // Small delay to let the kernel start
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        self.session_id = Uuid::new_v4().to_string();
+
+        // Create iopub connection and spawn listener
+        let mut iopub =
+            runtimelib::create_client_iopub_connection(&connection_info, "", &self.session_id)
+                .await?;
+
+        let app_handle = app.clone();
+        let cell_id_map = self.cell_id_map.clone();
+        let queue_tx = self.queue_tx.clone();
+        let iopub_task = tokio::spawn(async move {
+            loop {
+                match iopub.read().await {
+                    Ok(message) => {
+                        debug!(
+                            "iopub: type={} parent_msg_id={:?}",
+                            message.header.msg_type,
+                            message.parent_header.as_ref().map(|h| &h.msg_id)
+                        );
+
+                        // Look up cell_id from the msg_id → cell_id map
+                        let cell_id = message
+                            .parent_header
+                            .as_ref()
+                            .and_then(|h| cell_id_map.lock().ok()?.get(&h.msg_id).cloned());
+
+                        // Check for status: idle to signal execution completion
+                        if let JupyterMessageContent::Status(ref status) = message.content {
+                            if status.execution_state == jupyter_protocol::ExecutionState::Idle {
+                                if let Some(ref cid) = cell_id {
+                                    if let Some(ref tx) = queue_tx {
+                                        let _ = tx.try_send(QueueCommand::ExecutionDone {
+                                            cell_id: cid.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+
+                        let tauri_msg = TauriJupyterMessage {
+                            header: message.header,
+                            parent_header: message.parent_header,
+                            metadata: message.metadata,
+                            content: message.content,
+                            buffers: message.buffers,
+                            channel: message.channel,
+                            cell_id,
+                        };
+
+                        if let Err(e) = app_handle.emit("kernel:iopub", &tauri_msg) {
+                            error!("Failed to emit kernel:iopub: {}", e);
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!("iopub read error: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Create persistent shell connection
+        let identity = runtimelib::peer_identity_for_session(&self.session_id)?;
+        let mut shell = runtimelib::create_client_shell_connection_with_identity(
+            &connection_info,
+            &self.session_id,
+            identity,
+        )
+        .await?;
+
+        // Verify kernel is alive with kernel_info handshake
+        let request: JupyterMessage = KernelInfoRequest::default().into();
+        shell.send(request).await?;
+
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(30), shell.read()).await;
+        match reply {
+            Ok(Ok(msg)) => {
+                info!("Kernel alive: got {} reply", msg.header.msg_type);
+            }
+            Ok(Err(e)) => {
+                error!("Error reading kernel_info_reply: {}", e);
+                return Err(anyhow::anyhow!("Kernel did not respond: {}", e));
+            }
+            Err(_) => {
+                error!("Timeout waiting for kernel_info_reply");
+                return Err(anyhow::anyhow!("Kernel did not respond within 30s"));
+            }
+        }
+
+        // Split shell into persistent writer + reader
+        let (shell_writer, mut shell_reader) = shell.split();
+
+        let pending = self.pending_completions.clone();
+        let pending_hist = self.pending_history.clone();
+        let shell_app = app.clone();
+        let shell_cell_id_map = self.cell_id_map.clone();
+        let shell_reader_task = tokio::spawn(async move {
+            loop {
+                match shell_reader.read().await {
+                    Ok(msg) => {
+                        let parent_msg_id = msg.parent_header.as_ref().map(|h| h.msg_id.clone());
+
+                        match msg.content {
+                            JupyterMessageContent::CompleteReply(reply) => {
+                                if let Some(ref msg_id) = parent_msg_id {
+                                    if let Some(sender) = pending.lock().unwrap().remove(msg_id) {
+                                        let _ = sender.send(CompletionResult {
+                                            matches: reply.matches,
+                                            cursor_start: reply.cursor_start,
+                                            cursor_end: reply.cursor_end,
+                                        });
+                                    }
+                                }
+                            }
+                            JupyterMessageContent::HistoryReply(reply) => {
+                                if let Some(ref msg_id) = parent_msg_id {
+                                    if let Some(sender) =
+                                        pending_hist.lock().unwrap().remove(msg_id)
                                     {
                                         let entries = reply
                                             .history
@@ -820,12 +825,9 @@ impl NotebookKernel {
         self.session_id = Uuid::new_v4().to_string();
 
         // Create iopub connection and spawn listener
-        let mut iopub = runtimelib::create_client_iopub_connection(
-            &connection_info,
-            "",
-            &self.session_id,
-        )
-        .await?;
+        let mut iopub =
+            runtimelib::create_client_iopub_connection(&connection_info, "", &self.session_id)
+                .await?;
 
         let app_handle = app.clone();
         let cell_id_map = self.cell_id_map.clone();
@@ -937,7 +939,8 @@ impl NotebookKernel {
                             }
                             JupyterMessageContent::HistoryReply(reply) => {
                                 if let Some(ref msg_id) = parent_msg_id {
-                                    if let Some(sender) = pending_hist.lock().unwrap().remove(msg_id)
+                                    if let Some(sender) =
+                                        pending_hist.lock().unwrap().remove(msg_id)
                                     {
                                         let entries = reply
                                             .history
@@ -1109,9 +1112,12 @@ impl NotebookKernel {
         }
 
         // Emit starting progress
-        emit_uv_progress(&app, EnvProgressPhase::Starting {
-            env_hash: "pyproject".to_string(),
-        });
+        emit_uv_progress(
+            &app,
+            EnvProgressPhase::Starting {
+                env_hash: "pyproject".to_string(),
+            },
+        );
 
         // Spawn a task to read stderr, emit progress events, and buffer lines for error reporting
         let stderr = process.stderr.take();
@@ -1138,7 +1144,8 @@ impl NotebookKernel {
                     let line_lower = line.to_lowercase();
                     if line_lower.contains("resolved") && line_lower.contains("package") {
                         emit_uv_progress(&stderr_app, EnvProgressPhase::Solving { spec_count: 0 });
-                    } else if (line_lower.contains("installed") || line_lower.contains("installing"))
+                    } else if (line_lower.contains("installed")
+                        || line_lower.contains("installing"))
                         && line_lower.contains("package")
                     {
                         emit_uv_progress(&stderr_app, EnvProgressPhase::Installing { total: 0 });
@@ -1174,9 +1181,12 @@ impl NotebookKernel {
                     format!("\n{}", captured.join("\n"))
                 };
                 let msg = format!("uv run exited with {}{}", status, stderr_detail);
-                emit_uv_progress(&app, EnvProgressPhase::Error {
-                    message: msg.clone(),
-                });
+                emit_uv_progress(
+                    &app,
+                    EnvProgressPhase::Error {
+                        message: msg.clone(),
+                    },
+                );
                 return Err(anyhow::anyhow!(msg));
             }
 
@@ -1222,7 +1232,11 @@ impl NotebookKernel {
             // Try kernel_info handshake with a short timeout
             let request: JupyterMessage = KernelInfoRequest::default().into();
             if let Err(e) = shell.send(request).await {
-                warn!("uv run: kernel_info send failed attempt {}: {}", attempt + 1, e);
+                warn!(
+                    "uv run: kernel_info send failed attempt {}: {}",
+                    attempt + 1,
+                    e
+                );
                 last_error = Some(format!("send: {}", e));
                 continue;
             }
@@ -1240,7 +1254,11 @@ impl NotebookKernel {
                     break;
                 }
                 Ok(Err(e)) => {
-                    info!("uv run: kernel_info_reply error attempt {}: {}", attempt + 1, e);
+                    info!(
+                        "uv run: kernel_info_reply error attempt {}: {}",
+                        attempt + 1,
+                        e
+                    );
                     last_error = Some(format!("reply: {}", e));
                 }
                 Err(_) => {
@@ -1255,8 +1273,15 @@ impl NotebookKernel {
             let stderr_hint = if captured.is_empty() {
                 String::new()
             } else {
-                let last_lines: Vec<&str> = captured.iter().rev().take(5)
-                    .map(|s| s.as_str()).collect::<Vec<_>>().into_iter().rev().collect();
+                let last_lines: Vec<&str> = captured
+                    .iter()
+                    .rev()
+                    .take(5)
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
                 format!("\nLast stderr: {}", last_lines.join("\n"))
             };
             let msg = format!(
@@ -1265,7 +1290,12 @@ impl NotebookKernel {
                 last_error.unwrap_or_else(|| "unknown".to_string()),
                 stderr_hint
             );
-            emit_uv_progress(&app, EnvProgressPhase::Error { message: msg.clone() });
+            emit_uv_progress(
+                &app,
+                EnvProgressPhase::Error {
+                    message: msg.clone(),
+                },
+            );
             return Err(anyhow::anyhow!(msg));
         }
 
@@ -1273,10 +1303,13 @@ impl NotebookKernel {
         let mut iopub = iopub_conn.expect("iopub must be set when connected=true");
         let shell = shell_conn.expect("shell must be set when connected=true");
 
-        emit_uv_progress(&app, EnvProgressPhase::Ready {
-            env_path: project_dir.to_string_lossy().to_string(),
-            python_path: "python".to_string(),
-        });
+        emit_uv_progress(
+            &app,
+            EnvProgressPhase::Ready {
+                env_path: project_dir.to_string_lossy().to_string(),
+                python_path: "python".to_string(),
+            },
+        );
 
         // Spawn iopub listener
         let app_handle = app.clone();
@@ -1361,7 +1394,8 @@ impl NotebookKernel {
                             }
                             JupyterMessageContent::HistoryReply(reply) => {
                                 if let Some(ref msg_id) = parent_msg_id {
-                                    if let Some(sender) = pending_hist.lock().unwrap().remove(msg_id)
+                                    if let Some(sender) =
+                                        pending_hist.lock().unwrap().remove(msg_id)
                                     {
                                         let entries = reply
                                             .history
@@ -1452,7 +1486,10 @@ impl NotebookKernel {
         // Shutdown existing kernel if any
         self.shutdown().await.ok();
 
-        info!("Preparing conda environment with deps: {:?}", deps.dependencies);
+        info!(
+            "Preparing conda environment with deps: {:?}",
+            deps.dependencies
+        );
 
         // Prepare the conda environment with progress events
         let env = crate::conda_env::prepare_environment(deps, Some(&app)).await?;
@@ -1515,12 +1552,9 @@ impl NotebookKernel {
         self.session_id = Uuid::new_v4().to_string();
 
         // Create iopub connection and spawn listener
-        let mut iopub = runtimelib::create_client_iopub_connection(
-            &connection_info,
-            "",
-            &self.session_id,
-        )
-        .await?;
+        let mut iopub =
+            runtimelib::create_client_iopub_connection(&connection_info, "", &self.session_id)
+                .await?;
 
         let app_handle = app.clone();
         let cell_id_map = self.cell_id_map.clone();
@@ -1632,7 +1666,8 @@ impl NotebookKernel {
                             }
                             JupyterMessageContent::HistoryReply(reply) => {
                                 if let Some(ref msg_id) = parent_msg_id {
-                                    if let Some(sender) = pending_hist.lock().unwrap().remove(msg_id)
+                                    if let Some(sender) =
+                                        pending_hist.lock().unwrap().remove(msg_id)
                                     {
                                         let entries = reply
                                             .history
@@ -1774,7 +1809,10 @@ impl NotebookKernel {
         #[cfg(unix)]
         cmd.process_group(0); // Create new process group for kernel and children
         let process = cmd.kill_on_drop(true).spawn()?;
-        info!("[kernel-timing] Process spawned in {}ms", kernel_start_time.elapsed().as_millis());
+        info!(
+            "[kernel-timing] Process spawned in {}ms",
+            kernel_start_time.elapsed().as_millis()
+        );
 
         // Store process group ID for cleanup
         #[cfg(unix)]
@@ -1784,17 +1822,17 @@ impl NotebookKernel {
 
         // Small delay to let the kernel start
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        info!("[kernel-timing] Post-spawn delay complete at {}ms", kernel_start_time.elapsed().as_millis());
+        info!(
+            "[kernel-timing] Post-spawn delay complete at {}ms",
+            kernel_start_time.elapsed().as_millis()
+        );
 
         self.session_id = Uuid::new_v4().to_string();
 
         // Create iopub connection and spawn listener
-        let mut iopub = runtimelib::create_client_iopub_connection(
-            &connection_info,
-            "",
-            &self.session_id,
-        )
-        .await?;
+        let mut iopub =
+            runtimelib::create_client_iopub_connection(&connection_info, "", &self.session_id)
+                .await?;
 
         let app_handle = app.clone();
         let cell_id_map = self.cell_id_map.clone();
@@ -1859,18 +1897,30 @@ impl NotebookKernel {
             identity,
         )
         .await?;
-        info!("[kernel-timing] Shell connection established at {}ms", kernel_start_time.elapsed().as_millis());
+        info!(
+            "[kernel-timing] Shell connection established at {}ms",
+            kernel_start_time.elapsed().as_millis()
+        );
 
         // Verify kernel is alive with kernel_info handshake
         let request: JupyterMessage = KernelInfoRequest::default().into();
         shell.send(request).await?;
-        info!("[kernel-timing] kernel_info_request sent at {}ms, waiting for reply...", kernel_start_time.elapsed().as_millis());
+        info!(
+            "[kernel-timing] kernel_info_request sent at {}ms, waiting for reply...",
+            kernel_start_time.elapsed().as_millis()
+        );
 
         let reply = tokio::time::timeout(std::time::Duration::from_secs(30), shell.read()).await;
         match reply {
             Ok(Ok(msg)) => {
-                info!("[kernel-timing] kernel_info_reply received at {}ms", kernel_start_time.elapsed().as_millis());
-                info!("Prewarmed conda kernel alive: got {} reply", msg.header.msg_type);
+                info!(
+                    "[kernel-timing] kernel_info_reply received at {}ms",
+                    kernel_start_time.elapsed().as_millis()
+                );
+                info!(
+                    "Prewarmed conda kernel alive: got {} reply",
+                    msg.header.msg_type
+                );
             }
             Ok(Err(e)) => {
                 error!("Error reading kernel_info_reply: {}", e);
@@ -1909,7 +1959,8 @@ impl NotebookKernel {
                             }
                             JupyterMessageContent::HistoryReply(reply) => {
                                 if let Some(ref msg_id) = parent_msg_id {
-                                    if let Some(sender) = pending_hist.lock().unwrap().remove(msg_id)
+                                    if let Some(sender) =
+                                        pending_hist.lock().unwrap().remove(msg_id)
                                     {
                                         let entries = reply
                                             .history
@@ -2039,10 +2090,7 @@ impl NotebookKernel {
         )
         .await?;
 
-        info!(
-            "Starting Deno kernel at {:?}",
-            connection_file_path
-        );
+        info!("Starting Deno kernel at {:?}", connection_file_path);
 
         // Get deno path (from PATH or bootstrapped via rattler)
         let deno_path = tools::get_deno_path()
@@ -2096,12 +2144,9 @@ impl NotebookKernel {
         self.session_id = Uuid::new_v4().to_string();
 
         // Create iopub connection and spawn listener
-        let mut iopub = runtimelib::create_client_iopub_connection(
-            &connection_info,
-            "",
-            &self.session_id,
-        )
-        .await?;
+        let mut iopub =
+            runtimelib::create_client_iopub_connection(&connection_info, "", &self.session_id)
+                .await?;
 
         let app_handle = app.clone();
         let cell_id_map = self.cell_id_map.clone();
@@ -2248,10 +2293,10 @@ impl NotebookKernel {
                                 // Handle page payloads (for inspect/help features)
                                 if !reply.payload.is_empty() {
                                     if let Some(ref msg_id) = parent_msg_id {
-                                        if let Some(cell_id) =
-                                            shell_cell_id_map.lock().ok().and_then(|map| {
-                                                map.get(msg_id).cloned()
-                                            })
+                                        if let Some(cell_id) = shell_cell_id_map
+                                            .lock()
+                                            .ok()
+                                            .and_then(|map| map.get(msg_id).cloned())
                                         {
                                             for p in &reply.payload {
                                                 if let Payload::Page { data, start } = p {
@@ -2260,10 +2305,13 @@ impl NotebookKernel {
                                                         data: data.clone(),
                                                         start: *start,
                                                     };
-                                                    if let Err(e) =
-                                                        shell_app.emit("kernel:page_payload", &event)
+                                                    if let Err(e) = shell_app
+                                                        .emit("kernel:page_payload", &event)
                                                     {
-                                                        error!("Failed to emit page_payload: {}", e);
+                                                        error!(
+                                                            "Failed to emit page_payload: {}",
+                                                            e
+                                                        );
                                                     }
                                                 }
                                             }
@@ -2315,7 +2363,10 @@ impl NotebookKernel {
             .insert(msg_id.clone(), cell_id.to_string());
 
         shell.send(message).await?;
-        info!("Sent execute_request: msg_id={} cell_id={}", msg_id, cell_id);
+        info!(
+            "Sent execute_request: msg_id={} cell_id={}",
+            msg_id, cell_id
+        );
 
         Ok(msg_id)
     }
@@ -2407,10 +2458,7 @@ impl NotebookKernel {
 
         // Register oneshot so the shell reader task can route the reply back
         let (tx, rx) = tokio::sync::oneshot::channel();
-        self.pending_completions
-            .lock()
-            .unwrap()
-            .insert(msg_id, tx);
+        self.pending_completions.lock().unwrap().insert(msg_id, tx);
 
         shell.send(request).await?;
 

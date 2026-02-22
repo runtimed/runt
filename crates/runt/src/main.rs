@@ -62,7 +62,10 @@ impl From<&KernelInfo> for KernelTableRow {
         KernelTableRow {
             name: info.name.clone(),
             language: info.language.clone().unwrap_or_else(|| "-".to_string()),
-            version: info.language_version.clone().unwrap_or_else(|| "-".to_string()),
+            version: info
+                .language_version
+                .clone()
+                .unwrap_or_else(|| "-".to_string()),
             status: info.status.to_string(),
             connection_file: shorten_path(&info.connection_file),
         }
@@ -299,12 +302,29 @@ async fn async_main(command: Option<Commands>) -> Result<()> {
         Some(Commands::Stop { id, all }) => stop_kernels(id.as_deref(), all).await?,
         Some(Commands::Interrupt { id }) => interrupt_kernel(&id).await?,
         Some(Commands::Exec { id, code }) => execute_code(&id, code.as_deref()).await?,
-        Some(Commands::Console { kernel, cmd, verbose }) => console(kernel.as_deref(), cmd.as_deref(), verbose).await?,
+        Some(Commands::Console {
+            kernel,
+            cmd,
+            verbose,
+        }) => console(kernel.as_deref(), cmd.as_deref(), verbose).await?,
         Some(Commands::Sidecar { .. }) => unreachable!(),
         Some(Commands::Notebook { .. }) => unreachable!(),
         Some(Commands::Clean { timeout, dry_run }) => clean_kernels(timeout, dry_run).await?,
-        Some(Commands::Debug { kernel, cmd, exec, dump, wait }) => {
-            debug_session(kernel.as_deref(), cmd.as_deref(), exec.as_deref(), dump, wait).await?
+        Some(Commands::Debug {
+            kernel,
+            cmd,
+            exec,
+            dump,
+            wait,
+        }) => {
+            debug_session(
+                kernel.as_deref(),
+                cmd.as_deref(),
+                exec.as_deref(),
+                dump,
+                wait,
+            )
+            .await?
         }
         Some(Commands::Pool { command }) => pool_command(command).await?,
         None => println!("No command specified. Use --help for usage information."),
@@ -370,8 +390,7 @@ async fn gather_kernel_info(path: PathBuf, timeout: Duration) -> Option<KernelIn
         .unwrap_or(full_name)
         .to_string();
 
-    let (language, language_version, status) =
-        query_kernel_info(&connection_info, timeout).await;
+    let (language, language_version, status) = query_kernel_info(&connection_info, timeout).await;
 
     Some(KernelInfo {
         name,
@@ -399,16 +418,13 @@ async fn query_kernel_info(
         Err(_) => return (None, None, KernelStatus::Alive),
     };
 
-    let shell = match create_client_shell_connection_with_identity(
-        connection_info,
-        &session_id,
-        identity,
-    )
-    .await
-    {
-        Ok(s) => s,
-        Err(_) => return (None, None, KernelStatus::Alive),
-    };
+    let shell =
+        match create_client_shell_connection_with_identity(connection_info, &session_id, identity)
+            .await
+        {
+            Ok(s) => s,
+            Err(_) => return (None, None, KernelStatus::Alive),
+        };
 
     let (mut shell_writer, mut shell_reader) = shell.split();
     let request: JupyterMessage = KernelInfoRequest::default().into();
@@ -667,10 +683,18 @@ async fn console(kernel_name: Option<&str>, cmd: Option<&str>, verbose: bool) ->
     let session_id = client.session_id();
 
     let identity = runtimelib::peer_identity_for_session(session_id)?;
-    let shell =
-        runtimelib::create_client_shell_connection_with_identity(connection_info, session_id, identity.clone()).await?;
-    let mut stdin_conn =
-        runtimelib::create_client_stdin_connection_with_identity(connection_info, session_id, identity).await?;
+    let shell = runtimelib::create_client_shell_connection_with_identity(
+        connection_info,
+        session_id,
+        identity.clone(),
+    )
+    .await?;
+    let mut stdin_conn = runtimelib::create_client_stdin_connection_with_identity(
+        connection_info,
+        session_id,
+        identity,
+    )
+    .await?;
     let (mut shell_writer, mut shell_reader) = shell.split();
 
     let mut iopub =
@@ -887,39 +911,35 @@ async fn pool_command(command: PoolCommands) -> Result<()> {
     let client = PoolClient::default();
 
     match command {
-        PoolCommands::Ping => {
-            match client.ping().await {
-                Ok(()) => {
-                    println!("pong");
-                }
-                Err(e) => {
-                    eprintln!("Daemon not running: {}", e);
-                    std::process::exit(1);
+        PoolCommands::Ping => match client.ping().await {
+            Ok(()) => {
+                println!("pong");
+            }
+            Err(e) => {
+                eprintln!("Daemon not running: {}", e);
+                std::process::exit(1);
+            }
+        },
+        PoolCommands::Status { json } => match client.status().await {
+            Ok(stats) => {
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&stats)?);
+                } else {
+                    println!("Pool Daemon Status");
+                    println!("==================");
+                    println!("UV environments:");
+                    println!("  Available: {}", stats.uv_available);
+                    println!("  Warming:   {}", stats.uv_warming);
+                    println!("Conda environments:");
+                    println!("  Available: {}", stats.conda_available);
+                    println!("  Warming:   {}", stats.conda_warming);
                 }
             }
-        }
-        PoolCommands::Status { json } => {
-            match client.status().await {
-                Ok(stats) => {
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&stats)?);
-                    } else {
-                        println!("Pool Daemon Status");
-                        println!("==================");
-                        println!("UV environments:");
-                        println!("  Available: {}", stats.uv_available);
-                        println!("  Warming:   {}", stats.uv_warming);
-                        println!("Conda environments:");
-                        println!("  Available: {}", stats.conda_available);
-                        println!("  Warming:   {}", stats.conda_warming);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to get status: {}", e);
-                    std::process::exit(1);
-                }
+            Err(e) => {
+                eprintln!("Failed to get status: {}", e);
+                std::process::exit(1);
             }
-        }
+        },
         PoolCommands::Take { env_type } => {
             let env_type = match env_type.to_lowercase().as_str() {
                 "uv" => EnvType::Uv,
@@ -944,17 +964,15 @@ async fn pool_command(command: PoolCommands) -> Result<()> {
                 }
             }
         }
-        PoolCommands::Shutdown => {
-            match client.shutdown().await {
-                Ok(()) => {
-                    println!("Shutdown request sent");
-                }
-                Err(e) => {
-                    eprintln!("Failed to shutdown: {}", e);
-                    std::process::exit(1);
-                }
+        PoolCommands::Shutdown => match client.shutdown().await {
+            Ok(()) => {
+                println!("Shutdown request sent");
             }
-        }
+            Err(e) => {
+                eprintln!("Failed to shutdown: {}", e);
+                std::process::exit(1);
+            }
+        },
     }
 
     Ok(())
@@ -1000,7 +1018,11 @@ async fn debug_session(
     // Find sidecar binary (same directory as current executable)
     let current_exe = std::env::current_exe()?;
     let exe_dir = current_exe.parent().unwrap();
-    let sidecar_path = exe_dir.join(if cfg!(windows) { "sidecar.exe" } else { "sidecar" });
+    let sidecar_path = exe_dir.join(if cfg!(windows) {
+        "sidecar.exe"
+    } else {
+        "sidecar"
+    });
 
     if !sidecar_path.exists() {
         anyhow::bail!(
@@ -1115,7 +1137,10 @@ async fn debug_session(
     println!("\nDebug session complete.");
     println!("Dump file: {}", dump_path.display());
     println!("\nTo analyze:");
-    println!("  cat {} | jq -c '{{ts: .ts, dir: .dir, ch: .ch, type: .msg.header.msg_type}}'", dump_path.display());
+    println!(
+        "  cat {} | jq -c '{{ts: .ts, dir: .dir, ch: .ch, type: .msg.header.msg_type}}'",
+        dump_path.display()
+    );
 
     Ok(())
 }

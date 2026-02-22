@@ -10,11 +10,11 @@
 
 import { browser, expect } from "@wdio/globals";
 import {
-  waitForAppReady,
-  executeFirstCell,
-  waitForCellOutput,
   approveTrustDialog,
+  executeFirstCell,
   typeSlowly,
+  waitForAppReady,
+  waitForCellOutput,
 } from "../helpers.js";
 
 describe("Conda Dependencies Panel", () => {
@@ -81,7 +81,11 @@ describe("Conda Dependencies Panel", () => {
         const panelText = await $('[data-testid="conda-deps-panel"]').getText();
         return panelText.includes("scipy");
       },
-      { timeout: 10000, interval: 500, timeoutMsg: "scipy did not appear in conda deps panel" }
+      {
+        timeout: 10000,
+        interval: 500,
+        timeoutMsg: "scipy did not appear in conda deps panel",
+      },
     );
 
     console.log("Added dependency 'scipy'");
@@ -90,7 +94,9 @@ describe("Conda Dependencies Panel", () => {
   it("should remove the added dependency", async () => {
     // Use WebdriverIO's native click (W3C WebDriver action) instead of
     // browser.execute — native .click() doesn't reliably trigger React handlers in wry
-    const removeBtn = await $('[data-testid="conda-deps-panel"] button[title="Remove scipy"]');
+    const removeBtn = await $(
+      '[data-testid="conda-deps-panel"] button[title="Remove scipy"]',
+    );
     await removeBtn.waitForClickable({ timeout: 5000 });
     console.log("Remove scipy button is clickable");
     await removeBtn.click();
@@ -102,7 +108,11 @@ describe("Conda Dependencies Panel", () => {
         const panelText = await $('[data-testid="conda-deps-panel"]').getText();
         return !panelText.includes("scipy");
       },
-      { timeout: 15000, interval: 500, timeoutMsg: "scipy was not removed from conda deps panel" }
+      {
+        timeout: 15000,
+        interval: 500,
+        timeoutMsg: "scipy was not removed from conda deps panel",
+      },
     );
 
     // numpy should still be there

@@ -332,7 +332,10 @@ pub async fn run_prewarming_loop(
 ) {
     // First, recover any existing prewarmed environments from disk
     let recovered = recover_existing_prewarmed(&pool).await;
-    info!("[prewarm:uv] Recovery complete: {} envs recovered", recovered);
+    info!(
+        "[prewarm:uv] Recovery complete: {} envs recovered",
+        recovered
+    );
     recovery_complete.store(true, Ordering::SeqCst);
 
     // Check if uv is available before attempting to create environments
@@ -668,10 +671,16 @@ pub async fn recover_existing_prewarmed_conda(pool: &SharedCondaEnvPool) -> usiz
 ///
 /// The `recovery_complete` flag is set after recovery finishes, allowing
 /// other tasks (like auto-launch) to wait for recovery before proceeding.
-pub async fn run_conda_prewarming_loop(pool: SharedCondaEnvPool, recovery_complete: Arc<AtomicBool>) {
+pub async fn run_conda_prewarming_loop(
+    pool: SharedCondaEnvPool,
+    recovery_complete: Arc<AtomicBool>,
+) {
     // First, recover any existing prewarmed environments from disk
     let recovered = recover_existing_prewarmed_conda(&pool).await;
-    info!("[prewarm:conda] Recovery complete: {} envs recovered", recovered);
+    info!(
+        "[prewarm:conda] Recovery complete: {} envs recovered",
+        recovered
+    );
     recovery_complete.store(true, Ordering::SeqCst);
 
     // Small delay to let the app finish startup before creating new envs

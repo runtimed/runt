@@ -8,8 +8,8 @@
  * This tests the update_display_data message handling.
  */
 
-import { browser, expect } from "@wdio/globals";
 import os from "node:os";
+import { browser, expect } from "@wdio/globals";
 import { waitForAppReady } from "../helpers.js";
 
 // macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
@@ -82,15 +82,18 @@ h.update("Final Update")`;
         },
         {
           timeout: KERNEL_STARTUP_TIMEOUT,
-          timeoutMsg: 'Final update text did not appear',
+          timeoutMsg: "Final update text did not appear",
           interval: 500,
-        }
+        },
       );
 
       // Verify final state shows "Final Update"
       const finalHtml = await cell.getHTML();
       expect(finalHtml).toContain("Final Update");
-      console.log("Final output contains 'Final Update':", finalHtml.includes("Final Update"));
+      console.log(
+        "Final output contains 'Final Update':",
+        finalHtml.includes("Final Update"),
+      );
 
       console.log("Multiple updates test passed");
     });

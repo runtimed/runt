@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useState } from "react";
 
 export interface NotebookDependencies {
   dependencies: string[];
@@ -37,8 +37,9 @@ export interface PyProjectInfo {
 }
 
 export function useDependencies() {
-  const [dependencies, setDependencies] =
-    useState<NotebookDependencies | null>(null);
+  const [dependencies, setDependencies] = useState<NotebookDependencies | null>(
+    null,
+  );
   const [uvAvailable, setUvAvailable] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   // Track if deps were synced to a running kernel (user may need to restart for some changes)
@@ -49,8 +50,12 @@ export function useDependencies() {
   const [syncState, setSyncState] = useState<EnvSyncState | null>(null);
 
   // pyproject.toml state
-  const [pyprojectInfo, setPyprojectInfo] = useState<PyProjectInfo | null>(null);
-  const [pyprojectDeps, setPyprojectDeps] = useState<PyProjectDeps | null>(null);
+  const [pyprojectInfo, setPyprojectInfo] = useState<PyProjectInfo | null>(
+    null,
+  );
+  const [pyprojectDeps, setPyprojectDeps] = useState<PyProjectDeps | null>(
+    null,
+  );
 
   // Check sync state between declared deps and running kernel
   const checkSyncState = useCallback(async () => {
@@ -72,7 +77,7 @@ export function useDependencies() {
   const loadDependencies = useCallback(async () => {
     try {
       const deps = await invoke<NotebookDependencies | null>(
-        "get_notebook_dependencies"
+        "get_notebook_dependencies",
       );
       setDependencies(deps);
     } catch (e) {
@@ -111,7 +116,9 @@ export function useDependencies() {
 
       if (!hasUvEnv) {
         // Kernel is running but not with uv - user needs to restart
-        console.log("[deps] Kernel not uv-managed, cannot sync - restart needed");
+        console.log(
+          "[deps] Kernel not uv-managed, cannot sync - restart needed",
+        );
         setNeedsKernelRestart(true);
         return false;
       }
@@ -160,7 +167,7 @@ export function useDependencies() {
         setLoading(false);
       }
     },
-    [loadDependencies, resignTrust, checkSyncState]
+    [loadDependencies, resignTrust, checkSyncState],
   );
 
   const removeDependency = useCallback(
@@ -180,7 +187,7 @@ export function useDependencies() {
         setLoading(false);
       }
     },
-    [loadDependencies, resignTrust, checkSyncState]
+    [loadDependencies, resignTrust, checkSyncState],
   );
 
   // Remove the entire uv dependency section from notebook metadata
@@ -220,7 +227,7 @@ export function useDependencies() {
         setLoading(false);
       }
     },
-    [dependencies, loadDependencies, resignTrust]
+    [dependencies, loadDependencies, resignTrust],
   );
 
   const hasDependencies =
@@ -232,7 +239,9 @@ export function useDependencies() {
   // Load full pyproject dependencies
   const loadPyprojectDeps = useCallback(async () => {
     try {
-      const deps = await invoke<PyProjectDeps | null>("get_pyproject_dependencies");
+      const deps = await invoke<PyProjectDeps | null>(
+        "get_pyproject_dependencies",
+      );
       setPyprojectDeps(deps);
     } catch (e) {
       console.error("Failed to load pyproject dependencies:", e);

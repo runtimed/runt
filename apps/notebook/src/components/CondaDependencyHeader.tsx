@@ -1,8 +1,20 @@
-import { useState, useCallback, type KeyboardEvent } from "react";
-import { X, Plus, Info, AlertCircle, FileText, RefreshCw, Download } from "lucide-react";
+import {
+  AlertCircle,
+  Download,
+  FileText,
+  Info,
+  Plus,
+  RefreshCw,
+  X,
+} from "lucide-react";
+import { type KeyboardEvent, useCallback, useState } from "react";
 import { Progress } from "@/components/ui/progress";
+import type {
+  CondaSyncState,
+  EnvironmentYmlDeps,
+  EnvironmentYmlInfo,
+} from "../hooks/useCondaDependencies";
 import type { EnvProgressState } from "../hooks/useEnvProgress";
-import type { CondaSyncState, EnvironmentYmlInfo, EnvironmentYmlDeps } from "../hooks/useCondaDependencies";
 import type { PixiInfo } from "../types";
 
 interface CondaDependencyHeaderProps {
@@ -71,7 +83,7 @@ export function CondaDependencyHeader({
         handleAdd();
       }
     },
-    [handleAdd]
+    [handleAdd],
   );
 
   const handleAddChannel = useCallback(async () => {
@@ -88,7 +100,7 @@ export function CondaDependencyHeader({
       const updated = channels.filter((c) => c !== channel);
       await onSetChannels(updated);
     },
-    [channels, onSetChannels]
+    [channels, onSetChannels],
   );
 
   const handlePythonChange = useCallback(
@@ -96,7 +108,7 @@ export function CondaDependencyHeader({
       const value = e.target.value.trim();
       await onSetPython(value || null);
     },
-    [onSetPython]
+    [onSetPython],
   );
 
   // Default channels if none specified
@@ -109,7 +121,10 @@ export function CondaDependencyHeader({
       : 0;
 
   return (
-    <div className="border-b bg-emerald-50/50 dark:bg-emerald-950/20" data-testid="conda-deps-panel">
+    <div
+      className="border-b bg-emerald-50/50 dark:bg-emerald-950/20"
+      data-testid="conda-deps-panel"
+    >
       <div className="px-3 py-3">
         {/* Conda badge */}
         <div className="mb-2 flex items-center gap-2">
@@ -204,29 +219,37 @@ export function CondaDependencyHeader({
                 )}
               </span>
             </div>
-            {environmentYmlDeps && (environmentYmlDeps.dependencies.length > 0 || environmentYmlDeps.pip_dependencies.length > 0) && (
-              <div className="mt-2 text-xs text-emerald-700/80 dark:text-emerald-400/80">
-                {environmentYmlDeps.dependencies.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mb-1">
-                    {environmentYmlDeps.dependencies.map((dep) => (
-                      <span key={dep} className="rounded bg-emerald-500/20 px-1.5 py-0.5 font-mono">
-                        {dep}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {environmentYmlDeps.pip_dependencies.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    <span className="text-muted-foreground">pip:</span>
-                    {environmentYmlDeps.pip_dependencies.map((dep) => (
-                      <span key={dep} className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono">
-                        {dep}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            {environmentYmlDeps &&
+              (environmentYmlDeps.dependencies.length > 0 ||
+                environmentYmlDeps.pip_dependencies.length > 0) && (
+                <div className="mt-2 text-xs text-emerald-700/80 dark:text-emerald-400/80">
+                  {environmentYmlDeps.dependencies.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-1">
+                      {environmentYmlDeps.dependencies.map((dep) => (
+                        <span
+                          key={dep}
+                          className="rounded bg-emerald-500/20 px-1.5 py-0.5 font-mono"
+                        >
+                          {dep}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {environmentYmlDeps.pip_dependencies.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      <span className="text-muted-foreground">pip:</span>
+                      {environmentYmlDeps.pip_dependencies.map((dep) => (
+                        <span
+                          key={dep}
+                          className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono"
+                        >
+                          {dep}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
           </div>
         )}
 
@@ -235,7 +258,9 @@ export function CondaDependencyHeader({
           <div className="mb-3 flex items-center justify-between rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
             <div className="flex items-center gap-2">
               <Info className="h-3.5 w-3.5 shrink-0" />
-              <span>Dependencies changed — sync to install into running environment</span>
+              <span>
+                Dependencies changed — sync to install into running environment
+              </span>
             </div>
             <button
               type="button"
@@ -243,7 +268,9 @@ export function CondaDependencyHeader({
               disabled={syncing}
               className="flex items-center gap-1 rounded bg-emerald-600 px-2 py-0.5 text-white text-xs font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`}
+              />
               Sync Now
             </button>
           </div>
@@ -265,7 +292,8 @@ export function CondaDependencyHeader({
                     </span>
                   )}
                   <span className="text-muted-foreground ml-1">
-                    · {pixiInfo.dependency_count} dep{pixiInfo.dependency_count !== 1 ? "s" : ""}
+                    · {pixiInfo.dependency_count} dep
+                    {pixiInfo.dependency_count !== 1 ? "s" : ""}
                   </span>
                 </span>
               </div>
@@ -391,7 +419,8 @@ export function CondaDependencyHeader({
           </div>
         ) : (
           <div className="mb-3 text-xs text-muted-foreground">
-            No dependencies. Add conda packages to create an isolated environment.
+            No dependencies. Add conda packages to create an isolated
+            environment.
           </div>
         )}
 

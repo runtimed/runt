@@ -204,10 +204,12 @@ pub fn parse_deno_config(path: &Path) -> Result<DenoConfig> {
 
 /// Create DenoConfigInfo from a config for sending to the frontend
 pub fn create_deno_config_info(config: &DenoConfig, notebook_path: &Path) -> DenoConfigInfo {
-    let relative_path =
-        pathdiff::diff_paths(&config.path, notebook_path.parent().unwrap_or(notebook_path))
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| config.path.display().to_string());
+    let relative_path = pathdiff::diff_paths(
+        &config.path,
+        notebook_path.parent().unwrap_or(notebook_path),
+    )
+    .map(|p| p.display().to_string())
+    .unwrap_or_else(|| config.path.display().to_string());
 
     DenoConfigInfo {
         path: config.path.display().to_string(),
@@ -219,9 +221,7 @@ pub fn create_deno_config_info(config: &DenoConfig, notebook_path: &Path) -> Den
 }
 
 /// Extract Deno configuration from notebook metadata
-pub fn extract_deno_metadata(
-    metadata: &nbformat::v4::Metadata,
-) -> Option<DenoDependencies> {
+pub fn extract_deno_metadata(metadata: &nbformat::v4::Metadata) -> Option<DenoDependencies> {
     metadata
         .additional
         .get("deno")
@@ -453,10 +453,7 @@ mod tests {
         let notebooks_dir = temp.path().join("notebooks");
         std::fs::create_dir(&notebooks_dir).unwrap();
 
-        create_deno_config(
-            temp.path(),
-            r#"{"name": "my-project", "imports": {}}"#,
-        );
+        create_deno_config(temp.path(), r#"{"name": "my-project", "imports": {}}"#);
 
         let config = parse_deno_config(&temp.path().join("deno.json")).unwrap();
         let notebook_path = notebooks_dir.join("test.ipynb");

@@ -67,11 +67,13 @@ fn trust_key_path() -> Option<PathBuf> {
 /// The key is stored in `~/.config/runt/trust-key` (or platform equivalent).
 /// It's generated randomly on first use and never leaves the machine.
 pub fn get_or_create_trust_key() -> Result<[u8; 32], String> {
-    let key_path = trust_key_path().ok_or_else(|| "Could not determine config directory".to_string())?;
+    let key_path =
+        trust_key_path().ok_or_else(|| "Could not determine config directory".to_string())?;
 
     if key_path.exists() {
         // Read existing key
-        let key_bytes = std::fs::read(&key_path).map_err(|e| format!("Failed to read trust key: {}", e))?;
+        let key_bytes =
+            std::fs::read(&key_path).map_err(|e| format!("Failed to read trust key: {}", e))?;
         if key_bytes.len() != 32 {
             return Err("Trust key file is corrupted (wrong size)".to_string());
         }
@@ -119,10 +121,7 @@ fn extract_signable_content(metadata: &HashMap<String, serde_json::Value>) -> St
 }
 
 /// Compute HMAC signature over dependency metadata.
-pub fn compute_signature(
-    key: &[u8; 32],
-    metadata: &HashMap<String, serde_json::Value>,
-) -> String {
+pub fn compute_signature(key: &[u8; 32], metadata: &HashMap<String, serde_json::Value>) -> String {
     let content = extract_signable_content(metadata);
 
     let mut mac = HmacSha256::new_from_slice(key).expect("HMAC can accept any key size");
@@ -291,7 +290,10 @@ mod tests {
         std::env::remove_var("RUNT_TRUST_KEY_PATH");
     }
 
-    fn make_test_metadata(uv_deps: Vec<&str>, conda_deps: Vec<&str>) -> HashMap<String, serde_json::Value> {
+    fn make_test_metadata(
+        uv_deps: Vec<&str>,
+        conda_deps: Vec<&str>,
+    ) -> HashMap<String, serde_json::Value> {
         let mut metadata = HashMap::new();
 
         if !uv_deps.is_empty() {

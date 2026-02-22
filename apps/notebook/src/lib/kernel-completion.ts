@@ -1,4 +1,8 @@
-import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import {
+  autocompletion,
+  type CompletionContext,
+  type CompletionResult,
+} from "@codemirror/autocomplete";
 import type { Extension } from "@codemirror/state";
 import { invoke } from "@tauri-apps/api/core";
 

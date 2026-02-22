@@ -111,10 +111,7 @@ fn get_bundled_runtimed_path(app: &tauri::AppHandle) -> Option<PathBuf> {
                 log::debug!("[startup] Found bundled runtimed at {:?}", bundled_path);
                 return Some(bundled_path);
             }
-            log::debug!(
-                "[startup] Bundled runtimed not found at {:?}",
-                bundled_path
-            );
+            log::debug!("[startup] Bundled runtimed not found at {:?}", bundled_path);
         }
     }
 
@@ -127,10 +124,7 @@ fn get_bundled_runtimed_path(app: &tauri::AppHandle) -> Option<PathBuf> {
                 log::debug!("[startup] Found bundled runtimed at {:?}", bundled_path);
                 return Some(bundled_path);
             }
-            log::debug!(
-                "[startup] Bundled runtimed not found at {:?}",
-                bundled_path
-            );
+            log::debug!("[startup] Bundled runtimed not found at {:?}", bundled_path);
         }
     }
 
@@ -143,10 +137,7 @@ fn get_bundled_runtimed_path(app: &tauri::AppHandle) -> Option<PathBuf> {
                 log::debug!("[startup] Found bundled runtimed at {:?}", bundled_path);
                 return Some(bundled_path);
             }
-            log::debug!(
-                "[startup] Bundled runtimed not found at {:?}",
-                bundled_path
-            );
+            log::debug!("[startup] Bundled runtimed not found at {:?}", bundled_path);
         }
     }
 
@@ -473,7 +464,10 @@ async fn clone_notebook_to_path(
         if let Some(source_env) = kernel.uv_environment() {
             // Copy the environment - ignore errors, clone will just create fresh env on start
             if let Err(e) = uv_env::copy_environment(source_env, &new_env_id).await {
-                info!("Failed to copy environment for clone (will create fresh): {}", e);
+                info!(
+                    "Failed to copy environment for clone (will create fresh): {}",
+                    e
+                );
             }
         }
     }
@@ -962,7 +956,13 @@ async fn clear_dependency_section(
     }
 
     let mut state = state.lock().map_err(|e| e.to_string())?;
-    if state.notebook.metadata.additional.remove(&section).is_some() {
+    if state
+        .notebook
+        .metadata
+        .additional
+        .remove(&section)
+        .is_some()
+    {
         state.dirty = true;
     }
 
@@ -1347,24 +1347,25 @@ async fn start_default_uv_kernel(
             state.dirty = true;
         }
 
-        (uv_env::extract_env_id(&state.notebook.metadata), state.path.clone())
+        (
+            uv_env::extract_env_id(&state.notebook.metadata),
+            state.path.clone(),
+        )
     };
 
     // Try to use a prewarmed environment (daemon first, then in-process pool)
     if let Some(env_id) = &env_id {
         let prewarmed = {
-                #[allow(clippy::needless_borrow)]
-                env_pool::take_uv_env(&pool)
-            }.await;
+            #[allow(clippy::needless_borrow)]
+            env_pool::take_uv_env(&pool)
+        }
+        .await;
         if let Some(prewarmed_env) = prewarmed {
             info!("[prewarm] Using prewarmed environment for default uv kernel");
 
             // Try to claim and use the prewarmed env, but fall back gracefully on error
-            match uv_env::claim_prewarmed_environment(
-                prewarmed_env.into_uv_environment(),
-                env_id,
-            )
-            .await
+            match uv_env::claim_prewarmed_environment(prewarmed_env.into_uv_environment(), env_id)
+                .await
             {
                 Ok(env) => {
                     // Validate the python path exists before trying to use it
@@ -1373,7 +1374,10 @@ async fn start_default_uv_kernel(
                         env_pool::spawn_replenishment(pool.inner().clone());
 
                         let mut kernel = kernel_state.lock().await;
-                        match kernel.start_with_prewarmed_uv(app.clone(), env, notebook_path.as_deref()).await {
+                        match kernel
+                            .start_with_prewarmed_uv(app.clone(), env, notebook_path.as_deref())
+                            .await
+                        {
                             Ok(()) => return Ok(()),
                             Err(e) => {
                                 log::warn!(
@@ -1511,7 +1515,9 @@ async fn start_default_python_kernel_impl(
         let uv_deps = uv_env::extract_dependencies(&state.notebook.metadata);
         let conda_deps = conda_env::extract_dependencies(&state.notebook.metadata);
         let has_uv = uv_deps.map(|d| !d.dependencies.is_empty()).unwrap_or(false);
-        let has_conda = conda_deps.map(|d| !d.dependencies.is_empty()).unwrap_or(false);
+        let has_conda = conda_deps
+            .map(|d| !d.dependencies.is_empty())
+            .unwrap_or(false);
         (has_uv, has_conda)
     };
 
@@ -1532,7 +1538,10 @@ async fn start_default_python_kernel_impl(
         false
     } else if has_uv_deps && has_conda_deps {
         // Both have deps - use user preference but warn
-        log::warn!("Notebook has both uv and conda dependencies, using preference: {:?}", preferred_env);
+        log::warn!(
+            "Notebook has both uv and conda dependencies, using preference: {:?}",
+            preferred_env
+        );
         match preferred_env {
             settings::PythonEnvType::Uv => uv_available,
             settings::PythonEnvType::Conda => false,
@@ -1557,13 +1566,16 @@ async fn start_default_python_kernel_impl(
         }
 
         if let Some(ref nb_path) = notebook_path_for_detection {
-            if let Some(detected) = project_file::find_nearest_project_file(nb_path, &search_kinds) {
+            if let Some(detected) = project_file::find_nearest_project_file(nb_path, &search_kinds)
+            {
                 match detected.kind {
                     project_file::ProjectFileKind::PyprojectToml => {
                         if let Ok(config) = pyproject::parse_pyproject(&detected.path) {
                             let info = pyproject::create_pyproject_info(&config, nb_path);
                             if info.has_dependencies || info.has_venv {
-                                let project_dir = detected.path.parent()
+                                let project_dir = detected
+                                    .path
+                                    .parent()
                                     .ok_or_else(|| "Invalid pyproject.toml path".to_string())?;
 
                                 info!(
@@ -1572,7 +1584,9 @@ async fn start_default_python_kernel_impl(
                                 );
 
                                 let mut kernel = kernel_state.lock().await;
-                                kernel.start_with_uv_run(app, project_dir).await
+                                kernel
+                                    .start_with_uv_run(app, project_dir)
+                                    .await
                                     .map_err(|e| e.to_string())?;
 
                                 info!(
@@ -1598,8 +1612,12 @@ async fn start_default_python_kernel_impl(
 
                                 // Get or create env_id for this notebook
                                 let env_id = {
-                                    let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
-                                    let existing_id = state.notebook.metadata.additional
+                                    let mut state =
+                                        notebook_state.lock().map_err(|e| e.to_string())?;
+                                    let existing_id = state
+                                        .notebook
+                                        .metadata
+                                        .additional
                                         .get("runt")
                                         .and_then(|v| v.get("env_id"))
                                         .and_then(|v| v.as_str())
@@ -1620,7 +1638,12 @@ async fn start_default_python_kernel_impl(
                                 deps.env_id = Some(env_id);
 
                                 let mut kernel = kernel_state.lock().await;
-                                kernel.start_with_conda(app, &deps, notebook_path_for_detection.as_deref())
+                                kernel
+                                    .start_with_conda(
+                                        app,
+                                        &deps,
+                                        notebook_path_for_detection.as_deref(),
+                                    )
                                     .await
                                     .map_err(|e| e.to_string())?;
 
@@ -1676,7 +1699,10 @@ async fn start_default_python_kernel_impl(
     };
 
     if use_uv {
-        info!("Using uv for default kernel (preferred: {:?})", preferred_env);
+        info!(
+            "Using uv for default kernel (preferred: {:?})",
+            preferred_env
+        );
 
         // Ensure uv metadata exists in the notebook (for legacy notebooks)
         // Also extract env_id for per-notebook isolation and notebook dependencies
@@ -1684,16 +1710,18 @@ async fn start_default_python_kernel_impl(
             let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
 
             // If notebook has empty conda deps and we're using UV, migrate to UV
-            let should_setup_uv = if let Some(conda_val) = state.notebook.metadata.additional.get("conda") {
-                // Only migrate if conda deps are empty
-                let conda_deps = conda_val.get("dependencies")
-                    .and_then(|d| d.as_array())
-                    .map(|a| a.is_empty())
-                    .unwrap_or(true);
-                conda_deps
-            } else {
-                true
-            };
+            let should_setup_uv =
+                if let Some(conda_val) = state.notebook.metadata.additional.get("conda") {
+                    // Only migrate if conda deps are empty
+                    let conda_deps = conda_val
+                        .get("dependencies")
+                        .and_then(|d| d.as_array())
+                        .map(|a| a.is_empty())
+                        .unwrap_or(true);
+                    conda_deps
+                } else {
+                    true
+                };
 
             if should_setup_uv && !state.notebook.metadata.additional.contains_key("uv") {
                 state.notebook.metadata.additional.insert(
@@ -1704,7 +1732,8 @@ async fn start_default_python_kernel_impl(
                 );
                 // Remove empty conda metadata if migrating to uv
                 if let Some(conda_val) = state.notebook.metadata.additional.get("conda") {
-                    let conda_deps_empty = conda_val.get("dependencies")
+                    let conda_deps_empty = conda_val
+                        .get("dependencies")
                         .and_then(|d| d.as_array())
                         .map(|a| a.is_empty())
                         .unwrap_or(true);
@@ -1718,7 +1747,11 @@ async fn start_default_python_kernel_impl(
             // Extract notebook dependencies
             let deps = uv_env::extract_dependencies(&state.notebook.metadata);
 
-            (uv_env::extract_env_id(&state.notebook.metadata), state.path.clone(), deps)
+            (
+                uv_env::extract_env_id(&state.notebook.metadata),
+                state.path.clone(),
+                deps,
+            )
         };
 
         // Check if notebook has dependencies - if so, use prepare_environment path
@@ -1754,7 +1787,8 @@ async fn start_default_python_kernel_impl(
             let prewarmed = {
                 #[allow(clippy::needless_borrow)]
                 env_pool::take_uv_env(&pool)
-            }.await;
+            }
+            .await;
             if let Some(prewarmed_env) = prewarmed {
                 info!("[prewarm] Using prewarmed environment for notebook (no deps)");
 
@@ -1772,7 +1806,10 @@ async fn start_default_python_kernel_impl(
                             env_pool::spawn_replenishment(pool.clone());
 
                             let mut kernel = kernel_state.lock().await;
-                            match kernel.start_with_prewarmed_uv(app.clone(), env, notebook_path.as_deref()).await {
+                            match kernel
+                                .start_with_prewarmed_uv(app.clone(), env, notebook_path.as_deref())
+                                .await
+                            {
                                 Ok(()) => {
                                     info!(
                                         "[kernel-ready] Started UV kernel in {}ms | Source: prewarmed",
@@ -1815,7 +1852,10 @@ async fn start_default_python_kernel_impl(
             s.default_uv_packages
         };
         if !default_deps.is_empty() {
-            info!("[prewarm:uv] Including default packages: {:?}", default_deps);
+            info!(
+                "[prewarm:uv] Including default packages: {:?}",
+                default_deps
+            );
         }
 
         let deps = uv_env::NotebookDependencies {
@@ -1835,7 +1875,10 @@ async fn start_default_python_kernel_impl(
         );
         Ok("uv:fresh".to_string())
     } else {
-        info!("Using conda/rattler for default kernel (preferred: {:?})", preferred_env);
+        info!(
+            "Using conda/rattler for default kernel (preferred: {:?})",
+            preferred_env
+        );
 
         // Get the env_id for this notebook (should be set at notebook creation)
         // Fall back to creating one for legacy notebooks
@@ -1844,7 +1887,11 @@ async fn start_default_python_kernel_impl(
             let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
 
             // Check if notebook has empty uv deps - if so, migrate to conda
-            let uv_deps_empty = state.notebook.metadata.additional.get("uv")
+            let uv_deps_empty = state
+                .notebook
+                .metadata
+                .additional
+                .get("uv")
                 .and_then(|v| v.get("dependencies"))
                 .and_then(|d| d.as_array())
                 .map(|a| a.is_empty())
@@ -1945,7 +1992,8 @@ async fn start_default_python_kernel_impl(
         let prewarmed = {
             #[allow(clippy::needless_borrow)]
             env_pool::take_conda_env(&conda_pool)
-        }.await;
+        }
+        .await;
         if let Some(prewarmed_env) = prewarmed {
             info!("[prewarm] Using prewarmed conda environment for notebook (no deps)");
 
@@ -1959,7 +2007,10 @@ async fn start_default_python_kernel_impl(
                 Ok(env) => {
                     if env.python_path.exists() {
                         let mut kernel = kernel_state.lock().await;
-                        match kernel.start_with_prewarmed_conda(app.clone(), env, notebook_path.as_deref()).await {
+                        match kernel
+                            .start_with_prewarmed_conda(app.clone(), env, notebook_path.as_deref())
+                            .await
+                        {
                             Ok(()) => {
                                 // Trigger replenishment of the pool
                                 env_pool::spawn_conda_replenishment(conda_pool.clone());
@@ -2510,8 +2561,7 @@ async fn start_kernel_with_environment_yml(
         return Err("No environment.yml found".to_string());
     };
 
-    let config =
-        environment_yml::parse_environment_yml(&yml_path).map_err(|e| e.to_string())?;
+    let config = environment_yml::parse_environment_yml(&yml_path).map_err(|e| e.to_string())?;
     let deps = environment_yml::convert_to_conda_dependencies(&config);
 
     info!(
@@ -2716,7 +2766,10 @@ async fn start_deno_kernel_impl(
             .path
             .as_ref()
             .and_then(|p| deno_env::find_deno_config(p))
-            .and_then(|c| c.parent().map(|p| p.canonicalize().unwrap_or_else(|_| p.to_path_buf())));
+            .and_then(|c| {
+                c.parent()
+                    .map(|p| p.canonicalize().unwrap_or_else(|_| p.to_path_buf()))
+            });
 
         (perms, ws_dir, flexible, state.path.clone())
     };
@@ -2847,7 +2900,12 @@ async fn set_default_python_env(env_type: String) -> Result<(), String> {
     let python_env = match env_type.to_lowercase().as_str() {
         "uv" => settings::PythonEnvType::Uv,
         "conda" => settings::PythonEnvType::Conda,
-        _ => return Err(format!("Invalid Python env type: {}. Use 'uv' or 'conda'.", env_type)),
+        _ => {
+            return Err(format!(
+                "Invalid Python env type: {}. Use 'uv' or 'conda'.",
+                env_type
+            ))
+        }
     };
 
     let mut settings = settings::load_settings();
@@ -3053,7 +3111,11 @@ fn create_new_notebook_state(path: &Path, runtime: Runtime) -> NotebookState {
 /// If `notebook_path` is Some, opens that file. If None, creates a new empty notebook.
 /// The `runtime` parameter specifies which runtime to use for new notebooks.
 /// If None, falls back to user's default runtime from settings.
-pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>, #[allow(unused_variables)] webdriver_port: Option<u16>) -> anyhow::Result<()> {
+pub fn run(
+    notebook_path: Option<PathBuf>,
+    runtime: Option<Runtime>,
+    #[allow(unused_variables)] webdriver_port: Option<u16>,
+) -> anyhow::Result<()> {
     env_logger::init();
     shell_env::load_shell_environment();
 
@@ -3094,10 +3156,12 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>, #[allow(unu
     let kernel_state = Arc::new(tokio::sync::Mutex::new(NotebookKernel::default()));
 
     // Create the prewarming environment pools (UV and Conda)
-    let env_pool: env_pool::SharedEnvPool =
-        Arc::new(tokio::sync::Mutex::new(env_pool::EnvPool::new(env_pool::PoolConfig::default())));
-    let conda_env_pool: env_pool::SharedCondaEnvPool =
-        Arc::new(tokio::sync::Mutex::new(env_pool::CondaEnvPool::new(env_pool::PoolConfig::default())));
+    let env_pool: env_pool::SharedEnvPool = Arc::new(tokio::sync::Mutex::new(
+        env_pool::EnvPool::new(env_pool::PoolConfig::default()),
+    ));
+    let conda_env_pool: env_pool::SharedCondaEnvPool = Arc::new(tokio::sync::Mutex::new(
+        env_pool::CondaEnvPool::new(env_pool::PoolConfig::default()),
+    ));
 
     // Track auto-launch state for frontend to query
     let auto_launch_in_progress = Arc::new(AtomicBool::new(false));

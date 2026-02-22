@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 /** Status of a cell in the queue */
 export type CellQueueStatus = "pending" | "executing";
@@ -44,11 +44,14 @@ export function useExecutionQueue(options: UseExecutionQueueOptions = {}) {
     let cancelled = false;
 
     // Listen for queue state changes
-    const stateUnlisten = listen<ExecutionQueueState>("queue:state", (event) => {
-      if (cancelled) return;
-      console.log("[queue] state update:", event.payload);
-      setQueueState(event.payload);
-    });
+    const stateUnlisten = listen<ExecutionQueueState>(
+      "queue:state",
+      (event) => {
+        if (cancelled) return;
+        console.log("[queue] state update:", event.payload);
+        setQueueState(event.payload);
+      },
+    );
 
     // Listen for cells cancelled
     const cancelUnlisten = listen<CellsCancelledEvent>(
@@ -57,7 +60,7 @@ export function useExecutionQueue(options: UseExecutionQueueOptions = {}) {
         if (cancelled) return;
         console.log("[queue] cells cancelled:", event.payload.cell_ids);
         options.onCellsCancelled?.(event.payload.cell_ids);
-      }
+      },
     );
 
     // Load initial state
@@ -113,13 +116,13 @@ export function useExecutionQueue(options: UseExecutionQueueOptions = {}) {
   /** Check if a specific cell is in the queue (pending or executing) */
   const isCellQueued = useCallback(
     (cellId: string) => queueState.cells.some((c) => c.cell_id === cellId),
-    [queueState.cells]
+    [queueState.cells],
   );
 
   /** Check if a specific cell is currently executing */
   const isCellExecuting = useCallback(
     (cellId: string) => queueState.executing_cell_id === cellId,
-    [queueState.executing_cell_id]
+    [queueState.executing_cell_id],
   );
 
   /** Get queue position for a cell (-1 if not in queue) */
@@ -128,13 +131,13 @@ export function useExecutionQueue(options: UseExecutionQueueOptions = {}) {
       const cell = queueState.cells.find((c) => c.cell_id === cellId);
       return cell?.position ?? -1;
     },
-    [queueState.cells]
+    [queueState.cells],
   );
 
   /** Set of all cell IDs currently in the queue (pending or executing) */
   const queuedCellIds = useMemo(
     () => new Set(queueState.cells.map((c) => c.cell_id)),
-    [queueState.cells]
+    [queueState.cells],
   );
 
   return {

@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useState } from "react";
 import type { PixiInfo } from "../types";
 
 export interface CondaDependencies {
@@ -41,7 +41,7 @@ export type CondaSyncState =
 
 export function useCondaDependencies() {
   const [dependencies, setDependencies] = useState<CondaDependencies | null>(
-    null
+    null,
   );
   const [loading, setLoading] = useState(false);
   // Track if deps were synced to a running kernel (user may need to restart for some changes)
@@ -56,13 +56,15 @@ export function useCondaDependencies() {
   const [pixiInfo, setPixiInfo] = useState<PixiInfo | null>(null);
 
   // environment.yml detection state
-  const [environmentYmlInfo, setEnvironmentYmlInfo] = useState<EnvironmentYmlInfo | null>(null);
-  const [environmentYmlDeps, setEnvironmentYmlDeps] = useState<EnvironmentYmlDeps | null>(null);
+  const [environmentYmlInfo, setEnvironmentYmlInfo] =
+    useState<EnvironmentYmlInfo | null>(null);
+  const [environmentYmlDeps, setEnvironmentYmlDeps] =
+    useState<EnvironmentYmlDeps | null>(null);
 
   const loadDependencies = useCallback(async () => {
     try {
       const deps = await invoke<CondaDependencies | null>(
-        "get_conda_dependencies"
+        "get_conda_dependencies",
       );
       setDependencies(deps);
     } catch (e) {
@@ -73,7 +75,9 @@ export function useCondaDependencies() {
   // Load full environment.yml dependencies
   const loadEnvironmentYmlDeps = useCallback(async () => {
     try {
-      const deps = await invoke<EnvironmentYmlDeps | null>("get_environment_yml_dependencies");
+      const deps = await invoke<EnvironmentYmlDeps | null>(
+        "get_environment_yml_dependencies",
+      );
       setEnvironmentYmlDeps(deps);
     } catch (e) {
       console.error("Failed to load environment.yml dependencies:", e);
@@ -83,7 +87,9 @@ export function useCondaDependencies() {
   // Load dependencies and detect environment.yml and pixi.toml on mount
   useEffect(() => {
     loadDependencies();
-    invoke<EnvironmentYmlInfo | null>("detect_environment_yml").then(setEnvironmentYmlInfo);
+    invoke<EnvironmentYmlInfo | null>("detect_environment_yml").then(
+      setEnvironmentYmlInfo,
+    );
     invoke<PixiInfo | null>("detect_pixi_toml").then(setPixiInfo);
   }, [loadDependencies]);
 
@@ -144,7 +150,7 @@ export function useCondaDependencies() {
       if (!hasCondaEnv) {
         // Kernel is running but not with conda - user needs to restart
         console.log(
-          "[conda] Kernel not conda-managed, cannot sync - restart needed"
+          "[conda] Kernel not conda-managed, cannot sync - restart needed",
         );
         setNeedsKernelRestart(true);
         return false;
@@ -198,7 +204,7 @@ export function useCondaDependencies() {
         setLoading(false);
       }
     },
-    [loadDependencies, resignTrust, checkSyncState]
+    [loadDependencies, resignTrust, checkSyncState],
   );
 
   const removeDependency = useCallback(
@@ -217,7 +223,7 @@ export function useCondaDependencies() {
         setLoading(false);
       }
     },
-    [loadDependencies, resignTrust, checkSyncState]
+    [loadDependencies, resignTrust, checkSyncState],
   );
 
   // Remove the entire conda dependency section from notebook metadata
@@ -259,7 +265,7 @@ export function useCondaDependencies() {
         setLoading(false);
       }
     },
-    [dependencies, loadDependencies, resignTrust]
+    [dependencies, loadDependencies, resignTrust],
   );
 
   const setPython = useCallback(
@@ -280,7 +286,7 @@ export function useCondaDependencies() {
         setLoading(false);
       }
     },
-    [dependencies, loadDependencies, resignTrust]
+    [dependencies, loadDependencies, resignTrust],
   );
 
   const hasDependencies =

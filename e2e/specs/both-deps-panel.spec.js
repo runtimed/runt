@@ -10,10 +10,10 @@
 
 import { browser, expect } from "@wdio/globals";
 import {
-  waitForAppReady,
-  executeFirstCell,
-  waitForCellOutput,
   approveTrustDialog,
+  executeFirstCell,
+  waitForAppReady,
+  waitForCellOutput,
 } from "../helpers.js";
 
 describe("Both Dependencies Panel", () => {
@@ -36,7 +36,7 @@ describe("Both Dependencies Panel", () => {
     const isCondaEnv = outputText.includes("runt/conda-envs");
     const isUvEnv = outputText.includes("runt/envs");
     console.log(
-      `Backend chose: ${isCondaEnv ? "conda" : isUvEnv ? "uv" : "unknown"}`
+      `Backend chose: ${isCondaEnv ? "conda" : isUvEnv ? "uv" : "unknown"}`,
     );
 
     // The key assertion: kernel started with *some* managed environment

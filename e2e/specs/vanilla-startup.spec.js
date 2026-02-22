@@ -9,8 +9,8 @@
 
 import { browser, expect } from "@wdio/globals";
 import {
-  waitForAppReady,
   executeFirstCell,
+  waitForAppReady,
   waitForCellOutput,
 } from "../helpers.js";
 

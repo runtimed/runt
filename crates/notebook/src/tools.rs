@@ -5,11 +5,7 @@
 
 use anyhow::{anyhow, Result};
 use log::info;
-use rattler::{
-    default_cache_dir,
-    install::Installer,
-    package_cache::PackageCache,
-};
+use rattler::{default_cache_dir, install::Installer, package_cache::PackageCache};
 use rattler_conda_types::{
     Channel, ChannelConfig, GenericVirtualPackage, MatchSpec, ParseMatchSpecOptions, Platform,
 };
@@ -182,7 +178,10 @@ pub async fn bootstrap_tool(tool_name: &str, version: Option<&str>) -> Result<Bo
         ));
     }
 
-    info!("Successfully bootstrapped {} at {:?}", tool_name, binary_path);
+    info!(
+        "Successfully bootstrapped {} at {:?}",
+        tool_name, binary_path
+    );
 
     Ok(BootstrappedTool {
         binary_path,

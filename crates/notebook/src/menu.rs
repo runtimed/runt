@@ -27,7 +27,11 @@ pub fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
     // App menu (macOS standard - shows app name)
     let app_menu = Submenu::new(app, "runt-notebook", true)?;
-    app_menu.append(&PredefinedMenuItem::about(app, Some("runt-notebook"), None)?)?;
+    app_menu.append(&PredefinedMenuItem::about(
+        app,
+        Some("runt-notebook"),
+        None,
+    )?)?;
     app_menu.append(&PredefinedMenuItem::separator(app)?)?;
     app_menu.append(&MenuItem::with_id(
         app,

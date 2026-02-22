@@ -1,4 +1,4 @@
-import { Info, FileText, Package, ExternalLink } from "lucide-react";
+import { ExternalLink, FileText, Info, Package } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import type { DenoConfigInfo } from "../hooks/useDenoDependencies";
@@ -146,7 +146,8 @@ export function DenoDependencyHeader({
               <span className="font-medium">URL imports</span>
             </div>
             <code className="text-xs text-emerald-600 dark:text-emerald-400 break-all">
-              import &#123; serve &#125; from "https://deno.land/std/http/server.ts";
+              import &#123; serve &#125; from
+              "https://deno.land/std/http/server.ts";
             </code>
           </div>
         </div>
@@ -156,8 +157,8 @@ export function DenoDependencyHeader({
           <div className="mt-3 text-xs text-muted-foreground">
             <span className="font-medium">Tip:</span> Create a{" "}
             <code className="rounded bg-muted px-1">deno.json</code> with an{" "}
-            <code className="rounded bg-muted px-1">"imports"</code> field to use
-            shorter import specifiers.
+            <code className="rounded bg-muted px-1">"imports"</code> field to
+            use shorter import specifiers.
           </div>
         )}
       </div>

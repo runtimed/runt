@@ -44,10 +44,7 @@ pub struct SyncClient<S> {
 }
 
 /// Send a length-prefixed message.
-async fn send_framed<W: AsyncWrite + Unpin>(
-    writer: &mut W,
-    data: &[u8],
-) -> std::io::Result<()> {
+async fn send_framed<W: AsyncWrite + Unpin>(writer: &mut W, data: &[u8]) -> std::io::Result<()> {
     let len = (data.len() as u32).to_be_bytes();
     writer.write_all(&len).await?;
     writer.write_all(data).await?;
@@ -56,9 +53,7 @@ async fn send_framed<W: AsyncWrite + Unpin>(
 }
 
 /// Receive a length-prefixed message. Returns `None` on clean disconnect.
-async fn recv_framed<R: AsyncRead + Unpin>(
-    reader: &mut R,
-) -> std::io::Result<Option<Vec<u8>>> {
+async fn recv_framed<R: AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<Option<Vec<u8>>> {
     let mut len_buf = [0u8; 4];
     match reader.read_exact(&mut len_buf).await {
         Ok(_) => {}
@@ -91,13 +86,10 @@ impl SyncClient<tokio::net::UnixStream> {
         socket_path: PathBuf,
         timeout: Duration,
     ) -> Result<Self, SyncClientError> {
-        let stream = tokio::time::timeout(
-            timeout,
-            tokio::net::UnixStream::connect(&socket_path),
-        )
-        .await
-        .map_err(|_| SyncClientError::Timeout)?
-        .map_err(SyncClientError::ConnectionFailed)?;
+        let stream = tokio::time::timeout(timeout, tokio::net::UnixStream::connect(&socket_path))
+            .await
+            .map_err(|_| SyncClientError::Timeout)?
+            .map_err(SyncClientError::ConnectionFailed)?;
 
         info!("[sync-client] Connected to {:?}", socket_path);
 
@@ -225,9 +217,7 @@ where
                     let map_id = self.ensure_map(map_key)?;
                     self.doc
                         .put(&map_id, sub_key, s.as_str())
-                        .map_err(|e| {
-                            SyncClientError::SyncError(format!("put nested: {}", e))
-                        })?;
+                        .map_err(|e| SyncClientError::SyncError(format!("put nested: {}", e)))?;
                 } else {
                     self.doc
                         .put(automerge::ROOT, key, s.as_str())
@@ -276,11 +266,8 @@ where
     /// Get or create a nested Map at ROOT.
     fn ensure_map(&mut self, map_key: &str) -> Result<automerge::ObjId, SyncClientError> {
         // Check if map already exists
-        if let Some((automerge::Value::Object(ObjType::Map), id)) = self
-            .doc
-            .get(automerge::ROOT, map_key)
-            .ok()
-            .flatten()
+        if let Some((automerge::Value::Object(ObjType::Map), id)) =
+            self.doc.get(automerge::ROOT, map_key).ok().flatten()
         {
             return Ok(id);
         }
@@ -441,9 +428,7 @@ mod tests {
             .unwrap();
 
         // Create nested uv map with package list
-        let uv_id = doc
-            .put_object(automerge::ROOT, "uv", ObjType::Map)
-            .unwrap();
+        let uv_id = doc.put_object(automerge::ROOT, "uv", ObjType::Map).unwrap();
         let uv_pkgs_id = doc
             .put_object(&uv_id, "default_packages", ObjType::List)
             .unwrap();

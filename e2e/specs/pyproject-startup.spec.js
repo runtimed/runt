@@ -10,8 +10,8 @@
 
 import { browser, expect } from "@wdio/globals";
 import {
-  waitForAppReady,
   executeFirstCell,
+  waitForAppReady,
   waitForCellOutput,
 } from "../helpers.js";
 
@@ -31,13 +31,17 @@ describe("Pyproject Kernel Startup", () => {
 
     // The python executable should exist (any valid path)
     expect(outputText.length).toBeGreaterThan(0);
-    console.log("Pyproject startup test passed: kernel started without hanging");
+    console.log(
+      "Pyproject startup test passed: kernel started without hanging",
+    );
   });
 
   it("should show pyproject env source in toolbar", async () => {
     // The env badge shows an icon with a title attribute like "Environment: uv:pyproject"
     const envBadge = await browser.execute(() => {
-      const els = document.querySelectorAll('[data-testid="notebook-toolbar"] [title]');
+      const els = document.querySelectorAll(
+        '[data-testid="notebook-toolbar"] [title]',
+      );
       for (const el of els) {
         if (el.title.startsWith("Environment:")) return el.title;
       }

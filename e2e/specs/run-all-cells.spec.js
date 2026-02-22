@@ -14,7 +14,11 @@ import { waitForAppReady, waitForKernelReady } from "../helpers.js";
 /**
  * Wait for a specific cell (by index) to have stream output containing the expected text.
  */
-async function waitForCellStreamOutput(cellIndex, expectedText, timeout = 120000) {
+async function waitForCellStreamOutput(
+  cellIndex,
+  expectedText,
+  timeout = 120000,
+) {
   const cells = await $$('[data-cell-type="code"]');
   const cell = cells[cellIndex];
 
@@ -29,7 +33,7 @@ async function waitForCellStreamOutput(cellIndex, expectedText, timeout = 120000
       timeout,
       interval: 500,
       timeoutMsg: `Cell ${cellIndex} did not produce output containing "${expectedText}"`,
-    }
+    },
   );
 
   const output = await cell.$('[data-slot="ansi-stream-output"]');
@@ -78,7 +82,9 @@ describe("Run All Cells", () => {
   });
 
   it("should restart and re-execute all cells", async () => {
-    const restartRunAllButton = await $('[data-testid="restart-run-all-button"]');
+    const restartRunAllButton = await $(
+      '[data-testid="restart-run-all-button"]',
+    );
     await restartRunAllButton.waitForClickable({ timeout: 5000 });
     await restartRunAllButton.click();
     console.log("Clicked Restart & Run All");
@@ -93,7 +99,11 @@ describe("Run All Cells", () => {
         }
         return true;
       },
-      { timeout: 15000, interval: 300, timeoutMsg: "Outputs did not clear after Restart & Run All" }
+      {
+        timeout: 15000,
+        interval: 300,
+        timeoutMsg: "Outputs did not clear after Restart & Run All",
+      },
     );
     console.log("Outputs cleared");
 

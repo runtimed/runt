@@ -7,8 +7,8 @@
  * - Multiple outputs in a single cell
  */
 
-import { browser, expect } from "@wdio/globals";
 import os from "node:os";
+import { browser, expect } from "@wdio/globals";
 import { waitForAppReady } from "../helpers.js";
 
 // macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
@@ -72,7 +72,9 @@ describe("Rich Output Types", () => {
     await browser.waitUntil(
       async () => {
         // Check for various output types
-        const streamOutput = await codeCell.$('[data-slot="ansi-stream-output"]');
+        const streamOutput = await codeCell.$(
+          '[data-slot="ansi-stream-output"]',
+        );
         const imageOutput = await codeCell.$("img");
         const iframeOutput = await codeCell.$("iframe");
         const displayData = await codeCell.$('[data-slot*="output"]');
@@ -88,7 +90,7 @@ describe("Rich Output Types", () => {
         timeout,
         timeoutMsg: "No output appeared within timeout.",
         interval: 500,
-      }
+      },
     );
   }
 
@@ -107,7 +109,7 @@ describe("Rich Output Types", () => {
         timeout,
         timeoutMsg: `Stream output containing "${expectedText}" did not appear within timeout.`,
         interval: 500,
-      }
+      },
     );
   }
 
@@ -143,7 +145,7 @@ plt.show()`;
           {
             timeout: EXECUTION_TIMEOUT,
             interval: 1000,
-          }
+          },
         );
 
         // Verify image exists
@@ -153,7 +155,10 @@ plt.show()`;
 
         // Check image has valid src
         const src = await img.getAttribute("src");
-        console.log("Image src type:", src ? src.substring(0, 50) + "..." : "none");
+        console.log(
+          "Image src type:",
+          src ? `${src.substring(0, 50)}...` : "none",
+        );
         expect(src).toBeTruthy();
 
         // Image should be either a data URL or blob URL
@@ -162,7 +167,10 @@ plt.show()`;
         console.log("Matplotlib image test passed");
       } catch (e) {
         // matplotlib might not be available
-        console.log("matplotlib test skipped - may not be installed:", e.message);
+        console.log(
+          "matplotlib test skipped - may not be installed:",
+          e.message,
+        );
       }
     });
 
@@ -191,7 +199,9 @@ display(Image(data=red_pixel, format='png'))`;
         if (await img.isExisting()) {
           console.log("IPython Image display test passed");
         } else {
-          console.log("Image not rendered as img tag, checking alternative formats");
+          console.log(
+            "Image not rendered as img tag, checking alternative formats",
+          );
         }
       } catch (e) {
         console.log("IPython Image test result:", e.message);
@@ -234,7 +244,10 @@ display(HTML('<div style="color: blue; font-size: 20px;">Hello from HTML</div>')
         } else {
           // HTML might be rendered directly if simple enough
           const htmlContent = await codeCell.getHTML();
-          console.log("Cell HTML contains 'Hello':", htmlContent.includes("Hello"));
+          console.log(
+            "Cell HTML contains 'Hello':",
+            htmlContent.includes("Hello"),
+          );
         }
 
         console.log("HTML output test passed");
@@ -289,7 +302,8 @@ df`;
       await setupCodeCell();
 
       // Generate multiple outputs - use a simple test that works reliably
-      const testCode = 'print("First output"); print("Second output"); print("Third output")';
+      const testCode =
+        'print("First output"); print("Second output"); print("Third output")';
 
       console.log("Typing multiple print statements");
       await typeSlowly(testCode, 30);
@@ -300,7 +314,9 @@ df`;
       await waitForStreamOutput("Third output", KERNEL_STARTUP_TIMEOUT);
 
       // All outputs should be visible
-      const outputText = await codeCell.$('[data-slot="ansi-stream-output"]').getText();
+      const outputText = await codeCell
+        .$('[data-slot="ansi-stream-output"]')
+        .getText();
       console.log("Output text:", outputText);
 
       expect(outputText).toContain("First output");
@@ -331,7 +347,8 @@ print("More stdout")`;
 
         // Check that we have output
         const cellHtml = await codeCell.getHTML();
-        const hasStdout = cellHtml.includes("stdout") || cellHtml.includes("This is");
+        const hasStdout =
+          cellHtml.includes("stdout") || cellHtml.includes("This is");
 
         console.log("Mixed outputs rendered:", hasStdout);
         console.log("Mixed output types test passed");
@@ -358,8 +375,13 @@ print("More stdout")`;
       await waitForStreamOutput("Blue", KERNEL_STARTUP_TIMEOUT);
 
       // Check that ANSI spans are rendered with color classes
-      const outputHtml = await codeCell.$('[data-slot="ansi-stream-output"]').getHTML();
-      console.log("Output HTML contains ansi class:", outputHtml.includes("ansi-"));
+      const outputHtml = await codeCell
+        .$('[data-slot="ansi-stream-output"]')
+        .getHTML();
+      console.log(
+        "Output HTML contains ansi class:",
+        outputHtml.includes("ansi-"),
+      );
 
       // Should have ANSI color classes applied
       const hasColorClasses =

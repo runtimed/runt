@@ -213,9 +213,7 @@ impl SettingsDoc {
             if !packages.is_empty() {
                 self.put_list("conda.default_packages", &packages);
             }
-            let _ = self
-                .doc
-                .delete(automerge::ROOT, "default_conda_packages");
+            let _ = self.doc.delete(automerge::ROOT, "default_conda_packages");
             info!("[settings] Migrated default_conda_packages to conda.default_packages");
         }
     }
@@ -298,15 +296,17 @@ impl SettingsDoc {
         let len = self.doc.length(&list_id);
         (0..len)
             .filter_map(|i| {
-                self.doc.get(&list_id, i).ok().flatten().and_then(
-                    |(value, _)| match value {
+                self.doc
+                    .get(&list_id, i)
+                    .ok()
+                    .flatten()
+                    .and_then(|(value, _)| match value {
                         automerge::Value::Scalar(s) => match s.as_ref() {
                             automerge::ScalarValue::Str(s) => Some(s.to_string()),
                             _ => None,
                         },
                         _ => None,
-                    },
-                )
+                    })
             })
             .collect()
     }
@@ -407,7 +407,9 @@ impl SettingsDoc {
 
         SyncedSettings {
             theme: self.get("theme").unwrap_or(defaults.theme),
-            default_runtime: self.get("default_runtime").unwrap_or(defaults.default_runtime),
+            default_runtime: self
+                .get("default_runtime")
+                .unwrap_or(defaults.default_runtime),
             default_python_env: self
                 .get("default_python_env")
                 .unwrap_or(defaults.default_python_env),
@@ -421,10 +423,7 @@ impl SettingsDoc {
     }
 
     /// Generate a sync message to send to a peer.
-    pub fn generate_sync_message(
-        &mut self,
-        peer_state: &mut sync::State,
-    ) -> Option<sync::Message> {
+    pub fn generate_sync_message(&mut self, peer_state: &mut sync::State) -> Option<sync::Message> {
         self.doc.sync().generate_sync_message(peer_state)
     }
 
@@ -447,11 +446,7 @@ impl Default for SettingsDoc {
 // ── Free helpers ─────────────────────────────────────────────────────
 
 /// Read a scalar string value from any Automerge object.
-fn read_scalar_str<O: AsRef<ObjId>>(
-    doc: &AutoCommit,
-    obj: O,
-    key: &str,
-) -> Option<String> {
+fn read_scalar_str<O: AsRef<ObjId>>(doc: &AutoCommit, obj: O, key: &str) -> Option<String> {
     doc.get(obj, key)
         .ok()
         .flatten()
@@ -576,10 +571,7 @@ mod tests {
             "uv.default_packages",
             &serde_json::json!(["numpy", "pandas"]),
         );
-        assert_eq!(
-            doc.get_list("uv.default_packages"),
-            vec!["numpy", "pandas"]
-        );
+        assert_eq!(doc.get_list("uv.default_packages"), vec!["numpy", "pandas"]);
     }
 
     #[test]
@@ -755,14 +747,10 @@ mod tests {
 
         for _ in 0..10 {
             if let Some(msg) = client.generate_sync_message(&mut client_state) {
-                server
-                    .receive_sync_message(&mut server_state, msg)
-                    .unwrap();
+                server.receive_sync_message(&mut server_state, msg).unwrap();
             }
             if let Some(msg) = server.generate_sync_message(&mut server_state) {
-                client
-                    .receive_sync_message(&mut client_state, msg)
-                    .unwrap();
+                client.receive_sync_message(&mut client_state, msg).unwrap();
             }
             if client.get("theme") == Some("dark".to_string()) {
                 break;
@@ -785,14 +773,10 @@ mod tests {
         // Sync initial state
         for _ in 0..10 {
             if let Some(msg) = client.generate_sync_message(&mut client_state) {
-                server
-                    .receive_sync_message(&mut server_state, msg)
-                    .unwrap();
+                server.receive_sync_message(&mut server_state, msg).unwrap();
             }
             if let Some(msg) = server.generate_sync_message(&mut server_state) {
-                client
-                    .receive_sync_message(&mut client_state, msg)
-                    .unwrap();
+                client.receive_sync_message(&mut client_state, msg).unwrap();
             }
         }
 
@@ -803,14 +787,10 @@ mod tests {
         // Sync again
         for _ in 0..10 {
             if let Some(msg) = client.generate_sync_message(&mut client_state) {
-                server
-                    .receive_sync_message(&mut server_state, msg)
-                    .unwrap();
+                server.receive_sync_message(&mut server_state, msg).unwrap();
             }
             if let Some(msg) = server.generate_sync_message(&mut server_state) {
-                client
-                    .receive_sync_message(&mut client_state, msg)
-                    .unwrap();
+                client.receive_sync_message(&mut client_state, msg).unwrap();
             }
         }
 
@@ -836,10 +816,7 @@ mod tests {
         let mut doc = SettingsDoc::new();
         // Write a scalar into a nested map (for future settings like conda channels)
         doc.put("uv.some_future_setting", "value");
-        assert_eq!(
-            doc.get("uv.some_future_setting"),
-            Some("value".to_string())
-        );
+        assert_eq!(doc.get("uv.some_future_setting"), Some("value".to_string()));
     }
 
     #[test]

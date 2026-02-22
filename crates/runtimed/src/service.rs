@@ -178,20 +178,14 @@ impl ServiceManager {
             return Err(ServiceError::BinaryNotFound(source_binary.clone()));
         }
 
-        info!(
-            "[service] Upgrading daemon binary from {:?}",
-            source_binary
-        );
+        info!("[service] Upgrading daemon binary from {:?}", source_binary);
 
         // Stop the running daemon (ignore errors - may not be running)
         self.stop().ok();
 
         // Replace the binary
         std::fs::copy(source_binary, &self.config.binary_path)?;
-        info!(
-            "[service] Replaced binary at {:?}",
-            self.config.binary_path
-        );
+        info!("[service] Replaced binary at {:?}", self.config.binary_path);
 
         // Make binary executable on Unix
         #[cfg(unix)]

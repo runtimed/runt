@@ -11,9 +11,9 @@
 
 import { browser, expect } from "@wdio/globals";
 import {
-  waitForAppReady,
   setupCodeCell,
   typeSlowly,
+  waitForAppReady,
   waitForCellOutput,
   waitForOutputContaining,
 } from "../helpers.js";
@@ -42,7 +42,10 @@ describe("Environment Detection", () => {
     console.log("Triggered execution (kernel will start)");
 
     // Wait for output (longer timeout for kernel startup)
-    const outputText = await waitForCellOutput(codeCell, KERNEL_STARTUP_TIMEOUT);
+    const outputText = await waitForCellOutput(
+      codeCell,
+      KERNEL_STARTUP_TIMEOUT,
+    );
     console.log("Python executable:", outputText);
 
     // Should be from either runt/envs (uv) or runt/conda-envs (conda)
@@ -58,7 +61,8 @@ describe("Environment Detection", () => {
   it("should have ipykernel available in the environment", async () => {
     codeCell = await setupCodeCell();
 
-    const testCode = 'import ipykernel; print(f"ipykernel {ipykernel.__version__}")';
+    const testCode =
+      'import ipykernel; print(f"ipykernel {ipykernel.__version__}")';
     console.log("Typing code:", testCode);
     await typeSlowly(testCode);
     await browser.pause(300);
@@ -66,7 +70,11 @@ describe("Environment Detection", () => {
     await browser.keys(["Shift", "Enter"]);
     console.log("Triggered execution");
 
-    const outputText = await waitForOutputContaining(codeCell, "ipykernel", EXECUTION_TIMEOUT);
+    const outputText = await waitForOutputContaining(
+      codeCell,
+      "ipykernel",
+      EXECUTION_TIMEOUT,
+    );
     expect(outputText).toContain("ipykernel");
     console.log("ipykernel check passed:", outputText);
   });
@@ -81,7 +89,11 @@ describe("Environment Detection", () => {
 
     await browser.keys(["Shift", "Enter"]);
 
-    const outputText = await waitForOutputContaining(codeCell, "4", EXECUTION_TIMEOUT);
+    const outputText = await waitForOutputContaining(
+      codeCell,
+      "4",
+      EXECUTION_TIMEOUT,
+    );
     expect(outputText).toContain("4");
     console.log("Computation test passed");
   });

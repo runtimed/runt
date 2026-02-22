@@ -191,10 +191,7 @@ mod tests {
         }"#;
         let parsed: AppSettings = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.default_uv_packages, vec!["numpy", "pandas"]);
-        assert_eq!(
-            parsed.default_conda_packages,
-            vec!["scipy", "scikit-learn"]
-        );
+        assert_eq!(parsed.default_conda_packages, vec!["scipy", "scikit-learn"]);
     }
 
     #[test]

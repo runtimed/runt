@@ -232,9 +232,9 @@ pub fn check_typosquat(package: &str) -> Option<TyposquatWarning> {
 
     // Check edit distance against popular packages
     let threshold = match normalized.len() {
-        0..=3 => 1,   // Very short names: only 1 edit allowed
-        4..=6 => 2,   // Short names: 2 edits
-        _ => 3,       // Longer names: 3 edits
+        0..=3 => 1, // Very short names: only 1 edit allowed
+        4..=6 => 2, // Short names: 2 edits
+        _ => 3,     // Longer names: 3 edits
     };
 
     let mut best_match: Option<(&str, usize)> = None;

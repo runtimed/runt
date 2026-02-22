@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useState } from "react";
 
 /** Trust status from the backend */
 export type TrustStatusType =
@@ -23,7 +23,9 @@ export interface TyposquatWarning {
 
 export function useTrust() {
   const [trustInfo, setTrustInfo] = useState<TrustInfo | null>(null);
-  const [typosquatWarnings, setTyposquatWarnings] = useState<TyposquatWarning[]>([]);
+  const [typosquatWarnings, setTyposquatWarnings] = useState<
+    TyposquatWarning[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,10 +38,7 @@ export function useTrust() {
       setTrustInfo(info);
 
       // Check for typosquats in all dependencies
-      const allDeps = [
-        ...info.uv_dependencies,
-        ...info.conda_dependencies,
-      ];
+      const allDeps = [...info.uv_dependencies, ...info.conda_dependencies];
       if (allDeps.length > 0) {
         const warnings = await invoke<TyposquatWarning[]>("check_typosquats", {
           packages: allDeps,
@@ -85,8 +84,11 @@ export function useTrust() {
   }, [checkTrust]);
 
   // Computed properties
-  const isTrusted = trustInfo?.status === "trusted" || trustInfo?.status === "no_dependencies";
-  const needsApproval = trustInfo?.status === "untrusted" || trustInfo?.status === "signature_invalid";
+  const isTrusted =
+    trustInfo?.status === "trusted" || trustInfo?.status === "no_dependencies";
+  const needsApproval =
+    trustInfo?.status === "untrusted" ||
+    trustInfo?.status === "signature_invalid";
   const hasDependencies = trustInfo?.status !== "no_dependencies";
 
   // Total dependency count

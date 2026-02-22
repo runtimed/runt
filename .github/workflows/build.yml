@@ -10,6 +10,32 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rust
+        uses: dsherret/rust-toolchain-file@v1
+
+      - name: Check Rust formatting
+        run: cargo fmt --check
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install JS dependencies
+        run: pnpm install
+
+      - name: Check Biome (format + lint + imports)
+        run: npx @biomejs/biome check apps/notebook/src/ e2e/
+
   build:
     name: ${{ matrix.platform.name }}
     runs-on: ${{ matrix.platform.runner }}

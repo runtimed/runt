@@ -103,8 +103,8 @@ impl WebDriverState {
             .map_err(|_| "bridge command timed out".to_string())?
             .map_err(|_| "bridge channel closed".to_string())?;
 
-        let parsed: Value =
-            serde_json::from_str(&result).map_err(|e| format!("invalid JSON from bridge: {}", e))?;
+        let parsed: Value = serde_json::from_str(&result)
+            .map_err(|e| format!("invalid JSON from bridge: {}", e))?;
 
         if let Some(error) = parsed.get("error").and_then(|e| e.as_str()) {
             Err(error.to_string())
@@ -166,17 +166,17 @@ fn w3c_element(element_id: &str) -> Value {
 /// POST /session — Create a new session.
 /// On first call: returns immediately (app is already fresh).
 /// On subsequent calls: reloads the webview to reset app state, re-injects bridge.
-async fn new_session(
-    State(state): State<SharedState>,
-    Json(_body): Json<Value>,
-) -> Json<Value> {
+async fn new_session(State(state): State<SharedState>, Json(_body): Json<Value>) -> Json<Value> {
     let count = state
         .session_count
         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
     // Reset app state for subsequent sessions (not the first one)
     if count > 0 {
-        log::info!("[webdriver] Resetting app for new session (session #{})", count + 1);
+        log::info!(
+            "[webdriver] Resetting app for new session (session #{})",
+            count + 1
+        );
         if let Err(e) = state.reset_app().await {
             log::error!("[webdriver] Failed to reset app: {}", e);
         }
@@ -239,10 +239,7 @@ async fn find_element(
         .ok_or_else(|| w3c_error("invalid argument", "missing 'value'"))?;
 
     let result = state
-        .exec_bridge(
-            "findElement",
-            json!({ "using": using, "value": value }),
-        )
+        .exec_bridge("findElement", json!({ "using": using, "value": value }))
         .await
         .map_err(|e| w3c_error("no such element", &e))?;
 
@@ -270,10 +267,7 @@ async fn find_elements(
         .ok_or_else(|| w3c_error("invalid argument", "missing 'value'"))?;
 
     let result = state
-        .exec_bridge(
-            "findElements",
-            json!({ "using": using, "value": value }),
-        )
+        .exec_bridge("findElements", json!({ "using": using, "value": value }))
         .await
         .map_err(|e| w3c_error("no such element", &e))?;
 
@@ -384,10 +378,7 @@ async fn get_element_text(
         .await
         .map_err(|e| w3c_error("stale element reference", &e))?;
 
-    let text = result
-        .get("text")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let text = result.get("text").and_then(|v| v.as_str()).unwrap_or("");
 
     Ok(w3c_value(Value::String(text.to_string())))
 }
@@ -402,10 +393,7 @@ async fn get_element_tag_name(
         .await
         .map_err(|e| w3c_error("stale element reference", &e))?;
 
-    let tag = result
-        .get("tagName")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let tag = result.get("tagName").and_then(|v| v.as_str()).unwrap_or("");
 
     Ok(w3c_value(Value::String(tag.to_string())))
 }
@@ -440,10 +428,7 @@ async fn get_element_css_value(
         .await
         .map_err(|e| w3c_error("stale element reference", &e))?;
 
-    let value = result
-        .get("value")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let value = result.get("value").and_then(|v| v.as_str()).unwrap_or("");
 
     Ok(w3c_value(Value::String(value.to_string())))
 }
@@ -543,10 +528,7 @@ async fn perform_actions(
     Path(_session_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let actions = body
-        .get("actions")
-        .cloned()
-        .unwrap_or(Value::Array(vec![]));
+    let actions = body.get("actions").cloned().unwrap_or(Value::Array(vec![]));
 
     // Check if there are any pause actions that need server-side delays
     if let Some(action_list) = actions.as_array() {
@@ -575,9 +557,7 @@ async fn perform_actions(
 }
 
 /// DELETE /session/{session_id}/actions — Release actions
-async fn release_actions(
-    Path(_session_id): Path<String>,
-) -> Json<Value> {
+async fn release_actions(Path(_session_id): Path<String>) -> Json<Value> {
     w3c_value(Value::Null)
 }
 
@@ -613,10 +593,7 @@ async fn move_to(
     Path(_session_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let element = body
-        .get("element")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let element = body.get("element").and_then(|v| v.as_str()).unwrap_or("");
     let xoffset = body.get("xoffset").and_then(|v| v.as_i64()).unwrap_or(0);
     let yoffset = body.get("yoffset").and_then(|v| v.as_i64()).unwrap_or(0);
 
@@ -683,10 +660,7 @@ async fn get_title(
         .await
         .map_err(|e| w3c_error("unknown error", &e))?;
 
-    let title = result
-        .get("value")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let title = result.get("value").and_then(|v| v.as_str()).unwrap_or("");
 
     Ok(w3c_value(Value::String(title.to_string())))
 }
@@ -701,10 +675,7 @@ async fn get_url(
         .await
         .map_err(|e| w3c_error("unknown error", &e))?;
 
-    let url = result
-        .get("value")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let url = result.get("value").and_then(|v| v.as_str()).unwrap_or("");
 
     Ok(w3c_value(Value::String(url.to_string())))
 }
@@ -756,16 +727,10 @@ async fn execute_script(
         .get("script")
         .and_then(|v| v.as_str())
         .ok_or_else(|| w3c_error("invalid argument", "missing 'script'"))?;
-    let args = body
-        .get("args")
-        .cloned()
-        .unwrap_or(Value::Array(vec![]));
+    let args = body.get("args").cloned().unwrap_or(Value::Array(vec![]));
 
     let result = state
-        .exec_bridge(
-            "executeScript",
-            json!({ "script": script, "args": args }),
-        )
+        .exec_bridge("executeScript", json!({ "script": script, "args": args }))
         .await
         .map_err(|e| w3c_error("javascript error", &e))?;
 
@@ -783,32 +748,23 @@ async fn get_page_source(
         .await
         .map_err(|e| w3c_error("unknown error", &e))?;
 
-    let source = result
-        .get("value")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let source = result.get("value").and_then(|v| v.as_str()).unwrap_or("");
 
     Ok(w3c_value(Value::String(source.to_string())))
 }
 
 /// GET /session/{session_id}/window — Get window handle
-async fn get_window_handle(
-    Path(_session_id): Path<String>,
-) -> Json<Value> {
+async fn get_window_handle(Path(_session_id): Path<String>) -> Json<Value> {
     w3c_value(Value::String("main".to_string()))
 }
 
 /// GET /session/{session_id}/window/handles — Get all window handles
-async fn get_window_handles(
-    Path(_session_id): Path<String>,
-) -> Json<Value> {
+async fn get_window_handles(Path(_session_id): Path<String>) -> Json<Value> {
     w3c_value(json!(["main"]))
 }
 
 /// GET /session/{session_id}/window/rect — Get window rect
-async fn get_window_rect(
-    Path(_session_id): Path<String>,
-) -> Json<Value> {
+async fn get_window_rect(Path(_session_id): Path<String>) -> Json<Value> {
     w3c_value(json!({
         "x": 0,
         "y": 0,
@@ -818,10 +774,7 @@ async fn get_window_rect(
 }
 
 /// POST /session/{session_id}/timeouts — Set timeouts (no-op for now)
-async fn set_timeouts(
-    Path(_session_id): Path<String>,
-    Json(_body): Json<Value>,
-) -> Json<Value> {
+async fn set_timeouts(Path(_session_id): Path<String>, Json(_body): Json<Value>) -> Json<Value> {
     w3c_value(Value::Null)
 }
 
@@ -850,10 +803,7 @@ async fn get_active_element(
 // ============================================================
 
 /// POST /__bridge_result — Receives results from the JS bridge via fetch()
-async fn bridge_result(
-    State(state): State<SharedState>,
-    Json(body): Json<Value>,
-) -> StatusCode {
+async fn bridge_result(State(state): State<SharedState>, Json(body): Json<Value>) -> StatusCode {
     let request_id = body
         .get("requestId")
         .and_then(|v| v.as_str())
@@ -896,10 +846,7 @@ fn build_router(state: SharedState) -> Router {
             "/session/:session_id/window/handles",
             get(get_window_handles),
         )
-        .route(
-            "/session/:session_id/window/rect",
-            get(get_window_rect),
-        )
+        .route("/session/:session_id/window/rect", get(get_window_rect))
         // Frame
         .route("/session/:session_id/frame", post(switch_to_frame))
         .route(
@@ -963,32 +910,20 @@ fn build_router(state: SharedState) -> Router {
         )
         // Actions
         .route("/session/:session_id/actions", post(perform_actions))
-        .route(
-            "/session/:session_id/actions",
-            delete(release_actions),
-        )
+        .route("/session/:session_id/actions", delete(release_actions))
         // Legacy JSONWP endpoints
         .route("/session/:session_id/keys", post(send_keys))
         .route("/session/:session_id/moveto", post(move_to))
         .route("/session/:session_id/doubleclick", post(double_click))
         // Screenshots
-        .route(
-            "/session/:session_id/screenshot",
-            get(take_screenshot),
-        )
+        .route("/session/:session_id/screenshot", get(take_screenshot))
         .route(
             "/session/:session_id/element/:element_id/screenshot",
             get(take_element_screenshot),
         )
         // Script execution (W3C and legacy JSONWP)
-        .route(
-            "/session/:session_id/execute/sync",
-            post(execute_script),
-        )
-        .route(
-            "/session/:session_id/execute",
-            post(execute_script),
-        )
+        .route("/session/:session_id/execute/sync", post(execute_script))
+        .route("/session/:session_id/execute", post(execute_script))
         .fallback(fallback_handler)
         .layer(cors)
         .with_state(state)
@@ -996,11 +931,7 @@ fn build_router(state: SharedState) -> Router {
 
 /// Catch-all handler for unmatched routes — logs the request for debugging
 async fn fallback_handler(method: Method, uri: Uri) -> (StatusCode, Json<Value>) {
-    log::warn!(
-        "[webdriver] Unhandled request: {} {}",
-        method,
-        uri
-    );
+    log::warn!("[webdriver] Unhandled request: {} {}", method, uri);
     w3c_error("unknown command", &format!("unhandled: {} {}", method, uri))
 }
 

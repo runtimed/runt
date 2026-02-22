@@ -44,7 +44,7 @@ describe("Settings Panel", () => {
           timeout: 3000,
           interval: 100,
           timeoutMsg: "Settings panel did not open",
-        }
+        },
       );
 
       console.log("Settings panel opened");
@@ -58,7 +58,7 @@ describe("Settings Panel", () => {
       expect(await runtimeGroup.isExisting()).toBe(true);
 
       const pythonEnvGroup = await $(
-        '[data-testid="settings-python-env-group"]'
+        '[data-testid="settings-python-env-group"]',
       );
       expect(await pythonEnvGroup.isExisting()).toBe(true);
 
@@ -80,7 +80,7 @@ describe("Settings Panel", () => {
           timeout: 3000,
           interval: 100,
           timeoutMsg: "Settings panel did not close",
-        }
+        },
       );
 
       console.log("Settings panel closed");
@@ -99,12 +99,10 @@ describe("Settings Panel", () => {
         await browser.waitUntil(
           async () => {
             return await browser.execute(() => {
-              return !!document.querySelector(
-                '[data-testid="settings-panel"]'
-              );
+              return !!document.querySelector('[data-testid="settings-panel"]');
             });
           },
-          { timeout: 3000, interval: 100 }
+          { timeout: 3000, interval: 100 },
         );
       }
     });
@@ -113,7 +111,7 @@ describe("Settings Panel", () => {
       // Find and click the Dark button within the theme group
       const darkButton = await browser.execute(() => {
         const group = document.querySelector(
-          '[data-testid="settings-theme-group"]'
+          '[data-testid="settings-theme-group"]',
         );
         const buttons = group?.querySelectorAll("button");
         for (const btn of buttons || []) {
@@ -137,7 +135,7 @@ describe("Settings Panel", () => {
           timeout: 2000,
           interval: 100,
           timeoutMsg: "<html> did not get 'dark' class",
-        }
+        },
       );
 
       // Verify "light" is removed
@@ -152,7 +150,7 @@ describe("Settings Panel", () => {
     it("should apply 'light' class to <html> when clicking Light", async () => {
       const lightButton = await browser.execute(() => {
         const group = document.querySelector(
-          '[data-testid="settings-theme-group"]'
+          '[data-testid="settings-theme-group"]',
         );
         const buttons = group?.querySelectorAll("button");
         for (const btn of buttons || []) {
@@ -175,7 +173,7 @@ describe("Settings Panel", () => {
           timeout: 2000,
           interval: 100,
           timeoutMsg: "<html> did not get 'light' class",
-        }
+        },
       );
 
       const hasDark = await browser.execute(() => {
@@ -196,7 +194,7 @@ describe("Settings Panel", () => {
         async () => {
           return await browser.execute(() => {
             const group = document.querySelector(
-              '[data-testid="settings-theme-group"]'
+              '[data-testid="settings-theme-group"]',
             );
             const buttons = group?.querySelectorAll("button");
             for (const btn of buttons || []) {
@@ -212,12 +210,12 @@ describe("Settings Panel", () => {
           interval: 100,
           timeoutMsg:
             "Light button did not get active styling (shadow-sm) after theme switch",
-        }
+        },
       );
 
       const activeClass = await browser.execute(() => {
         const group = document.querySelector(
-          '[data-testid="settings-theme-group"]'
+          '[data-testid="settings-theme-group"]',
         );
         const buttons = group?.querySelectorAll("button");
         for (const btn of buttons || []) {
@@ -237,7 +235,7 @@ describe("Settings Panel", () => {
       // Click Dark
       await browser.execute(() => {
         const group = document.querySelector(
-          '[data-testid="settings-theme-group"]'
+          '[data-testid="settings-theme-group"]',
         );
         const buttons = group?.querySelectorAll("button");
         for (const btn of buttons || []) {
@@ -255,7 +253,7 @@ describe("Settings Panel", () => {
             return document.documentElement.classList.contains("dark");
           });
         },
-        { timeout: 2000, interval: 100 }
+        { timeout: 2000, interval: 100 },
       );
 
       // Wait for Dark button to get active styling
@@ -263,7 +261,7 @@ describe("Settings Panel", () => {
         async () => {
           return await browser.execute(() => {
             const group = document.querySelector(
-              '[data-testid="settings-theme-group"]'
+              '[data-testid="settings-theme-group"]',
             );
             const buttons = group?.querySelectorAll("button");
             for (const btn of buttons || []) {
@@ -274,12 +272,12 @@ describe("Settings Panel", () => {
             return false;
           });
         },
-        { timeout: 3000, interval: 100 }
+        { timeout: 3000, interval: 100 },
       );
 
       const darkClass = await browser.execute(() => {
         const group = document.querySelector(
-          '[data-testid="settings-theme-group"]'
+          '[data-testid="settings-theme-group"]',
         );
         const buttons = group?.querySelectorAll("button");
         for (const btn of buttons || []) {
@@ -292,7 +290,7 @@ describe("Settings Panel", () => {
       // Light button should now be inactive
       const lightClass = await browser.execute(() => {
         const group = document.querySelector(
-          '[data-testid="settings-theme-group"]'
+          '[data-testid="settings-theme-group"]',
         );
         const buttons = group?.querySelectorAll("button");
         for (const btn of buttons || []) {
@@ -309,11 +307,11 @@ describe("Settings Panel", () => {
       // Verify at least one runtime button is active (don't assert which — daemon may set it)
       const hasActiveRuntime = await browser.execute(() => {
         const group = document.querySelector(
-          '[data-testid="settings-runtime-group"]'
+          '[data-testid="settings-runtime-group"]',
         );
         const buttons = group?.querySelectorAll("button");
         return Array.from(buttons || []).some((btn) =>
-          btn.className.includes("shadow-sm")
+          btn.className.includes("shadow-sm"),
         );
       });
       expect(hasActiveRuntime).toBe(true);
@@ -321,11 +319,11 @@ describe("Settings Panel", () => {
       // Verify at least one python env button is active
       const hasActivePythonEnv = await browser.execute(() => {
         const group = document.querySelector(
-          '[data-testid="settings-python-env-group"]'
+          '[data-testid="settings-python-env-group"]',
         );
         const buttons = group?.querySelectorAll("button");
         return Array.from(buttons || []).some((btn) =>
-          btn.className.includes("shadow-sm")
+          btn.className.includes("shadow-sm"),
         );
       });
       expect(hasActivePythonEnv).toBe(true);

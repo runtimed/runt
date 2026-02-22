@@ -38,7 +38,10 @@ async fn test_uv_available_returns_true_with_bootstrap() {
     std::env::set_var("PATH", &original_path);
 
     // uv is now always available because it can be bootstrapped via rattler
-    assert!(result, "check_uv_available should return true (bootstrap available)");
+    assert!(
+        result,
+        "check_uv_available should return true (bootstrap available)"
+    );
 }
 
 /// Test that check_uv_available returns true when real uv is installed.
@@ -79,11 +82,23 @@ async fn test_uv_environment_creation_with_no_deps() {
 
     let result = uv_env::prepare_environment(&deps, None).await;
 
-    assert!(result.is_ok(), "prepare_environment should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "prepare_environment should succeed: {:?}",
+        result.err()
+    );
 
     let env = result.unwrap();
-    assert!(env.python_path.exists(), "Python path should exist: {:?}", env.python_path);
-    assert!(env.venv_path.exists(), "Venv path should exist: {:?}", env.venv_path);
+    assert!(
+        env.python_path.exists(),
+        "Python path should exist: {:?}",
+        env.python_path
+    );
+    assert!(
+        env.venv_path.exists(),
+        "Venv path should exist: {:?}",
+        env.venv_path
+    );
 
     // Verify the path is in the expected cache location
     let venv_str = env.venv_path.to_string_lossy();
@@ -109,8 +124,12 @@ async fn test_uv_environment_uses_cache_correctly() {
     };
 
     // Create environment twice
-    let env1 = uv_env::prepare_environment(&deps, None).await.expect("First prepare should succeed");
-    let env2 = uv_env::prepare_environment(&deps, None).await.expect("Second prepare should succeed");
+    let env1 = uv_env::prepare_environment(&deps, None)
+        .await
+        .expect("First prepare should succeed");
+    let env2 = uv_env::prepare_environment(&deps, None)
+        .await
+        .expect("Second prepare should succeed");
 
     // Same dependencies should result in same cached environment
     assert_eq!(
@@ -140,11 +159,23 @@ async fn test_conda_environment_creation_with_ipykernel() {
     // Note: We pass None for AppHandle since we're not emitting frontend events
     let result = conda_env::prepare_environment(&deps, None).await;
 
-    assert!(result.is_ok(), "prepare_environment should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "prepare_environment should succeed: {:?}",
+        result.err()
+    );
 
     let env = result.unwrap();
-    assert!(env.python_path.exists(), "Python path should exist: {:?}", env.python_path);
-    assert!(env.env_path.exists(), "Env path should exist: {:?}", env.env_path);
+    assert!(
+        env.python_path.exists(),
+        "Python path should exist: {:?}",
+        env.python_path
+    );
+    assert!(
+        env.env_path.exists(),
+        "Env path should exist: {:?}",
+        env.env_path
+    );
 
     // Verify the path is in the expected cache location
     let env_str = env.env_path.to_string_lossy();

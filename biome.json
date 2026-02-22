@@ -37,7 +37,8 @@
         "noSvgWithoutTitle": "off",
         "useButtonType": "off",
         "useFocusableInteractive": "off",
-        "useKeyWithClickEvents": "off"
+        "useKeyWithClickEvents": "off",
+        "noAutofocus": "off"
       },
       "suspicious": {
         "noArrayIndexKey": "off",

@@ -1,8 +1,11 @@
-import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { save as saveDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { NotebookCell, JupyterOutput } from "../types";
+import {
+  open as openDialog,
+  save as saveDialog,
+} from "@tauri-apps/plugin-dialog";
+import { useCallback, useEffect, useState } from "react";
+import type { JupyterOutput, NotebookCell } from "../types";
 
 export function useNotebook() {
   const [cells, setCells] = useState<NotebookCell[]>([]);
@@ -43,11 +46,11 @@ export function useNotebook() {
           prev.map((c) =>
             c.id === event.payload.cell_id
               ? { ...c, source: event.payload.source }
-              : c
-          )
+              : c,
+          ),
         );
         setDirty(true);
-      }
+      },
     );
     return () => {
       unlisten.then((fn) => fn());
@@ -62,8 +65,8 @@ export function useNotebook() {
         prev.map((c) =>
           clearedIds.has(c.id) && c.cell_type === "code"
             ? { ...c, outputs: [], execution_count: null }
-            : c
-        )
+            : c,
+        ),
       );
     });
     return () => {
@@ -73,7 +76,7 @@ export function useNotebook() {
 
   const updateCellSource = useCallback((cellId: string, source: string) => {
     setCells((prev) =>
-      prev.map((c) => (c.id === cellId ? { ...c, source } : c))
+      prev.map((c) => (c.id === cellId ? { ...c, source } : c)),
     );
     setDirty(true);
     invoke("update_cell_source", { cellId, source }).catch(console.error);
@@ -88,24 +91,27 @@ export function useNotebook() {
       prev.map((c) =>
         c.id === cellId && c.cell_type === "code"
           ? { ...c, outputs: [], execution_count: null }
-          : c
-      )
+          : c,
+      ),
     );
   }, []);
 
-  const executeCell = useCallback(async (cellId: string) => {
-    console.log("[notebook] executeCell:", cellId);
-    // Clear old outputs and mark running
-    clearCellOutputs(cellId);
-    try {
-      const msgId = await invoke<string>("execute_cell", { cellId });
-      console.log("[notebook] execute_cell returned msg_id:", msgId);
-      return msgId;
-    } catch (e) {
-      console.error("[notebook] execute_cell failed:", e);
-      return null;
-    }
-  }, [clearCellOutputs]);
+  const executeCell = useCallback(
+    async (cellId: string) => {
+      console.log("[notebook] executeCell:", cellId);
+      // Clear old outputs and mark running
+      clearCellOutputs(cellId);
+      try {
+        const msgId = await invoke<string>("execute_cell", { cellId });
+        console.log("[notebook] execute_cell returned msg_id:", msgId);
+        return msgId;
+      } catch (e) {
+        console.error("[notebook] execute_cell failed:", e);
+        return null;
+      }
+    },
+    [clearCellOutputs],
+  );
 
   const addCell = useCallback(
     async (cellType: "code" | "markdown", afterCellId?: string | null) => {
@@ -130,7 +136,7 @@ export function useNotebook() {
         return null;
       }
     },
-    []
+    [],
   );
 
   const deleteCell = useCallback(async (cellId: string) => {
@@ -214,38 +220,33 @@ export function useNotebook() {
     }
   }, []);
 
-  const appendOutput = useCallback(
-    (cellId: string, output: JupyterOutput) => {
-      setCells((prev) =>
-        prev.map((c) => {
-          if (c.id !== cellId || c.cell_type !== "code") return c;
-          const outputs = [...c.outputs];
-          // Merge consecutive stream outputs of the same name
-          if (
-            output.output_type === "stream" &&
-            outputs.length > 0
-          ) {
-            const last = outputs[outputs.length - 1];
-            if (
-              last.output_type === "stream" &&
-              last.name === output.name
-            ) {
-              outputs[outputs.length - 1] = {
-                ...last,
-                text: last.text + output.text,
-              };
-              return { ...c, outputs };
-            }
+  const appendOutput = useCallback((cellId: string, output: JupyterOutput) => {
+    setCells((prev) =>
+      prev.map((c) => {
+        if (c.id !== cellId || c.cell_type !== "code") return c;
+        const outputs = [...c.outputs];
+        // Merge consecutive stream outputs of the same name
+        if (output.output_type === "stream" && outputs.length > 0) {
+          const last = outputs[outputs.length - 1];
+          if (last.output_type === "stream" && last.name === output.name) {
+            outputs[outputs.length - 1] = {
+              ...last,
+              text: last.text + output.text,
+            };
+            return { ...c, outputs };
           }
-          return { ...c, outputs: [...outputs, output] };
-        })
-      );
-    },
-    []
-  );
+        }
+        return { ...c, outputs: [...outputs, output] };
+      }),
+    );
+  }, []);
 
   const updateOutputByDisplayId = useCallback(
-    (displayId: string, newData: Record<string, unknown>, newMetadata?: Record<string, unknown>) => {
+    (
+      displayId: string,
+      newData: Record<string, unknown>,
+      newMetadata?: Record<string, unknown>,
+    ) => {
       setCells((prev) =>
         prev.map((c) => {
           if (c.cell_type !== "code") return c;
@@ -262,24 +263,21 @@ export function useNotebook() {
             return output;
           });
           return changed ? { ...c, outputs: updatedOutputs } : c;
-        })
+        }),
       );
     },
-    []
+    [],
   );
 
-  const setExecutionCount = useCallback(
-    (cellId: string, count: number) => {
-      setCells((prev) =>
-        prev.map((c) =>
-          c.id === cellId && c.cell_type === "code"
-            ? { ...c, execution_count: count }
-            : c
-        )
-      );
-    },
-    []
-  );
+  const setExecutionCount = useCallback((cellId: string, count: number) => {
+    setCells((prev) =>
+      prev.map((c) =>
+        c.id === cellId && c.cell_type === "code"
+          ? { ...c, execution_count: count }
+          : c,
+      ),
+    );
+  }, []);
 
   /**
    * Format a cell's source code using the appropriate formatter.

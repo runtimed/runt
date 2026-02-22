@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState } from "react";
 
 interface GitInfo {
   branch: string;

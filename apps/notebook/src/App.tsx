@@ -1,31 +1,34 @@
-import { useCallback, useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { IsolationTest } from "@/components/outputs/isolated";
+import { MediaProvider } from "@/components/outputs/media-provider";
+import {
+  useWidgetStoreRequired,
+  WidgetStoreProvider,
+} from "@/components/widgets/widget-store-context";
+import { WidgetView } from "@/components/widgets/widget-view";
+import { useSyncedSettings, useSyncedTheme } from "@/hooks/useSyncedSettings";
+import { CondaDependencyHeader } from "./components/CondaDependencyHeader";
+import { DebugBanner } from "./components/DebugBanner";
+import { DenoDependencyHeader } from "./components/DenoDependencyHeader";
+import { DependencyHeader } from "./components/DependencyHeader";
 import { NotebookToolbar } from "./components/NotebookToolbar";
 import { NotebookView } from "./components/NotebookView";
-import { DependencyHeader } from "./components/DependencyHeader";
-import { CondaDependencyHeader } from "./components/CondaDependencyHeader";
 import { TrustDialog } from "./components/TrustDialog";
-import { DenoDependencyHeader } from "./components/DenoDependencyHeader";
-import { DebugBanner } from "./components/DebugBanner";
-import { useNotebook } from "./hooks/useNotebook";
-import { useKernel, type MimeBundle } from "./hooks/useKernel";
-import { useDependencies } from "./hooks/useDependencies";
 import { useCondaDependencies } from "./hooks/useCondaDependencies";
-import { useTrust } from "./hooks/useTrust";
 import { useDenoDependencies } from "./hooks/useDenoDependencies";
-import { useGitInfo } from "./hooks/useGitInfo";
-import { usePrewarmStatus } from "./hooks/usePrewarmStatus";
+import { useDependencies } from "./hooks/useDependencies";
 import { useEnvProgress } from "./hooks/useEnvProgress";
 import { useExecutionQueue } from "./hooks/useExecutionQueue";
-import { useSyncedTheme, useSyncedSettings } from "@/hooks/useSyncedSettings";
-import { WidgetStoreProvider, useWidgetStoreRequired } from "@/components/widgets/widget-store-context";
-import { MediaProvider } from "@/components/outputs/media-provider";
-import { WidgetView } from "@/components/widgets/widget-view";
-import { IsolationTest } from "@/components/outputs/isolated";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
-import type { JupyterOutput, JupyterMessage } from "./types";
+import { useGitInfo } from "./hooks/useGitInfo";
+import { type MimeBundle, useKernel } from "./hooks/useKernel";
+import { useNotebook } from "./hooks/useNotebook";
+import { usePrewarmStatus } from "./hooks/usePrewarmStatus";
+import { useTrust } from "./hooks/useTrust";
+import type { JupyterMessage, JupyterOutput } from "./types";
 
 /** Page payload data for a cell */
 export interface CellPagePayload {
@@ -68,10 +71,23 @@ function AppContent() {
   } = useNotebook();
 
   const { theme, setTheme } = useSyncedTheme();
-  const { defaultRuntime, setDefaultRuntime, defaultPythonEnv, setDefaultPythonEnv, defaultUvPackages, setDefaultUvPackages, defaultCondaPackages, setDefaultCondaPackages } = useSyncedSettings();
+  const {
+    defaultRuntime,
+    setDefaultRuntime,
+    defaultPythonEnv,
+    setDefaultPythonEnv,
+    defaultUvPackages,
+    setDefaultUvPackages,
+    defaultCondaPackages,
+    setDefaultCondaPackages,
+  } = useSyncedSettings();
 
   // Execution queue - cells are queued and executed in FIFO order by the backend
-  const { queueCell, runAllCells, queuedCellIds: executingCellIds } = useExecutionQueue();
+  const {
+    queueCell,
+    runAllCells,
+    queuedCellIds: executingCellIds,
+  } = useExecutionQueue();
 
   const [dependencyHeaderOpen, setDependencyHeaderOpen] = useState(false);
   const [showIsolationTest, setShowIsolationTest] = useState(false);
@@ -101,9 +117,9 @@ function AppContent() {
   }, []);
 
   // Page payload state: maps cell_id -> payload (transient, not saved)
-  const [pagePayloads, setPagePayloads] = useState<Map<string, CellPagePayload>>(
-    new Map()
-  );
+  const [pagePayloads, setPagePayloads] = useState<
+    Map<string, CellPagePayload>
+  >(new Map());
 
   // UV Dependency management
   const {
@@ -157,9 +173,12 @@ function AppContent() {
 
   // Combine hasDependencies for toolbar badge
   // For Deno, show badge if deno.json is found with imports
-  const hasDependencies = runtime === "deno"
-    ? denoConfigInfo?.has_imports ?? false
-    : hasUvDependencies || hasCondaDependencies || (environmentYmlInfo?.has_dependencies ?? false);
+  const hasDependencies =
+    runtime === "deno"
+      ? (denoConfigInfo?.has_imports ?? false)
+      : hasUvDependencies ||
+        hasCondaDependencies ||
+        (environmentYmlInfo?.has_dependencies ?? false);
 
   // Get widget store handler for routing comm messages
   const {
@@ -172,7 +191,7 @@ function AppContent() {
     (
       cellId: string,
       output: JupyterOutput,
-      meta?: { parentMsgId?: string }
+      meta?: { parentMsgId?: string },
     ) => {
       const parentMsgId = meta?.parentMsgId;
       let capturedByOutputWidget = false;
@@ -187,7 +206,9 @@ function AppContent() {
           if (!isOutputModel) continue;
 
           const modelMsgId =
-            typeof model.state.msg_id === "string" ? model.state.msg_id : undefined;
+            typeof model.state.msg_id === "string"
+              ? model.state.msg_id
+              : undefined;
           if (modelMsgId !== parentMsgId) continue;
 
           const currentOutputs = Array.isArray(model.state.outputs)
@@ -206,14 +227,14 @@ function AppContent() {
 
       appendOutput(cellId, output);
     },
-    [appendOutput, sendWidgetUpdate, widgetStore]
+    [appendOutput, sendWidgetUpdate, widgetStore],
   );
 
   const handleExecutionCount = useCallback(
     (cellId: string, count: number) => {
       setExecutionCount(cellId, count);
     },
-    [setExecutionCount]
+    [setExecutionCount],
   );
 
   // Execution completion is handled by the queue via queue:state events
@@ -227,7 +248,7 @@ function AppContent() {
       // Forward comm messages to the widget store's comm router
       handleWidgetMessage(msg as Parameters<typeof handleWidgetMessage>[0]);
     },
-    [handleWidgetMessage]
+    [handleWidgetMessage],
   );
 
   const handlePagePayload = useCallback(
@@ -238,7 +259,7 @@ function AppContent() {
         return next;
       });
     },
-    []
+    [],
   );
 
   // Clear page payload for a cell (e.g., when dismissed or re-executed)
@@ -279,7 +300,9 @@ function AppContent() {
       ? "uv"
       : isUvConfigured && uvAvailable !== false
         ? "uv"
-        : isCondaConfigured || environmentYmlInfo?.has_dependencies || uvAvailable === false
+        : isCondaConfigured ||
+            environmentYmlInfo?.has_dependencies ||
+            uvAvailable === false
           ? "conda"
           : null;
 
@@ -341,14 +364,14 @@ function AppContent() {
         tryStartKernel();
       }
     },
-    [clearCellOutputs, queueCell, kernelStatus, tryStartKernel]
+    [clearCellOutputs, queueCell, kernelStatus, tryStartKernel],
   );
 
   const handleAddCell = useCallback(
     (type: "code" | "markdown", afterCellId?: string | null) => {
       addCell(type, afterCellId);
     },
-    [addCell]
+    [addCell],
   );
 
   // Wrapper for toolbar's start kernel - uses trust check before starting
@@ -356,7 +379,7 @@ function AppContent() {
     async (_name: string) => {
       await tryStartKernel();
     },
-    [tryStartKernel]
+    [tryStartKernel],
   );
 
   const handleRunAllCells = useCallback(async () => {
@@ -511,7 +534,9 @@ function AppContent() {
         dirty={dirty}
         hasDependencies={hasDependencies}
         theme={theme}
-        envProgress={envProgress.isActive || envProgress.error ? envProgress : null}
+        envProgress={
+          envProgress.isActive || envProgress.error ? envProgress : null
+        }
         runtime={runtime}
         onThemeChange={setTheme}
         defaultRuntime={defaultRuntime}
@@ -533,36 +558,57 @@ function AppContent() {
         listKernelspecs={listKernelspecs}
       />
       {/* Dual-dependency choice: both UV and conda deps exist, let user pick */}
-      {dependencyHeaderOpen && runtime === "python" && hasUvDependencies && hasCondaDependencies && (
-        <div className="border-b bg-amber-50/50 dark:bg-amber-950/20 px-3 py-2">
-          <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
-            <span className="shrink-0">&#9888;</span>
-            <span className="font-medium">This notebook has both uv and conda dependencies.</span>
-            <div className="flex gap-1.5 ml-auto shrink-0">
-              <button
-                disabled={clearingDeps}
-                onClick={async () => {
-                  setClearingDeps(true);
-                  try { await clearAllCondaDeps(); } finally { setClearingDeps(false); }
-                }}
-                className="px-2 py-0.5 text-xs font-medium rounded bg-fuchsia-100 dark:bg-fuchsia-900/40 hover:bg-fuchsia-200 dark:hover:bg-fuchsia-800/50 text-fuchsia-800 dark:text-fuchsia-300 border border-fuchsia-300 dark:border-fuchsia-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Use uv ({dependencies?.dependencies?.length ?? 0} {(dependencies?.dependencies?.length ?? 0) === 1 ? "package" : "packages"})
-              </button>
-              <button
-                disabled={clearingDeps}
-                onClick={async () => {
-                  setClearingDeps(true);
-                  try { await clearAllUvDeps(); } finally { setClearingDeps(false); }
-                }}
-                className="px-2 py-0.5 text-xs font-medium rounded bg-emerald-100 dark:bg-emerald-900/40 hover:bg-emerald-200 dark:hover:bg-emerald-800/50 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Use conda ({condaDependencies?.dependencies?.length ?? 0} {(condaDependencies?.dependencies?.length ?? 0) === 1 ? "package" : "packages"})
-              </button>
+      {dependencyHeaderOpen &&
+        runtime === "python" &&
+        hasUvDependencies &&
+        hasCondaDependencies && (
+          <div className="border-b bg-amber-50/50 dark:bg-amber-950/20 px-3 py-2">
+            <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+              <span className="shrink-0">&#9888;</span>
+              <span className="font-medium">
+                This notebook has both uv and conda dependencies.
+              </span>
+              <div className="flex gap-1.5 ml-auto shrink-0">
+                <button
+                  disabled={clearingDeps}
+                  onClick={async () => {
+                    setClearingDeps(true);
+                    try {
+                      await clearAllCondaDeps();
+                    } finally {
+                      setClearingDeps(false);
+                    }
+                  }}
+                  className="px-2 py-0.5 text-xs font-medium rounded bg-fuchsia-100 dark:bg-fuchsia-900/40 hover:bg-fuchsia-200 dark:hover:bg-fuchsia-800/50 text-fuchsia-800 dark:text-fuchsia-300 border border-fuchsia-300 dark:border-fuchsia-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Use uv ({dependencies?.dependencies?.length ?? 0}{" "}
+                  {(dependencies?.dependencies?.length ?? 0) === 1
+                    ? "package"
+                    : "packages"}
+                  )
+                </button>
+                <button
+                  disabled={clearingDeps}
+                  onClick={async () => {
+                    setClearingDeps(true);
+                    try {
+                      await clearAllUvDeps();
+                    } finally {
+                      setClearingDeps(false);
+                    }
+                  }}
+                  className="px-2 py-0.5 text-xs font-medium rounded bg-emerald-100 dark:bg-emerald-900/40 hover:bg-emerald-200 dark:hover:bg-emerald-800/50 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Use conda ({condaDependencies?.dependencies?.length ?? 0}{" "}
+                  {(condaDependencies?.dependencies?.length ?? 0) === 1
+                    ? "package"
+                    : "packages"}
+                  )
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
       {dependencyHeaderOpen && runtime === "deno" && (
         <DenoDependencyHeader
           denoAvailable={denoAvailable}
