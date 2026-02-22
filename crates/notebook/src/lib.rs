@@ -2730,10 +2730,13 @@ async fn set_default_python_env(env_type: String) -> Result<(), String> {
 }
 
 /// Get synced settings from the Automerge settings document via runtimed.
-/// Falls back to local settings.json if the daemon is unavailable.
+/// Returns an error if the daemon is unavailable — the frontend should
+/// keep its local state (localStorage) rather than overwriting with defaults.
 #[tauri::command]
-async fn get_synced_settings() -> runtimed::settings_doc::SyncedSettings {
-    runtimed::sync_client::try_get_synced_settings().await
+async fn get_synced_settings() -> Result<runtimed::settings_doc::SyncedSettings, String> {
+    runtimed::sync_client::try_get_synced_settings()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Update a synced setting via the daemon. Falls back to local storage.

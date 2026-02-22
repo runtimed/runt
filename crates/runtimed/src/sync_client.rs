@@ -11,8 +11,6 @@ use automerge::sync::{self, SyncDoc};
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ReadDoc};
 use log::info;
-#[cfg(unix)]
-use log::warn;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::settings_doc::SyncedSettings;
@@ -258,28 +256,26 @@ fn get_all_from_doc(doc: &AutoCommit) -> SyncedSettings {
     }
 }
 
-/// Convenience: try to connect and get settings, returning defaults on failure.
-pub async fn try_get_synced_settings() -> SyncedSettings {
+/// Try to connect to the sync daemon and get current settings.
+///
+/// Returns an error if the daemon is unavailable. Callers should
+/// fall back to their own local state (e.g. localStorage) on error
+/// rather than silently adopting defaults.
+pub async fn try_get_synced_settings() -> Result<SyncedSettings, SyncClientError> {
     #[cfg(unix)]
-    match SyncClient::connect(crate::default_sync_socket_path()).await {
-        Ok(client) => {
-            let settings = client.get_all();
-            info!("[sync-client] Got settings from daemon: {:?}", settings);
-            settings
-        }
-        Err(e) => {
-            warn!(
-                "[sync-client] Could not connect to sync daemon ({:?}), using defaults",
-                e
-            );
-            SyncedSettings::default()
-        }
+    {
+        let client = SyncClient::connect(crate::default_sync_socket_path()).await?;
+        let settings = client.get_all();
+        info!("[sync-client] Got settings from daemon: {:?}", settings);
+        Ok(settings)
     }
 
     #[cfg(windows)]
     {
-        // TODO: Windows named pipe client
-        SyncedSettings::default()
+        // TODO: Windows named pipe sync client
+        Err(SyncClientError::SyncError(
+            "Windows sync not yet implemented".to_string(),
+        ))
     }
 }
 
