@@ -65,13 +65,17 @@ axum = { version = "0.7", optional = true }
 tower-http = { version = "0.6", features = ["cors"], optional = true }
 base64 = { workspace = true, optional = true }
 
+# macOS: prevent focus stealing in webdriver mode
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = { version = "0.26", optional = true }
+
 # Unix process group support for kernel cleanup
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.30", features = ["signal", "process"] }
 
 [features]
 default = []
-webdriver-test = ["axum", "tower-http", "base64"]
+webdriver-test = ["axum", "tower-http", "base64", "cocoa"]
 
 [dev-dependencies]
 tempfile = "3"

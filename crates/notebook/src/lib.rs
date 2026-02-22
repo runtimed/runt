@@ -2969,6 +2969,17 @@ pub fn run(notebook_path: Option<PathBuf>, runtime: Option<Runtime>, #[allow(unu
             if let Some(port) = webdriver_port {
                 log::info!("[webdriver] Starting built-in WebDriver server on port {}", port);
                 webdriver::start_server(app.handle().clone(), port);
+
+                // Prevent the app from stealing focus during E2E tests.
+                // NSApplicationActivationPolicyAccessory keeps the window visible
+                // and functional but won't activate (steal focus) or show in the Dock.
+                #[cfg(target_os = "macos")]
+                unsafe {
+                    use cocoa::appkit::{NSApplication, NSApplicationActivationPolicy};
+                    use cocoa::base::nil;
+                    let ns_app = NSApplication::sharedApplication(nil);
+                    ns_app.setActivationPolicy_(NSApplicationActivationPolicy::NSApplicationActivationPolicyAccessory);
+                }
             }
 
             // Set up native menu bar
