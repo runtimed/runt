@@ -36,6 +36,8 @@ const FIXTURE_SPECS = [
   "pixi-env-detection.spec.js",
   "environment-yml-detection.spec.js",
   "deps-panel.spec.js",
+  "conda-deps-panel.spec.js",
+  "trust-decline.spec.js",
   "iframe-isolation.spec.js",
 ];
 
