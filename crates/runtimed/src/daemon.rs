@@ -733,12 +733,7 @@ impl Daemon {
         let extra_conda_packages: Vec<String> = {
             let settings = self.settings.read().await;
             let synced = settings.get_all();
-            synced
-                .default_conda_packages
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect()
+            synced.conda.default_packages
         };
 
         if !extra_conda_packages.is_empty() {
@@ -1027,12 +1022,7 @@ print("warmup complete")
         {
             let settings = self.settings.read().await;
             let synced = settings.get_all();
-            let extra: Vec<String> = synced
-                .default_uv_packages
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
+            let extra = synced.uv.default_packages;
             if !extra.is_empty() {
                 info!("[runtimed] Including default uv packages: {:?}", extra);
                 install_packages.extend(extra);

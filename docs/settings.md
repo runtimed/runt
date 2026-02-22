@@ -9,8 +9,8 @@ Runt notebook settings control default behavior for new notebooks, appearance, a
 | Theme | light, dark, system | system | Synced (Automerge) + localStorage for FOUC |
 | Default runtime | python, deno | python | Synced (Automerge) + settings file |
 | Default Python env | uv, conda | uv | Synced (Automerge) + settings file |
-| Default uv packages | comma-separated list | (empty) | Synced (Automerge) + settings file |
-| Default conda packages | comma-separated list | (empty) | Synced (Automerge) + settings file |
+| Default uv packages | list of strings | (empty) | Synced (Automerge) + settings file |
+| Default conda packages | list of strings | (empty) | Synced (Automerge) + settings file |
 
 ## How Settings Sync Works
 
@@ -21,6 +21,23 @@ Settings are synced across all notebook windows via the runtimed daemon using Au
 - **Theme special case:** Theme also uses browser localStorage to prevent a flash of unstyled content on startup
 
 When you change a setting in any window, it propagates to all other open windows in real time.
+
+### Automerge Document Structure
+
+The synced settings use nested maps for environment-specific configuration:
+
+```
+ROOT/
+  theme: "system"
+  default_runtime: "python"
+  default_python_env: "uv"
+  uv/                                         ← nested Map
+    default_packages: List["numpy", "pandas"] ← List of Str
+  conda/                                      ← nested Map
+    default_packages: List["scipy"]           ← List of Str
+```
+
+Environment-specific settings (packages, future: channels) live under `uv/` and `conda/` sub-maps, making the schema extensible without adding more root-level keys.
 
 ## Settings File
 
@@ -40,8 +57,16 @@ Example:
 {
   "default_runtime": "python",
   "default_python_env": "uv",
-  "default_uv_packages": "numpy, pandas, matplotlib",
-  "default_conda_packages": "numpy, pandas, scikit-learn"
+  "default_uv_packages": ["numpy", "pandas", "matplotlib"],
+  "default_conda_packages": ["numpy", "pandas", "scikit-learn"]
+}
+```
+
+For backward compatibility, the old comma-separated string format is also accepted when reading:
+
+```json
+{
+  "default_uv_packages": "numpy, pandas, matplotlib"
 }
 ```
 
@@ -94,11 +119,11 @@ Since uv and conda have different package ecosystems, packages are configured se
 
 ```json
 {
-  "default_uv_packages": "numpy, pandas, matplotlib",
-  "default_conda_packages": "numpy, pandas, scikit-learn"
+  "default_uv_packages": ["numpy", "pandas", "matplotlib"],
+  "default_conda_packages": ["numpy", "pandas", "scikit-learn"]
 }
 ```
 
-Both fields accept a comma-separated list of package names. Changes take effect on the next pool replenishment cycle — existing prewarmed environments keep their original packages until replaced. Restarting the app clears the pool and rebuilds with the updated packages.
+Changes take effect on the next pool replenishment cycle — existing prewarmed environments keep their original packages until replaced. Restarting the app clears the pool and rebuilds with the updated packages.
 
 The packages are installed alongside `ipykernel` and `ipywidgets` (which are always included).

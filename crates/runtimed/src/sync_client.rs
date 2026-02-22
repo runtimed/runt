@@ -9,11 +9,13 @@ use std::time::Duration;
 
 use automerge::sync::{self, SyncDoc};
 use automerge::transaction::Transactable;
-use automerge::{AutoCommit, ReadDoc};
+use automerge::{AutoCommit, ObjType, ReadDoc};
 use log::info;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::settings_doc::SyncedSettings;
+use crate::settings_doc::{
+    read_nested_list, split_comma_list, CondaDefaults, SyncedSettings, UvDefaults,
+};
 
 /// Error type for sync client operations.
 #[derive(Debug, thiserror::Error)]
@@ -177,7 +179,7 @@ where
         get_all_from_doc(&self.doc)
     }
 
-    /// Get a single setting value.
+    /// Get a single scalar setting value.
     pub fn get(&self, key: &str) -> Option<String> {
         self.doc
             .get(automerge::ROOT, key)
@@ -192,17 +194,108 @@ where
             })
     }
 
-    /// Update a setting and sync the change to the daemon.
+    /// Update a scalar setting and sync the change to the daemon.
     pub async fn put(&mut self, key: &str, value: &str) -> Result<(), SyncClientError> {
-        self.doc
-            .put(automerge::ROOT, key, value)
-            .map_err(|e| SyncClientError::SyncError(format!("put: {}", e)))?;
+        if let Some((map_key, sub_key)) = key.split_once('.') {
+            let map_id = self.ensure_map(map_key)?;
+            self.doc
+                .put(&map_id, sub_key, value)
+                .map_err(|e| SyncClientError::SyncError(format!("put nested: {}", e)))?;
+        } else {
+            self.doc
+                .put(automerge::ROOT, key, value)
+                .map_err(|e| SyncClientError::SyncError(format!("put: {}", e)))?;
+        }
 
-        // Generate and send sync message
+        self.sync_to_daemon().await
+    }
+
+    /// Update a setting from a `serde_json::Value` and sync the change.
+    ///
+    /// Dispatches to scalar `put` for strings or list replacement for arrays.
+    pub async fn put_value(
+        &mut self,
+        key: &str,
+        value: &serde_json::Value,
+    ) -> Result<(), SyncClientError> {
+        match value {
+            serde_json::Value::String(s) => {
+                // Scalar write — delegate to put which handles dotted paths
+                if let Some((map_key, sub_key)) = key.split_once('.') {
+                    let map_id = self.ensure_map(map_key)?;
+                    self.doc
+                        .put(&map_id, sub_key, s.as_str())
+                        .map_err(|e| {
+                            SyncClientError::SyncError(format!("put nested: {}", e))
+                        })?;
+                } else {
+                    self.doc
+                        .put(automerge::ROOT, key, s.as_str())
+                        .map_err(|e| SyncClientError::SyncError(format!("put: {}", e)))?;
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                let items: Vec<String> = arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
+                self.put_list(key, &items)?;
+            }
+            _ => {}
+        }
+
+        self.sync_to_daemon().await
+    }
+
+    /// Replace a list at a dotted path in the local Automerge doc.
+    fn put_list(&mut self, key: &str, values: &[String]) -> Result<(), SyncClientError> {
+        let (map_key, sub_key) = key
+            .split_once('.')
+            .ok_or_else(|| SyncClientError::SyncError("list key must be dotted".into()))?;
+
+        let map_id = self.ensure_map(map_key)?;
+
+        // Delete existing value
+        let _ = self.doc.delete(&map_id, sub_key);
+
+        // Create new list
+        let list_id = self
+            .doc
+            .put_object(&map_id, sub_key, ObjType::List)
+            .map_err(|e| SyncClientError::SyncError(format!("put_object list: {}", e)))?;
+
+        for (i, item) in values.iter().enumerate() {
+            self.doc
+                .insert(&list_id, i, item.as_str())
+                .map_err(|e| SyncClientError::SyncError(format!("insert: {}", e)))?;
+        }
+
+        Ok(())
+    }
+
+    /// Get or create a nested Map at ROOT.
+    fn ensure_map(&mut self, map_key: &str) -> Result<automerge::ObjId, SyncClientError> {
+        // Check if map already exists
+        if let Some((automerge::Value::Object(ObjType::Map), id)) = self
+            .doc
+            .get(automerge::ROOT, map_key)
+            .ok()
+            .flatten()
+        {
+            return Ok(id);
+        }
+
+        // Create it
+        self.doc
+            .put_object(automerge::ROOT, map_key, ObjType::Map)
+            .map_err(|e| SyncClientError::SyncError(format!("put_object map: {}", e)))
+    }
+
+    /// Generate and send sync message to daemon.
+    async fn sync_to_daemon(&mut self) -> Result<(), SyncClientError> {
         if let Some(msg) = self.doc.sync().generate_sync_message(&mut self.peer_state) {
             send_framed(&mut self.stream, &msg.encode()).await?;
         }
-
         Ok(())
     }
 
@@ -233,6 +326,9 @@ where
 }
 
 /// Extract all settings from an Automerge document.
+///
+/// Reads nested maps/lists first, falling back to old flat keys for
+/// backward compatibility during upgrades.
 fn get_all_from_doc(doc: &AutoCommit) -> SyncedSettings {
     let defaults = SyncedSettings::default();
 
@@ -249,14 +345,40 @@ fn get_all_from_doc(doc: &AutoCommit) -> SyncedSettings {
             })
     };
 
+    // Read uv packages: try nested list, fall back to flat comma string
+    let uv_packages = {
+        let nested = read_nested_list(doc, "uv", "default_packages");
+        if !nested.is_empty() {
+            nested
+        } else if let Some(flat) = get_str("default_uv_packages") {
+            split_comma_list(&flat)
+        } else {
+            defaults.uv.default_packages.clone()
+        }
+    };
+
+    // Read conda packages: try nested list, fall back to flat comma string
+    let conda_packages = {
+        let nested = read_nested_list(doc, "conda", "default_packages");
+        if !nested.is_empty() {
+            nested
+        } else if let Some(flat) = get_str("default_conda_packages") {
+            split_comma_list(&flat)
+        } else {
+            defaults.conda.default_packages.clone()
+        }
+    };
+
     SyncedSettings {
         theme: get_str("theme").unwrap_or(defaults.theme),
         default_runtime: get_str("default_runtime").unwrap_or(defaults.default_runtime),
         default_python_env: get_str("default_python_env").unwrap_or(defaults.default_python_env),
-        default_uv_packages: get_str("default_uv_packages")
-            .unwrap_or(defaults.default_uv_packages),
-        default_conda_packages: get_str("default_conda_packages")
-            .unwrap_or(defaults.default_conda_packages),
+        uv: UvDefaults {
+            default_packages: uv_packages,
+        },
+        conda: CondaDefaults {
+            default_packages: conda_packages,
+        },
     }
 }
 
@@ -286,6 +408,7 @@ pub async fn try_get_synced_settings() -> Result<SyncedSettings, SyncClientError
 #[cfg(test)]
 mod tests {
     use super::*;
+    use automerge::transaction::Transactable;
 
     #[test]
     fn test_get_all_from_empty_doc() {
@@ -306,5 +429,44 @@ mod tests {
         assert_eq!(settings.theme, "dark");
         assert_eq!(settings.default_runtime, "deno");
         assert_eq!(settings.default_python_env, "conda");
+    }
+
+    #[test]
+    fn test_get_all_reads_nested_lists() {
+        let mut doc = AutoCommit::new();
+        doc.put(automerge::ROOT, "theme", "system").unwrap();
+        doc.put(automerge::ROOT, "default_runtime", "python")
+            .unwrap();
+        doc.put(automerge::ROOT, "default_python_env", "uv")
+            .unwrap();
+
+        // Create nested uv map with package list
+        let uv_id = doc
+            .put_object(automerge::ROOT, "uv", ObjType::Map)
+            .unwrap();
+        let uv_pkgs_id = doc
+            .put_object(&uv_id, "default_packages", ObjType::List)
+            .unwrap();
+        doc.insert(&uv_pkgs_id, 0, "numpy").unwrap();
+        doc.insert(&uv_pkgs_id, 1, "pandas").unwrap();
+
+        let settings = get_all_from_doc(&doc);
+        assert_eq!(settings.uv.default_packages, vec!["numpy", "pandas"]);
+    }
+
+    #[test]
+    fn test_get_all_falls_back_to_flat_comma_string() {
+        let mut doc = AutoCommit::new();
+        doc.put(automerge::ROOT, "theme", "system").unwrap();
+        doc.put(automerge::ROOT, "default_runtime", "python")
+            .unwrap();
+        doc.put(automerge::ROOT, "default_python_env", "uv")
+            .unwrap();
+        // Old flat format
+        doc.put(automerge::ROOT, "default_uv_packages", "numpy, scipy")
+            .unwrap();
+
+        let settings = get_all_from_doc(&doc);
+        assert_eq!(settings.uv.default_packages, vec!["numpy", "scipy"]);
     }
 }

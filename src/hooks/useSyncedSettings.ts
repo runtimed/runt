@@ -12,8 +12,8 @@ interface SyncedSettings {
   theme: string;
   default_runtime: string;
   default_python_env: string;
-  default_uv_packages: string;
-  default_conda_packages: string;
+  uv: { default_packages: string[] };
+  conda: { default_packages: string[] };
 }
 
 function resolveTheme(theme: ThemeMode): "light" | "dark" {
@@ -82,6 +82,19 @@ function setStoredTheme(value: ThemeMode) {
   }
 }
 
+/** Join a string array into a comma-separated display string. */
+function joinPackages(packages: string[]): string {
+  return packages.join(", ");
+}
+
+/** Split a comma-separated string into a trimmed, non-empty array. */
+function splitPackages(str: string): string[] {
+  return str
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 /**
  * Hook for all synced settings across notebook windows via runtimed.
  *
@@ -116,11 +129,13 @@ export function useSyncedSettings() {
         if (isValidPythonEnv(settings.default_python_env)) {
           setDefaultPythonEnvState(settings.default_python_env);
         }
-        if (typeof settings.default_uv_packages === "string") {
-          setDefaultUvPackagesState(settings.default_uv_packages);
+        if (Array.isArray(settings.uv?.default_packages)) {
+          setDefaultUvPackagesState(joinPackages(settings.uv.default_packages));
         }
-        if (typeof settings.default_conda_packages === "string") {
-          setDefaultCondaPackagesState(settings.default_conda_packages);
+        if (Array.isArray(settings.conda?.default_packages)) {
+          setDefaultCondaPackagesState(
+            joinPackages(settings.conda.default_packages),
+          );
         }
       })
       .catch(() => {
@@ -143,11 +158,15 @@ export function useSyncedSettings() {
       if (isValidPythonEnv(default_python_env)) {
         setDefaultPythonEnvState(default_python_env);
       }
-      if (typeof event.payload.default_uv_packages === "string") {
-        setDefaultUvPackagesState(event.payload.default_uv_packages);
+      if (Array.isArray(event.payload.uv?.default_packages)) {
+        setDefaultUvPackagesState(
+          joinPackages(event.payload.uv.default_packages),
+        );
       }
-      if (typeof event.payload.default_conda_packages === "string") {
-        setDefaultCondaPackagesState(event.payload.default_conda_packages);
+      if (Array.isArray(event.payload.conda?.default_packages)) {
+        setDefaultCondaPackagesState(
+          joinPackages(event.payload.conda.default_packages),
+        );
       }
     });
     return () => {
@@ -179,19 +198,19 @@ export function useSyncedSettings() {
     }).catch(() => {});
   }, []);
 
-  const setDefaultUvPackages = useCallback((packages: string) => {
-    setDefaultUvPackagesState(packages);
+  const setDefaultUvPackages = useCallback((packagesStr: string) => {
+    setDefaultUvPackagesState(packagesStr);
     invoke("set_synced_setting", {
-      key: "default_uv_packages",
-      value: packages,
+      key: "uv.default_packages",
+      value: splitPackages(packagesStr),
     }).catch(() => {});
   }, []);
 
-  const setDefaultCondaPackages = useCallback((packages: string) => {
-    setDefaultCondaPackagesState(packages);
+  const setDefaultCondaPackages = useCallback((packagesStr: string) => {
+    setDefaultCondaPackagesState(packagesStr);
     invoke("set_synced_setting", {
-      key: "default_conda_packages",
-      value: packages,
+      key: "conda.default_packages",
+      value: splitPackages(packagesStr),
     }).catch(() => {});
   }, []);
 

@@ -386,17 +386,9 @@ pub async fn find_existing_prewarmed_environments() -> Vec<UvEnvironment> {
     found
 }
 
-/// Parse the `default_uv_packages` setting into individual package names.
-///
-/// Splits on commas, trims whitespace, and filters out empty entries.
+/// Read the `default_uv_packages` setting.
 fn parse_extra_packages() -> Vec<String> {
-    let settings = crate::settings::load_settings();
-    settings
-        .default_uv_packages
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
+    crate::settings::load_settings().default_uv_packages
 }
 
 /// Create a prewarmed environment with ipykernel, ipywidgets, and any
