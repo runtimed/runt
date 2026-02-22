@@ -128,6 +128,11 @@ export function useKernel({
         } else if (event.payload.state === "error") {
           setKernelStatus("error");
           setKernelErrorMessage(event.payload.error_message ?? null);
+        } else if (event.payload.state === "not started") {
+          setKernelStatus("not started");
+          setEnvSource(null);
+          setKernelErrorMessage(null);
+          startingRef.current = false;
         }
       }
     );
