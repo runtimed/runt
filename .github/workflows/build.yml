@@ -126,6 +126,11 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Enable corepack
         run: corepack enable
 
@@ -266,6 +271,16 @@ jobs:
           start_driver
           NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/1-vanilla.ipynb \
             E2E_SPEC=e2e/specs/settings-panel.spec.js \
+            pnpm test:e2e || FAIL=1
+
+          start_driver
+          NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/10-deno.ipynb \
+            E2E_SPEC=e2e/specs/deno-runtime.spec.js \
+            pnpm test:e2e || FAIL=1
+
+          start_driver
+          NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/1-vanilla.ipynb \
+            E2E_SPEC=e2e/specs/save-dirty-state.spec.js \
             pnpm test:e2e || FAIL=1
 
           # Cleanup

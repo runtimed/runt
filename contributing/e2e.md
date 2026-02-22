@@ -113,6 +113,8 @@ Use a regular test when:
 | `7-environment-yml.ipynb` | `environment-yml-detection.spec.js` | environment.yml detection |
 | `8-multi-cell.ipynb` | `run-all-cells.spec.js` | Run All / Restart & Run All |
 | `9-html-output.ipynb` | `iframe-isolation.spec.js` | Iframe sandbox security |
+| `10-deno.ipynb` | `deno-runtime.spec.js` | Deno kernel start + TypeScript execution |
+| `1-vanilla.ipynb` | `save-dirty-state.spec.js` | Save button dirty state indicator |
 
 Multiple specs can reuse the same fixture notebook — each gets its own fresh app instance.
 
