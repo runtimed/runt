@@ -265,6 +265,14 @@ case "${1:-help}" in
     fi
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/10-deno.ipynb \
+      e2e/specs/deno-runtime.spec.js || FAIL=1
+
+    $0 test-fixture \
+      crates/notebook/fixtures/audit-test/1-vanilla.ipynb \
+      e2e/specs/save-dirty-state.spec.js || FAIL=1
+
     exit $FAIL
     ;;
 

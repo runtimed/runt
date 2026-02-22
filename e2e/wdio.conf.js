@@ -42,6 +42,8 @@ const FIXTURE_SPECS = [
   "run-all-cells.spec.js",
   "iframe-isolation.spec.js",
   "settings-panel.spec.js",
+  "deno-runtime.spec.js",
+  "save-dirty-state.spec.js",
 ];
 
 export const config = {
