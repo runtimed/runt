@@ -568,7 +568,7 @@ export function NotebookToolbar({
                     Python Defaults
                   </span>
                   <p className="text-[11px] text-muted-foreground/70 mt-0.5">
-                    Applied to new notebooks without project dependencies
+                    Applied to new notebooks without project-based dependencies
                   </p>
                 </div>
                 <div className="grid gap-2" style={{ gridTemplateColumns: "auto 1fr" }}>
