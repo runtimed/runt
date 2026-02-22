@@ -175,15 +175,8 @@ function getEnvBadgeInfo(source: string | null): EnvBadgeInfo | null {
 }
 
 /** Tailwind classes for an env badge variant */
-function envBadgeClasses(variant: EnvBadgeVariant): string {
-  switch (variant) {
-    case "uv":
-      return "bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400";
-    case "conda":
-      return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
-    case "pixi":
-      return "bg-amber-500/10 text-amber-600 dark:text-amber-400";
-  }
+function envBadgeClasses(_variant: EnvBadgeVariant): string {
+  return "bg-muted text-muted-foreground";
 }
 
 interface NotebookToolbarProps {
@@ -450,7 +443,7 @@ export function NotebookToolbar({
               <button
                 type="button"
                 onClick={onRunAllCells}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
                 title="Run all cells"
                 data-testid="run-all-button"
               >
@@ -460,7 +453,7 @@ export function NotebookToolbar({
               <button
                 type="button"
                 onClick={onRestartKernel}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
                 title="Restart kernel"
                 data-testid="restart-kernel-button"
               >
@@ -470,7 +463,7 @@ export function NotebookToolbar({
               <button
                 type="button"
                 onClick={onRestartAndRunAll}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
                 title="Restart kernel and run all cells"
                 data-testid="restart-run-all-button"
               >
@@ -480,11 +473,16 @@ export function NotebookToolbar({
               <button
                 type="button"
                 onClick={onInterruptKernel}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className={cn(
+                  "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors",
+                  kernelStatus === "busy"
+                    ? "text-destructive hover:bg-destructive/10"
+                    : "text-foreground hover:bg-muted",
+                )}
                 title="Interrupt kernel"
                 data-testid="interrupt-kernel-button"
               >
-                <Square className="h-3 w-3" />
+                <Square className="h-3 w-3" fill={kernelStatus === "busy" ? "currentColor" : "none"} />
                 Interrupt
               </button>
             </>
@@ -530,9 +528,7 @@ export function NotebookToolbar({
           <div
             className={cn(
               "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
-              runtime === "deno"
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                : "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+              "bg-muted text-muted-foreground",
             )}
             title={
               runtime === "deno"
