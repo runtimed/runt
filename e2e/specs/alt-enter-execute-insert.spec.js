@@ -7,7 +7,7 @@
  */
 
 import { browser, expect } from "@wdio/globals";
-import { waitForAppReady, typeSlowly, setupCodeCell } from "../helpers.js";
+import { setupCodeCell, typeSlowly, waitForAppReady } from "../helpers.js";
 
 describe("Alt+Enter Execute and Insert", () => {
   before(async () => {

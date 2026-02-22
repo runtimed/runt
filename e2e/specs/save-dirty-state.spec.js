@@ -12,9 +12,9 @@
  * Requires: NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/1-vanilla.ipynb
  */
 
-import { browser, expect } from "@wdio/globals";
 import os from "node:os";
-import { waitForAppReady, typeSlowly } from "../helpers.js";
+import { browser } from "@wdio/globals";
+import { typeSlowly, waitForAppReady } from "../helpers.js";
 
 const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
 
