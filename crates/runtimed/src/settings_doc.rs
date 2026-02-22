@@ -25,22 +25,23 @@ use automerge::sync::SyncDoc;
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, AutomergeError, ObjId, ObjType, ReadDoc};
 use log::info;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Default packages for uv environments.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct UvDefaults {
     pub default_packages: Vec<String>,
 }
 
 /// Default packages for conda environments.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct CondaDefaults {
     pub default_packages: Vec<String>,
 }
 
 /// Snapshot of all synced settings.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct SyncedSettings {
     pub theme: String,
     pub default_runtime: String,
@@ -435,6 +436,52 @@ impl SettingsDoc {
     ) -> Result<(), AutomergeError> {
         self.doc.sync().receive_sync_message(peer_state, message)
     }
+
+    /// Selectively apply external JSON changes to the Automerge doc.
+    ///
+    /// Only updates fields that are **present** in the JSON and **differ** from
+    /// the current document state. Returns `true` if any field was modified.
+    ///
+    /// Handles both the nested format (`uv: { default_packages: [...] }`) and
+    /// the old flat format (`default_uv_packages: "numpy, pandas"`).
+    pub(crate) fn apply_json_changes(&mut self, json: &serde_json::Value) -> bool {
+        let mut changed = false;
+
+        // Scalar fields — only update if present in JSON and different
+        for key in &["theme", "default_runtime", "default_python_env"] {
+            if let Some(value) = json.get(key).and_then(|v| v.as_str()) {
+                if self.get(key).as_deref() != Some(value) {
+                    self.put(key, value);
+                    changed = true;
+                }
+            }
+        }
+
+        // UV packages — try nested format, then flat format
+        let has_uv_key = json.get("uv").is_some() || json.get("default_uv_packages").is_some();
+        if has_uv_key {
+            let uv_packages =
+                Self::extract_packages_from_json(json, "uv", "default_uv_packages");
+            if self.get_list("uv.default_packages") != uv_packages {
+                self.put_list("uv.default_packages", &uv_packages);
+                changed = true;
+            }
+        }
+
+        // Conda packages — try nested format, then flat format
+        let has_conda_key =
+            json.get("conda").is_some() || json.get("default_conda_packages").is_some();
+        if has_conda_key {
+            let conda_packages =
+                Self::extract_packages_from_json(json, "conda", "default_conda_packages");
+            if self.get_list("conda.default_packages") != conda_packages {
+                self.put_list("conda.default_packages", &conda_packages);
+                changed = true;
+            }
+        }
+
+        changed
+    }
 }
 
 impl Default for SettingsDoc {
@@ -825,5 +872,93 @@ mod tests {
         // Put into a map that doesn't exist yet
         doc.put("new_section.key", "value");
         assert_eq!(doc.get("new_section.key"), Some("value".to_string()));
+    }
+
+    #[test]
+    fn test_apply_json_changes_detects_difference() {
+        let mut doc = SettingsDoc::new();
+        assert_eq!(doc.get("theme"), Some("system".to_string()));
+
+        let json = serde_json::json!({
+            "theme": "dark",
+            "default_runtime": "deno",
+        });
+        let changed = doc.apply_json_changes(&json);
+        assert!(changed);
+        assert_eq!(doc.get("theme"), Some("dark".to_string()));
+        assert_eq!(doc.get("default_runtime"), Some("deno".to_string()));
+        // Unchanged fields stay the same
+        assert_eq!(doc.get("default_python_env"), Some("uv".to_string()));
+    }
+
+    #[test]
+    fn test_apply_json_changes_no_change_when_matching() {
+        let doc = SettingsDoc::new();
+        let settings = doc.get_all();
+
+        // Write current values back — should detect no change
+        let json = serde_json::to_value(&settings).unwrap();
+        let mut doc = SettingsDoc::new();
+        let changed = doc.apply_json_changes(&json);
+        assert!(!changed);
+    }
+
+    #[test]
+    fn test_apply_json_changes_skips_absent_fields() {
+        let mut doc = SettingsDoc::new();
+        doc.put("theme", "dark");
+
+        // JSON without theme key — should NOT reset theme
+        let json = serde_json::json!({
+            "default_runtime": "python",
+        });
+        let changed = doc.apply_json_changes(&json);
+        assert!(!changed); // runtime already "python"
+        assert_eq!(doc.get("theme"), Some("dark".to_string())); // preserved
+    }
+
+    #[test]
+    fn test_apply_json_changes_nested_packages() {
+        let mut doc = SettingsDoc::new();
+
+        let json = serde_json::json!({
+            "uv": { "default_packages": ["numpy", "pandas"] },
+            "conda": { "default_packages": ["scipy"] },
+        });
+        let changed = doc.apply_json_changes(&json);
+        assert!(changed);
+        assert_eq!(doc.get_list("uv.default_packages"), vec!["numpy", "pandas"]);
+        assert_eq!(doc.get_list("conda.default_packages"), vec!["scipy"]);
+    }
+
+    #[test]
+    fn test_apply_json_changes_flat_format_packages() {
+        let mut doc = SettingsDoc::new();
+
+        // Old flat format
+        let json = serde_json::json!({
+            "default_uv_packages": "numpy, pandas",
+            "default_conda_packages": "scipy",
+        });
+        let changed = doc.apply_json_changes(&json);
+        assert!(changed);
+        assert_eq!(doc.get_list("uv.default_packages"), vec!["numpy", "pandas"]);
+        assert_eq!(doc.get_list("conda.default_packages"), vec!["scipy"]);
+    }
+
+    #[test]
+    fn test_apply_json_changes_packages_no_change() {
+        let mut doc = SettingsDoc::new();
+        doc.put_list(
+            "uv.default_packages",
+            &["numpy".to_string(), "pandas".to_string()],
+        );
+
+        // Same packages — should detect no change
+        let json = serde_json::json!({
+            "uv": { "default_packages": ["numpy", "pandas"] },
+        });
+        let changed = doc.apply_json_changes(&json);
+        assert!(!changed);
     }
 }

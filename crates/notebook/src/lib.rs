@@ -1849,7 +1849,7 @@ async fn start_default_python_kernel_impl(
         // Include default uv packages from settings
         let default_deps: Vec<String> = {
             let s = settings::load_settings();
-            s.default_uv_packages
+            s.uv.default_packages
         };
         if !default_deps.is_empty() {
             info!(
@@ -2050,7 +2050,7 @@ async fn start_default_python_kernel_impl(
         let mut conda_deps_list = vec!["ipykernel".to_string()];
         {
             let s = settings::load_settings();
-            let extra = s.default_conda_packages;
+            let extra = s.conda.default_packages;
             if !extra.is_empty() {
                 info!("[prewarm:conda] Including default packages: {:?}", extra);
                 conda_deps_list.extend(extra);
@@ -2914,18 +2914,38 @@ async fn set_default_python_env(env_type: String) -> Result<(), String> {
 }
 
 /// Get synced settings from the Automerge settings document via runtimed.
-/// Returns an error if the daemon is unavailable — the frontend should
-/// keep its local state (localStorage) rather than overwriting with defaults.
+/// Falls back to reading settings.json when the daemon is unavailable,
+/// so the frontend always gets real settings instead of hardcoded defaults.
 #[tauri::command]
 async fn get_synced_settings() -> Result<runtimed::settings_doc::SyncedSettings, String> {
-    runtimed::sync_client::try_get_synced_settings()
-        .await
-        .map_err(|e| e.to_string())
+    match runtimed::sync_client::try_get_synced_settings().await {
+        Ok(settings) => Ok(settings),
+        Err(e) => {
+            log::warn!(
+                "[settings] Daemon unavailable ({}), falling back to settings.json",
+                e
+            );
+            let local = settings::load_settings();
+            Ok(runtimed::settings_doc::SyncedSettings {
+                theme: local.theme,
+                default_runtime: local.default_runtime.to_string(),
+                default_python_env: local.default_python_env.to_string(),
+                uv: local.uv,
+                conda: local.conda,
+            })
+        }
+    }
 }
 
 /// Persist a setting to local settings.json (for keys that have local representation).
 fn save_setting_locally(key: &str, value: &serde_json::Value) -> Result<(), String> {
     match key {
+        "theme" => {
+            let value_str = value.as_str().ok_or("expected string")?;
+            let mut s = settings::load_settings();
+            s.theme = value_str.to_string();
+            settings::save_settings(&s).map_err(|e| e.to_string())
+        }
         "default_runtime" => {
             let value_str = value.as_str().ok_or("expected string")?;
             let runtime: Runtime =
@@ -2948,16 +2968,15 @@ fn save_setting_locally(key: &str, value: &serde_json::Value) -> Result<(), Stri
         "uv.default_packages" => {
             let packages = json_value_to_string_vec(value);
             let mut s = settings::load_settings();
-            s.default_uv_packages = packages;
+            s.uv.default_packages = packages;
             settings::save_settings(&s).map_err(|e| e.to_string())
         }
         "conda.default_packages" => {
             let packages = json_value_to_string_vec(value);
             let mut s = settings::load_settings();
-            s.default_conda_packages = packages;
+            s.conda.default_packages = packages;
             settings::save_settings(&s).map_err(|e| e.to_string())
         }
-        // Theme has no local fallback in settings.json (handled by localStorage)
         _ => Ok(()),
     }
 }

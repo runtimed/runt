@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use log::{error, info, warn};
+use notify_debouncer_mini::DebounceEventResult;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, Notify};
 
@@ -236,6 +237,12 @@ impl Daemon {
             conda_daemon.conda_warming_loop().await;
         });
 
+        // Spawn the settings.json file watcher
+        let watcher_daemon = self.clone();
+        tokio::spawn(async move {
+            watcher_daemon.watch_settings_json().await;
+        });
+
         // Spawn the settings sync server
         let sync_socket_path = self.config.sync_socket_path.clone();
         let sync_settings = self.settings.clone();
@@ -363,6 +370,130 @@ impl Daemon {
         }
 
         Ok(())
+    }
+
+    /// Watch `settings.json` for external changes and apply them to the Automerge doc.
+    ///
+    /// Uses the `notify` crate with a 500ms debouncer. When changes are detected,
+    /// reads the file, parses it, and selectively applies any differences to the
+    /// Automerge settings document. Self-writes (from `persist_settings`) are
+    /// automatically skipped because the file contents match the doc state.
+    async fn watch_settings_json(self: Arc<Self>) {
+        let json_path = crate::settings_json_path();
+
+        // Determine which path to watch: the file itself if it exists,
+        // or the parent directory if it doesn't exist yet.
+        let watch_path = if json_path.exists() {
+            json_path.clone()
+        } else if let Some(parent) = json_path.parent() {
+            // Watch parent directory; we'll filter for our file in the handler
+            if !parent.exists() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    error!("[settings-watch] Failed to create config dir: {}", e);
+                    return;
+                }
+            }
+            parent.to_path_buf()
+        } else {
+            error!("[settings-watch] Cannot determine watch path for {:?}", json_path);
+            return;
+        };
+
+        // Create a tokio mpsc channel to bridge from the notify callback thread
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<DebounceEventResult>(16);
+
+        // Create debouncer with 500ms window
+        let debouncer_result = notify_debouncer_mini::new_debouncer(
+            std::time::Duration::from_millis(500),
+            move |res: DebounceEventResult| {
+                let _ = tx.blocking_send(res);
+            },
+        );
+
+        let mut debouncer = match debouncer_result {
+            Ok(d) => d,
+            Err(e) => {
+                error!("[settings-watch] Failed to create file watcher: {}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = debouncer
+            .watcher()
+            .watch(&watch_path, notify::RecursiveMode::NonRecursive)
+        {
+            error!("[settings-watch] Failed to watch {:?}: {}", watch_path, e);
+            return;
+        }
+
+        info!("[settings-watch] Watching {:?} for external changes", watch_path);
+
+        loop {
+            tokio::select! {
+                Some(result) = rx.recv() => {
+                    match result {
+                        Ok(events) => {
+                            // Check if any event is for our settings file
+                            let relevant = events.iter().any(|e| e.path == json_path);
+                            if !relevant {
+                                continue;
+                            }
+
+                            // Read and parse the file
+                            let contents = match tokio::fs::read_to_string(&json_path).await {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    // File may have been deleted or is being written
+                                    warn!("[settings-watch] Cannot read settings.json: {}", e);
+                                    continue;
+                                }
+                            };
+
+                            let json: serde_json::Value = match serde_json::from_str(&contents) {
+                                Ok(j) => j,
+                                Err(e) => {
+                                    // Partial write or invalid JSON — try again next event
+                                    warn!("[settings-watch] Cannot parse settings.json: {}", e);
+                                    continue;
+                                }
+                            };
+
+                            // Apply changes to the Automerge doc
+                            let changed = {
+                                let mut doc = self.settings.write().await;
+                                let changed = doc.apply_json_changes(&json);
+                                if changed {
+                                    // Persist the updated Automerge binary + JSON mirror
+                                    let automerge_path = crate::default_settings_doc_path();
+                                    if let Err(e) = doc.save_to_file(&automerge_path) {
+                                        warn!("[settings-watch] Failed to save Automerge doc: {}", e);
+                                    }
+                                    let mirror_path = crate::settings_json_path();
+                                    if let Err(e) = doc.save_json_mirror(&mirror_path) {
+                                        warn!("[settings-watch] Failed to write JSON mirror: {}", e);
+                                    }
+                                }
+                                changed
+                            };
+
+                            if changed {
+                                info!("[settings-watch] Applied external settings.json changes");
+                                let _ = self.settings_changed.send(());
+                            }
+                        }
+                        Err(errs) => {
+                            warn!("[settings-watch] Watch error: {:?}", errs);
+                        }
+                    }
+                }
+                _ = self.shutdown_notify.notified() => {
+                    if *self.shutdown.lock().await {
+                        info!("[settings-watch] Shutting down");
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     /// Find and reuse existing runtimed environments from previous runs.

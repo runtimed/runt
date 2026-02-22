@@ -6,7 +6,7 @@ Runt notebook settings control default behavior for new notebooks, appearance, a
 
 | Setting | Options | Default | Stored In |
 |---------|---------|---------|-----------|
-| Theme | light, dark, system | system | Synced (Automerge) + localStorage for FOUC |
+| Theme | light, dark, system | system | Synced (Automerge) + settings file |
 | Default runtime | python, deno | python | Synced (Automerge) + settings file |
 | Default Python env | uv, conda | uv | Synced (Automerge) + settings file |
 | Default uv packages | list of strings | (empty) | Synced (Automerge) + settings file |
@@ -17,7 +17,9 @@ Runt notebook settings control default behavior for new notebooks, appearance, a
 Settings are synced across all notebook windows via the runtimed daemon using Automerge. The daemon holds the canonical document; each notebook window maintains a local replica.
 
 - **Source of truth:** The Automerge document in the daemon
-- **Persistence:** Settings are also written to `settings.json` as a local fallback (for Cmd+N menu behavior and daemon-unavailable scenarios)
+- **Persistence:** Settings are also written to `settings.json` in the same nested format
+- **External edits:** The daemon watches `settings.json` for external changes (manual edits, CLI tools) and propagates them to all connected windows automatically
+- **Fallback:** When the daemon is unavailable, settings are read directly from `settings.json`
 - **Theme special case:** Theme also uses browser localStorage to prevent a flash of unstyled content on startup
 
 When you change a setting in any window, it propagates to all other open windows in real time.
@@ -41,7 +43,7 @@ Environment-specific settings (packages, future: channels) live under `uv/` and 
 
 ## Settings File
 
-Settings are persisted to a JSON file shared across all notebook windows.
+Settings are persisted to a JSON file shared across all notebook windows. Both the daemon and the notebook app write the same nested JSON format.
 
 | Platform | Path |
 |----------|------|
@@ -49,26 +51,41 @@ Settings are persisted to a JSON file shared across all notebook windows.
 | Linux | `~/.config/runt-notebook/settings.json` |
 | Windows | `C:\Users\<User>\AppData\Roaming\runt-notebook\settings.json` |
 
-The file is created automatically when you first change a setting. You can also create or edit it by hand.
+The file is created automatically when you first change a setting. You can also edit it by hand — changes are detected and applied automatically when the daemon is running.
 
 Example:
 
 ```json
 {
+  "theme": "system",
   "default_runtime": "python",
   "default_python_env": "uv",
-  "default_uv_packages": ["numpy", "pandas", "matplotlib"],
-  "default_conda_packages": ["numpy", "pandas", "scikit-learn"]
+  "uv": {
+    "default_packages": ["numpy", "pandas", "matplotlib"]
+  },
+  "conda": {
+    "default_packages": ["numpy", "pandas", "scikit-learn"]
+  }
 }
 ```
 
-For backward compatibility, the old comma-separated string format is also accepted when reading:
+### JSON Schema
+
+The settings structs derive `schemars::JsonSchema`. Both `SyncedSettings` (in runtimed) and `AppSettings` (in the notebook crate) serialize to the same JSON schema.
+
+### Backward Compatibility
+
+For backward compatibility, the old flat format is accepted when reading:
 
 ```json
 {
-  "default_uv_packages": "numpy, pandas, matplotlib"
+  "default_runtime": "python",
+  "default_uv_packages": "numpy, pandas, matplotlib",
+  "default_conda_packages": ["scipy"]
 }
 ```
+
+Old flat keys (`default_uv_packages`, `default_conda_packages`) and comma-separated strings are migrated to the nested format on first load.
 
 ## Theme
 
@@ -119,8 +136,12 @@ Since uv and conda have different package ecosystems, packages are configured se
 
 ```json
 {
-  "default_uv_packages": ["numpy", "pandas", "matplotlib"],
-  "default_conda_packages": ["numpy", "pandas", "scikit-learn"]
+  "uv": {
+    "default_packages": ["numpy", "pandas", "matplotlib"]
+  },
+  "conda": {
+    "default_packages": ["numpy", "pandas", "scikit-learn"]
+  }
 }
 ```
 
