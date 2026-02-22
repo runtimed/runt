@@ -12,6 +12,8 @@ interface SyncedSettings {
   theme: string;
   default_runtime: string;
   default_python_env: string;
+  uv: { default_packages: string[] };
+  conda: { default_packages: string[] };
 }
 
 function resolveTheme(theme: ThemeMode): "light" | "dark" {
@@ -55,19 +57,26 @@ function isValidPythonEnv(value: string): value is PythonEnvMode {
   return value === "uv" || value === "conda";
 }
 
-function getStored<T extends string>(key: string, validate: (v: string) => v is T): T | null {
+/**
+ * Read a theme value from localStorage.
+ *
+ * localStorage is ONLY used for the theme setting to avoid a flash of
+ * unstyled content (FOUC) on startup. All other settings initialize from
+ * defaults and wait for the daemon to provide the authoritative value.
+ */
+function getStoredTheme(): ThemeMode {
   try {
-    const stored = localStorage.getItem(key);
-    if (stored && validate(stored)) return stored;
+    const stored = localStorage.getItem("notebook-theme");
+    if (stored && isValidTheme(stored)) return stored;
   } catch {
     // ignore
   }
-  return null;
+  return "system";
 }
 
-function setStored(key: string, value: string) {
+function setStoredTheme(value: ThemeMode) {
   try {
-    localStorage.setItem(key, value);
+    localStorage.setItem("notebook-theme", value);
   } catch {
     // ignore
   }
@@ -76,20 +85,24 @@ function setStored(key: string, value: string) {
 /**
  * Hook for all synced settings across notebook windows via runtimed.
  *
- * Reads from the Automerge-backed settings sync daemon on mount,
- * listens for cross-window changes, and falls back to localStorage
- * when the daemon is unavailable.
+ * The daemon (Automerge doc) is the source of truth. On mount, we fetch
+ * the current settings from the daemon and listen for cross-window changes.
+ *
+ * localStorage is only used for theme to avoid FOUC. All other settings
+ * initialize from defaults and are overwritten once the daemon responds.
  */
 export function useSyncedSettings() {
-  const [theme, setThemeState] = useState<ThemeMode>(
-    () => getStored("notebook-theme", isValidTheme) ?? "system",
-  );
-  const [defaultRuntime, setDefaultRuntimeState] = useState<RuntimeMode>(
-    () => getStored("notebook-default-runtime", isValidRuntime) ?? "python",
-  );
-  const [defaultPythonEnv, setDefaultPythonEnvState] = useState<PythonEnvMode>(
-    () => getStored("notebook-default-python-env", isValidPythonEnv) ?? "uv",
-  );
+  // Theme uses localStorage to avoid flash of wrong theme on startup
+  const [theme, setThemeState] = useState<ThemeMode>(getStoredTheme);
+  // All other settings use defaults — daemon is the source of truth
+  const [defaultRuntime, setDefaultRuntimeState] =
+    useState<RuntimeMode>("python");
+  const [defaultPythonEnv, setDefaultPythonEnvState] =
+    useState<PythonEnvMode>("uv");
+  const [defaultUvPackages, setDefaultUvPackagesState] = useState<string[]>([]);
+  const [defaultCondaPackages, setDefaultCondaPackagesState] = useState<
+    string[]
+  >([]);
 
   // Load initial settings from daemon
   useEffect(() => {
@@ -97,19 +110,23 @@ export function useSyncedSettings() {
       .then((settings) => {
         if (isValidTheme(settings.theme)) {
           setThemeState(settings.theme);
-          setStored("notebook-theme", settings.theme);
+          setStoredTheme(settings.theme);
         }
         if (isValidRuntime(settings.default_runtime)) {
           setDefaultRuntimeState(settings.default_runtime);
-          setStored("notebook-default-runtime", settings.default_runtime);
         }
         if (isValidPythonEnv(settings.default_python_env)) {
           setDefaultPythonEnvState(settings.default_python_env);
-          setStored("notebook-default-python-env", settings.default_python_env);
+        }
+        if (Array.isArray(settings.uv?.default_packages)) {
+          setDefaultUvPackagesState(settings.uv.default_packages);
+        }
+        if (Array.isArray(settings.conda?.default_packages)) {
+          setDefaultCondaPackagesState(settings.conda.default_packages);
         }
       })
       .catch(() => {
-        // Daemon unavailable, stick with localStorage values
+        // Daemon unavailable — defaults are fine
       });
   }, []);
 
@@ -120,15 +137,19 @@ export function useSyncedSettings() {
         event.payload;
       if (isValidTheme(newTheme)) {
         setThemeState(newTheme);
-        setStored("notebook-theme", newTheme);
+        setStoredTheme(newTheme);
       }
       if (isValidRuntime(default_runtime)) {
         setDefaultRuntimeState(default_runtime);
-        setStored("notebook-default-runtime", default_runtime);
       }
       if (isValidPythonEnv(default_python_env)) {
         setDefaultPythonEnvState(default_python_env);
-        setStored("notebook-default-python-env", default_python_env);
+      }
+      if (Array.isArray(event.payload.uv?.default_packages)) {
+        setDefaultUvPackagesState(event.payload.uv.default_packages);
+      }
+      if (Array.isArray(event.payload.conda?.default_packages)) {
+        setDefaultCondaPackagesState(event.payload.conda.default_packages);
       }
     });
     return () => {
@@ -138,7 +159,7 @@ export function useSyncedSettings() {
 
   const setTheme = useCallback((newTheme: ThemeMode) => {
     setThemeState(newTheme);
-    setStored("notebook-theme", newTheme);
+    setStoredTheme(newTheme);
     invoke("set_synced_setting", { key: "theme", value: newTheme }).catch(
       () => {},
     );
@@ -146,7 +167,6 @@ export function useSyncedSettings() {
 
   const setDefaultRuntime = useCallback((newRuntime: RuntimeMode) => {
     setDefaultRuntimeState(newRuntime);
-    setStored("notebook-default-runtime", newRuntime);
     invoke("set_synced_setting", {
       key: "default_runtime",
       value: newRuntime,
@@ -155,10 +175,25 @@ export function useSyncedSettings() {
 
   const setDefaultPythonEnv = useCallback((newEnv: PythonEnvMode) => {
     setDefaultPythonEnvState(newEnv);
-    setStored("notebook-default-python-env", newEnv);
     invoke("set_synced_setting", {
       key: "default_python_env",
       value: newEnv,
+    }).catch(() => {});
+  }, []);
+
+  const setDefaultUvPackages = useCallback((packages: string[]) => {
+    setDefaultUvPackagesState(packages);
+    invoke("set_synced_setting", {
+      key: "uv.default_packages",
+      value: packages,
+    }).catch(() => {});
+  }, []);
+
+  const setDefaultCondaPackages = useCallback((packages: string[]) => {
+    setDefaultCondaPackagesState(packages);
+    invoke("set_synced_setting", {
+      key: "conda.default_packages",
+      value: packages,
     }).catch(() => {});
   }, []);
 
@@ -169,6 +204,10 @@ export function useSyncedSettings() {
     setDefaultRuntime,
     defaultPythonEnv,
     setDefaultPythonEnv,
+    defaultUvPackages,
+    setDefaultUvPackages,
+    defaultCondaPackages,
+    setDefaultCondaPackages,
   };
 }
 

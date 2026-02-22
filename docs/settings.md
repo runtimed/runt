@@ -6,13 +6,42 @@ Runt notebook settings control default behavior for new notebooks, appearance, a
 
 | Setting | Options | Default | Stored In |
 |---------|---------|---------|-----------|
-| Theme | light, dark, system | system | Browser localStorage (per window) |
-| Default runtime | python, deno | python | Settings file |
-| Default Python env | uv, conda | conda | Settings file |
+| Theme | light, dark, system | system | Synced (Automerge) + localStorage for FOUC |
+| Default runtime | python, deno | python | Synced (Automerge) + settings file |
+| Default Python env | uv, conda | uv | Synced (Automerge) + settings file |
+| Default uv packages | list of strings | (empty) | Synced (Automerge) + settings file |
+| Default conda packages | list of strings | (empty) | Synced (Automerge) + settings file |
+
+## How Settings Sync Works
+
+Settings are synced across all notebook windows via the runtimed daemon using Automerge. The daemon holds the canonical document; each notebook window maintains a local replica.
+
+- **Source of truth:** The Automerge document in the daemon
+- **Persistence:** Settings are also written to `settings.json` as a local fallback (for Cmd+N menu behavior and daemon-unavailable scenarios)
+- **Theme special case:** Theme also uses browser localStorage to prevent a flash of unstyled content on startup
+
+When you change a setting in any window, it propagates to all other open windows in real time.
+
+### Automerge Document Structure
+
+The synced settings use nested maps for environment-specific configuration:
+
+```
+ROOT/
+  theme: "system"
+  default_runtime: "python"
+  default_python_env: "uv"
+  uv/                                         ← nested Map
+    default_packages: List["numpy", "pandas"] ← List of Str
+  conda/                                      ← nested Map
+    default_packages: List["scipy"]           ← List of Str
+```
+
+Environment-specific settings (packages, future: channels) live under `uv/` and `conda/` sub-maps, making the schema extensible without adding more root-level keys.
 
 ## Settings File
 
-Most settings are stored in a JSON file that is shared across all notebook windows.
+Settings are persisted to a JSON file shared across all notebook windows.
 
 | Platform | Path |
 |----------|------|
@@ -27,7 +56,17 @@ Example:
 ```json
 {
   "default_runtime": "python",
-  "default_python_env": "conda"
+  "default_python_env": "uv",
+  "default_uv_packages": ["numpy", "pandas", "matplotlib"],
+  "default_conda_packages": ["numpy", "pandas", "scikit-learn"]
+}
+```
+
+For backward compatibility, the old comma-separated string format is also accepted when reading:
+
+```json
+{
+  "default_uv_packages": "numpy, pandas, matplotlib"
 }
 ```
 
@@ -41,8 +80,6 @@ Controls light/dark appearance for the notebook editor and output viewer.
 
 Change the theme by clicking the gear icon in the notebook toolbar, then selecting Light, Dark, or System.
 
-Theme is currently stored per window in browser localStorage. Changing the theme in one window does not affect other open windows.
-
 ## Default Runtime
 
 Determines which runtime is used when creating a new notebook with **Cmd+N** (or **Ctrl+N** on Windows/Linux).
@@ -55,11 +92,7 @@ Determines which runtime is used when creating a new notebook with **Cmd+N** (or
 
 Valid values: `"python"`, `"deno"`
 
-You can always create a notebook with a specific runtime regardless of this setting:
-
-- **Cmd+N** — new notebook with the default runtime
-- **Cmd+Shift+N** — new Deno (TypeScript) notebook
-- `runt notebook --runtime deno` — from the CLI
+You can always create a notebook with a specific runtime using the **File > New Notebook As...** submenu.
 
 ## Default Python Environment
 
@@ -67,15 +100,30 @@ Controls which package manager is used for Python notebooks when no project-leve
 
 ```json
 {
-  "default_python_env": "conda"
+  "default_python_env": "uv"
 }
 ```
 
 Valid values: `"uv"`, `"conda"`
 
-- **conda** — uses conda/rattler for package management (supports conda packages)
 - **uv** — uses uv for package management (fast, pip-compatible)
+- **conda** — uses conda/rattler for package management (supports conda packages)
 
 If the notebook directory contains a `pyproject.toml` or `environment.yml`, the environment type is determined by that file instead of this setting.
 
+## Default Packages
 
+Controls which packages are pre-installed in prewarmed environments. These packages are available immediately when you open a new notebook, without needing to add them as inline dependencies.
+
+Since uv and conda have different package ecosystems, packages are configured separately:
+
+```json
+{
+  "default_uv_packages": ["numpy", "pandas", "matplotlib"],
+  "default_conda_packages": ["numpy", "pandas", "scikit-learn"]
+}
+```
+
+Changes take effect on the next pool replenishment cycle — existing prewarmed environments keep their original packages until replaced. Restarting the app clears the pool and rebuilds with the updated packages.
+
+The packages are installed alongside `ipykernel` and `ipywidgets` (which are always included).

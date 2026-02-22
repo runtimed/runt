@@ -4,15 +4,40 @@
 //! application settings. The daemon holds the canonical copy; each connected
 //! notebook window holds a local replica that syncs over the Automerge sync
 //! protocol.
+//!
+//! The document uses nested maps for environment-specific settings:
+//!
+//! ```text
+//! ROOT/
+//!   theme: "system"
+//!   default_runtime: "python"
+//!   default_python_env: "uv"
+//!   uv/                           ← nested Map
+//!     default_packages: List[…]   ← List of Str
+//!   conda/                        ← nested Map
+//!     default_packages: List[…]   ← List of Str
+//! ```
 
 use std::path::Path;
 
 use automerge::sync;
 use automerge::sync::SyncDoc;
 use automerge::transaction::Transactable;
-use automerge::{AutoCommit, AutomergeError, ReadDoc};
+use automerge::{AutoCommit, AutomergeError, ObjId, ObjType, ReadDoc};
 use log::info;
 use serde::{Deserialize, Serialize};
+
+/// Default packages for uv environments.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UvDefaults {
+    pub default_packages: Vec<String>,
+}
+
+/// Default packages for conda environments.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CondaDefaults {
+    pub default_packages: Vec<String>,
+}
 
 /// Snapshot of all synced settings.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -20,6 +45,8 @@ pub struct SyncedSettings {
     pub theme: String,
     pub default_runtime: String,
     pub default_python_env: String,
+    pub uv: UvDefaults,
+    pub conda: CondaDefaults,
 }
 
 impl Default for SyncedSettings {
@@ -28,13 +55,16 @@ impl Default for SyncedSettings {
             theme: "system".to_string(),
             default_runtime: "python".to_string(),
             default_python_env: "uv".to_string(),
+            uv: UvDefaults::default(),
+            conda: CondaDefaults::default(),
         }
     }
 }
 
 /// Wrapper around an Automerge document storing application settings.
 ///
-/// The document is a flat map at the root with string keys and string values.
+/// The document uses a mix of root-level scalar strings and nested maps
+/// containing lists for environment-specific settings.
 pub struct SettingsDoc {
     doc: AutoCommit,
 }
@@ -44,7 +74,8 @@ impl SettingsDoc {
     pub fn new() -> Self {
         let mut doc = AutoCommit::new();
         let defaults = SyncedSettings::default();
-        // Ignore errors on initial setup — the doc is fresh.
+
+        // Root-level scalars
         let _ = doc.put(automerge::ROOT, "theme", defaults.theme);
         let _ = doc.put(automerge::ROOT, "default_runtime", defaults.default_runtime);
         let _ = doc.put(
@@ -52,6 +83,17 @@ impl SettingsDoc {
             "default_python_env",
             defaults.default_python_env,
         );
+
+        // Nested uv map with empty package list
+        if let Ok(uv_id) = doc.put_object(automerge::ROOT, "uv", ObjType::Map) {
+            let _ = doc.put_object(&uv_id, "default_packages", ObjType::List);
+        }
+
+        // Nested conda map with empty package list
+        if let Ok(conda_id) = doc.put_object(automerge::ROOT, "conda", ObjType::Map) {
+            let _ = doc.put_object(&conda_id, "default_packages", ObjType::List);
+        }
+
         Self { doc }
     }
 
@@ -60,19 +102,18 @@ impl SettingsDoc {
     ///
     /// If `settings_json_path` points to an existing `settings.json`, its values
     /// are migrated into the new Automerge document.
-    pub fn load_or_create(
-        automerge_path: &Path,
-        settings_json_path: Option<&Path>,
-    ) -> Self {
+    ///
+    /// Existing Automerge docs with old flat keys (`default_uv_packages`,
+    /// `default_conda_packages`) are migrated to the nested structure on load.
+    pub fn load_or_create(automerge_path: &Path, settings_json_path: Option<&Path>) -> Self {
         // Try loading existing Automerge document
         if automerge_path.exists() {
             if let Ok(data) = std::fs::read(automerge_path) {
                 if let Ok(doc) = AutoCommit::load(&data) {
-                    info!(
-                        "[settings] Loaded Automerge doc from {:?}",
-                        automerge_path
-                    );
-                    return Self { doc };
+                    info!("[settings] Loaded Automerge doc from {:?}", automerge_path);
+                    let mut settings = Self { doc };
+                    settings.migrate_flat_to_nested();
+                    return settings;
                 }
             }
         }
@@ -81,13 +122,8 @@ impl SettingsDoc {
         if let Some(json_path) = settings_json_path {
             if json_path.exists() {
                 if let Ok(contents) = std::fs::read_to_string(json_path) {
-                    if let Ok(json) =
-                        serde_json::from_str::<serde_json::Value>(&contents)
-                    {
-                        info!(
-                            "[settings] Migrating from {:?}",
-                            json_path
-                        );
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) {
+                        info!("[settings] Migrating from {:?}", json_path);
                         return Self::from_json(&json);
                     }
                 }
@@ -100,21 +136,88 @@ impl SettingsDoc {
     }
 
     /// Create a settings document from parsed JSON (for migration from settings.json).
+    ///
+    /// Handles both old flat format (`default_uv_packages: "numpy, pandas"`)
+    /// and new nested format (`uv: { default_packages: ["numpy", "pandas"] }`).
     fn from_json(json: &serde_json::Value) -> Self {
         let mut settings = Self::new();
 
         if let Some(runtime) = json.get("default_runtime").and_then(|v| v.as_str()) {
             settings.put("default_runtime", runtime);
         }
-        if let Some(env) = json
-            .get("default_python_env")
-            .and_then(|v| v.as_str())
-        {
+        if let Some(env) = json.get("default_python_env").and_then(|v| v.as_str()) {
             settings.put("default_python_env", env);
         }
-        // Theme was never in settings.json, so it stays at the default ("system").
 
+        // Try new nested format first, then fall back to old flat format
+        let uv_packages = Self::extract_packages_from_json(json, "uv", "default_uv_packages");
+        if !uv_packages.is_empty() {
+            settings.put_list("uv.default_packages", &uv_packages);
+        }
+
+        let conda_packages =
+            Self::extract_packages_from_json(json, "conda", "default_conda_packages");
+        if !conda_packages.is_empty() {
+            settings.put_list("conda.default_packages", &conda_packages);
+        }
+
+        // Theme was never in settings.json, so it stays at the default ("system").
         settings
+    }
+
+    /// Extract packages from JSON, trying nested format then flat comma-separated.
+    fn extract_packages_from_json(
+        json: &serde_json::Value,
+        nested_key: &str,
+        flat_key: &str,
+    ) -> Vec<String> {
+        // Try nested: { "uv": { "default_packages": ["numpy", "pandas"] } }
+        if let Some(nested) = json.get(nested_key).and_then(|v| v.as_object()) {
+            if let Some(arr) = nested.get("default_packages").and_then(|v| v.as_array()) {
+                let pkgs: Vec<String> = arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
+                if !pkgs.is_empty() {
+                    return pkgs;
+                }
+            }
+        }
+
+        // Fall back to flat: { "default_uv_packages": "numpy, pandas" }
+        if let Some(comma_str) = json.get(flat_key).and_then(|v| v.as_str()) {
+            return split_comma_list(comma_str);
+        }
+
+        vec![]
+    }
+
+    /// Migrate old flat keys to nested structure.
+    ///
+    /// Reads `default_uv_packages` and `default_conda_packages` from ROOT,
+    /// splits comma values, stores them as nested lists, and deletes the old keys.
+    fn migrate_flat_to_nested(&mut self) {
+        // Migrate default_uv_packages -> uv.default_packages
+        if let Some(val) = self.get_flat("default_uv_packages") {
+            let packages = split_comma_list(&val);
+            if !packages.is_empty() {
+                self.put_list("uv.default_packages", &packages);
+            }
+            let _ = self.doc.delete(automerge::ROOT, "default_uv_packages");
+            info!("[settings] Migrated default_uv_packages to uv.default_packages");
+        }
+
+        // Migrate default_conda_packages -> conda.default_packages
+        if let Some(val) = self.get_flat("default_conda_packages") {
+            let packages = split_comma_list(&val);
+            if !packages.is_empty() {
+                self.put_list("conda.default_packages", &packages);
+            }
+            let _ = self
+                .doc
+                .delete(automerge::ROOT, "default_conda_packages");
+            info!("[settings] Migrated default_conda_packages to conda.default_packages");
+        }
     }
 
     /// Load a settings document from raw bytes.
@@ -143,40 +246,177 @@ impl SettingsDoc {
             std::fs::create_dir_all(parent)?;
         }
         let settings = self.get_all();
-        let json = serde_json::to_string_pretty(&settings)
-            .map_err(std::io::Error::other)?;
+        let json = serde_json::to_string_pretty(&settings).map_err(std::io::Error::other)?;
         std::fs::write(path, json)
     }
 
-    /// Get a single setting value by key.
+    // ── Scalar accessors ─────────────────────────────────────────────
+
+    /// Read a scalar string from ROOT only (no dotted path support).
+    fn get_flat(&self, key: &str) -> Option<String> {
+        read_scalar_str(&self.doc, automerge::ROOT, key)
+    }
+
+    /// Get a scalar setting value, supporting dotted paths for nested maps.
+    ///
+    /// E.g. `"theme"` reads from ROOT, `"uv.some_key"` reads from the `uv` sub-map.
     pub fn get(&self, key: &str) -> Option<String> {
+        if let Some((map_key, sub_key)) = key.split_once('.') {
+            let map_id = self.get_map_id(map_key)?;
+            read_scalar_str(&self.doc, map_id, sub_key)
+        } else {
+            self.get_flat(key)
+        }
+    }
+
+    /// Set a scalar setting value, supporting dotted paths for nested maps.
+    pub fn put(&mut self, key: &str, value: &str) {
+        if let Some((map_key, sub_key)) = key.split_once('.') {
+            let map_id = self.ensure_map(map_key);
+            let _ = self.doc.put(&map_id, sub_key, value);
+        } else {
+            let _ = self.doc.put(automerge::ROOT, key, value);
+        }
+    }
+
+    // ── List accessors ───────────────────────────────────────────────
+
+    /// Read a list of strings at a dotted path (e.g. `"uv.default_packages"`).
+    pub fn get_list(&self, key: &str) -> Vec<String> {
+        let (map_key, sub_key) = match key.split_once('.') {
+            Some(pair) => pair,
+            None => return vec![],
+        };
+        let map_id = match self.get_map_id(map_key) {
+            Some(id) => id,
+            None => return vec![],
+        };
+        let list_id = match self.doc.get(&map_id, sub_key).ok().flatten() {
+            Some((automerge::Value::Object(ObjType::List), id)) => id,
+            _ => return vec![],
+        };
+        let len = self.doc.length(&list_id);
+        (0..len)
+            .filter_map(|i| {
+                self.doc.get(&list_id, i).ok().flatten().and_then(
+                    |(value, _)| match value {
+                        automerge::Value::Scalar(s) => match s.as_ref() {
+                            automerge::ScalarValue::Str(s) => Some(s.to_string()),
+                            _ => None,
+                        },
+                        _ => None,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    /// Replace a list of strings at a dotted path.
+    ///
+    /// Deletes the existing list (if any) and creates a new one with the given items.
+    pub fn put_list(&mut self, key: &str, values: &[String]) {
+        let (map_key, sub_key) = match key.split_once('.') {
+            Some(pair) => pair,
+            None => return,
+        };
+        let map_id = self.ensure_map(map_key);
+
+        // Delete existing value at this key (list or otherwise)
+        let _ = self.doc.delete(&map_id, sub_key);
+
+        // Create new list and insert items
+        if let Ok(list_id) = self.doc.put_object(&map_id, sub_key, ObjType::List) {
+            for (i, item) in values.iter().enumerate() {
+                let _ = self.doc.insert(&list_id, i, item.as_str());
+            }
+        }
+    }
+
+    /// Set a value from a `serde_json::Value` — dispatches to `put` for strings
+    /// or `put_list` for arrays. Used by Tauri commands.
+    pub fn put_value(&mut self, key: &str, value: &serde_json::Value) {
+        match value {
+            serde_json::Value::String(s) => self.put(key, s),
+            serde_json::Value::Array(arr) => {
+                let items: Vec<String> = arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
+                self.put_list(key, &items);
+            }
+            _ => {}
+        }
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────
+
+    /// Look up a nested Map object at ROOT.
+    fn get_map_id(&self, map_key: &str) -> Option<ObjId> {
         self.doc
-            .get(automerge::ROOT, key)
+            .get(automerge::ROOT, map_key)
             .ok()
             .flatten()
-            .and_then(|(value, _)| match value {
-                automerge::Value::Scalar(s) => match s.as_ref() {
-                    automerge::ScalarValue::Str(s) => Some(s.to_string()),
-                    _ => None,
-                },
+            .and_then(|(value, id)| match value {
+                automerge::Value::Object(ObjType::Map) => Some(id),
                 _ => None,
             })
     }
 
-    /// Set a single setting value.
-    pub fn put(&mut self, key: &str, value: &str) {
-        let _ = self.doc.put(automerge::ROOT, key, value);
+    /// Get or create a nested Map at ROOT.
+    fn ensure_map(&mut self, map_key: &str) -> ObjId {
+        if let Some(id) = self.get_map_id(map_key) {
+            return id;
+        }
+        self.doc
+            .put_object(automerge::ROOT, map_key, ObjType::Map)
+            .expect("failed to create nested map")
     }
 
+    // ── Aggregate accessor ───────────────────────────────────────────
+
     /// Get a snapshot of all settings.
+    ///
+    /// Reads from nested maps first, falling back to old flat keys for
+    /// backward compatibility during upgrades.
     pub fn get_all(&self) -> SyncedSettings {
         let defaults = SyncedSettings::default();
+
+        // Read uv packages: try nested list, fall back to flat comma string
+        let uv_packages = {
+            let nested = self.get_list("uv.default_packages");
+            if !nested.is_empty() {
+                nested
+            } else if let Some(flat) = self.get_flat("default_uv_packages") {
+                split_comma_list(&flat)
+            } else {
+                defaults.uv.default_packages.clone()
+            }
+        };
+
+        // Read conda packages: try nested list, fall back to flat comma string
+        let conda_packages = {
+            let nested = self.get_list("conda.default_packages");
+            if !nested.is_empty() {
+                nested
+            } else if let Some(flat) = self.get_flat("default_conda_packages") {
+                split_comma_list(&flat)
+            } else {
+                defaults.conda.default_packages.clone()
+            }
+        };
+
         SyncedSettings {
             theme: self.get("theme").unwrap_or(defaults.theme),
             default_runtime: self.get("default_runtime").unwrap_or(defaults.default_runtime),
             default_python_env: self
                 .get("default_python_env")
                 .unwrap_or(defaults.default_python_env),
+            uv: UvDefaults {
+                default_packages: uv_packages,
+            },
+            conda: CondaDefaults {
+                default_packages: conda_packages,
+            },
         }
     }
 
@@ -204,6 +444,63 @@ impl Default for SettingsDoc {
     }
 }
 
+// ── Free helpers ─────────────────────────────────────────────────────
+
+/// Read a scalar string value from any Automerge object.
+fn read_scalar_str<O: AsRef<ObjId>>(
+    doc: &AutoCommit,
+    obj: O,
+    key: &str,
+) -> Option<String> {
+    doc.get(obj, key)
+        .ok()
+        .flatten()
+        .and_then(|(value, _)| match value {
+            automerge::Value::Scalar(s) => match s.as_ref() {
+                automerge::ScalarValue::Str(s) => Some(s.to_string()),
+                _ => None,
+            },
+            _ => None,
+        })
+}
+
+/// Split a comma-separated string into a list of trimmed, non-empty strings.
+pub fn split_comma_list(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Read a list of strings from a nested Automerge map within a raw `AutoCommit`.
+///
+/// Used by `sync_client::get_all_from_doc` which operates on bare docs.
+pub fn read_nested_list(doc: &AutoCommit, map_key: &str, sub_key: &str) -> Vec<String> {
+    let map_id = match doc.get(automerge::ROOT, map_key).ok().flatten() {
+        Some((automerge::Value::Object(ObjType::Map), id)) => id,
+        _ => return vec![],
+    };
+    let list_id = match doc.get(&map_id, sub_key).ok().flatten() {
+        Some((automerge::Value::Object(ObjType::List), id)) => id,
+        _ => return vec![],
+    };
+    let len = doc.length(&list_id);
+    (0..len)
+        .filter_map(|i| {
+            doc.get(&list_id, i)
+                .ok()
+                .flatten()
+                .and_then(|(value, _)| match value {
+                    automerge::Value::Scalar(s) => match s.as_ref() {
+                        automerge::ScalarValue::Str(s) => Some(s.to_string()),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,10 +513,12 @@ mod tests {
         assert_eq!(settings.theme, "system");
         assert_eq!(settings.default_runtime, "python");
         assert_eq!(settings.default_python_env, "uv");
+        assert!(settings.uv.default_packages.is_empty());
+        assert!(settings.conda.default_packages.is_empty());
     }
 
     #[test]
-    fn test_put_and_get() {
+    fn test_put_and_get_scalar() {
         let mut doc = SettingsDoc::new();
         doc.put("theme", "dark");
         assert_eq!(doc.get("theme"), Some("dark".to_string()));
@@ -232,15 +531,83 @@ mod tests {
     }
 
     #[test]
+    fn test_put_and_get_list() {
+        let mut doc = SettingsDoc::new();
+        doc.put_list(
+            "uv.default_packages",
+            &["numpy".to_string(), "pandas".to_string()],
+        );
+
+        let packages = doc.get_list("uv.default_packages");
+        assert_eq!(packages, vec!["numpy", "pandas"]);
+    }
+
+    #[test]
+    fn test_put_list_replaces_existing() {
+        let mut doc = SettingsDoc::new();
+        doc.put_list("uv.default_packages", &["numpy".to_string()]);
+        doc.put_list(
+            "uv.default_packages",
+            &["pandas".to_string(), "scipy".to_string()],
+        );
+
+        let packages = doc.get_list("uv.default_packages");
+        assert_eq!(packages, vec!["pandas", "scipy"]);
+    }
+
+    #[test]
+    fn test_get_list_empty_by_default() {
+        let doc = SettingsDoc::new();
+        let packages = doc.get_list("uv.default_packages");
+        assert!(packages.is_empty());
+    }
+
+    #[test]
+    fn test_put_value_string() {
+        let mut doc = SettingsDoc::new();
+        doc.put_value("theme", &serde_json::json!("dark"));
+        assert_eq!(doc.get("theme"), Some("dark".to_string()));
+    }
+
+    #[test]
+    fn test_put_value_array() {
+        let mut doc = SettingsDoc::new();
+        doc.put_value(
+            "uv.default_packages",
+            &serde_json::json!(["numpy", "pandas"]),
+        );
+        assert_eq!(
+            doc.get_list("uv.default_packages"),
+            vec!["numpy", "pandas"]
+        );
+    }
+
+    #[test]
+    fn test_get_all_with_packages() {
+        let mut doc = SettingsDoc::new();
+        doc.put_list(
+            "uv.default_packages",
+            &["numpy".to_string(), "pandas".to_string()],
+        );
+        doc.put_list("conda.default_packages", &["scipy".to_string()]);
+
+        let settings = doc.get_all();
+        assert_eq!(settings.uv.default_packages, vec!["numpy", "pandas"]);
+        assert_eq!(settings.conda.default_packages, vec!["scipy"]);
+    }
+
+    #[test]
     fn test_save_and_load() {
         let mut doc = SettingsDoc::new();
         doc.put("theme", "light");
+        doc.put_list("uv.default_packages", &["numpy".to_string()]);
 
         let bytes = doc.save();
         let loaded = SettingsDoc::load(&bytes).unwrap();
 
         assert_eq!(loaded.get("theme"), Some("light".to_string()));
         assert_eq!(loaded.get("default_runtime"), Some("python".to_string()));
+        assert_eq!(loaded.get_list("uv.default_packages"), vec!["numpy"]);
     }
 
     #[test]
@@ -250,30 +617,100 @@ mod tests {
 
         let mut doc = SettingsDoc::new();
         doc.put("theme", "dark");
+        doc.put_list(
+            "conda.default_packages",
+            &["scipy".to_string(), "numpy".to_string()],
+        );
         doc.save_to_file(&path).unwrap();
 
         let loaded = SettingsDoc::load_or_create(&path, None);
         assert_eq!(loaded.get("theme"), Some("dark".to_string()));
+        assert_eq!(
+            loaded.get_list("conda.default_packages"),
+            vec!["scipy", "numpy"]
+        );
     }
 
     #[test]
-    fn test_migrate_from_json() {
+    fn test_migrate_flat_to_nested() {
+        // Simulate an old Automerge doc with flat comma-separated keys
+        let mut doc = AutoCommit::new();
+        let _ = doc.put(automerge::ROOT, "theme", "dark");
+        let _ = doc.put(automerge::ROOT, "default_runtime", "python");
+        let _ = doc.put(automerge::ROOT, "default_python_env", "uv");
+        let _ = doc.put(
+            automerge::ROOT,
+            "default_uv_packages",
+            "numpy, pandas, matplotlib",
+        );
+        let _ = doc.put(automerge::ROOT, "default_conda_packages", "scipy");
+
+        let bytes = doc.save();
+
+        // Load via load_or_create which triggers migration
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.automerge");
+        std::fs::write(&path, bytes).unwrap();
+
+        let loaded = SettingsDoc::load_or_create(&path, None);
+        let settings = loaded.get_all();
+
+        assert_eq!(settings.theme, "dark");
+        assert_eq!(
+            settings.uv.default_packages,
+            vec!["numpy", "pandas", "matplotlib"]
+        );
+        assert_eq!(settings.conda.default_packages, vec!["scipy"]);
+
+        // Old flat keys should be gone
+        assert_eq!(loaded.get_flat("default_uv_packages"), None);
+        assert_eq!(loaded.get_flat("default_conda_packages"), None);
+    }
+
+    #[test]
+    fn test_migrate_from_json_flat_format() {
         let tmp = TempDir::new().unwrap();
         let automerge_path = tmp.path().join("settings.automerge");
         let json_path = tmp.path().join("settings.json");
 
-        // Write a settings.json with existing settings
+        // Write old-format settings.json
         std::fs::write(
             &json_path,
-            r#"{"default_runtime":"deno","default_python_env":"conda"}"#,
+            r#"{"default_runtime":"deno","default_python_env":"conda","default_uv_packages":"numpy, pandas","default_conda_packages":"scipy, scikit-learn"}"#,
         )
         .unwrap();
 
         let doc = SettingsDoc::load_or_create(&automerge_path, Some(&json_path));
-        assert_eq!(doc.get("default_runtime"), Some("deno".to_string()));
-        assert_eq!(doc.get("default_python_env"), Some("conda".to_string()));
-        // Theme was never in settings.json, should be default
-        assert_eq!(doc.get("theme"), Some("system".to_string()));
+        let settings = doc.get_all();
+
+        assert_eq!(settings.default_runtime, "deno");
+        assert_eq!(settings.default_python_env, "conda");
+        assert_eq!(settings.uv.default_packages, vec!["numpy", "pandas"]);
+        assert_eq!(
+            settings.conda.default_packages,
+            vec!["scipy", "scikit-learn"]
+        );
+        assert_eq!(settings.theme, "system"); // Theme was never in settings.json
+    }
+
+    #[test]
+    fn test_migrate_from_json_nested_format() {
+        let tmp = TempDir::new().unwrap();
+        let automerge_path = tmp.path().join("settings.automerge");
+        let json_path = tmp.path().join("settings.json");
+
+        // Write new-format settings.json
+        std::fs::write(
+            &json_path,
+            r#"{"default_runtime":"python","uv":{"default_packages":["numpy","pandas"]},"conda":{"default_packages":["scipy"]}}"#,
+        )
+        .unwrap();
+
+        let doc = SettingsDoc::load_or_create(&automerge_path, Some(&json_path));
+        let settings = doc.get_all();
+
+        assert_eq!(settings.uv.default_packages, vec!["numpy", "pandas"]);
+        assert_eq!(settings.conda.default_packages, vec!["scipy"]);
     }
 
     #[test]
@@ -281,7 +718,6 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let automerge_path = tmp.path().join("settings.automerge");
 
-        // Neither file exists — should get defaults
         let doc = SettingsDoc::load_or_create(&automerge_path, None);
         assert_eq!(doc.get_all(), SyncedSettings::default());
     }
@@ -293,42 +729,41 @@ mod tests {
 
         let mut doc = SettingsDoc::new();
         doc.put("theme", "dark");
+        doc.put_list(
+            "uv.default_packages",
+            &["numpy".to_string(), "pandas".to_string()],
+        );
         doc.save_json_mirror(&json_path).unwrap();
 
         let contents = std::fs::read_to_string(&json_path).unwrap();
-        let parsed: SyncedSettings = serde_json::from_str(&contents).unwrap();
-        assert_eq!(parsed.theme, "dark");
+        let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
+        assert_eq!(parsed["theme"], "dark");
+        assert_eq!(parsed["uv"]["default_packages"][0], "numpy");
+        assert_eq!(parsed["uv"]["default_packages"][1], "pandas");
     }
 
     #[test]
     fn test_sync_between_two_docs() {
-        // Simulate the daemon-client sync protocol
         let mut server = SettingsDoc::new();
         server.put("theme", "dark");
+        server.put_list("uv.default_packages", &["numpy".to_string()]);
 
         let mut client = SettingsDoc::new();
-        // Client starts with defaults
 
         let mut server_state = sync::State::new();
         let mut client_state = sync::State::new();
 
-        // Run sync rounds until both are in sync
         for _ in 0..10 {
-            // Client generates a message for the server
             if let Some(msg) = client.generate_sync_message(&mut client_state) {
                 server
                     .receive_sync_message(&mut server_state, msg)
                     .unwrap();
             }
-
-            // Server generates a message for the client
             if let Some(msg) = server.generate_sync_message(&mut server_state) {
                 client
                     .receive_sync_message(&mut client_state, msg)
                     .unwrap();
             }
-
-            // Check if both are now in sync
             if client.get("theme") == Some("dark".to_string()) {
                 break;
             }
@@ -336,17 +771,18 @@ mod tests {
 
         assert_eq!(client.get("theme"), Some("dark".to_string()));
         assert_eq!(client.get("default_runtime"), Some("python".to_string()));
+        assert_eq!(client.get_list("uv.default_packages"), vec!["numpy"]);
     }
 
     #[test]
     fn test_concurrent_writes_merge() {
-        // Both sides make changes, sync should merge them
         let mut server = SettingsDoc::new();
         let mut client = SettingsDoc::new();
 
-        // Sync initial state first
         let mut server_state = sync::State::new();
         let mut client_state = sync::State::new();
+
+        // Sync initial state
         for _ in 0..10 {
             if let Some(msg) = client.generate_sync_message(&mut client_state) {
                 server
@@ -360,7 +796,7 @@ mod tests {
             }
         }
 
-        // Now both make different changes
+        // Both make different changes
         server.put("theme", "dark");
         client.put("default_runtime", "deno");
 
@@ -378,10 +814,39 @@ mod tests {
             }
         }
 
-        // Both should have both changes
         assert_eq!(server.get("theme"), Some("dark".to_string()));
         assert_eq!(server.get("default_runtime"), Some("deno".to_string()));
         assert_eq!(client.get("theme"), Some("dark".to_string()));
         assert_eq!(client.get("default_runtime"), Some("deno".to_string()));
+    }
+
+    #[test]
+    fn test_split_comma_list() {
+        assert_eq!(
+            split_comma_list("numpy, pandas, matplotlib"),
+            vec!["numpy", "pandas", "matplotlib"]
+        );
+        assert_eq!(split_comma_list(""), Vec::<String>::new());
+        assert_eq!(split_comma_list("  "), Vec::<String>::new());
+        assert_eq!(split_comma_list("numpy"), vec!["numpy"]);
+    }
+
+    #[test]
+    fn test_nested_scalar_in_map() {
+        let mut doc = SettingsDoc::new();
+        // Write a scalar into a nested map (for future settings like conda channels)
+        doc.put("uv.some_future_setting", "value");
+        assert_eq!(
+            doc.get("uv.some_future_setting"),
+            Some("value".to_string())
+        );
+    }
+
+    #[test]
+    fn test_ensure_map_creates_if_missing() {
+        let mut doc = SettingsDoc::new();
+        // Put into a map that doesn't exist yet
+        doc.put("new_section.key", "value");
+        assert_eq!(doc.get("new_section.key"), Some("value".to_string()));
     }
 }

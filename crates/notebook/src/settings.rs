@@ -7,7 +7,7 @@
 
 use crate::runtime::Runtime;
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::path::PathBuf;
 
 /// Python environment type for dependency management
@@ -40,6 +40,57 @@ pub struct AppSettings {
     /// Default Python environment type (uv or conda)
     #[serde(default)]
     pub default_python_env: PythonEnvType,
+
+    /// Default packages for prewarmed uv environments
+    #[serde(default, deserialize_with = "deserialize_package_list")]
+    pub default_uv_packages: Vec<String>,
+
+    /// Default packages for prewarmed conda environments
+    #[serde(default, deserialize_with = "deserialize_package_list")]
+    pub default_conda_packages: Vec<String>,
+}
+
+/// Deserialize a package list that accepts both:
+/// - Old format: `"numpy, pandas, matplotlib"` (comma-separated string)
+/// - New format: `["numpy", "pandas", "matplotlib"]` (JSON array)
+fn deserialize_package_list<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de;
+
+    struct PackageListVisitor;
+
+    impl<'de> de::Visitor<'de> for PackageListVisitor {
+        type Value = Vec<String>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string or array of strings")
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<Vec<String>, E> {
+            Ok(v.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect())
+        }
+
+        fn visit_seq<A: de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> std::result::Result<Vec<String>, A::Error> {
+            let mut items = Vec::new();
+            while let Some(item) = seq.next_element::<String>()? {
+                let trimmed = item.trim().to_string();
+                if !trimmed.is_empty() {
+                    items.push(trimmed);
+                }
+            }
+            Ok(items)
+        }
+    }
+
+    deserializer.deserialize_any(PackageListVisitor)
 }
 
 impl Default for AppSettings {
@@ -47,6 +98,8 @@ impl Default for AppSettings {
         Self {
             default_runtime: Runtime::Python,
             default_python_env: PythonEnvType::Uv,
+            default_uv_packages: vec![],
+            default_conda_packages: vec![],
         }
     }
 }
@@ -91,6 +144,8 @@ mod tests {
         let settings = AppSettings::default();
         assert_eq!(settings.default_runtime, Runtime::Python);
         assert_eq!(settings.default_python_env, PythonEnvType::Uv);
+        assert!(settings.default_uv_packages.is_empty());
+        assert!(settings.default_conda_packages.is_empty());
     }
 
     #[test]
@@ -98,6 +153,8 @@ mod tests {
         let settings = AppSettings {
             default_runtime: Runtime::Deno,
             default_python_env: PythonEnvType::Uv,
+            default_uv_packages: vec!["numpy".into(), "pandas".into()],
+            default_conda_packages: vec![],
         };
 
         let json = serde_json::to_string(&settings).unwrap();
@@ -105,18 +162,57 @@ mod tests {
 
         assert_eq!(parsed.default_runtime, Runtime::Deno);
         assert_eq!(parsed.default_python_env, PythonEnvType::Uv);
+        assert_eq!(parsed.default_uv_packages, vec!["numpy", "pandas"]);
+    }
+
+    #[test]
+    fn test_deserialize_old_comma_format() {
+        let json = r#"{
+            "default_runtime": "python",
+            "default_python_env": "uv",
+            "default_uv_packages": "numpy, pandas, matplotlib",
+            "default_conda_packages": "scipy"
+        }"#;
+        let parsed: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed.default_uv_packages,
+            vec!["numpy", "pandas", "matplotlib"]
+        );
+        assert_eq!(parsed.default_conda_packages, vec!["scipy"]);
+    }
+
+    #[test]
+    fn test_deserialize_new_array_format() {
+        let json = r#"{
+            "default_runtime": "python",
+            "default_python_env": "uv",
+            "default_uv_packages": ["numpy", "pandas"],
+            "default_conda_packages": ["scipy", "scikit-learn"]
+        }"#;
+        let parsed: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.default_uv_packages, vec!["numpy", "pandas"]);
+        assert_eq!(
+            parsed.default_conda_packages,
+            vec!["scipy", "scikit-learn"]
+        );
+    }
+
+    #[test]
+    fn test_deserialize_missing_packages() {
+        let json = r#"{"default_runtime": "python"}"#;
+        let parsed: AppSettings = serde_json::from_str(json).unwrap();
+        assert!(parsed.default_uv_packages.is_empty());
+        assert!(parsed.default_conda_packages.is_empty());
     }
 
     #[test]
     fn test_python_env_type_serde() {
-        // Test that the enum serializes to lowercase strings
         let uv = PythonEnvType::Uv;
         let conda = PythonEnvType::Conda;
 
         assert_eq!(serde_json::to_string(&uv).unwrap(), "\"uv\"");
         assert_eq!(serde_json::to_string(&conda).unwrap(), "\"conda\"");
 
-        // Test deserialization
         let parsed_uv: PythonEnvType = serde_json::from_str("\"uv\"").unwrap();
         let parsed_conda: PythonEnvType = serde_json::from_str("\"conda\"").unwrap();
 
@@ -127,7 +223,6 @@ mod tests {
     #[test]
     fn test_settings_path_is_valid() {
         let path = settings_path();
-        // Should end with the expected path components
         assert!(path.ends_with("runt-notebook/settings.json"));
     }
 }

@@ -910,9 +910,15 @@ pub async fn create_prewarmed_conda_environment(
     // Ensure cache directory exists
     tokio::fs::create_dir_all(&cache_dir).await?;
 
-    // Create minimal dependencies (just ipykernel)
+    // Build dependency list: ipykernel + ipywidgets + user-configured defaults
+    let mut deps_list = vec!["ipykernel".to_string(), "ipywidgets".to_string()];
+    let extra: Vec<String> = crate::settings::load_settings().default_conda_packages;
+    if !extra.is_empty() {
+        info!("[prewarm] Including default packages: {:?}", extra);
+        deps_list.extend(extra);
+    }
     let deps = CondaDependencies {
-        dependencies: vec!["ipykernel".to_string(), "ipywidgets".to_string()],
+        dependencies: deps_list,
         channels: vec!["conda-forge".to_string()],
         python: None, // Use default Python version
         env_id: None, // No env_id for prewarmed envs

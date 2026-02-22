@@ -1808,8 +1808,18 @@ async fn start_default_python_kernel_impl(
 
         // No prewarmed env available, create one normally
         info!("[prewarm:uv] No prewarmed environment available, creating fresh");
+
+        // Include default uv packages from settings
+        let default_deps: Vec<String> = {
+            let s = settings::load_settings();
+            s.default_uv_packages
+        };
+        if !default_deps.is_empty() {
+            info!("[prewarm:uv] Including default packages: {:?}", default_deps);
+        }
+
         let deps = uv_env::NotebookDependencies {
-            dependencies: vec![],
+            dependencies: default_deps,
             requires_python: None,
         };
 
@@ -1985,9 +1995,19 @@ async fn start_default_python_kernel_impl(
         // No prewarmed env available (or prewarmed failed), create one normally
         info!("[prewarm:conda] No prewarmed conda environment available, creating fresh");
 
-        // Create minimal deps with just ipykernel and the unique env_id
+        // Include default conda packages from settings
+        let mut conda_deps_list = vec!["ipykernel".to_string()];
+        {
+            let s = settings::load_settings();
+            let extra = s.default_conda_packages;
+            if !extra.is_empty() {
+                info!("[prewarm:conda] Including default packages: {:?}", extra);
+                conda_deps_list.extend(extra);
+            }
+        }
+
         let deps = conda_env::CondaDependencies {
-            dependencies: vec!["ipykernel".to_string()],
+            dependencies: conda_deps_list,
             channels: vec!["conda-forge".to_string()],
             python: None,
             env_id: Some(env_id.clone()),
@@ -2846,23 +2866,37 @@ async fn get_synced_settings() -> Result<runtimed::settings_doc::SyncedSettings,
 }
 
 /// Persist a setting to local settings.json (for keys that have local representation).
-fn save_setting_locally(key: &str, value: &str) -> Result<(), String> {
+fn save_setting_locally(key: &str, value: &serde_json::Value) -> Result<(), String> {
     match key {
         "default_runtime" => {
+            let value_str = value.as_str().ok_or("expected string")?;
             let runtime: Runtime =
-                serde_json::from_str(&format!("\"{}\"", value)).map_err(|e| e.to_string())?;
+                serde_json::from_str(&format!("\"{}\"", value_str)).map_err(|e| e.to_string())?;
             let mut s = settings::load_settings();
             s.default_runtime = runtime;
             settings::save_settings(&s).map_err(|e| e.to_string())
         }
         "default_python_env" => {
-            let env_type = match value {
+            let value_str = value.as_str().ok_or("expected string")?;
+            let env_type = match value_str {
                 "uv" => settings::PythonEnvType::Uv,
                 "conda" => settings::PythonEnvType::Conda,
-                _ => return Err(format!("Invalid env type: {}", value)),
+                _ => return Err(format!("Invalid env type: {}", value_str)),
             };
             let mut s = settings::load_settings();
             s.default_python_env = env_type;
+            settings::save_settings(&s).map_err(|e| e.to_string())
+        }
+        "uv.default_packages" => {
+            let packages = json_value_to_string_vec(value);
+            let mut s = settings::load_settings();
+            s.default_uv_packages = packages;
+            settings::save_settings(&s).map_err(|e| e.to_string())
+        }
+        "conda.default_packages" => {
+            let packages = json_value_to_string_vec(value);
+            let mut s = settings::load_settings();
+            s.default_conda_packages = packages;
             settings::save_settings(&s).map_err(|e| e.to_string())
         }
         // Theme has no local fallback in settings.json (handled by localStorage)
@@ -2870,9 +2904,21 @@ fn save_setting_locally(key: &str, value: &str) -> Result<(), String> {
     }
 }
 
+/// Extract a Vec<String> from a JSON value (array of strings).
+fn json_value_to_string_vec(value: &serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::Array(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        serde_json::Value::String(s) => runtimed::settings_doc::split_comma_list(s),
+        _ => vec![],
+    }
+}
+
 /// Update a synced setting via the daemon and persist locally.
 #[tauri::command]
-async fn set_synced_setting(key: String, value: String) -> Result<(), String> {
+async fn set_synced_setting(key: String, value: serde_json::Value) -> Result<(), String> {
     // Always persist to local settings.json so the menu handler can read it synchronously
     save_setting_locally(&key, &value)?;
 
@@ -2883,7 +2929,7 @@ async fn set_synced_setting(key: String, value: String) -> Result<(), String> {
         match runtimed::sync_client::SyncClient::connect(socket_path).await {
             Ok(mut client) => {
                 client
-                    .put(&key, &value)
+                    .put_value(&key, &value)
                     .await
                     .map_err(|e| format!("sync error: {}", e))?;
             }

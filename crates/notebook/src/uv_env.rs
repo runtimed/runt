@@ -386,7 +386,13 @@ pub async fn find_existing_prewarmed_environments() -> Vec<UvEnvironment> {
     found
 }
 
-/// Create a prewarmed environment with just ipykernel installed.
+/// Read the `default_uv_packages` setting.
+fn parse_extra_packages() -> Vec<String> {
+    crate::settings::load_settings().default_uv_packages
+}
+
+/// Create a prewarmed environment with ipykernel, ipywidgets, and any
+/// user-configured default packages installed.
 ///
 /// This creates an environment at a temporary path (prewarm-{uuid}) that can
 /// later be claimed by a notebook using `claim_prewarmed_environment`.
@@ -423,16 +429,22 @@ pub async fn create_prewarmed_environment() -> Result<UvEnvironment> {
         return Err(anyhow!("Failed to create prewarmed virtual environment"));
     }
 
-    // Install ipykernel and ipywidgets (no other dependencies)
+    // Install ipykernel, ipywidgets, and any user-configured default packages
+    let extra = parse_extra_packages();
+    let mut install_args = vec![
+        "pip".to_string(),
+        "install".to_string(),
+        "--python".to_string(),
+        python_path.to_string_lossy().to_string(),
+        "ipykernel".to_string(),
+        "ipywidgets".to_string(),
+    ];
+    if !extra.is_empty() {
+        info!("[prewarm] Including default packages: {:?}", extra);
+        install_args.extend(extra);
+    }
     let install_status = tokio::process::Command::new(&uv_path)
-        .args([
-            "pip",
-            "install",
-            "--python",
-            &python_path.to_string_lossy(),
-            "ipykernel",
-            "ipywidgets",
-        ])
+        .args(&install_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .status()

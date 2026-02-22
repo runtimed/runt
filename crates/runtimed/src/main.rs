@@ -71,6 +71,9 @@ enum Commands {
 
     /// Stop the installed service
     Stop,
+
+    /// Flush all pooled environments and rebuild with current settings
+    FlushPool,
 }
 
 #[tokio::main]
@@ -103,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Status { json }) => status(json).await,
         Some(Commands::Start) => start_service(),
         Some(Commands::Stop) => stop_service(),
+        Some(Commands::FlushPool) => flush_pool().await,
     }
 }
 
@@ -275,6 +279,24 @@ fn stop_service() -> anyhow::Result<()> {
     println!("Stopping runtimed service...");
     manager.stop()?;
     println!("Service stopped.");
+
+    Ok(())
+}
+
+async fn flush_pool() -> anyhow::Result<()> {
+    let client = PoolClient::default();
+
+    if !client.is_daemon_running().await {
+        eprintln!("Daemon is not running.");
+        std::process::exit(1);
+    }
+
+    println!("Flushing pool environments...");
+    client
+        .flush_pool()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to flush pool: {}", e))?;
+    println!("Pool flushed. Environments will be rebuilt with current settings.");
 
     Ok(())
 }
