@@ -52,7 +52,7 @@ describe("Trust Dialog Decline", () => {
 
     const status = await getKernelStatus();
     console.log("Kernel status after decline:", status);
-    expect(status).toBe("not started");
+    expect(status).toBe("off");
   });
 
   it("should not produce any cell output", async () => {
