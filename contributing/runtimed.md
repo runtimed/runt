@@ -6,6 +6,7 @@ The runtime daemon manages prewarmed Python environments shared across notebook 
 
 | Task | Command |
 |------|---------|
+| Install daemon from source | `cargo xtask install-daemon` |
 | Run daemon | `cargo run -p runtimed` |
 | Run with debug logs | `RUST_LOG=debug cargo run -p runtimed` |
 | Check status | `cargo run -p runt-cli -- pool status` |
@@ -65,15 +66,32 @@ The notebook app automatically tries to connect to or start the daemon on launch
 runtimed::client::ensure_daemon_running(None).await
 ```
 
-### Manual: Run daemon separately
+### Install daemon from source
 
-For debugging daemon-specific code, run it in a separate terminal:
+When you change daemon code and want the installed service to pick it up:
 
 ```bash
-# Terminal 1: Run daemon
+cargo xtask install-daemon
+```
+
+This builds runtimed in release mode, stops the running service, replaces the binary, and restarts it. You can verify the version with:
+
+```bash
+cat ~/.cache/runt/daemon.json   # check "version" field
+```
+
+### Manual: Run daemon separately
+
+For debugging daemon-specific code, stop the installed service and run from source:
+
+```bash
+# Stop the installed service first
+launchctl bootout gui/$(id -u)/io.runtimed
+
+# Run daemon with debug logs
 RUST_LOG=debug cargo run -p runtimed
 
-# Terminal 2: Test with runt CLI
+# In another terminal, test with runt CLI
 cargo run -p runt-cli -- pool ping
 cargo run -p runt-cli -- pool status
 cargo run -p runt-cli -- pool take uv

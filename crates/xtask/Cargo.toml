@@ -8,3 +8,5 @@ publish = false
 workspace = true
 
 [dependencies]
+dirs = "5"
+serde_json.workspace = true
