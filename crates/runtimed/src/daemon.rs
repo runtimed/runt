@@ -469,12 +469,13 @@ impl Daemon {
                                 let mut doc = self.settings.write().await;
                                 let changed = doc.apply_json_changes(&json);
                                 if changed {
+                                    // Only persist the Automerge binary — do NOT write
+                                    // the JSON mirror back, as serde_json formatting
+                                    // differs from editors (e.g. arrays expand to one
+                                    // element per line) which causes unwanted churn.
                                     let automerge_path = crate::default_settings_doc_path();
                                     if let Err(e) = doc.save_to_file(&automerge_path) {
                                         warn!("[settings-watch] Failed to save Automerge doc: {}", e);
-                                    }
-                                    if let Err(e) = doc.save_json_mirror(&json_path) {
-                                        warn!("[settings-watch] Failed to write JSON mirror: {}", e);
                                     }
                                 }
                                 changed
