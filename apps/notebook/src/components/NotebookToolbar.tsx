@@ -1,4 +1,5 @@
 import {
+  AlertCircle,
   ChevronsRight,
   Info,
   Monitor,
@@ -678,9 +679,20 @@ export function NotebookToolbar({
                     </div>
                   </div>
                   {defaultRuntime && !isKnownRuntime(defaultRuntime) && (
-                    <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                      Unknown runtime: &ldquo;{defaultRuntime}&rdquo;
-                    </p>
+                    <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 mt-1">
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <span>
+                        <span className="font-medium">
+                          &ldquo;{defaultRuntime}&rdquo;
+                        </span>{" "}
+                        is not a recognized runtime. Click Python or Deno above,
+                        or edit{" "}
+                        <code className="rounded bg-amber-500/20 px-1">
+                          settings.json
+                        </code>
+                        .
+                      </span>
+                    </div>
                   )}
                 </div>
               )}
@@ -742,10 +754,20 @@ export function NotebookToolbar({
                       </div>
                       {defaultPythonEnv &&
                         !isKnownPythonEnv(defaultPythonEnv) && (
-                          <p className="text-[11px] text-amber-600 dark:text-amber-400 col-span-2">
-                            Unknown environment: &ldquo;{defaultPythonEnv}
-                            &rdquo;
-                          </p>
+                          <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 col-span-2 mt-1">
+                            <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                            <span>
+                              <span className="font-medium">
+                                &ldquo;{defaultPythonEnv}&rdquo;
+                              </span>{" "}
+                              is not a recognized environment. Click uv or Conda
+                              above, or edit{" "}
+                              <code className="rounded bg-amber-500/20 px-1">
+                                settings.json
+                              </code>
+                              .
+                            </span>
+                          </div>
                         )}
                     </>
                   )}
