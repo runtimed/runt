@@ -257,6 +257,12 @@ case "${1:-help}" in
     run_fixture crates/notebook/fixtures/audit-test/1-vanilla.ipynb \
                 e2e/specs/settings-panel.spec.js
 
+    run_fixture crates/notebook/fixtures/audit-test/11-rich-outputs.ipynb \
+                e2e/specs/rich-outputs.spec.js
+
+    run_fixture crates/notebook/fixtures/audit-test/12-error-outputs.ipynb \
+                e2e/specs/error-handling.spec.js
+
     # Summary
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

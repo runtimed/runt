@@ -115,6 +115,8 @@ Use a regular test when:
 | `9-html-output.ipynb` | `iframe-isolation.spec.js` | Iframe sandbox security |
 | `10-deno.ipynb` | `deno-runtime.spec.js` | Deno kernel start + TypeScript execution |
 | `1-vanilla.ipynb` | `save-dirty-state.spec.js` | Save button dirty state indicator |
+| `11-rich-outputs.ipynb` | `rich-outputs.spec.js` | Rich output rendering (PNG, HTML, DataFrame, ANSI) |
+| `12-error-outputs.ipynb` | `error-handling.spec.js` | Error traceback rendering |
 
 Multiple specs can reuse the same fixture notebook — each gets its own fresh app instance.
 

@@ -207,6 +207,14 @@ jobs:
           cp target/release/runtimed "target/release/binaries/runtimed-$TARGET"
           cp target/release/runt "target/release/binaries/runt-$TARGET"
 
+      - name: Pre-warm environment pool
+        run: |
+          # Start runtimed early so the pool fills while the Tauri app builds (~90s).
+          # uv-pool-size 6 gives headroom for sequential fixture tests.
+          # conda-pool-size 0 because conda fixture tests create inline environments.
+          ./target/release/runtimed run --uv-pool-size 6 --conda-pool-size 0 &
+          echo "RUNTIMED_PID=$!" >> $GITHUB_ENV
+
       - name: Build Tauri app
         run: cd crates/notebook && cargo tauri build --ci --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
 
@@ -309,8 +317,19 @@ jobs:
             E2E_SPEC=e2e/specs/save-dirty-state.spec.js \
             pnpm test:e2e || FAIL=1
 
+          start_driver
+          NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/11-rich-outputs.ipynb \
+            E2E_SPEC=e2e/specs/rich-outputs.spec.js \
+            pnpm test:e2e || FAIL=1
+
+          start_driver
+          NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/12-error-outputs.ipynb \
+            E2E_SPEC=e2e/specs/error-handling.spec.js \
+            pnpm test:e2e || FAIL=1
+
           # Cleanup
           kill $DRIVER_PID 2>/dev/null || true
+          kill $RUNTIMED_PID 2>/dev/null || true
 
           exit $FAIL
         env:

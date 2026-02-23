@@ -45,6 +45,8 @@ const FIXTURE_SPECS = [
   "settings-panel.spec.js",
   "deno-runtime.spec.js",
   "save-dirty-state.spec.js",
+  "rich-outputs.spec.js",
+  "error-handling.spec.js",
 ];
 
 export const config = {
