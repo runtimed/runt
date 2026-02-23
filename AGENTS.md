@@ -2,6 +2,20 @@
 
 This document provides guidance for AI agents working in this repository.
 
+## Code Formatting (Required Before Committing)
+
+Run these commands before every commit. CI will reject PRs that fail formatting checks.
+
+```bash
+# Format Rust code
+cargo fmt
+
+# Format and lint TypeScript/JavaScript (auto-fixes issues)
+npx @biomejs/biome check --fix apps/notebook/src/ e2e/
+```
+
+Do not skip these. There are no pre-commit hooks — you must run them manually.
+
 ## Workspace Description
 
 When working in a worktree, set a human-readable description of what you're working on by writing to `.context/workspace-description`:
