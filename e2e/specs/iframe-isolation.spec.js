@@ -1,8 +1,8 @@
 /**
  * E2E Security Tests: Iframe Isolation (Fixture)
  *
- * Opens a notebook that produces HTML output (9-html-output.ipynb).
- * Executes the cell, which triggers an IsolatedFrame iframe, then verifies
+ * Opens a notebook with pre-populated HTML display_data output (9-html-output.ipynb).
+ * The IsolatedFrame renders on load without needing a kernel, then the tests verify
  * that the iframe sandbox properly blocks Tauri API leakage and cross-origin access.
  *
  * Note: browser.switchToFrame() and browser.executeAsync() are not supported in
@@ -15,11 +15,7 @@
  */
 
 import { browser, expect } from "@wdio/globals";
-import {
-  executeFirstCell,
-  waitForAppReady,
-  waitForKernelReady,
-} from "../helpers.js";
+import { waitForAppReady } from "../helpers.js";
 
 /**
  * Execute code inside the isolated iframe via postMessage eval channel.
@@ -82,24 +78,15 @@ describe("Iframe Isolation Security", () => {
     await waitForAppReady();
     console.log("Page title:", await browser.getTitle());
 
-    // Kernel auto-launches for vanilla notebooks (no deps)
-    await waitForKernelReady();
-    console.log("Kernel ready");
-
-    // Execute the cell — produces HTML display output via IPython.display
-    // When a cell has HTML output, ALL outputs (including stream) get routed
-    // to the IsolatedFrame iframe, so we wait for the iframe directly.
-    await executeFirstCell();
-    console.log("Triggered execution");
-
-    // Wait for the IsolatedFrame iframe to appear (HTML output triggers it)
+    // The fixture notebook has pre-populated HTML display_data output,
+    // so the IsolatedFrame renders on load without needing a kernel.
     await browser.waitUntil(
       async () => {
         const iframe = await $('iframe[title="Isolated output frame"]');
         return await iframe.isExisting();
       },
       {
-        timeout: 120000,
+        timeout: 30000,
         interval: 500,
         timeoutMsg: "Isolated output frame did not appear",
       },
