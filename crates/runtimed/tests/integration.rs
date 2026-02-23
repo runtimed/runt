@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use runtimed::client::PoolClient;
 use runtimed::daemon::{Daemon, DaemonConfig};
+use runtimed::notebook_sync_client::NotebookSyncClient;
 use runtimed::EnvType;
 use tempfile::TempDir;
 use tokio::time::sleep;
@@ -271,5 +272,114 @@ async fn test_blob_server_health() {
 
     // Shutdown
     client.shutdown().await.ok();
+    let _ = tokio::time::timeout(Duration::from_secs(2), daemon_handle).await;
+}
+
+#[tokio::test]
+async fn test_notebook_sync_via_unified_socket() {
+    let temp_dir = TempDir::new().unwrap();
+    let config = test_config(&temp_dir);
+    let socket_path = config.socket_path.clone();
+
+    let daemon = Daemon::new(config).unwrap();
+    let daemon_handle = tokio::spawn(async move {
+        daemon.run().await.ok();
+    });
+
+    // Wait for daemon to be ready
+    let pool_client = PoolClient::new(socket_path.clone());
+    assert!(wait_for_daemon(&pool_client, Duration::from_secs(5)).await);
+
+    // Connect first client — should get empty notebook
+    let mut client1 = NotebookSyncClient::connect(socket_path.clone(), "test-notebook".to_string())
+        .await
+        .expect("client1 should connect");
+
+    let cells = client1.get_cells();
+    assert!(cells.is_empty(), "new notebook should have no cells");
+
+    // Add a cell from client1
+    client1.add_cell(0, "cell-1", "code").await.unwrap();
+    client1
+        .update_source("cell-1", "print('hello')")
+        .await
+        .unwrap();
+
+    // Give the daemon a moment to process and persist
+    sleep(Duration::from_millis(100)).await;
+
+    // Connect second client to the same notebook — should see the cell
+    let client2 = NotebookSyncClient::connect(socket_path.clone(), "test-notebook".to_string())
+        .await
+        .expect("client2 should connect");
+
+    let cells = client2.get_cells();
+    assert_eq!(cells.len(), 1, "client2 should see the cell from client1");
+    assert_eq!(cells[0].id, "cell-1");
+    assert_eq!(cells[0].source, "print('hello')");
+    assert_eq!(cells[0].cell_type, "code");
+
+    // Connect to a different notebook — should be independent
+    let client3 = NotebookSyncClient::connect(socket_path.clone(), "other-notebook".to_string())
+        .await
+        .expect("client3 should connect");
+
+    let cells = client3.get_cells();
+    assert!(cells.is_empty(), "different notebook should have no cells");
+
+    // Shutdown
+    pool_client.shutdown().await.ok();
+    let _ = tokio::time::timeout(Duration::from_secs(2), daemon_handle).await;
+}
+
+#[tokio::test]
+async fn test_notebook_sync_cross_window_propagation() {
+    let temp_dir = TempDir::new().unwrap();
+    let config = test_config(&temp_dir);
+    let socket_path = config.socket_path.clone();
+
+    let daemon = Daemon::new(config).unwrap();
+    let daemon_handle = tokio::spawn(async move {
+        daemon.run().await.ok();
+    });
+
+    let pool_client = PoolClient::new(socket_path.clone());
+    assert!(wait_for_daemon(&pool_client, Duration::from_secs(5)).await);
+
+    // Both clients connect to the same notebook
+    let mut client1 = NotebookSyncClient::connect(socket_path.clone(), "shared-nb".to_string())
+        .await
+        .unwrap();
+    let mut client2 = NotebookSyncClient::connect(socket_path.clone(), "shared-nb".to_string())
+        .await
+        .unwrap();
+
+    // Client1 adds a cell
+    client1.add_cell(0, "c1", "code").await.unwrap();
+    client1.update_source("c1", "x = 42").await.unwrap();
+    client1.set_execution_count("c1", "1").await.unwrap();
+
+    // Client2 should receive the changes
+    let cells = client2.recv_changes().await.unwrap();
+    assert!(!cells.is_empty(), "client2 should receive propagated cells");
+
+    // May need additional recv rounds for full convergence
+    let mut final_cells = cells;
+    for _ in 0..5 {
+        match tokio::time::timeout(Duration::from_millis(200), client2.recv_changes()).await {
+            Ok(Ok(cells)) => final_cells = cells,
+            _ => break,
+        }
+    }
+
+    // Verify client2 has the cell
+    let cell = final_cells.iter().find(|c| c.id == "c1");
+    assert!(cell.is_some(), "client2 should have cell c1");
+    let cell = cell.unwrap();
+    assert_eq!(cell.source, "x = 42");
+    assert_eq!(cell.execution_count, "1");
+
+    // Shutdown
+    pool_client.shutdown().await.ok();
     let _ = tokio::time::timeout(Duration::from_secs(2), daemon_handle).await;
 }
