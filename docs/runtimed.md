@@ -781,6 +781,48 @@ Output content doesn't flow over this channel. The daemon writes to the blob sto
 
 ---
 
+## Design decisions
+
+Cross-cutting decisions that affect multiple phases. These are living answers — expect them to evolve as implementation reveals new constraints.
+
+### Acceptance criteria per phase
+
+**Phase 5**: Two windows open the same notebook, cell source edits propagate between them, and outputs from execution in window A appear in window B. Save from either window produces the same `.ipynb`. The existing `NotebookState` code path should remain as a fallback if the daemon isn't running — notebooks must still work standalone.
+
+**Phase 6**: Outputs render from manifests + blob store. Images no longer bloat the CRDT. Re-opening a notebook with existing outputs renders them correctly from blobs, and new execution outputs use the manifest path.
+
+### Output format backward compatibility (Phase 5 -> 6)
+
+The outputs list is `List of Str`. A string that starts with `{` and parses as a Jupyter output object is Phase 5 inline JSON. A string that's 64 hex characters is a Phase 6 manifest hash. The reader can detect which format it's looking at trivially. Phase 6 rolls out incrementally — old outputs keep working, new outputs use manifests. No migration step needed.
+
+### ipynb metadata hints are advisory only
+
+Blob hash hints embedded in `.ipynb` output metadata (Phase 7) are a performance optimization, not a correctness requirement. If the blob is missing (cache cleared, new machine), silently re-import from inline data. The `.ipynb` file is always self-contained. Log missing blobs at debug level only.
+
+### Kernel channel is control-plane only (Phase 8)
+
+The kernel channel carries explicit commands (`execute`, `interrupt`, `restart`, `shutdown`) and lightweight events (`status`, `execute_input`). Output content never flows over this channel. It goes: kernel -> daemon iopub listener -> blob store -> automerge doc -> notebook sync -> frontend.
+
+### Blob HTTP security: hash-only, no auth token
+
+Localhost-only binding, content-addressed with 256-bit hashes (unguessable), non-secret data (notebook outputs), read-only. Token-gating would complicate `<img src=...>` URLs for no current threat model. Revisit only if the blob store ever serves content from other users or over a network.
+
+### Multi-window sync latency targets
+
+Source edits: sub-200ms perceived. The `sync_to_daemon` round-trip is ~1-5ms locally (Unix socket). The daemon broadcasts immediately. The bottleneck is React re-render, not sync.
+
+Outputs during execution: the dual delivery path (iopub events for speed, automerge for durability) means the executing window sees outputs instantly. Other windows see them after the automerge round-trip (<50ms). Acceptable for outputs which are inherently asynchronous.
+
+If latency becomes an issue during rapid output bursts (e.g., training loops), the first optimization is batching sync messages rather than syncing per-output.
+
+### Schema versioning: lightweight, not a framework
+
+Add a `schema_version: Str` field to the notebook doc root (`"1"` for Phase 5, `"2"` when Phase 6 changes outputs to manifest hashes). The reader checks this on load and handles both versions with simple branching. No formal migration framework — the schema is simple enough that version-checking `if` branches suffice. This mirrors how settings doc migration already works (flat keys -> nested structure).
+
+For output manifests, the `output_type` field provides structural versioning. New fields can be added without breaking old readers.
+
+---
+
 ## Summary
 
 | Phase | What | Status |
