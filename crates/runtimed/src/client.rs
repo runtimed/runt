@@ -8,8 +8,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use log::{info, warn};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncWrite};
 
+use crate::connection::{self, Handshake};
 use crate::protocol::{Request, Response};
 use crate::{default_socket_path, EnvType, PoolStats, PooledEnv};
 
@@ -199,33 +200,27 @@ impl PoolClient {
     /// Send a request on an established stream.
     async fn send_request_on_stream<S>(
         &self,
-        stream: S,
+        mut stream: S,
         request: Request,
     ) -> Result<Response, ClientError>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        let (reader, mut writer) = tokio::io::split(stream);
-        let mut reader = BufReader::new(reader);
-
-        // Send request
-        let line = request
-            .to_line()
-            .map_err(|e| ClientError::ProtocolError(format!("Failed to serialize: {}", e)))?;
-        writer
-            .write_all(line.as_bytes())
+        // Send the channel handshake
+        connection::send_json_frame(&mut stream, &Handshake::Pool)
             .await
-            .map_err(ClientError::ConnectionFailed)?;
+            .map_err(|e| ClientError::ProtocolError(format!("handshake: {}", e)))?;
 
-        // Read response
-        let mut response_line = String::new();
-        reader
-            .read_line(&mut response_line)
+        // Send the request as a framed JSON message
+        connection::send_json_frame(&mut stream, &request)
             .await
-            .map_err(ClientError::ConnectionFailed)?;
+            .map_err(|e| ClientError::ProtocolError(format!("send: {}", e)))?;
 
-        Response::from_line(&response_line)
-            .map_err(|e| ClientError::ProtocolError(format!("Failed to parse response: {}", e)))
+        // Read the response
+        connection::recv_json_frame::<_, Response>(&mut stream)
+            .await
+            .map_err(|e| ClientError::ProtocolError(format!("recv: {}", e)))?
+            .ok_or_else(|| ClientError::ProtocolError("connection closed".to_string()))
     }
 }
 

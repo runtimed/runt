@@ -20,6 +20,9 @@ pub struct DaemonInfo {
     pub version: String,
     /// When the daemon started.
     pub started_at: DateTime<Utc>,
+    /// HTTP port for the blob server (if running).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blob_port: Option<u16>,
 }
 
 /// A lock that ensures only one daemon instance runs.
@@ -69,6 +72,7 @@ impl DaemonLock {
                     pid: 0,
                     version: "unknown".to_string(),
                     started_at: Utc::now(),
+                    blob_port: None,
                 });
             }
         };
@@ -90,6 +94,7 @@ impl DaemonLock {
                     pid: 0,
                     version: "unknown".to_string(),
                     started_at: Utc::now(),
+                    blob_port: None,
                 });
             }
         }
@@ -125,6 +130,7 @@ impl DaemonLock {
                     pid: 0,
                     version: "unknown".to_string(),
                     started_at: Utc::now(),
+                    blob_port: None,
                 });
             }
         }
@@ -139,12 +145,13 @@ impl DaemonLock {
     }
 
     /// Write daemon info after successful startup.
-    pub fn write_info(&self, endpoint: &str) -> std::io::Result<()> {
+    pub fn write_info(&self, endpoint: &str, blob_port: Option<u16>) -> std::io::Result<()> {
         let info = DaemonInfo {
             endpoint: endpoint.to_string(),
             pid: std::process::id(),
             version: format!("{}+{}", env!("CARGO_PKG_VERSION"), env!("GIT_COMMIT")),
             started_at: Utc::now(),
+            blob_port,
         };
 
         let json = serde_json::to_string_pretty(&info).map_err(std::io::Error::other)?;

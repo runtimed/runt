@@ -198,12 +198,20 @@ enum PoolCommands {
         #[arg(long)]
         json: bool,
     },
+    /// Show daemon info (version, PID, blob port, uptime)
+    Info {
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
     /// Request an environment from the pool (for testing)
     Take {
         /// Environment type: uv or conda
         #[arg(default_value = "uv")]
         env_type: String,
     },
+    /// Flush all pooled environments and rebuild with current settings
+    Flush,
     /// Request daemon shutdown
     Shutdown,
 }
@@ -940,6 +948,53 @@ async fn pool_command(command: PoolCommands) -> Result<()> {
                 std::process::exit(1);
             }
         },
+        PoolCommands::Info { json } => {
+            use runtimed::singleton::get_running_daemon_info;
+
+            match get_running_daemon_info() {
+                Some(info) => {
+                    // Ping the daemon at the endpoint recorded in daemon.json,
+                    // not the default socket path — the daemon may have been
+                    // started with a custom --socket.
+                    let info_client = PoolClient::new(std::path::PathBuf::from(&info.endpoint));
+                    let alive = info_client.ping().await.is_ok();
+
+                    if json {
+                        let mut val = serde_json::to_value(&info)?;
+                        val.as_object_mut()
+                            .unwrap()
+                            .insert("alive".into(), serde_json::Value::Bool(alive));
+                        println!("{}", serde_json::to_string_pretty(&val)?);
+                    } else {
+                        println!("Pool Daemon Info");
+                        println!("================");
+                        if !alive {
+                            println!("Status:     STALE (daemon not responding)");
+                        }
+                        println!("PID:        {}", info.pid);
+                        println!("Version:    {}", info.version);
+                        println!("Socket:     {}", info.endpoint);
+                        if let Some(port) = info.blob_port {
+                            println!("Blob port:  {}", port);
+                            println!("Blob URL:   http://127.0.0.1:{}/blob/{{hash}}", port);
+                        }
+                        let uptime = chrono::Utc::now() - info.started_at;
+                        let hours = uptime.num_hours();
+                        let mins = uptime.num_minutes() % 60;
+                        let secs = uptime.num_seconds() % 60;
+                        println!("Started:    {}", info.started_at);
+                        println!("Uptime:     {}h {}m {}s", hours, mins, secs);
+                    }
+                    if !alive {
+                        std::process::exit(1);
+                    }
+                }
+                None => {
+                    eprintln!("Daemon not running (no daemon.json found)");
+                    std::process::exit(1);
+                }
+            }
+        }
         PoolCommands::Take { env_type } => {
             let env_type = match env_type.to_lowercase().as_str() {
                 "uv" => EnvType::Uv,
@@ -964,6 +1019,15 @@ async fn pool_command(command: PoolCommands) -> Result<()> {
                 }
             }
         }
+        PoolCommands::Flush => match client.flush_pool().await {
+            Ok(()) => {
+                println!("Pool flushed — environments will be rebuilt");
+            }
+            Err(e) => {
+                eprintln!("Failed to flush pool: {}", e);
+                std::process::exit(1);
+            }
+        },
         PoolCommands::Shutdown => match client.shutdown().await {
             Ok(()) => {
                 println!("Shutdown request sent");

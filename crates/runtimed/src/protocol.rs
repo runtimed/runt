@@ -1,6 +1,7 @@
-//! IPC protocol for pool daemon communication.
+//! IPC protocol types for pool daemon communication.
 //!
-//! Messages are newline-delimited JSON (NDJSON) for simplicity.
+//! Request and Response enums are serialized as JSON and sent over
+//! length-prefixed frames (see `connection.rs`).
 
 use serde::{Deserialize, Serialize};
 
@@ -59,32 +60,26 @@ pub enum Response {
     Error { message: String },
 }
 
-impl Request {
-    /// Serialize request to JSON line (with newline terminator).
-    pub fn to_line(&self) -> Result<String, serde_json::Error> {
-        let mut line = serde_json::to_string(self)?;
-        line.push('\n');
-        Ok(line)
-    }
-
-    /// Parse request from JSON line.
-    pub fn from_line(line: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(line.trim())
-    }
+/// Blob channel request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum BlobRequest {
+    /// Store a blob. The next frame is the raw binary data.
+    Store { media_type: String },
+    /// Query the blob HTTP server port.
+    GetPort,
 }
 
-impl Response {
-    /// Serialize response to JSON line (with newline terminator).
-    pub fn to_line(&self) -> Result<String, serde_json::Error> {
-        let mut line = serde_json::to_string(self)?;
-        line.push('\n');
-        Ok(line)
-    }
-
-    /// Parse response from JSON line.
-    pub fn from_line(line: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(line.trim())
-    }
+/// Blob channel response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BlobResponse {
+    /// Blob stored successfully.
+    Stored { hash: String },
+    /// Blob server port.
+    Port { port: u16 },
+    /// Error.
+    Error { error: String },
 }
 
 #[cfg(test)]
@@ -92,18 +87,26 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    fn roundtrip_request(req: &Request) -> Request {
+        let bytes = serde_json::to_vec(req).unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    fn roundtrip_response(resp: &Response) -> Response {
+        let bytes = serde_json::to_vec(resp).unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
     #[test]
     fn test_request_take_uv() {
         let req = Request::Take {
             env_type: EnvType::Uv,
         };
-        let line = req.to_line().unwrap();
-        assert!(line.ends_with('\n'));
-        assert!(line.contains("take"));
-        assert!(line.contains("uv"));
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("take"));
+        assert!(json.contains("uv"));
 
-        let parsed = Request::from_line(&line).unwrap();
-        match parsed {
+        match roundtrip_request(&req) {
             Request::Take { env_type } => assert_eq!(env_type, EnvType::Uv),
             _ => panic!("unexpected request type"),
         }
@@ -114,11 +117,7 @@ mod tests {
         let req = Request::Take {
             env_type: EnvType::Conda,
         };
-        let line = req.to_line().unwrap();
-        assert!(line.contains("conda"));
-
-        let parsed = Request::from_line(&line).unwrap();
-        match parsed {
+        match roundtrip_request(&req) {
             Request::Take { env_type } => assert_eq!(env_type, EnvType::Conda),
             _ => panic!("unexpected request type"),
         }
@@ -132,11 +131,7 @@ mod tests {
             python_path: PathBuf::from("/tmp/test-venv/bin/python"),
         };
         let req = Request::Return { env: env.clone() };
-        let line = req.to_line().unwrap();
-        assert!(line.contains("return"));
-
-        let parsed = Request::from_line(&line).unwrap();
-        match parsed {
+        match roundtrip_request(&req) {
             Request::Return { env: parsed_env } => {
                 assert_eq!(parsed_env.venv_path, env.venv_path);
                 assert_eq!(parsed_env.python_path, env.python_path);
@@ -147,32 +142,31 @@ mod tests {
 
     #[test]
     fn test_request_status() {
-        let req = Request::Status;
-        let line = req.to_line().unwrap();
-        assert!(line.contains("status"));
-
-        let parsed = Request::from_line(&line).unwrap();
-        assert!(matches!(parsed, Request::Status));
+        assert!(matches!(
+            roundtrip_request(&Request::Status),
+            Request::Status
+        ));
     }
 
     #[test]
     fn test_request_ping() {
-        let req = Request::Ping;
-        let line = req.to_line().unwrap();
-        assert!(line.contains("ping"));
-
-        let parsed = Request::from_line(&line).unwrap();
-        assert!(matches!(parsed, Request::Ping));
+        assert!(matches!(roundtrip_request(&Request::Ping), Request::Ping));
     }
 
     #[test]
     fn test_request_shutdown() {
-        let req = Request::Shutdown;
-        let line = req.to_line().unwrap();
-        assert!(line.contains("shutdown"));
+        assert!(matches!(
+            roundtrip_request(&Request::Shutdown),
+            Request::Shutdown
+        ));
+    }
 
-        let parsed = Request::from_line(&line).unwrap();
-        assert!(matches!(parsed, Request::Shutdown));
+    #[test]
+    fn test_request_flush_pool() {
+        assert!(matches!(
+            roundtrip_request(&Request::FlushPool),
+            Request::FlushPool
+        ));
     }
 
     #[test]
@@ -183,11 +177,7 @@ mod tests {
             python_path: PathBuf::from("/tmp/test-venv/bin/python"),
         };
         let resp = Response::Env { env: env.clone() };
-        let line = resp.to_line().unwrap();
-        assert!(line.ends_with('\n'));
-
-        let parsed = Response::from_line(&line).unwrap();
-        match parsed {
+        match roundtrip_response(&resp) {
             Response::Env { env: parsed_env } => {
                 assert_eq!(parsed_env.venv_path, env.venv_path);
             }
@@ -197,21 +187,18 @@ mod tests {
 
     #[test]
     fn test_response_empty() {
-        let resp = Response::Empty;
-        let line = resp.to_line().unwrap();
-        assert!(line.ends_with('\n'));
-
-        let parsed = Response::from_line(&line).unwrap();
-        assert!(matches!(parsed, Response::Empty));
+        assert!(matches!(
+            roundtrip_response(&Response::Empty),
+            Response::Empty
+        ));
     }
 
     #[test]
     fn test_response_returned() {
-        let resp = Response::Returned;
-        let line = resp.to_line().unwrap();
-
-        let parsed = Response::from_line(&line).unwrap();
-        assert!(matches!(parsed, Response::Returned));
+        assert!(matches!(
+            roundtrip_response(&Response::Returned),
+            Response::Returned
+        ));
     }
 
     #[test]
@@ -225,17 +212,12 @@ mod tests {
         let resp = Response::Stats {
             stats: stats.clone(),
         };
-        let line = resp.to_line().unwrap();
-
-        let parsed = Response::from_line(&line).unwrap();
-        match parsed {
-            Response::Stats {
-                stats: parsed_stats,
-            } => {
-                assert_eq!(parsed_stats.uv_available, 3);
-                assert_eq!(parsed_stats.uv_warming, 1);
-                assert_eq!(parsed_stats.conda_available, 2);
-                assert_eq!(parsed_stats.conda_warming, 0);
+        match roundtrip_response(&resp) {
+            Response::Stats { stats: s } => {
+                assert_eq!(s.uv_available, 3);
+                assert_eq!(s.uv_warming, 1);
+                assert_eq!(s.conda_available, 2);
+                assert_eq!(s.conda_warming, 0);
             }
             _ => panic!("unexpected response type"),
         }
@@ -243,40 +225,26 @@ mod tests {
 
     #[test]
     fn test_response_pong() {
-        let resp = Response::Pong;
-        let line = resp.to_line().unwrap();
-
-        let parsed = Response::from_line(&line).unwrap();
-        assert!(matches!(parsed, Response::Pong));
+        assert!(matches!(
+            roundtrip_response(&Response::Pong),
+            Response::Pong
+        ));
     }
 
     #[test]
     fn test_response_shutting_down() {
-        let resp = Response::ShuttingDown;
-        let line = resp.to_line().unwrap();
-
-        let parsed = Response::from_line(&line).unwrap();
-        assert!(matches!(parsed, Response::ShuttingDown));
-    }
-
-    #[test]
-    fn test_request_flush_pool() {
-        let req = Request::FlushPool;
-        let line = req.to_line().unwrap();
-        assert!(line.contains("flush_pool"));
-
-        let parsed = Request::from_line(&line).unwrap();
-        assert!(matches!(parsed, Request::FlushPool));
+        assert!(matches!(
+            roundtrip_response(&Response::ShuttingDown),
+            Response::ShuttingDown
+        ));
     }
 
     #[test]
     fn test_response_flushed() {
-        let resp = Response::Flushed;
-        let line = resp.to_line().unwrap();
-        assert!(line.contains("flushed"));
-
-        let parsed = Response::from_line(&line).unwrap();
-        assert!(matches!(parsed, Response::Flushed));
+        assert!(matches!(
+            roundtrip_response(&Response::Flushed),
+            Response::Flushed
+        ));
     }
 
     #[test]
@@ -284,10 +252,7 @@ mod tests {
         let resp = Response::Error {
             message: "test error".to_string(),
         };
-        let line = resp.to_line().unwrap();
-
-        let parsed = Response::from_line(&line).unwrap();
-        match parsed {
+        match roundtrip_response(&resp) {
             Response::Error { message } => assert_eq!(message, "test error"),
             _ => panic!("unexpected response type"),
         }
@@ -295,18 +260,35 @@ mod tests {
 
     #[test]
     fn test_invalid_json() {
-        let result = Request::from_line("not valid json");
+        let result: Result<Request, _> = serde_json::from_slice(b"not valid json");
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_whitespace_handling() {
-        let req = Request::Ping;
-        let line = req.to_line().unwrap();
+    fn test_blob_request_store() {
+        let req = BlobRequest::Store {
+            media_type: "image/png".into(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("store"));
+        assert!(json.contains("image/png"));
+        let parsed: BlobRequest = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, BlobRequest::Store { .. }));
+    }
 
-        // Test with extra whitespace
-        let padded = format!("  {}  ", line.trim());
-        let parsed = Request::from_line(&padded).unwrap();
-        assert!(matches!(parsed, Request::Ping));
+    #[test]
+    fn test_blob_request_get_port() {
+        let req = BlobRequest::GetPort;
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("get_port"));
+    }
+
+    #[test]
+    fn test_blob_response_stored() {
+        let resp = BlobResponse::Stored {
+            hash: "abc123".into(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("abc123"));
     }
 }

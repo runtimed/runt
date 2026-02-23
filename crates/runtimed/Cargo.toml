@@ -41,6 +41,15 @@ rattler_virtual_packages = "2.3"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 reqwest-middleware = "0.4"
 
+# Content-addressed blob store
+sha2 = "0.10"
+hex = "0.4"
+
+# HTTP blob server
+hyper = { version = "1", features = ["http1", "server"] }
+http-body-util = "0.1"
+hyper-util = { version = "0.1", features = ["tokio"] }
+
 # Automerge CRDT for settings sync
 automerge = "0.7"
 
