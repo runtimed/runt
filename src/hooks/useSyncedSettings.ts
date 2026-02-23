@@ -3,13 +3,15 @@ import { listen } from "@tauri-apps/api/event";
 import type { Theme } from "@tauri-apps/api/window";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useState } from "react";
-import type { PythonEnvType, Runtime, SyncedSettings } from "@/bindings";
-
-// Theme has no Rust enum (it's a String in SyncedSettings) so we keep a manual type.
-export type ThemeMode = "light" | "dark" | "system";
+import type {
+  PythonEnvType,
+  Runtime,
+  SyncedSettings,
+  ThemeMode,
+} from "@/bindings";
 
 // Re-export generated types so consumers can import from this module.
-export type { Runtime, PythonEnvType };
+export type { ThemeMode, Runtime, PythonEnvType };
 
 function resolveTheme(theme: ThemeMode): "light" | "dark" {
   if (theme === "system") {

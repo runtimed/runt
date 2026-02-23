@@ -2942,8 +2942,10 @@ fn save_setting_locally(key: &str, value: &serde_json::Value) -> Result<(), Stri
     match key {
         "theme" => {
             let value_str = value.as_str().ok_or("expected string")?;
+            let theme: runtimed::settings_doc::ThemeMode =
+                serde_json::from_str(&format!("\"{value_str}\"")).map_err(|e| e.to_string())?;
             let mut s = settings::load_settings();
-            s.theme = value_str.to_string();
+            s.theme = theme;
             settings::save_settings(&s).map_err(|e| e.to_string())
         }
         "default_runtime" => {

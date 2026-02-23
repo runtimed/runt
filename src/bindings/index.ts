@@ -4,4 +4,5 @@ export type { CondaDefaults } from "./CondaDefaults";
 export type { PythonEnvType } from "./PythonEnvType";
 export type { Runtime } from "./Runtime";
 export type { SyncedSettings } from "./SyncedSettings";
+export type { ThemeMode } from "./ThemeMode";
 export type { UvDefaults } from "./UvDefaults";

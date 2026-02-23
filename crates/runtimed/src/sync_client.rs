@@ -14,7 +14,7 @@ use log::info;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::settings_doc::{
-    read_nested_list, split_comma_list, CondaDefaults, SyncedSettings, UvDefaults,
+    read_nested_list, split_comma_list, CondaDefaults, SyncedSettings, ThemeMode, UvDefaults,
 };
 
 /// Error type for sync client operations.
@@ -357,7 +357,9 @@ fn get_all_from_doc(doc: &AutoCommit) -> SyncedSettings {
     };
 
     SyncedSettings {
-        theme: get_str("theme").unwrap_or(defaults.theme),
+        theme: get_str("theme")
+            .and_then(|s| serde_json::from_str::<ThemeMode>(&format!("\"{s}\"")).ok())
+            .unwrap_or(defaults.theme),
         default_runtime: get_str("default_runtime").unwrap_or(defaults.default_runtime),
         default_python_env: get_str("default_python_env").unwrap_or(defaults.default_python_env),
         uv: UvDefaults {
@@ -413,7 +415,7 @@ mod tests {
             .unwrap();
 
         let settings = get_all_from_doc(&doc);
-        assert_eq!(settings.theme, "dark");
+        assert_eq!(settings.theme, ThemeMode::Dark);
         assert_eq!(settings.default_runtime, "deno");
         assert_eq!(settings.default_python_env, "conda");
     }
