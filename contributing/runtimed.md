@@ -117,30 +117,47 @@ Integration tests use temp directories for socket and lock files to avoid confli
 ```
 crates/runtimed/
 ├── src/
-│   ├── lib.rs        # Public types: EnvType, PooledEnv, PoolStats
-│   ├── main.rs       # CLI entry point (run, install, status, etc.)
-│   ├── daemon.rs     # Pool management, warming loops, request handling
-│   ├── client.rs     # PoolClient for connecting to daemon
-│   ├── protocol.rs   # NDJSON request/response types
-│   ├── singleton.rs  # File-based locking for single instance
-│   └── service.rs    # Cross-platform service installation
+│   ├── lib.rs                   # Public types, path helpers (default_socket_path, etc.)
+│   ├── main.rs                  # CLI entry point (run, install, status, etc.)
+│   ├── daemon.rs                # Daemon state, pool management, connection routing
+│   ├── connection.rs            # Unified framing, Handshake enum, send/recv helpers
+│   ├── protocol.rs              # Request/Response enums, BlobRequest/BlobResponse
+│   ├── client.rs                # PoolClient for pool operations
+│   ├── singleton.rs             # File-based locking for single instance
+│   ├── service.rs               # Cross-platform service installation
+│   ├── settings_doc.rs          # Settings Automerge document, schema, migration
+│   ├── sync_server.rs           # Settings sync handler
+│   ├── sync_client.rs           # Settings sync client library
+│   ├── notebook_doc.rs          # Notebook Automerge document, cell CRUD, text editing
+│   ├── notebook_sync_server.rs  # Room-based notebook sync, peer management, eviction
+│   ├── notebook_sync_client.rs  # Notebook sync client library
+│   ├── blob_store.rs            # Content-addressed blob store with metadata sidecars
+│   ├── blob_server.rs           # HTTP read server for blobs (hyper 1.x)
+│   └── runtime.rs               # Runtime detection (Python/Deno)
 └── tests/
-    └── integration.rs
+    └── integration.rs           # Integration tests (daemon, pool, settings sync, notebook sync)
 ```
+
+For the full architecture (all phases, schemas, and design decisions), see [docs/runtimed.md](../docs/runtimed.md).
 
 ## Protocol
 
-Communication uses newline-delimited JSON over Unix socket:
+All daemon communication goes through a single Unix socket with channel-based routing. Connections start with a JSON handshake:
 
-```json
-// Request
-{"type": "take", "env_type": "uv"}
-
-// Response
-{"type": "env", "env": {"env_type": "uv", "venv_path": "...", "python_path": "..."}}
+```rust
+pub enum Handshake {
+    Pool,
+    SettingsSync,
+    NotebookSync { notebook_id: String },
+    Blob,
+}
 ```
 
-Request types: `ping`, `status`, `take`, `return`, `shutdown`
+**Pool channel** uses length-framed JSON request/response (short-lived). Request types: `ping`, `status`, `take`, `return`, `shutdown`.
+
+**SettingsSync / NotebookSync** channels use Automerge sync messages (long-lived, bidirectional).
+
+**Blob channel** uses binary framing for storing content-addressed blobs.
 
 ## CLI Commands (for testing)
 
