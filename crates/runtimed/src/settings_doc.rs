@@ -103,7 +103,7 @@ pub struct CondaDefaults {
 }
 
 /// Snapshot of all synced settings.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
 #[ts(export)]
 pub struct SyncedSettings {
     /// UI theme
@@ -125,18 +125,6 @@ pub struct SyncedSettings {
     /// Conda environment defaults
     #[serde(default)]
     pub conda: CondaDefaults,
-}
-
-impl Default for SyncedSettings {
-    fn default() -> Self {
-        Self {
-            theme: ThemeMode::default(),
-            default_runtime: Runtime::default(),
-            default_python_env: PythonEnvType::default(),
-            uv: UvDefaults::default(),
-            conda: CondaDefaults::default(),
-        }
-    }
 }
 
 /// Generate a JSON Schema string for the settings file.
