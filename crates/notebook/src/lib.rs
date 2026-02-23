@@ -2997,7 +2997,7 @@ async fn set_synced_setting(key: String, value: serde_json::Value) -> Result<(),
     // Also sync via daemon when available
     #[cfg(unix)]
     {
-        let socket_path = runtimed::default_sync_socket_path();
+        let socket_path = runtimed::default_socket_path();
         match runtimed::sync_client::SyncClient::connect(socket_path).await {
             Ok(mut client) => {
                 client
@@ -3036,7 +3036,7 @@ fn spawn_new_notebook(runtime: Runtime) {
 async fn run_settings_sync(app: tauri::AppHandle) {
     use tauri::Emitter;
 
-    let socket_path = runtimed::default_sync_socket_path();
+    let socket_path = runtimed::default_socket_path();
 
     loop {
         match runtimed::sync_client::SyncClient::connect(socket_path.clone()).await {

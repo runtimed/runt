@@ -8,23 +8,23 @@ import type { UvDefaults } from "./UvDefaults";
 /**
  * Snapshot of all synced settings.
  */
-export type SyncedSettings = { 
+export type SyncedSettings = {
 /**
  * UI theme
  */
-theme: ThemeMode, 
+theme: ThemeMode,
 /**
  * Default runtime for new notebooks
  */
-default_runtime: Runtime, 
+default_runtime: Runtime,
 /**
  * Default Python environment type (uv or conda)
  */
-default_python_env: PythonEnvType, 
+default_python_env: PythonEnvType,
 /**
  * UV environment defaults
  */
-uv: UvDefaults, 
+uv: UvDefaults,
 /**
  * Conda environment defaults
  */

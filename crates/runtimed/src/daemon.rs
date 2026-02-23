@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use log::{error, info, warn};
 use notify_debouncer_mini::DebounceEventResult;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Mutex, Notify};
 
 #[cfg(unix)]
@@ -22,20 +22,25 @@ use tokio::net::windows::named_pipe::ServerOptions;
 
 use tokio::sync::RwLock;
 
-use crate::protocol::{Request, Response};
+use crate::blob_server;
+use crate::blob_store::BlobStore;
+use crate::connection::{self, Handshake};
+use crate::protocol::{BlobRequest, BlobResponse, Request, Response};
 use crate::settings_doc::SettingsDoc;
 use crate::singleton::{DaemonInfo, DaemonLock};
-use crate::{default_cache_dir, default_socket_path, EnvType, PoolStats, PooledEnv};
+use crate::{
+    default_blob_store_dir, default_cache_dir, default_socket_path, EnvType, PoolStats, PooledEnv,
+};
 
 /// Configuration for the pool daemon.
 #[derive(Debug, Clone)]
 pub struct DaemonConfig {
-    /// Socket path for pool IPC.
+    /// Socket path for the unified IPC socket.
     pub socket_path: PathBuf,
-    /// Socket path for the Automerge settings sync service.
-    pub sync_socket_path: PathBuf,
     /// Cache directory for environments.
     pub cache_dir: PathBuf,
+    /// Directory for the content-addressed blob store.
+    pub blob_store_dir: PathBuf,
     /// Target number of UV environments to maintain.
     pub uv_pool_size: usize,
     /// Target number of Conda environments to maintain.
@@ -50,8 +55,8 @@ impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
             socket_path: default_socket_path(),
-            sync_socket_path: crate::default_sync_socket_path(),
             cache_dir: default_cache_dir(),
+            blob_store_dir: default_blob_store_dir(),
             uv_pool_size: 3,
             conda_pool_size: 3,
             max_age_secs: 172800, // 2 days
@@ -162,6 +167,10 @@ pub struct Daemon {
     settings: Arc<RwLock<SettingsDoc>>,
     /// Broadcast channel to notify sync connections of settings changes.
     settings_changed: tokio::sync::broadcast::Sender<()>,
+    /// Content-addressed blob store.
+    blob_store: Arc<BlobStore>,
+    /// HTTP port for the blob server (set after startup).
+    blob_port: Mutex<Option<u16>>,
 }
 
 /// Error returned when another daemon is already running.
@@ -192,6 +201,8 @@ impl Daemon {
 
         let (settings_changed, _) = tokio::sync::broadcast::channel(16);
 
+        let blob_store = Arc::new(BlobStore::new(config.blob_store_dir.clone()));
+
         Ok(Arc::new(Self {
             uv_pool: Mutex::new(Pool::new(config.uv_pool_size, config.max_age_secs)),
             conda_pool: Mutex::new(Pool::new(config.conda_pool_size, config.max_age_secs)),
@@ -201,6 +212,8 @@ impl Daemon {
             _lock: lock,
             settings: Arc::new(RwLock::new(settings)),
             settings_changed,
+            blob_store,
+            blob_port: Mutex::new(None),
         }))
     }
 
@@ -220,10 +233,23 @@ impl Daemon {
             }
         }
 
+        // Start the blob HTTP server
+        let blob_port = match blob_server::start_blob_server(self.blob_store.clone()).await {
+            Ok(port) => {
+                info!("[runtimed] Blob server started on port {}", port);
+                *self.blob_port.lock().await = Some(port);
+                Some(port)
+            }
+            Err(e) => {
+                error!("[runtimed] Failed to start blob server: {}", e);
+                None
+            }
+        };
+
         // Write daemon info so clients can discover us
         if let Err(e) = self
             ._lock
-            .write_info(&self.config.socket_path.to_string_lossy())
+            .write_info(&self.config.socket_path.to_string_lossy(), blob_port)
         {
             error!("[runtimed] Failed to write daemon info: {}", e);
         }
@@ -246,26 +272,6 @@ impl Daemon {
         let watcher_daemon = self.clone();
         tokio::spawn(async move {
             watcher_daemon.watch_settings_json().await;
-        });
-
-        // Spawn the settings sync server
-        let sync_socket_path = self.config.sync_socket_path.clone();
-        let sync_settings = self.settings.clone();
-        let sync_changed = self.settings_changed.clone();
-        let sync_shutdown = self.shutdown.clone();
-        let sync_shutdown_notify = self.shutdown_notify.clone();
-        tokio::spawn(async move {
-            if let Err(e) = crate::sync_server::run_sync_server(
-                sync_socket_path,
-                sync_settings,
-                sync_changed,
-                sync_shutdown,
-                sync_shutdown_notify,
-            )
-            .await
-            {
-                error!("[runtimed] Sync server error: {}", e);
-            }
         });
 
         // Platform-specific accept loop
@@ -299,8 +305,10 @@ impl Daemon {
                         Ok((stream, _)) => {
                             let daemon = self.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = daemon.handle_connection(stream).await {
-                                    error!("[runtimed] Connection error: {}", e);
+                                if let Err(e) = daemon.route_connection(stream).await {
+                                    if !crate::sync_server::is_connection_closed(&e) {
+                                        error!("[runtimed] Connection error: {}", e);
+                                    }
                                 }
                             });
                         }
@@ -362,8 +370,10 @@ impl Daemon {
                     // Handle the connection
                     let daemon = self.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = daemon.handle_connection(connected).await {
-                            error!("[runtimed] Connection error: {}", e);
+                        if let Err(e) = daemon.route_connection(connected).await {
+                            if !crate::sync_server::is_connection_closed(&e) {
+                                error!("[runtimed] Connection error: {}", e);
+                            }
                         }
                     });
                 }
@@ -586,39 +596,106 @@ impl Daemon {
         }
     }
 
-    /// Handle a single client connection.
+    /// Route a connection based on its handshake frame.
     ///
-    /// This method is generic over any stream that implements `AsyncRead + AsyncWrite`,
-    /// allowing it to work with both Unix sockets and Windows named pipes.
-    async fn handle_connection<S>(self: Arc<Self>, stream: S) -> anyhow::Result<()>
+    /// Every connection sends a JSON handshake as its first frame to declare
+    /// which channel it wants. The daemon then dispatches to the appropriate
+    /// handler.
+    async fn route_connection<S>(self: Arc<Self>, mut stream: S) -> anyhow::Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
+        let handshake: Handshake = connection::recv_json_frame(&mut stream)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("connection closed before handshake"))?;
+
+        match handshake {
+            Handshake::Pool => self.handle_pool_connection(stream).await,
+            Handshake::SettingsSync => {
+                let (reader, writer) = tokio::io::split(stream);
+                let changed_tx = self.settings_changed.clone();
+                let changed_rx = self.settings_changed.subscribe();
+                crate::sync_server::handle_settings_sync_connection(
+                    reader,
+                    writer,
+                    self.settings.clone(),
+                    changed_tx,
+                    changed_rx,
+                )
+                .await
+            }
+            Handshake::NotebookSync { notebook_id } => {
+                info!(
+                    "[runtimed] NotebookSync requested for {} (stub)",
+                    notebook_id
+                );
+                Ok(())
+            }
+            Handshake::Blob => self.handle_blob_connection(stream).await,
+        }
+    }
+
+    /// Handle a pool channel connection (framed JSON request/response).
+    async fn handle_pool_connection<S>(self: Arc<Self>, mut stream: S) -> anyhow::Result<()>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        let (reader, mut writer) = tokio::io::split(stream);
-        let mut reader = BufReader::new(reader);
-        let mut line = String::new();
-
         loop {
-            line.clear();
-            let bytes_read = reader.read_line(&mut line).await?;
-            if bytes_read == 0 {
-                // Connection closed
-                break;
-            }
-
-            let request = match Request::from_line(&line) {
-                Ok(req) => req,
-                Err(e) => {
-                    let response = Response::Error {
-                        message: format!("Invalid request: {}", e),
-                    };
-                    writer.write_all(response.to_line()?.as_bytes()).await?;
-                    continue;
-                }
+            let request: Request = match connection::recv_json_frame(&mut stream).await? {
+                Some(req) => req,
+                None => break, // Connection closed
             };
 
             let response = self.clone().handle_request(request).await;
-            writer.write_all(response.to_line()?.as_bytes()).await?;
+            connection::send_json_frame(&mut stream, &response).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Handle a blob channel connection.
+    ///
+    /// Protocol:
+    /// - `{"action":"store","media_type":"..."}` followed by a raw binary frame
+    ///   -> `{"hash":"..."}`
+    /// - `{"action":"get_port"}` -> `{"port":N}`
+    async fn handle_blob_connection<S>(self: Arc<Self>, mut stream: S) -> anyhow::Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        loop {
+            let request: BlobRequest = match connection::recv_json_frame(&mut stream).await? {
+                Some(req) => req,
+                None => break,
+            };
+
+            match request {
+                BlobRequest::Store { media_type } => {
+                    // Next frame is the raw binary blob data
+                    let data = match connection::recv_frame(&mut stream).await? {
+                        Some(d) => d,
+                        None => break,
+                    };
+
+                    let response = match self.blob_store.put(&data, &media_type).await {
+                        Ok(hash) => BlobResponse::Stored { hash },
+                        Err(e) => BlobResponse::Error {
+                            error: e.to_string(),
+                        },
+                    };
+                    connection::send_json_frame(&mut stream, &response).await?;
+                }
+                BlobRequest::GetPort => {
+                    let port = self.blob_port.lock().await;
+                    let response = match *port {
+                        Some(p) => BlobResponse::Port { port: p },
+                        None => BlobResponse::Error {
+                            error: "blob server not running".to_string(),
+                        },
+                    };
+                    connection::send_json_frame(&mut stream, &response).await?;
+                }
+            }
         }
 
         Ok(())
@@ -1425,6 +1502,7 @@ mod tests {
             .socket_path
             .to_string_lossy()
             .contains("runtimed.sock"));
+        assert!(config.blob_store_dir.to_string_lossy().contains("blobs"));
     }
 
     #[test]

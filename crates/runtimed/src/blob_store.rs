@@ -1,0 +1,390 @@
+//! Content-addressed blob store for notebook outputs.
+//!
+//! Stores blobs (images, HTML, rich data) on disk at a configurable root
+//! directory. Each blob is identified by its SHA-256 hash (hex-encoded) and
+//! stored in a two-level shard directory:
+//!
+//! ```text
+//! <root>/
+//!   a1/
+//!     b2c3d4...       # raw bytes
+//!     b2c3d4....meta  # JSON metadata sidecar
+//! ```
+//!
+//! All writes are atomic: data is written to a temp file in the shard
+//! directory and renamed into place, so readers never see partial writes.
+
+use std::io;
+use std::path::PathBuf;
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+/// Maximum blob size accepted by `put()` (100 MiB).
+const MAX_BLOB_SIZE: usize = 100 * 1024 * 1024;
+
+/// Metadata stored alongside each blob.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlobMeta {
+    pub media_type: String,
+    pub size: u64,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Content-addressed on-disk blob store.
+#[derive(Debug, Clone)]
+pub struct BlobStore {
+    root: PathBuf,
+}
+
+impl BlobStore {
+    /// Create a new BlobStore rooted at `root`.
+    ///
+    /// The directory is created lazily on first `put()`.
+    pub fn new(root: PathBuf) -> Self {
+        Self { root }
+    }
+
+    /// Store `data` with the given `media_type`.
+    ///
+    /// Returns the SHA-256 hex hash of the raw bytes.
+    /// Rejects data larger than 100 MiB.
+    /// Idempotent: if the blob already exists, returns the hash without writing.
+    pub async fn put(&self, data: &[u8], media_type: &str) -> io::Result<String> {
+        if data.len() > MAX_BLOB_SIZE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "blob too large: {} bytes (max {})",
+                    data.len(),
+                    MAX_BLOB_SIZE
+                ),
+            ));
+        }
+
+        let hash = hex::encode(Sha256::digest(data));
+        let (shard_dir, blob_path, meta_path) = self.paths(&hash);
+
+        // Idempotent: skip if both files already exist
+        if blob_path.exists() && meta_path.exists() {
+            return Ok(hash);
+        }
+
+        tokio::fs::create_dir_all(&shard_dir).await?;
+
+        // Write blob to temp file, then atomic rename
+        let tmp_blob = shard_dir.join(format!(".tmp.{}", uuid::Uuid::new_v4()));
+        if let Err(e) = async {
+            tokio::fs::write(&tmp_blob, data).await?;
+            tokio::fs::rename(&tmp_blob, &blob_path).await
+        }
+        .await
+        {
+            tokio::fs::remove_file(&tmp_blob).await.ok();
+            return Err(e);
+        }
+
+        // Write metadata sidecar (also via temp + rename)
+        let meta = BlobMeta {
+            media_type: media_type.to_string(),
+            size: data.len() as u64,
+            created_at: Utc::now(),
+        };
+        let meta_json =
+            serde_json::to_string(&meta).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        let tmp_meta = shard_dir.join(format!(".tmp.{}.meta", uuid::Uuid::new_v4()));
+        if let Err(e) = async {
+            tokio::fs::write(&tmp_meta, meta_json).await?;
+            tokio::fs::rename(&tmp_meta, &meta_path).await
+        }
+        .await
+        {
+            tokio::fs::remove_file(&tmp_meta).await.ok();
+            return Err(e);
+        }
+
+        Ok(hash)
+    }
+
+    /// Retrieve blob bytes by hash. Returns `None` if not found.
+    pub async fn get(&self, hash: &str) -> io::Result<Option<Vec<u8>>> {
+        if !Self::validate_hash(hash) {
+            return Ok(None);
+        }
+        let (_, blob_path, _) = self.paths(hash);
+        match tokio::fs::read(&blob_path).await {
+            Ok(data) => Ok(Some(data)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Retrieve blob metadata by hash. Returns `None` if not found.
+    pub async fn get_meta(&self, hash: &str) -> io::Result<Option<BlobMeta>> {
+        if !Self::validate_hash(hash) {
+            return Ok(None);
+        }
+        let (_, _, meta_path) = self.paths(hash);
+        match tokio::fs::read_to_string(&meta_path).await {
+            Ok(json) => {
+                let meta: BlobMeta = serde_json::from_str(&json)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+                Ok(Some(meta))
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Check if a blob exists (without reading it).
+    pub fn exists(&self, hash: &str) -> bool {
+        if !Self::validate_hash(hash) {
+            return false;
+        }
+        let (_, blob_path, _) = self.paths(hash);
+        blob_path.exists()
+    }
+
+    /// Delete a blob and its metadata. Returns `true` if the blob existed.
+    pub async fn delete(&self, hash: &str) -> io::Result<bool> {
+        if !Self::validate_hash(hash) {
+            return Ok(false);
+        }
+        let (_, blob_path, meta_path) = self.paths(hash);
+        let existed = blob_path.exists();
+        if existed {
+            tokio::fs::remove_file(&blob_path).await.ok();
+            tokio::fs::remove_file(&meta_path).await.ok();
+        }
+        Ok(existed)
+    }
+
+    /// List all blob hashes in the store.
+    pub async fn list(&self) -> io::Result<Vec<String>> {
+        let mut hashes = Vec::new();
+
+        if !self.root.exists() {
+            return Ok(hashes);
+        }
+
+        let mut shard_entries = tokio::fs::read_dir(&self.root).await?;
+        while let Some(shard) = shard_entries.next_entry().await? {
+            if !shard.path().is_dir() {
+                continue;
+            }
+            let shard_name = shard.file_name().to_string_lossy().to_string();
+            if shard_name.len() != 2 || !shard_name.chars().all(|c| c.is_ascii_hexdigit()) {
+                continue;
+            }
+
+            let mut blob_entries = match tokio::fs::read_dir(shard.path()).await {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            while let Some(entry) = blob_entries.next_entry().await? {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with(".meta") || name.starts_with(".tmp") {
+                    continue;
+                }
+                let full_hash = format!("{}{}", shard_name, name);
+                if Self::validate_hash(&full_hash) {
+                    hashes.push(full_hash);
+                }
+            }
+        }
+
+        Ok(hashes)
+    }
+
+    /// Compute shard dir, blob path, and meta path for a given hash.
+    fn paths(&self, hash: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let shard = &hash[..2];
+        let rest = &hash[2..];
+        let shard_dir = self.root.join(shard);
+        let blob_path = shard_dir.join(rest);
+        let meta_path = shard_dir.join(format!("{}.meta", rest));
+        (shard_dir, blob_path, meta_path)
+    }
+
+    /// Validate that a hash looks like a 64-character hex string.
+    fn validate_hash(hash: &str) -> bool {
+        hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn test_store(dir: &TempDir) -> BlobStore {
+        BlobStore::new(dir.path().join("blobs"))
+    }
+
+    #[tokio::test]
+    async fn test_put_and_get() {
+        let dir = TempDir::new().unwrap();
+        let store = test_store(&dir);
+
+        let data = b"hello world";
+        let hash = store.put(data, "text/plain").await.unwrap();
+        assert_eq!(hash.len(), 64);
+
+        let retrieved = store.get(&hash).await.unwrap().unwrap();
+        assert_eq!(retrieved, data);
+    }
+
+    #[tokio::test]
+    async fn test_idempotent_put() {
+        let dir = TempDir::new().unwrap();
+        let store = test_store(&dir);
+
+        let data = b"same content";
+        let hash1 = store.put(data, "text/plain").await.unwrap();
+        let hash2 = store.put(data, "text/plain").await.unwrap();
+        assert_eq!(hash1, hash2);
+    }
+
+    #[tokio::test]
+    async fn test_same_bytes_different_media_type() {
+        let dir = TempDir::new().unwrap();
+        let store = test_store(&dir);
+
+        let data = b"same bytes";
+        let hash1 = store.put(data, "text/plain").await.unwrap();
+        let hash2 = store.put(data, "application/octet-stream").await.unwrap();
+        // Same bytes = same hash (media type doesn't affect hash)
+        assert_eq!(hash1, hash2);
+        // Metadata keeps the first media type (idempotent — didn't overwrite)
+        let meta = store.get_meta(&hash1).await.unwrap().unwrap();
+        assert_eq!(meta.media_type, "text/plain");
+    }
+
+    #[tokio::test]
+    async fn test_size_limit() {
+        let dir = TempDir::new().unwrap();
+        let store = test_store(&dir);
+
+        let data = vec![0u8; MAX_BLOB_SIZE + 1];
+        let result = store.put(&data, "application/octet-stream").await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[tokio::test]
+    async fn test_get_not_found() {
+        let dir = TempDir::new().unwrap();
+        let store = test_store(&dir);
+
+        let fake_hash = "a".repeat(64);
+        let result = store.get(&fake_hash).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_meta() {
+        let dir = TempDir::new().unwrap();
+        let store = test_store(&dir);
+
+        let data = b"png bytes";
+        let hash = store.put(data, "image/png").await.unwrap();
+
+        let meta = store.get_meta(&hash).await.unwrap().unwrap();
+        assert_eq!(meta.media_type, "image/png");
+        assert_eq!(meta.size, data.len() as u64);
+    }
+
+    #[tokio::test]
+    async fn test_exists() {
+        let dir = TempDir::new().unwrap();
+        let store = test_store(&dir);
+
+        let fake_hash = "b".repeat(64);
+        assert!(!store.exists(&fake_hash));
+
+        let hash = store.put(b"data", "text/plain").await.unwrap();
+        assert!(store.exists(&hash));
+    }
+
+    #[tokio::test]
+    async fn test_delete() {
+        let dir = TempDir::new().unwrap();
+        let store = test_store(&dir);
+
+        let hash = store.put(b"to delete", "text/plain").await.unwrap();
+        assert!(store.exists(&hash));
+
+        let deleted = store.delete(&hash).await.unwrap();
+        assert!(deleted);
+        assert!(!store.exists(&hash));
+        assert!(store.get(&hash).await.unwrap().is_none());
+        assert!(store.get_meta(&hash).await.unwrap().is_none());
+
+        // Deleting again returns false
+        let deleted_again = store.delete(&hash).await.unwrap();
+        assert!(!deleted_again);
+    }
+
+    #[tokio::test]
+    async fn test_list() {
+        let dir = TempDir::new().unwrap();
+        let store = test_store(&dir);
+
+        let hash1 = store.put(b"one", "text/plain").await.unwrap();
+        let hash2 = store.put(b"two", "text/plain").await.unwrap();
+        let hash3 = store.put(b"three", "text/plain").await.unwrap();
+
+        let mut hashes = store.list().await.unwrap();
+        hashes.sort();
+
+        let mut expected = vec![hash1, hash2, hash3];
+        expected.sort();
+
+        assert_eq!(hashes, expected);
+    }
+
+    #[tokio::test]
+    async fn test_list_empty_store() {
+        let dir = TempDir::new().unwrap();
+        let store = test_store(&dir);
+
+        let hashes = store.list().await.unwrap();
+        assert!(hashes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_invalid_hash_returns_none() {
+        let dir = TempDir::new().unwrap();
+        let store = test_store(&dir);
+
+        // Too short
+        assert!(store.get("abc").await.unwrap().is_none());
+        assert!(store.get_meta("abc").await.unwrap().is_none());
+        assert!(!store.exists("abc"));
+        assert!(!store.delete("abc").await.unwrap());
+
+        // Non-hex characters
+        let bad = format!("{}z", "a".repeat(63));
+        assert!(store.get(&bad).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_puts_same_content() {
+        let dir = TempDir::new().unwrap();
+        let store = test_store(&dir);
+
+        let data = b"concurrent content";
+        let store1 = store.clone();
+        let store2 = store.clone();
+
+        let (hash1, hash2) = tokio::join!(
+            async { store1.put(data, "text/plain").await.unwrap() },
+            async { store2.put(data, "text/plain").await.unwrap() },
+        );
+
+        assert_eq!(hash1, hash2);
+        assert_eq!(store.get(&hash1).await.unwrap().unwrap(), data);
+    }
+}

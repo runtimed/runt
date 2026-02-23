@@ -1,20 +1,20 @@
 //! runtimed - Central daemon for managing Jupyter runtimes and prewarmed environments.
 //!
 //! This crate provides a daemon process that manages a shared pool of prewarmed
-//! Python environments (UV and Conda). Notebook windows communicate with the
-//! daemon via IPC (Unix domain sockets on Unix, named pipes on Windows) to
-//! request and return environments.
+//! Python environments (UV and Conda), a content-addressed blob store for
+//! notebook outputs, and an Automerge-based settings sync service.
 //!
-//! It also provides an Automerge-based settings sync service. A second Unix
-//! socket (named pipe on Windows) speaks the Automerge sync protocol, allowing
-//! multiple notebook windows to synchronize settings (theme, default runtime,
-//! etc.) in real time.
+//! All services communicate over a single Unix socket (named pipe on Windows)
+//! using length-prefixed binary framing with a channel-based handshake.
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub mod blob_server;
+pub mod blob_store;
 pub mod client;
+pub mod connection;
 pub mod daemon;
 pub mod protocol;
 pub mod runtime;
@@ -88,19 +88,12 @@ pub fn default_cache_dir() -> PathBuf {
         .join("envs")
 }
 
-/// Get the default sync socket path for the settings sync service.
-#[cfg(unix)]
-pub fn default_sync_socket_path() -> PathBuf {
+/// Get the default directory for the content-addressed blob store.
+pub fn default_blob_store_dir() -> PathBuf {
     dirs::cache_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("runt")
-        .join("runtimed-sync.sock")
-}
-
-/// Get the default sync socket path for the settings sync service.
-#[cfg(windows)]
-pub fn default_sync_socket_path() -> PathBuf {
-    PathBuf::from(r"\\.\pipe\runtimed-sync")
+        .join("blobs")
 }
 
 /// Get the default path for the persisted Automerge settings document.
