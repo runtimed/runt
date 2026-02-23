@@ -469,12 +469,12 @@ impl Daemon {
                                 let mut doc = self.settings.write().await;
                                 let changed = doc.apply_json_changes(&json);
                                 if changed {
-                                    // Only persist the Automerge binary — do NOT write
-                                    // the JSON mirror back, as that would reformat the
-                                    // user's file and trigger another watch event.
                                     let automerge_path = crate::default_settings_doc_path();
                                     if let Err(e) = doc.save_to_file(&automerge_path) {
                                         warn!("[settings-watch] Failed to save Automerge doc: {}", e);
+                                    }
+                                    if let Err(e) = doc.save_json_mirror(&json_path) {
+                                        warn!("[settings-watch] Failed to write JSON mirror: {}", e);
                                     }
                                 }
                                 changed

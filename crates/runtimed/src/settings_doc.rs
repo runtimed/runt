@@ -229,7 +229,7 @@ impl SettingsDoc {
         }
         let settings = self.get_all();
         let json = serde_json::to_string_pretty(&settings).map_err(std::io::Error::other)?;
-        std::fs::write(path, json)
+        std::fs::write(path, format!("{json}\n"))
     }
 
     // ── Scalar accessors ─────────────────────────────────────────────
