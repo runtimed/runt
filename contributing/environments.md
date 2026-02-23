@@ -307,8 +307,8 @@ graph TB
         4. Python warmup (.pyc)
         5. Write .warmed marker"]
 
-        SYNC["Settings Sync Server
-        ~/.cache/runt/runtimed-sync.sock
+        SYNC["Settings Sync
+        (multiplexed on runtimed.sock)
         Automerge CRDT"]
 
         UWL -->|add| UVPool
