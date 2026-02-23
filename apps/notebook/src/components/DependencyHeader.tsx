@@ -66,7 +66,10 @@ export function DependencyHeader({
   );
 
   return (
-    <div className="border-b bg-uv/5 dark:bg-uv/10" data-testid="deps-panel">
+    <div
+      className="border-b bg-uv/[0.02] dark:bg-uv/[0.04]"
+      data-testid="deps-panel"
+    >
       <div className="px-3 py-3">
         {/* uv badge */}
         <div className="mb-2 flex items-center gap-2">
@@ -77,7 +80,7 @@ export function DependencyHeader({
 
         {/* Sync notice */}
         {syncedWhileRunning && (
-          <div className="mb-3 flex items-start gap-2 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
+          <div className="mb-3 flex items-start gap-2 rounded bg-muted/80 px-2 py-1.5 text-xs text-muted-foreground">
             <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <span>
               Dependencies synced to environment. New packages can be imported
@@ -136,11 +139,11 @@ export function DependencyHeader({
 
         {/* UV availability notice */}
         {uvAvailable === false && (
-          <div className="mb-3 flex items-start gap-2 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
+          <div className="mb-3 flex items-start gap-2 rounded bg-muted/80 px-2 py-1.5 text-xs text-muted-foreground">
             <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <span>
               <span className="font-medium">uv not found.</span> Install it with{" "}
-              <code className="rounded bg-uv/20 px-1">
+              <code className="rounded bg-muted px-1">
                 curl -LsSf https://astral.sh/uv/install.sh | sh
               </code>
             </span>
@@ -149,12 +152,12 @@ export function DependencyHeader({
 
         {/* pyproject.toml detected banner */}
         {pyprojectInfo?.has_dependencies && (
-          <div className="mb-3 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
+          <div className="mb-3 rounded bg-muted/80 px-2 py-1.5 text-xs text-muted-foreground">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <FileText className="h-3.5 w-3.5 shrink-0" />
                 <span>
-                  <code className="rounded bg-uv/20 px-1">
+                  <code className="rounded bg-muted px-1">
                     {pyprojectInfo.relative_path}
                   </code>
                   {pyprojectInfo.project_name && (
@@ -198,13 +201,13 @@ export function DependencyHeader({
             {pyprojectDeps &&
               (pyprojectDeps.dependencies.length > 0 ||
                 pyprojectDeps.dev_dependencies.length > 0) && (
-                <div className="mt-2 text-xs text-uv/80">
+                <div className="mt-2 text-xs text-muted-foreground">
                   {pyprojectDeps.dependencies.length > 0 && (
                     <div className="flex flex-wrap gap-1 mb-1">
                       {pyprojectDeps.dependencies.map((dep) => (
                         <span
                           key={dep}
-                          className="rounded bg-uv/20 px-1.5 py-0.5 font-mono"
+                          className="rounded bg-muted px-1.5 py-0.5 font-mono"
                         >
                           {dep}
                         </span>
@@ -217,7 +220,7 @@ export function DependencyHeader({
                       {pyprojectDeps.dev_dependencies.map((dep) => (
                         <span
                           key={dep}
-                          className="rounded bg-uv/10 px-1.5 py-0.5 font-mono"
+                          className="rounded bg-muted px-1.5 py-0.5 font-mono"
                         >
                           {dep}
                         </span>
@@ -231,11 +234,11 @@ export function DependencyHeader({
 
         {/* Project-managed state: read-only view when using uv run */}
         {isUsingProjectEnv && (
-          <div className="mb-3 flex items-start gap-2 rounded bg-uv/10 px-2 py-1.5 text-xs text-uv">
+          <div className="mb-3 flex items-start gap-2 rounded bg-muted/80 px-2 py-1.5 text-xs text-muted-foreground">
             <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <span>
               Managed by{" "}
-              <code className="rounded bg-uv/20 px-1">
+              <code className="rounded bg-muted px-1">
                 {pyprojectInfo?.relative_path ?? "pyproject.toml"}
               </code>{" "}
               — restart kernel to pick up dependency changes.

@@ -122,7 +122,7 @@ export function CondaDependencyHeader({
 
   return (
     <div
-      className="border-b bg-emerald-50/50 dark:bg-emerald-950/20"
+      className="border-b bg-emerald-50/30 dark:bg-emerald-950/10"
       data-testid="conda-deps-panel"
     >
       <div className="px-3 py-3">
@@ -135,9 +135,9 @@ export function CondaDependencyHeader({
 
         {/* Environment preparation progress */}
         {envProgress?.isActive && (
-          <div className="mb-3 rounded bg-emerald-500/10 px-2 py-2">
+          <div className="mb-3 rounded bg-muted/80 px-2 py-2">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-emerald-700 dark:text-emerald-400 truncate">
+              <span className="text-xs text-muted-foreground truncate">
                 {envProgress.statusText}
               </span>
               {envProgress.progress && (
@@ -182,7 +182,7 @@ export function CondaDependencyHeader({
 
         {/* Sync notice */}
         {syncedWhileRunning && (
-          <div className="mb-3 flex items-start gap-2 rounded bg-blue-500/10 px-2 py-1.5 text-xs text-blue-700 dark:text-blue-400">
+          <div className="mb-3 flex items-start gap-2 rounded bg-muted/80 px-2 py-1.5 text-xs text-muted-foreground">
             <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <span>
               Dependencies synced to environment. New packages can be imported
@@ -204,12 +204,12 @@ export function CondaDependencyHeader({
 
         {/* environment.yml detected banner */}
         {environmentYmlInfo?.has_dependencies && (
-          <div className="mb-3 rounded bg-emerald-500/10 px-2 py-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+          <div className="mb-3 rounded bg-muted/80 px-2 py-1.5 text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
               <FileText className="h-3.5 w-3.5 shrink-0" />
               <span>
                 Using deps from{" "}
-                <code className="rounded bg-emerald-500/20 px-1">
+                <code className="rounded bg-muted px-1">
                   {environmentYmlInfo.relative_path}
                 </code>
                 {environmentYmlInfo.name && (
@@ -222,13 +222,13 @@ export function CondaDependencyHeader({
             {environmentYmlDeps &&
               (environmentYmlDeps.dependencies.length > 0 ||
                 environmentYmlDeps.pip_dependencies.length > 0) && (
-                <div className="mt-2 text-xs text-emerald-700/80 dark:text-emerald-400/80">
+                <div className="mt-2 text-xs text-muted-foreground">
                   {environmentYmlDeps.dependencies.length > 0 && (
                     <div className="flex flex-wrap gap-1 mb-1">
                       {environmentYmlDeps.dependencies.map((dep) => (
                         <span
                           key={dep}
-                          className="rounded bg-emerald-500/20 px-1.5 py-0.5 font-mono"
+                          className="rounded bg-muted px-1.5 py-0.5 font-mono"
                         >
                           {dep}
                         </span>
@@ -241,7 +241,7 @@ export function CondaDependencyHeader({
                       {environmentYmlDeps.pip_dependencies.map((dep) => (
                         <span
                           key={dep}
-                          className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono"
+                          className="rounded bg-muted px-1.5 py-0.5 font-mono"
                         >
                           {dep}
                         </span>
@@ -278,12 +278,12 @@ export function CondaDependencyHeader({
 
         {/* pixi.toml detected banner */}
         {pixiInfo?.has_dependencies && (
-          <div className="mb-3 rounded bg-emerald-500/10 px-2 py-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+          <div className="mb-3 rounded bg-muted/80 px-2 py-1.5 text-xs text-muted-foreground">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <FileText className="h-3.5 w-3.5 shrink-0" />
                 <span>
-                  <code className="rounded bg-emerald-500/20 px-1">
+                  <code className="rounded bg-muted px-1">
                     {pixiInfo.relative_path}
                   </code>
                   {pixiInfo.workspace_name && (

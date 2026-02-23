@@ -17,7 +17,7 @@ export function DenoDependencyHeader({
   onSetFlexibleNpmImports,
 }: DenoDependencyHeaderProps) {
   return (
-    <div className="border-b bg-emerald-500/5 dark:bg-emerald-500/10">
+    <div className="border-b bg-emerald-50/30 dark:bg-emerald-950/10">
       <div className="px-3 py-3">
         {/* Deno badge */}
         <div className="mb-2 flex items-center gap-2">
@@ -39,12 +39,12 @@ export function DenoDependencyHeader({
 
         {/* deno.json detected banner */}
         {denoConfigInfo && (
-          <div className="mb-3 rounded bg-emerald-500/10 px-2 py-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+          <div className="mb-3 rounded bg-muted/80 px-2 py-1.5 text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
               <FileText className="h-3.5 w-3.5 shrink-0" />
               <span>
                 Using{" "}
-                <code className="rounded bg-emerald-500/20 px-1">
+                <code className="rounded bg-muted px-1">
                   {denoConfigInfo.relative_path}
                 </code>
                 {denoConfigInfo.name && (
@@ -55,16 +55,14 @@ export function DenoDependencyHeader({
               </span>
             </div>
             {(denoConfigInfo.has_imports || denoConfigInfo.has_tasks) && (
-              <div className="mt-1.5 flex gap-2 text-emerald-500/80">
+              <div className="mt-1.5 flex gap-2 text-muted-foreground">
                 {denoConfigInfo.has_imports && (
-                  <span className="rounded bg-emerald-500/10 px-1.5 py-0.5">
+                  <span className="rounded bg-muted px-1.5 py-0.5">
                     imports
                   </span>
                 )}
                 {denoConfigInfo.has_tasks && (
-                  <span className="rounded bg-emerald-500/10 px-1.5 py-0.5">
-                    tasks
-                  </span>
+                  <span className="rounded bg-muted px-1.5 py-0.5">tasks</span>
                 )}
               </div>
             )}
