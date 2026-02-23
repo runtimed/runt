@@ -1,320 +1,130 @@
 /**
- * E2E Test: Rich Output Types
+ * E2E Test: Rich Output Types (Fixture)
  *
- * Tests that various output types render correctly:
- * - Image outputs (PNG, matplotlib)
- * - HTML outputs (rendered in isolated iframe)
- * - Multiple outputs in a single cell
+ * Opens a notebook with pre-populated outputs (11-rich-outputs.ipynb) and
+ * verifies that various output types render correctly without needing a kernel.
+ *
+ * Tests: PNG images, HTML in iframe, pandas DataFrame, multiple stream outputs,
+ * mixed output types, and ANSI color codes.
+ *
+ * Requires: NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/11-rich-outputs.ipynb
  */
 
-import os from "node:os";
 import { browser, expect } from "@wdio/globals";
 import { waitForAppReady } from "../helpers.js";
 
-// macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
-const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
-
 describe("Rich Output Types", () => {
-  const KERNEL_STARTUP_TIMEOUT = 90000;
-  const EXECUTION_TIMEOUT = 45000; // Longer for matplotlib and pandas
-
-  let codeCell;
-
   before(async () => {
     await waitForAppReady();
-
-    const title = await browser.getTitle();
-    console.log("Page title:", title);
+    console.log("Page title:", await browser.getTitle());
   });
 
-  /**
-   * Helper to type text character by character with delay
-   */
-  async function typeSlowly(text, delay = 30) {
-    for (const char of text) {
-      await browser.keys(char);
-      await browser.pause(delay);
-    }
-  }
-
-  /**
-   * Helper to ensure we have a code cell and focus the editor
-   */
-  async function setupCodeCell() {
-    codeCell = await $('[data-cell-type="code"]');
-    const cellExists = await codeCell.isExisting();
-
-    if (!cellExists) {
-      console.log("No code cell found, adding one...");
-      const addCodeButton = await $('[data-testid="add-code-cell-button"]');
-      await addCodeButton.waitForClickable({ timeout: 5000 });
-      await addCodeButton.click();
-      await browser.pause(500);
-
-      codeCell = await $('[data-cell-type="code"]');
-      await codeCell.waitForExist({ timeout: 5000 });
-    }
-
-    const editor = await codeCell.$('.cm-content[contenteditable="true"]');
-    await editor.waitForExist({ timeout: 5000 });
-    await editor.click();
-    await browser.pause(200);
-
-    // Clear any existing content
-    await browser.keys([MOD_KEY, "a"]);
-    await browser.pause(100);
-  }
-
-  /**
-   * Helper to wait for any output to appear
-   */
-  async function waitForAnyOutput(timeout) {
-    await browser.waitUntil(
-      async () => {
-        // Check for various output types
-        const streamOutput = await codeCell.$(
-          '[data-slot="ansi-stream-output"]',
-        );
-        const imageOutput = await codeCell.$("img");
-        const iframeOutput = await codeCell.$("iframe");
-        const displayData = await codeCell.$('[data-slot*="output"]');
-
-        return (
-          (await streamOutput.isExisting()) ||
-          (await imageOutput.isExisting()) ||
-          (await iframeOutput.isExisting()) ||
-          (await displayData.isExisting())
-        );
-      },
-      {
-        timeout,
-        timeoutMsg: "No output appeared within timeout.",
-        interval: 500,
-      },
-    );
-  }
-
-  /**
-   * Helper to wait for stream output containing text
-   */
-  async function waitForStreamOutput(expectedText, timeout) {
-    await browser.waitUntil(
-      async () => {
-        const output = await codeCell.$('[data-slot="ansi-stream-output"]');
-        if (!(await output.isExisting())) return false;
-        const text = await output.getText();
-        return text.includes(expectedText);
-      },
-      {
-        timeout,
-        timeoutMsg: `Stream output containing "${expectedText}" did not appear within timeout.`,
-        interval: 500,
-      },
-    );
+  async function getCodeCells() {
+    return await $$('[data-cell-type="code"]');
   }
 
   describe("Image outputs", () => {
-    it("should render PNG images from matplotlib", async () => {
-      await setupCodeCell();
+    it("should render PNG image as img element with data or blob src", async () => {
+      const cells = await getCodeCells();
+      const cell = cells[0];
 
-      // Create a simple matplotlib plot
-      // Note: matplotlib might need to be installed in the environment
-      const testCode = `import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-plt.figure(figsize=(4, 3))
-plt.plot([1, 2, 3, 4], [1, 4, 2, 3])
-plt.title('Test Plot')
-plt.show()`;
+      // PNG display_data should render as an <img> tag
+      await browser.waitUntil(
+        async () => {
+          const img = await cell.$("img");
+          return await img.isExisting();
+        },
+        {
+          timeout: 15000,
+          interval: 500,
+          timeoutMsg: "PNG image did not render",
+        },
+      );
 
-      console.log("Typing matplotlib code");
-      await typeSlowly(testCode, 30); // Faster typing for longer code
-      await browser.pause(300);
-
-      // Execute
-      await browser.keys(["Shift", "Enter"]);
-      console.log("Triggered matplotlib execution");
-
-      try {
-        // Wait for image output
-        await browser.waitUntil(
-          async () => {
-            const img = await codeCell.$("img");
-            return await img.isExisting();
-          },
-          {
-            timeout: EXECUTION_TIMEOUT,
-            interval: 1000,
-          },
-        );
-
-        // Verify image exists
-        const img = await codeCell.$("img");
-        const imgExists = await img.isExisting();
-        expect(imgExists).toBe(true);
-
-        // Check image has valid src
-        const src = await img.getAttribute("src");
-        console.log(
-          "Image src type:",
-          src ? `${src.substring(0, 50)}...` : "none",
-        );
-        expect(src).toBeTruthy();
-
-        // Image should be either a data URL or blob URL
-        expect(src.startsWith("data:") || src.startsWith("blob:")).toBe(true);
-
-        console.log("Matplotlib image test passed");
-      } catch (e) {
-        // matplotlib might not be available
-        console.log(
-          "matplotlib test skipped - may not be installed:",
-          e.message,
-        );
-      }
-    });
-
-    it("should render display(Image()) output", async () => {
-      await setupCodeCell();
-
-      // Create a simple base64 PNG (1x1 red pixel)
-      const testCode = `from IPython.display import display, Image
-import base64
-
-# 1x1 red PNG pixel
-red_pixel = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==')
-display(Image(data=red_pixel, format='png'))`;
-
-      console.log("Typing IPython Image display code");
-      await typeSlowly(testCode, 30);
-      await browser.pause(300);
-
-      await browser.keys(["Shift", "Enter"]);
-
-      try {
-        await waitForAnyOutput(KERNEL_STARTUP_TIMEOUT);
-
-        // Check for image
-        const img = await codeCell.$("img");
-        if (await img.isExisting()) {
-          console.log("IPython Image display test passed");
-        } else {
-          console.log(
-            "Image not rendered as img tag, checking alternative formats",
-          );
-        }
-      } catch (e) {
-        console.log("IPython Image test result:", e.message);
-      }
+      const img = await cell.$("img");
+      const src = await img.getAttribute("src");
+      console.log(
+        "Image src type:",
+        src ? `${src.substring(0, 50)}...` : "none",
+      );
+      expect(src.startsWith("data:") || src.startsWith("blob:")).toBe(true);
+      console.log("PNG image test passed");
     });
   });
 
   describe("HTML outputs", () => {
     it("should render HTML in isolated iframe", async () => {
-      await setupCodeCell();
+      const cells = await getCodeCells();
+      const cell = cells[1];
 
-      // Display HTML content
-      const testCode = `from IPython.display import display, HTML
-display(HTML('<div style="color: blue; font-size: 20px;">Hello from HTML</div>'))`;
+      await browser.waitUntil(
+        async () => {
+          const iframe = await cell.$("iframe");
+          return await iframe.isExisting();
+        },
+        {
+          timeout: 15000,
+          interval: 500,
+          timeoutMsg: "HTML iframe did not appear",
+        },
+      );
 
-      console.log("Typing HTML display code");
-      await typeSlowly(testCode, 30);
-      await browser.pause(300);
+      const iframe = await cell.$("iframe");
+      console.log("HTML rendered in iframe - isolation working");
 
-      await browser.keys(["Shift", "Enter"]);
-
-      try {
-        await waitForAnyOutput(KERNEL_STARTUP_TIMEOUT);
-
-        // HTML should be rendered in an iframe for isolation
-        const iframe = await codeCell.$("iframe");
-        const iframeExists = await iframe.isExisting();
-
-        if (iframeExists) {
-          console.log("HTML rendered in iframe - isolation working");
-
-          // Verify iframe has sandbox attribute (security)
-          const sandbox = await iframe.getAttribute("sandbox");
-          console.log("Iframe sandbox:", sandbox);
-
-          // Should not have allow-same-origin for security
-          if (sandbox) {
-            expect(sandbox).not.toContain("allow-same-origin");
-          }
-        } else {
-          // HTML might be rendered directly if simple enough
-          const htmlContent = await codeCell.getHTML();
-          console.log(
-            "Cell HTML contains 'Hello':",
-            htmlContent.includes("Hello"),
-          );
-        }
-
-        console.log("HTML output test passed");
-      } catch (e) {
-        console.log("HTML output test result:", e.message);
+      const sandbox = await iframe.getAttribute("sandbox");
+      console.log("Iframe sandbox:", sandbox);
+      if (sandbox) {
+        expect(sandbox).not.toContain("allow-same-origin");
       }
+      console.log("HTML output test passed");
     });
 
     it("should render pandas DataFrame as HTML", async () => {
-      await setupCodeCell();
+      const cells = await getCodeCells();
+      const cell = cells[2];
 
-      // Create and display a pandas DataFrame
-      const testCode = `import pandas as pd
-df = pd.DataFrame({
-    'Name': ['Alice', 'Bob', 'Charlie'],
-    'Age': [25, 30, 35],
-    'City': ['NYC', 'LA', 'Chicago']
-})
-df`;
+      // DataFrame has text/html output — renders in an IsolatedFrame iframe
+      const outputArea = await cell.$('[data-slot="output-area"]');
+      await browser.waitUntil(
+        async () => {
+          const iframe = await outputArea.$("iframe");
+          return await iframe.isExisting();
+        },
+        {
+          timeout: 15000,
+          interval: 500,
+          timeoutMsg: "DataFrame iframe did not render",
+        },
+      );
 
-      console.log("Typing pandas DataFrame code");
-      await typeSlowly(testCode, 30);
-      await browser.pause(300);
-
-      await browser.keys(["Shift", "Enter"]);
-
-      try {
-        await waitForAnyOutput(EXECUTION_TIMEOUT);
-
-        // DataFrame should render as HTML table
-        // Check for table elements or iframe containing table
-        const cellHtml = await codeCell.getHTML();
-        const hasTable =
-          cellHtml.includes("<table") ||
-          cellHtml.includes("dataframe") ||
-          cellHtml.includes("Alice"); // Data should be visible
-
-        console.log("DataFrame rendered:", hasTable);
-
-        if (hasTable) {
-          console.log("pandas DataFrame test passed");
-        }
-      } catch (e) {
-        // pandas might not be available
-        console.log("pandas test skipped - may not be installed:", e.message);
-      }
+      const iframe = await outputArea.$("iframe");
+      expect(await iframe.isExisting()).toBe(true);
+      console.log("DataFrame rendered in iframe");
+      console.log("pandas DataFrame test passed");
     });
   });
 
   describe("Multiple outputs", () => {
     it("should display multiple outputs from a single cell", async () => {
-      await setupCodeCell();
+      const cells = await getCodeCells();
+      const cell = cells[3];
 
-      // Generate multiple outputs - use a simple test that works reliably
-      const testCode =
-        'print("First output"); print("Second output"); print("Third output")';
+      await browser.waitUntil(
+        async () => {
+          const output = await cell.$('[data-slot="ansi-stream-output"]');
+          if (!(await output.isExisting())) return false;
+          const text = await output.getText();
+          return text.includes("Third output");
+        },
+        {
+          timeout: 15000,
+          interval: 500,
+          timeoutMsg: "Stream outputs did not render",
+        },
+      );
 
-      console.log("Typing multiple print statements");
-      await typeSlowly(testCode, 30);
-      await browser.pause(300);
-
-      await browser.keys(["Shift", "Enter"]);
-
-      await waitForStreamOutput("Third output", KERNEL_STARTUP_TIMEOUT);
-
-      // All outputs should be visible
-      const outputText = await codeCell
+      const outputText = await cell
         .$('[data-slot="ansi-stream-output"]')
         .getText();
       console.log("Output text:", outputText);
@@ -322,60 +132,53 @@ df`;
       expect(outputText).toContain("First output");
       expect(outputText).toContain("Second output");
       expect(outputText).toContain("Third output");
-
       console.log("Multiple outputs test passed");
     });
 
     it("should display mixed output types", async () => {
-      await setupCodeCell();
+      const cells = await getCodeCells();
+      const cell = cells[4];
 
-      // Generate different output types
-      const testCode = `from IPython.display import display, Markdown
+      // Mixed cell has stream + markdown display_data + stream.
+      // When any output needs isolation (markdown does), all outputs go to iframe.
+      const outputArea = await cell.$('[data-slot="output-area"]');
+      await browser.waitUntil(
+        async () => {
+          const iframe = await outputArea.$("iframe");
+          return await iframe.isExisting();
+        },
+        {
+          timeout: 15000,
+          interval: 500,
+          timeoutMsg: "Mixed output iframe did not render",
+        },
+      );
 
-print("This is stdout")
-display(Markdown("**This is bold markdown**"))
-print("More stdout")`;
-
-      console.log("Typing mixed output code");
-      await typeSlowly(testCode, 30);
-      await browser.pause(300);
-
-      await browser.keys(["Shift", "Enter"]);
-
-      try {
-        await waitForAnyOutput(KERNEL_STARTUP_TIMEOUT);
-
-        // Check that we have output
-        const cellHtml = await codeCell.getHTML();
-        const hasStdout =
-          cellHtml.includes("stdout") || cellHtml.includes("This is");
-
-        console.log("Mixed outputs rendered:", hasStdout);
-        console.log("Mixed output types test passed");
-      } catch (e) {
-        console.log("Mixed output test result:", e.message);
-      }
+      const iframe = await outputArea.$("iframe");
+      expect(await iframe.isExisting()).toBe(true);
+      console.log("Mixed outputs rendered in iframe");
+      console.log("Mixed output types test passed");
     });
   });
 
   describe("ANSI colors in output", () => {
     it("should render ANSI color codes", async () => {
-      await setupCodeCell();
+      const cells = await getCodeCells();
+      const cell = cells[5];
 
-      // Print colored output - use single line for reliability
-      const testCode =
-        'print("\\033[31mRed\\033[0m \\033[32mGreen\\033[0m \\033[34mBlue\\033[0m")';
+      await browser.waitUntil(
+        async () => {
+          const output = await cell.$('[data-slot="ansi-stream-output"]');
+          return await output.isExisting();
+        },
+        {
+          timeout: 15000,
+          interval: 500,
+          timeoutMsg: "ANSI output did not render",
+        },
+      );
 
-      console.log("Typing ANSI color code");
-      await typeSlowly(testCode, 30);
-      await browser.pause(300);
-
-      await browser.keys(["Shift", "Enter"]);
-
-      await waitForStreamOutput("Blue", KERNEL_STARTUP_TIMEOUT);
-
-      // Check that ANSI spans are rendered with color classes
-      const outputHtml = await codeCell
+      const outputHtml = await cell
         .$('[data-slot="ansi-stream-output"]')
         .getHTML();
       console.log(
@@ -383,7 +186,6 @@ print("More stdout")`;
         outputHtml.includes("ansi-"),
       );
 
-      // Should have ANSI color classes applied
       const hasColorClasses =
         outputHtml.includes("ansi-red") ||
         outputHtml.includes("ansi-green") ||
@@ -391,6 +193,7 @@ print("More stdout")`;
         outputHtml.includes("color:");
 
       console.log("ANSI colors rendered:", hasColorClasses);
+      expect(hasColorClasses).toBe(true);
       console.log("ANSI color test passed");
     });
   });
