@@ -153,7 +153,7 @@ pub enum Handshake {
 }
 ```
 
-**Pool channel** uses length-framed JSON request/response (short-lived). Request types: `ping`, `status`, `take`, `return`, `shutdown`.
+**Pool channel** uses length-framed JSON request/response (short-lived). Request types: `ping`, `status`, `take`, `return`, `shutdown`, `flush_pool`.
 
 **SettingsSync / NotebookSync** channels use Automerge sync messages (long-lived, bidirectional).
 

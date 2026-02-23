@@ -132,7 +132,7 @@ Auto-upgrade: the client detects version mismatches and replaces the binary.
 | `daemon.rs` | Daemon state, pool management, warming loops, connection routing |
 | `protocol.rs` | Request/Response enums, BlobRequest/BlobResponse |
 | `connection.rs` | Unified framing, handshake enum, send/recv helpers |
-| `pool_client.rs` | Client library for notebook apps |
+| `client.rs` | Client library (PoolClient) for notebook apps |
 | `singleton.rs` | File locking, DaemonInfo discovery |
 | `service.rs` | Platform-specific install/start/stop |
 | `main.rs` | CLI entry point |
@@ -378,7 +378,7 @@ pub enum BlobResponse {
 |------|------|
 | `connection.rs` | Unified framing, handshake enum, send/recv helpers |
 | `daemon.rs` | Single accept loop, `route_connection()` dispatcher |
-| `pool_client.rs` | Uses `Handshake::Pool` |
+| `client.rs` | Uses `Handshake::Pool` |
 | `sync_client.rs` | Uses `Handshake::SettingsSync` |
 | `sync_server.rs` | Handler function (no longer owns accept loop) |
 | `notebook_sync_client.rs` | Uses `Handshake::NotebookSync` |
