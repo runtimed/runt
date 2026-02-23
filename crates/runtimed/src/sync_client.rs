@@ -74,18 +74,20 @@ impl SyncClient<tokio::net::windows::named_pipe::NamedPipeClient> {
         Self::connect_with_timeout(socket_path, Duration::from_secs(2)).await
     }
 
-    /// Connect with a custom timeout, retrying if the pipe is busy.
+    /// Connect with a custom timeout, retrying on transient pipe-busy errors.
     pub async fn connect_with_timeout(
         socket_path: PathBuf,
         timeout: Duration,
     ) -> Result<Self, SyncClientError> {
         let pipe_name = socket_path.to_string_lossy().to_string();
+        // ERROR_PIPE_BUSY (231): all pipe instances are in use between server rotations
+        const ERROR_PIPE_BUSY: i32 = 231;
         let client = tokio::time::timeout(timeout, async {
             let mut attempts = 0;
             loop {
                 match tokio::net::windows::named_pipe::ClientOptions::new().open(&pipe_name) {
                     Ok(client) => return Ok(client),
-                    Err(_) if attempts < 5 => {
+                    Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) && attempts < 5 => {
                         attempts += 1;
                         tokio::time::sleep(Duration::from_millis(50)).await;
                     }

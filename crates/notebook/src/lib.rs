@@ -2994,11 +2994,16 @@ async fn set_synced_setting(key: String, value: serde_json::Value) -> Result<(),
     // Always persist to local settings.json so the menu handler can read it synchronously
     save_setting_locally(&key, &value)?;
 
-    // Also sync via daemon when available
+    // Best-effort sync via daemon — use a short timeout since local write already succeeded
     #[cfg(unix)]
     {
         let socket_path = runtimed::default_socket_path();
-        match runtimed::sync_client::SyncClient::connect(socket_path).await {
+        match runtimed::sync_client::SyncClient::connect_with_timeout(
+            socket_path,
+            std::time::Duration::from_millis(500),
+        )
+        .await
+        {
             Ok(mut client) => {
                 client
                     .put_value(&key, &value)
@@ -3014,7 +3019,12 @@ async fn set_synced_setting(key: String, value: serde_json::Value) -> Result<(),
     #[cfg(windows)]
     {
         let socket_path = runtimed::default_socket_path();
-        match runtimed::sync_client::SyncClient::connect(socket_path).await {
+        match runtimed::sync_client::SyncClient::connect_with_timeout(
+            socket_path,
+            std::time::Duration::from_millis(500),
+        )
+        .await
+        {
             Ok(mut client) => {
                 client
                     .put_value(&key, &value)
