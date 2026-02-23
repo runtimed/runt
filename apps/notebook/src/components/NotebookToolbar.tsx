@@ -157,6 +157,7 @@ interface NotebookToolbarProps {
   onRestartAndRunAll: () => void;
   onAddCell: (type: "code" | "markdown") => void;
   onToggleDependencies: () => void;
+  isDepsOpen?: boolean;
   listKernelspecs: () => Promise<KernelspecInfo[]>;
 }
 
@@ -268,6 +269,8 @@ function PackageBadgeInput({
 export function NotebookToolbar({
   kernelStatus,
   kernelErrorMessage,
+  envSource,
+  envTypeHint,
   dirty,
   theme,
   envProgress,
@@ -289,6 +292,7 @@ export function NotebookToolbar({
   onRestartAndRunAll,
   onAddCell,
   onToggleDependencies,
+  isDepsOpen = false,
   listKernelspecs,
 }: NotebookToolbarProps) {
   const [kernelspecs, setKernelspecs] = useState<KernelspecInfo[]>([]);
@@ -313,6 +317,18 @@ export function NotebookToolbar({
     kernelStatus === "idle" ||
     kernelStatus === "busy" ||
     kernelStatus === "starting";
+
+  // Derive env manager label for the runtime pill (e.g. "uv", "conda", "pixi")
+  const envManager: EnvBadgeVariant | null =
+    runtime === "python"
+      ? envSource && (kernelStatus === "idle" || kernelStatus === "busy")
+        ? envSource.startsWith("conda:pixi")
+          ? "pixi"
+          : envSource.startsWith("conda")
+            ? "conda"
+            : "uv"
+        : (envTypeHint ?? null)
+      : null;
 
   return (
     <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
@@ -440,6 +456,7 @@ export function NotebookToolbar({
               runtime === "deno"
                 ? "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400"
                 : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 dark:text-blue-400",
+              isDepsOpen && "ring-1 ring-current/25",
             )}
             title={
               runtime === "deno"
@@ -456,6 +473,23 @@ export function NotebookToolbar({
               <>
                 <PythonIcon className="h-3 w-3" />
                 <span>Python</span>
+              </>
+            )}
+            {envManager && (
+              <>
+                <span className="opacity-40">·</span>
+                <span
+                  className={cn(
+                    envManager === "uv" &&
+                      "text-fuchsia-600 dark:text-fuchsia-400",
+                    envManager === "conda" &&
+                      "text-emerald-600 dark:text-emerald-400",
+                    envManager === "pixi" &&
+                      "text-amber-600 dark:text-amber-400",
+                  )}
+                >
+                  {envManager}
+                </span>
               </>
             )}
           </button>
