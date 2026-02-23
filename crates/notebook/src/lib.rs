@@ -3013,7 +3013,18 @@ async fn set_synced_setting(key: String, value: serde_json::Value) -> Result<(),
 
     #[cfg(windows)]
     {
-        log::warn!("[settings] Windows sync client not yet implemented, local-only");
+        let socket_path = runtimed::default_socket_path();
+        match runtimed::sync_client::SyncClient::connect(socket_path).await {
+            Ok(mut client) => {
+                client
+                    .put_value(&key, &value)
+                    .await
+                    .map_err(|e| format!("sync error: {}", e))?;
+            }
+            Err(e) => {
+                log::warn!("[settings] Sync daemon unavailable ({}), local-only", e);
+            }
+        }
     }
 
     Ok(())
@@ -3073,9 +3084,43 @@ async fn run_settings_sync(app: tauri::AppHandle) {
 }
 
 #[cfg(windows)]
-async fn run_settings_sync(_app: tauri::AppHandle) {
-    // TODO: Windows named pipe sync client
-    log::info!("[settings-sync] Windows sync not yet implemented");
+async fn run_settings_sync(app: tauri::AppHandle) {
+    use tauri::Emitter;
+
+    let socket_path = runtimed::default_socket_path();
+
+    loop {
+        match runtimed::sync_client::SyncClient::connect(socket_path.clone()).await {
+            Ok(mut client) => {
+                // Emit initial settings
+                let settings = client.get_all();
+                let _ = app.emit("settings:changed", &settings);
+
+                // Watch for changes
+                loop {
+                    match client.recv_changes().await {
+                        Ok(settings) => {
+                            log::info!("[settings-sync] Settings changed: {:?}", settings);
+                            let _ = app.emit("settings:changed", &settings);
+                        }
+                        Err(e) => {
+                            log::warn!("[settings-sync] Disconnected: {}", e);
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::info!(
+                    "[settings-sync] Cannot connect to sync daemon: {}. Retrying in 5s.",
+                    e
+                );
+            }
+        }
+
+        // Backoff before reconnecting
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
 }
 
 /// Create initial notebook state for a new notebook, detecting project-level config for Python.
