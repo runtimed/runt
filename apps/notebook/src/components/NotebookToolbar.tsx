@@ -482,7 +482,10 @@ export function NotebookToolbar({
                 title="Interrupt kernel"
                 data-testid="interrupt-kernel-button"
               >
-                <Square className="h-3 w-3" fill={kernelStatus === "busy" ? "currentColor" : "none"} />
+                <Square
+                  className="h-3 w-3"
+                  fill={kernelStatus === "busy" ? "currentColor" : "none"}
+                />
                 Interrupt
               </button>
             </>
