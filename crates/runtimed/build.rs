@@ -14,7 +14,22 @@ fn main() {
 
     println!("cargo:rustc-env=GIT_COMMIT={}", commit);
 
-    // Re-run if git HEAD changes (detects branch switches, commits)
+    // Re-run if git HEAD changes (detects branch switches).
+    // .git/HEAD contains a symbolic ref like "ref: refs/heads/main",
+    // so it only changes when you switch branches.
     println!("cargo:rerun-if-changed=../../.git/HEAD");
-    println!("cargo:rerun-if-changed=../../.git/index");
+
+    // Also track the ref that HEAD points to (detects new commits on the
+    // current branch). When HEAD is "ref: refs/heads/main", new commits
+    // update .git/refs/heads/main but NOT .git/HEAD itself.
+    if let Ok(head) = std::fs::read_to_string("../../.git/HEAD") {
+        let head = head.trim();
+        if let Some(refpath) = head.strip_prefix("ref: ") {
+            println!("cargo:rerun-if-changed=../../.git/{}", refpath);
+        }
+    }
+
+    // Packed-refs is updated when git packs loose refs or during fetch/gc.
+    // A ref might only exist here (not as a loose file), so track it too.
+    println!("cargo:rerun-if-changed=../../.git/packed-refs");
 }
