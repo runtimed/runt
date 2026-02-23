@@ -307,9 +307,6 @@ async fn test_notebook_sync_via_unified_socket() {
         .await
         .unwrap();
 
-    // Give the daemon a moment to process and persist
-    sleep(Duration::from_millis(100)).await;
-
     // Connect second client to the same notebook — should see the cell
     let client2 = NotebookSyncClient::connect(socket_path.clone(), "test-notebook".to_string())
         .await
@@ -418,11 +415,9 @@ async fn test_notebook_room_eviction_and_persistence() {
         client1.add_cell(1, "c2", "markdown").await.unwrap();
         client1.update_source("c2", "# Hello World").await.unwrap();
 
-        // Wait for the daemon to process and persist all sync messages
-        // before dropping clients (sync_to_daemon is fire-and-forget)
-        sleep(Duration::from_millis(200)).await;
-
         // Both clients drop here — the room should be evicted
+        // (sync_to_daemon waits for the server ack, so all changes
+        // are persisted by the time the last write returns)
     }
 
     // Give the daemon time to process disconnects and evict the room
@@ -479,8 +474,6 @@ async fn test_notebook_cell_delete_propagation() {
     client1.update_source("keep-1", "a = 1").await.unwrap();
     client1.update_source("to-delete", "b = 2").await.unwrap();
     client1.update_source("keep-2", "c = 3").await.unwrap();
-
-    sleep(Duration::from_millis(100)).await;
 
     // Client2 joins and verifies all three cells
     let mut client2 = NotebookSyncClient::connect(socket_path.clone(), "delete-test".to_string())
@@ -570,8 +563,6 @@ async fn test_multiple_notebooks_concurrent_isolation() {
             nb_c.add_cell(2, "gamma-3", "code").await.unwrap();
         },
     );
-
-    sleep(Duration::from_millis(100)).await;
 
     // Verify each notebook is isolated by connecting fresh clients
     let (fresh_a, fresh_b, fresh_c) = tokio::join!(

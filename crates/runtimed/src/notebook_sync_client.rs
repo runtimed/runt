@@ -366,10 +366,47 @@ where
 
     // ── Internal helpers ────────────────────────────────────────────
 
-    /// Generate and send sync message to daemon.
+    /// Generate and send sync message to daemon, then wait for the
+    /// server's acknowledgment.
+    ///
+    /// The Automerge sync protocol is bidirectional: after the server
+    /// applies our changes, it sends back a sync message confirming
+    /// what it now has. By waiting for this reply, callers know the
+    /// daemon has processed and persisted the change when the write
+    /// method returns.
     async fn sync_to_daemon(&mut self) -> Result<(), NotebookSyncError> {
-        if let Some(msg) = self.doc.sync().generate_sync_message(&mut self.peer_state) {
-            connection::send_frame(&mut self.stream, &msg.encode()).await?;
+        // Generate the sync message (drops the mutable borrow on self.doc
+        // before we need it again for receiving the reply).
+        let encoded = {
+            let msg = self.doc.sync().generate_sync_message(&mut self.peer_state);
+            msg.map(|m| m.encode())
+        };
+
+        if let Some(data) = encoded {
+            connection::send_frame(&mut self.stream, &data).await?;
+
+            // Wait for the daemon's ack. The server always sends a reply
+            // after processing a client's sync message (to advance the
+            // sync state). A short timeout handles the rare case where
+            // the server has nothing to send back (already converged).
+            match tokio::time::timeout(
+                Duration::from_millis(500),
+                connection::recv_frame(&mut self.stream),
+            )
+            .await
+            {
+                Ok(Ok(Some(reply))) => {
+                    let message = sync::Message::decode(&reply)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                    self.doc
+                        .sync()
+                        .receive_sync_message(&mut self.peer_state, message)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+                }
+                Ok(Ok(None)) => return Err(NotebookSyncError::Disconnected),
+                Ok(Err(e)) => return Err(NotebookSyncError::ConnectionFailed(e)),
+                Err(_) => {} // Timeout — server had nothing to send back
+            }
         }
         Ok(())
     }
