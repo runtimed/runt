@@ -1,20 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Theme } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useCallback, useEffect, useState } from "react";
+import type { PythonEnvType, Runtime, SyncedSettings } from "@/bindings";
 
+// Theme has no Rust enum (it's a String in SyncedSettings) so we keep a manual type.
 export type ThemeMode = "light" | "dark" | "system";
-export type RuntimeMode = "python" | "deno";
-export type PythonEnvMode = "uv" | "conda";
 
-interface SyncedSettings {
-  theme: string;
-  default_runtime: string;
-  default_python_env: string;
-  uv: { default_packages: string[] };
-  conda: { default_packages: string[] };
-}
+// Re-export generated types so consumers can import from this module.
+export type { Runtime, PythonEnvType };
 
 function resolveTheme(theme: ThemeMode): "light" | "dark" {
   if (theme === "system") {
@@ -49,11 +44,11 @@ function isValidTheme(value: string): value is ThemeMode {
   return value === "light" || value === "dark" || value === "system";
 }
 
-function isValidRuntime(value: string): value is RuntimeMode {
+function isValidRuntime(value: string): value is Runtime {
   return value === "python" || value === "deno";
 }
 
-function isValidPythonEnv(value: string): value is PythonEnvMode {
+function isValidPythonEnv(value: string): value is PythonEnvType {
   return value === "uv" || value === "conda";
 }
 
@@ -95,10 +90,9 @@ export function useSyncedSettings() {
   // Theme uses localStorage to avoid flash of wrong theme on startup
   const [theme, setThemeState] = useState<ThemeMode>(getStoredTheme);
   // All other settings use defaults — daemon is the source of truth
-  const [defaultRuntime, setDefaultRuntimeState] =
-    useState<RuntimeMode>("python");
+  const [defaultRuntime, setDefaultRuntimeState] = useState<Runtime>("python");
   const [defaultPythonEnv, setDefaultPythonEnvState] =
-    useState<PythonEnvMode>("uv");
+    useState<PythonEnvType>("uv");
   const [defaultUvPackages, setDefaultUvPackagesState] = useState<string[]>([]);
   const [defaultCondaPackages, setDefaultCondaPackagesState] = useState<
     string[]
@@ -133,8 +127,11 @@ export function useSyncedSettings() {
   // Listen for cross-window settings changes via Tauri events
   useEffect(() => {
     const unlisten = listen<SyncedSettings>("settings:changed", (event) => {
-      const { theme: newTheme, default_runtime, default_python_env } =
-        event.payload;
+      const {
+        theme: newTheme,
+        default_runtime,
+        default_python_env,
+      } = event.payload;
       if (isValidTheme(newTheme)) {
         setThemeState(newTheme);
         setStoredTheme(newTheme);
@@ -165,7 +162,7 @@ export function useSyncedSettings() {
     );
   }, []);
 
-  const setDefaultRuntime = useCallback((newRuntime: RuntimeMode) => {
+  const setDefaultRuntime = useCallback((newRuntime: Runtime) => {
     setDefaultRuntimeState(newRuntime);
     invoke("set_synced_setting", {
       key: "default_runtime",
@@ -173,7 +170,7 @@ export function useSyncedSettings() {
     }).catch(() => {});
   }, []);
 
-  const setDefaultPythonEnv = useCallback((newEnv: PythonEnvMode) => {
+  const setDefaultPythonEnv = useCallback((newEnv: PythonEnvType) => {
     setDefaultPythonEnvState(newEnv);
     invoke("set_synced_setting", {
       key: "default_python_env",

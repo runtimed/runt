@@ -27,21 +27,25 @@ use automerge::{AutoCommit, AutomergeError, ObjId, ObjType, ReadDoc};
 use log::info;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Default packages for uv environments.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
+#[ts(export)]
 pub struct UvDefaults {
     pub default_packages: Vec<String>,
 }
 
 /// Default packages for conda environments.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
+#[ts(export)]
 pub struct CondaDefaults {
     pub default_packages: Vec<String>,
 }
 
 /// Snapshot of all synced settings.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
+#[ts(export)]
 pub struct SyncedSettings {
     pub theme: String,
     pub default_runtime: String,

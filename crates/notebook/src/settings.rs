@@ -14,10 +14,12 @@ use runtimed::settings_doc::{CondaDefaults, UvDefaults};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use ts_rs::TS;
 
 /// Python environment type for dependency management
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema, TS)]
 #[serde(rename_all = "lowercase")]
+#[ts(export)]
 pub enum PythonEnvType {
     /// Use uv for Python package management (fast, pip-compatible)
     #[default]

@@ -2,6 +2,7 @@ import { Plus, RotateCcw, X } from "lucide-react";
 import { useCallback, useMemo, useRef } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
+import type { Runtime } from "@/hooks/useSyncedSettings";
 import type { CellPagePayload } from "../App";
 import {
   EditorRegistryProvider,
@@ -10,7 +11,6 @@ import {
 import type { NotebookCell } from "../types";
 import { CodeCell } from "./CodeCell";
 import { MarkdownCell } from "./MarkdownCell";
-import type { Runtime } from "./NotebookToolbar";
 
 interface NotebookViewProps {
   cells: NotebookCell[];
