@@ -308,6 +308,7 @@ async fn save_notebook(
         let format_result = match runtime {
             Runtime::Python => format::format_python(&source).await,
             Runtime::Deno => format::format_deno(&source, "typescript").await,
+            Runtime::Other(_) => Err(anyhow::anyhow!("No formatter for unknown runtime")),
         };
 
         if let Ok(result) = format_result {
@@ -379,6 +380,7 @@ async fn save_notebook_as(
         let format_result = match runtime {
             Runtime::Python => format::format_python(&source).await,
             Runtime::Deno => format::format_deno(&source, "typescript").await,
+            Runtime::Other(_) => Err(anyhow::anyhow!("No formatter for unknown runtime")),
         };
 
         if let Ok(result) = format_result {
@@ -1543,7 +1545,7 @@ async fn start_default_python_kernel_impl(
             preferred_env
         );
         match preferred_env {
-            settings::PythonEnvType::Uv => uv_available,
+            settings::PythonEnvType::Uv | settings::PythonEnvType::Other(_) => uv_available,
             settings::PythonEnvType::Conda => false,
         }
     } else {
@@ -1686,7 +1688,7 @@ async fn start_default_python_kernel_impl(
 
         // No project file found (or closest had no usable deps) — fall back to user preference
         match preferred_env {
-            settings::PythonEnvType::Uv => {
+            settings::PythonEnvType::Uv | settings::PythonEnvType::Other(_) => {
                 if uv_available {
                     true
                 } else {
@@ -2838,6 +2840,9 @@ async fn format_cell(
         Runtime::Deno => format::format_deno(&source, "typescript")
             .await
             .map_err(|e| e.to_string())?,
+        Runtime::Other(ref s) => {
+            return Err(format!("No formatter available for runtime: {s}"));
+        }
     };
 
     // Strip trailing newline that formatters always add (cells shouldn't end with \n)
@@ -2877,6 +2882,7 @@ async fn check_formatter_available(
     match runtime {
         Runtime::Python => Ok(format::check_ruff_available().await),
         Runtime::Deno => Ok(deno_env::check_deno_available().await),
+        Runtime::Other(_) => Ok(false),
     }
 }
 
@@ -2897,16 +2903,9 @@ async fn set_default_runtime(runtime: Runtime) -> Result<(), String> {
 /// Set the default Python environment type (uv or conda)
 #[tauri::command]
 async fn set_default_python_env(env_type: String) -> Result<(), String> {
-    let python_env = match env_type.to_lowercase().as_str() {
-        "uv" => settings::PythonEnvType::Uv,
-        "conda" => settings::PythonEnvType::Conda,
-        _ => {
-            return Err(format!(
-                "Invalid Python env type: {}. Use 'uv' or 'conda'.",
-                env_type
-            ))
-        }
-    };
+    let python_env: settings::PythonEnvType = env_type
+        .parse()
+        .expect("FromStr for PythonEnvType is infallible");
 
     let mut settings = settings::load_settings();
     settings.default_python_env = python_env;
@@ -2919,13 +2918,26 @@ async fn set_default_python_env(env_type: String) -> Result<(), String> {
 #[tauri::command]
 async fn get_synced_settings() -> Result<runtimed::settings_doc::SyncedSettings, String> {
     match runtimed::sync_client::try_get_synced_settings().await {
-        Ok(settings) => Ok(settings),
+        Ok(settings) => {
+            log::info!(
+                "[settings] get_synced_settings from daemon: runtime={}, env={}",
+                settings.default_runtime,
+                settings.default_python_env
+            );
+            Ok(settings)
+        }
         Err(e) => {
             log::warn!(
                 "[settings] Daemon unavailable ({}), falling back to settings.json",
                 e
             );
-            Ok(settings::load_settings())
+            let settings = settings::load_settings();
+            log::info!(
+                "[settings] get_synced_settings from JSON fallback: runtime={}, env={}",
+                settings.default_runtime,
+                settings.default_python_env
+            );
+            Ok(settings)
         }
     }
 }
@@ -2951,11 +2963,9 @@ fn save_setting_locally(key: &str, value: &serde_json::Value) -> Result<(), Stri
         }
         "default_python_env" => {
             let value_str = value.as_str().ok_or("expected string")?;
-            let env_type = match value_str {
-                "uv" => settings::PythonEnvType::Uv,
-                "conda" => settings::PythonEnvType::Conda,
-                _ => return Err(format!("Invalid env type: {}", value_str)),
-            };
+            let env_type: settings::PythonEnvType = value_str
+                .parse()
+                .expect("FromStr for PythonEnvType is infallible");
             let mut s = settings::load_settings();
             s.default_python_env = env_type;
             settings::save_settings(&s).map_err(|e| e.to_string())
@@ -3043,6 +3053,11 @@ async fn run_settings_sync(app: tauri::AppHandle) {
             Ok(mut client) => {
                 // Emit initial settings
                 let settings = client.get_all();
+                log::info!(
+                    "[settings-sync] Initial emit: runtime={}, env={}",
+                    settings.default_runtime,
+                    settings.default_python_env
+                );
                 let _ = app.emit("settings:changed", &settings);
 
                 // Watch for changes
@@ -3485,10 +3500,7 @@ pub fn run(
                 auto_launch_flag.store(true, Ordering::SeqCst);
 
                 // Emit lifecycle event so frontend can show "Starting" status
-                let runtime_str = match runtime {
-                    Runtime::Python => "python".to_string(),
-                    Runtime::Deno => "deno".to_string(),
-                };
+                let runtime_str = runtime.to_string();
                 let lifecycle_event = KernelLifecycleEvent {
                     state: "launching".to_string(),
                     runtime: runtime_str.clone(),
@@ -3497,7 +3509,7 @@ pub fn run(
                 };
                 let _ = app_for_autolaunch.emit("kernel:lifecycle", &lifecycle_event);
 
-                let (env_source, error_msg) = match runtime {
+                let (env_source, error_msg) = match &runtime {
                     Runtime::Python => {
                         match start_default_python_kernel_impl(
                             app_for_autolaunch.clone(),
@@ -3529,6 +3541,11 @@ pub fn run(
                                 (None, Some(e.to_string()))
                             }
                         }
+                    }
+                    Runtime::Other(s) => {
+                        let msg = format!("No kernel available for runtime: {s}");
+                        log::error!("{}", msg);
+                        (None, Some(msg))
                     }
                 };
 

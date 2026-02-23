@@ -2,5 +2,8 @@
 
 /**
  * Python environment type for dependency management.
+ *
+ * Unknown values are captured in the `Other` variant so they survive
+ * serialization round-trips across branches that add new env types.
  */
-export type PythonEnvType = "uv" | "conda";
+export type PythonEnvType = "uv" | "conda" | (string & {});

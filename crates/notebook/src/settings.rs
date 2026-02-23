@@ -188,49 +188,64 @@ mod tests {
     }
 
     #[test]
-    fn test_load_settings_bad_enum_preserves_valid_fields() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let path = tmp.path().join("settings.json");
-        // "ruby" is not a valid Runtime — the whole struct would fail strict deser,
-        // but per-field fallback should keep the valid theme and packages.
-        std::fs::write(
-            &path,
-            r#"{
-                "theme": "dark",
-                "default_runtime": "ruby",
-                "default_python_env": "uv",
-                "uv": { "default_packages": ["numpy"] },
-                "conda": { "default_packages": [] }
-            }"#,
-        )
-        .unwrap();
+    fn test_unknown_enum_round_trips_through_settings() {
+        // Unknown runtime/env values should survive a load → save round-trip.
+        let json = r#"{
+            "theme": "dark",
+            "default_runtime": "julia",
+            "default_python_env": "mamba",
+            "uv": { "default_packages": ["numpy"] },
+            "conda": { "default_packages": [] }
+        }"#;
+        let parsed: SyncedSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.theme, ThemeMode::Dark);
+        assert_eq!(parsed.default_runtime, Runtime::Other("julia".into()));
+        assert_eq!(
+            parsed.default_python_env,
+            PythonEnvType::Other("mamba".into())
+        );
+        assert_eq!(parsed.uv.default_packages, vec!["numpy"]);
 
-        // Temporarily override the path by deserializing directly through
-        // the same fallback logic that load_settings uses.
-        let contents = std::fs::read_to_string(&path).unwrap();
-        // Strict deser should fail
-        assert!(serde_json::from_str::<SyncedSettings>(&contents).is_err());
+        // Re-serialize and verify the unknown values survive
+        let reserialized = serde_json::to_string(&parsed).unwrap();
+        assert!(reserialized.contains("\"julia\""));
+        assert!(reserialized.contains("\"mamba\""));
+    }
+
+    #[test]
+    fn test_load_settings_wrong_type_preserves_valid_fields() {
+        // A non-string value for an enum field (e.g. a number) should fail
+        // per-field deserialization but not lose other valid fields.
+        let json = r#"{
+            "theme": "dark",
+            "default_runtime": 42,
+            "default_python_env": "uv",
+            "uv": { "default_packages": ["numpy"] },
+            "conda": { "default_packages": [] }
+        }"#;
+        // Strict deser should fail (42 is not a valid string for Runtime)
+        assert!(serde_json::from_str::<SyncedSettings>(json).is_err());
         // Per-field fallback: parse as Value, extract individually
-        let json: serde_json::Value = serde_json::from_str(&contents).unwrap();
+        let json_val: serde_json::Value = serde_json::from_str(json).unwrap();
         let defaults = SyncedSettings::default();
         let settings = SyncedSettings {
-            theme: json
+            theme: json_val
                 .get("theme")
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or(defaults.theme),
-            default_runtime: json
+            default_runtime: json_val
                 .get("default_runtime")
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or(defaults.default_runtime),
-            default_python_env: json
+            default_python_env: json_val
                 .get("default_python_env")
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or(defaults.default_python_env),
-            uv: json
+            uv: json_val
                 .get("uv")
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or(defaults.uv),
-            conda: json
+            conda: json_val
                 .get("conda")
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or(defaults.conda),
@@ -239,7 +254,7 @@ mod tests {
         assert_eq!(settings.theme, ThemeMode::Dark);
         assert_eq!(settings.uv.default_packages, vec!["numpy"]);
         assert_eq!(settings.default_python_env, PythonEnvType::Uv);
-        // Invalid field falls back to default
+        // Non-string field falls back to default
         assert_eq!(settings.default_runtime, Runtime::Python);
     }
 }

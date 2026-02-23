@@ -56,15 +56,46 @@ impl std::fmt::Display for ThemeMode {
 use crate::runtime::Runtime;
 
 /// Python environment type for dependency management.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema, TS)]
-#[serde(rename_all = "lowercase")]
+///
+/// Unknown values are captured in the `Other` variant so they survive
+/// serialization round-trips across branches that add new env types.
+#[derive(Debug, Clone, PartialEq, Eq, Default, TS)]
 #[ts(export)]
+#[ts(type = "\"uv\" | \"conda\" | (string & {})")]
 pub enum PythonEnvType {
     /// Use uv for Python package management (fast, pip-compatible)
     #[default]
     Uv,
     /// Use conda/rattler for Python package management (supports conda packages)
     Conda,
+    /// An unrecognized env type value, preserved for round-tripping.
+    Other(String),
+}
+
+impl serde::Serialize for PythonEnvType {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for PythonEnvType {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        Ok(s.parse().expect("FromStr for PythonEnvType is infallible"))
+    }
+}
+
+impl JsonSchema for PythonEnvType {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "PythonEnvType".into()
+    }
+
+    fn json_schema(_gen: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "examples": ["uv", "conda"]
+        })
+    }
 }
 
 impl std::fmt::Display for PythonEnvType {
@@ -72,19 +103,20 @@ impl std::fmt::Display for PythonEnvType {
         match self {
             PythonEnvType::Uv => write!(f, "uv"),
             PythonEnvType::Conda => write!(f, "conda"),
+            PythonEnvType::Other(s) => write!(f, "{}", s),
         }
     }
 }
 
 impl std::str::FromStr for PythonEnvType {
-    type Err = String;
+    type Err = std::convert::Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "uv" => Ok(PythonEnvType::Uv),
-            "conda" => Ok(PythonEnvType::Conda),
-            _ => Err(format!("Unknown python env type: {}", s)),
-        }
+        Ok(match s.to_lowercase().as_str() {
+            "uv" => PythonEnvType::Uv,
+            "conda" => PythonEnvType::Conda,
+            _ => PythonEnvType::Other(s.to_string()),
+        })
     }
 }
 
@@ -199,6 +231,22 @@ impl SettingsDoc {
                     info!("[settings] Loaded Automerge doc from {:?}", automerge_path);
                     let mut settings = Self { doc };
                     settings.migrate_flat_to_nested();
+
+                    // Reconcile with settings.json so manual edits made while the
+                    // daemon was stopped are picked up (the file watcher only
+                    // catches changes that happen after it starts).
+                    if let Some(json_path) = settings_json_path {
+                        if json_path.exists() {
+                            if let Ok(contents) = std::fs::read_to_string(json_path) {
+                                if let Ok(json) = serde_json::from_str(&contents) {
+                                    if settings.apply_json_changes(&json) {
+                                        info!("[settings] Reconciled Automerge doc with settings.json");
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     return settings;
                 }
             }
@@ -530,7 +578,12 @@ impl SettingsDoc {
         // Scalar fields — only update if present in JSON and different
         for key in &["theme", "default_runtime", "default_python_env"] {
             if let Some(value) = json.get(key).and_then(|v| v.as_str()) {
-                if self.get(key).as_deref() != Some(value) {
+                let current = self.get(key);
+                if current.as_deref() != Some(value) {
+                    info!(
+                        "[settings] apply_json_changes: {key} changed {:?} -> {value:?}",
+                        current.as_deref()
+                    );
                     self.put(key, value);
                     changed = true;
                 }
@@ -852,7 +905,7 @@ mod tests {
         assert!(schema_str.contains("theme"));
         assert!(schema_str.contains("default_runtime"));
         assert!(schema_str.contains("default_python_env"));
-        // Should have enum constraints from the typed enums
+        // Should have known values as examples for editor autocomplete
         assert!(schema_str.contains("python"));
         assert!(schema_str.contains("deno"));
         assert!(schema_str.contains("uv"));
