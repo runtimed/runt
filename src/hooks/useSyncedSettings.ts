@@ -46,11 +46,13 @@ function isValidTheme(value: string): value is ThemeMode {
   return value === "light" || value === "dark" || value === "system";
 }
 
-function isValidRuntime(value: string): value is Runtime {
+/** Known runtime values for UI buttons; unknown values are preserved. */
+export function isKnownRuntime(value: string): value is "python" | "deno" {
   return value === "python" || value === "deno";
 }
 
-function isValidPythonEnv(value: string): value is PythonEnvType {
+/** Known env type values for UI buttons; unknown values are preserved. */
+export function isKnownPythonEnv(value: string): value is "uv" | "conda" {
   return value === "uv" || value === "conda";
 }
 
@@ -91,10 +93,11 @@ function setStoredTheme(value: ThemeMode) {
 export function useSyncedSettings() {
   // Theme uses localStorage to avoid flash of wrong theme on startup
   const [theme, setThemeState] = useState<ThemeMode>(getStoredTheme);
-  // All other settings use defaults — daemon is the source of truth
-  const [defaultRuntime, setDefaultRuntimeState] = useState<Runtime>("python");
-  const [defaultPythonEnv, setDefaultPythonEnvState] =
-    useState<PythonEnvType>("uv");
+  // All other settings use defaults — daemon is the source of truth.
+  // State is `string` (not just the known union) to preserve unknown values
+  // from other branches without silently dropping them.
+  const [defaultRuntime, setDefaultRuntimeState] = useState<string>("python");
+  const [defaultPythonEnv, setDefaultPythonEnvState] = useState<string>("uv");
   const [defaultUvPackages, setDefaultUvPackagesState] = useState<string[]>([]);
   const [defaultCondaPackages, setDefaultCondaPackagesState] = useState<
     string[]
@@ -108,10 +111,10 @@ export function useSyncedSettings() {
           setThemeState(settings.theme);
           setStoredTheme(settings.theme);
         }
-        if (isValidRuntime(settings.default_runtime)) {
+        if (typeof settings.default_runtime === "string") {
           setDefaultRuntimeState(settings.default_runtime);
         }
-        if (isValidPythonEnv(settings.default_python_env)) {
+        if (typeof settings.default_python_env === "string") {
           setDefaultPythonEnvState(settings.default_python_env);
         }
         if (Array.isArray(settings.uv?.default_packages)) {
@@ -138,10 +141,10 @@ export function useSyncedSettings() {
         setThemeState(newTheme);
         setStoredTheme(newTheme);
       }
-      if (isValidRuntime(default_runtime)) {
+      if (typeof default_runtime === "string") {
         setDefaultRuntimeState(default_runtime);
       }
-      if (isValidPythonEnv(default_python_env)) {
+      if (typeof default_python_env === "string") {
         setDefaultPythonEnvState(default_python_env);
       }
       if (Array.isArray(event.payload.uv?.default_packages)) {
@@ -164,7 +167,7 @@ export function useSyncedSettings() {
     );
   }, []);
 
-  const setDefaultRuntime = useCallback((newRuntime: Runtime) => {
+  const setDefaultRuntime = useCallback((newRuntime: string) => {
     setDefaultRuntimeState(newRuntime);
     invoke("set_synced_setting", {
       key: "default_runtime",
@@ -172,7 +175,7 @@ export function useSyncedSettings() {
     }).catch(() => {});
   }, []);
 
-  const setDefaultPythonEnv = useCallback((newEnv: PythonEnvType) => {
+  const setDefaultPythonEnv = useCallback((newEnv: string) => {
     setDefaultPythonEnvState(newEnv);
     invoke("set_synced_setting", {
       key: "default_python_env",

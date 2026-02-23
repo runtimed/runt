@@ -91,7 +91,7 @@ impl NotebookState {
 
         // Set up environment metadata based on user's preference
         match app_settings.default_python_env {
-            PythonEnvType::Uv => {
+            PythonEnvType::Uv | PythonEnvType::Other(_) => {
                 additional.insert(
                     "uv".to_string(),
                     serde_json::json!({
@@ -146,12 +146,12 @@ impl NotebookState {
         let mut additional = HashMap::new();
 
         // Set runtime-specific metadata
-        match runtime {
+        match &runtime {
             Runtime::Python => {
                 // Load user's preferred Python environment type from settings
                 let app_settings = settings::load_settings();
                 match app_settings.default_python_env {
-                    PythonEnvType::Uv => {
+                    PythonEnvType::Uv | PythonEnvType::Other(_) => {
                         additional.insert(
                             "uv".to_string(),
                             serde_json::json!({
@@ -190,6 +190,16 @@ impl NotebookState {
                     serde_json::json!({
                         "env_id": env_id,
                         "runtime": "deno",
+                    }),
+                );
+            }
+            Runtime::Other(s) => {
+                // Unknown runtime — store the name but skip env-specific setup
+                additional.insert(
+                    "runt".to_string(),
+                    serde_json::json!({
+                        "env_id": env_id,
+                        "runtime": s,
                     }),
                 );
             }

@@ -374,6 +374,7 @@ async fn process_next(
         let format_result = match runtime {
             crate::Runtime::Python => crate::format::format_python(&code).await,
             crate::Runtime::Deno => crate::format::format_deno(&code, "typescript").await,
+            crate::Runtime::Other(_) => Err(anyhow::anyhow!("No formatter for unknown runtime")),
         };
 
         match format_result {
