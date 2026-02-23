@@ -3,7 +3,7 @@
 //! The daemon manages prewarmed environment pools and handles requests from
 //! notebook windows via IPC (Unix domain sockets on Unix, named pipes on Windows).
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -25,6 +25,7 @@ use tokio::sync::RwLock;
 use crate::blob_server;
 use crate::blob_store::BlobStore;
 use crate::connection::{self, Handshake};
+use crate::notebook_sync_server::NotebookRooms;
 use crate::protocol::{BlobRequest, BlobResponse, Request, Response};
 use crate::settings_doc::SettingsDoc;
 use crate::singleton::{DaemonInfo, DaemonLock};
@@ -171,6 +172,8 @@ pub struct Daemon {
     blob_store: Arc<BlobStore>,
     /// HTTP port for the blob server (set after startup).
     blob_port: Mutex<Option<u16>>,
+    /// Per-notebook Automerge sync rooms.
+    notebook_rooms: NotebookRooms,
 }
 
 /// Error returned when another daemon is already running.
@@ -214,6 +217,7 @@ impl Daemon {
             settings_changed,
             blob_store,
             blob_port: Mutex::new(None),
+            notebook_rooms: Arc::new(Mutex::new(HashMap::new())),
         }))
     }
 
@@ -636,11 +640,19 @@ impl Daemon {
                 .await
             }
             Handshake::NotebookSync { notebook_id } => {
-                info!(
-                    "[runtimed] NotebookSync requested for {} (stub)",
-                    notebook_id
-                );
-                Ok(())
+                info!("[runtimed] NotebookSync requested for {}", notebook_id);
+                let docs_dir = crate::default_notebook_docs_dir();
+                let room = {
+                    let mut rooms = self.notebook_rooms.lock().await;
+                    crate::notebook_sync_server::get_or_create_room(
+                        &mut rooms,
+                        &notebook_id,
+                        &docs_dir,
+                    )
+                };
+                let (reader, writer) = tokio::io::split(stream);
+                crate::notebook_sync_server::handle_notebook_sync_connection(reader, writer, room)
+                    .await
             }
             Handshake::Blob => self.handle_blob_connection(stream).await,
         }
