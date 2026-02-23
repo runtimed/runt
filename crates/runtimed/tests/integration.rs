@@ -190,7 +190,11 @@ async fn test_multiple_client_connections() {
 
 #[tokio::test]
 async fn test_try_get_pooled_env_no_daemon() {
-    // When daemon is not running, should return None gracefully
-    let result = runtimed::client::try_get_pooled_env(EnvType::Uv).await;
-    assert!(result.is_none());
+    // Use a temp dir so we don't accidentally connect to a real running daemon
+    let temp_dir = TempDir::new().unwrap();
+    let socket_path = temp_dir.path().join("nonexistent.sock");
+
+    let client = PoolClient::new(socket_path);
+    let result = client.take(EnvType::Uv).await;
+    assert!(result.is_err(), "should fail when daemon is not running");
 }
