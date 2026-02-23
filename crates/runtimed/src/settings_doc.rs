@@ -128,9 +128,9 @@ pub struct SyncedSettings {
 }
 
 /// Generate a JSON Schema string for the settings file.
-pub fn generate_settings_schema() -> String {
+pub fn generate_settings_schema() -> Result<String, serde_json::Error> {
     let schema = schemars::schema_for!(SyncedSettings);
-    serde_json::to_string_pretty(&schema).expect("failed to serialize settings schema")
+    serde_json::to_string_pretty(&schema)
 }
 
 /// Write the settings schema file to disk.
@@ -139,7 +139,8 @@ pub fn write_settings_schema() -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&path, format!("{}\n", generate_settings_schema()))
+    let schema = generate_settings_schema().map_err(std::io::Error::other)?;
+    std::fs::write(&path, format!("{schema}\n"))
 }
 
 /// Wrapper around an Automerge document storing application settings.
@@ -844,7 +845,7 @@ mod tests {
 
     #[test]
     fn test_generate_settings_schema() {
-        let schema = generate_settings_schema();
+        let schema = generate_settings_schema().unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&schema).unwrap();
         // Should be a valid JSON Schema with properties
         let schema_str = &schema;

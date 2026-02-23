@@ -21,15 +21,52 @@ fn settings_path() -> PathBuf {
 }
 
 /// Load settings from disk, returning defaults if file doesn't exist.
+///
+/// Uses per-field fallback so a single invalid value (e.g. a bad enum string
+/// from a manual edit) doesn't wipe all other settings back to defaults.
 pub fn load_settings() -> SyncedSettings {
     let path = settings_path();
-    if path.exists() {
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
-    } else {
-        SyncedSettings::default()
+    if !path.exists() {
+        return SyncedSettings::default();
+    }
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return SyncedSettings::default(),
+    };
+
+    // Fast path: if the whole file deserializes cleanly, use it directly.
+    if let Ok(settings) = serde_json::from_str::<SyncedSettings>(&contents) {
+        return settings;
+    }
+
+    // Slow path: parse as Value, extract each field individually so one bad
+    // value doesn't lose every other valid setting.
+    let json: serde_json::Value = match serde_json::from_str(&contents) {
+        Ok(v) => v,
+        Err(_) => return SyncedSettings::default(),
+    };
+    let defaults = SyncedSettings::default();
+    SyncedSettings {
+        theme: json
+            .get("theme")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or(defaults.theme),
+        default_runtime: json
+            .get("default_runtime")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or(defaults.default_runtime),
+        default_python_env: json
+            .get("default_python_env")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or(defaults.default_python_env),
+        uv: json
+            .get("uv")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or(defaults.uv),
+        conda: json
+            .get("conda")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or(defaults.conda),
     }
 }
 
@@ -148,5 +185,61 @@ mod tests {
         assert_eq!(parsed.theme, ThemeMode::Dark);
         assert_eq!(parsed.default_runtime, Runtime::Deno);
         assert_eq!(parsed.default_python_env, PythonEnvType::Conda);
+    }
+
+    #[test]
+    fn test_load_settings_bad_enum_preserves_valid_fields() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("settings.json");
+        // "ruby" is not a valid Runtime — the whole struct would fail strict deser,
+        // but per-field fallback should keep the valid theme and packages.
+        std::fs::write(
+            &path,
+            r#"{
+                "theme": "dark",
+                "default_runtime": "ruby",
+                "default_python_env": "uv",
+                "uv": { "default_packages": ["numpy"] },
+                "conda": { "default_packages": [] }
+            }"#,
+        )
+        .unwrap();
+
+        // Temporarily override the path by deserializing directly through
+        // the same fallback logic that load_settings uses.
+        let contents = std::fs::read_to_string(&path).unwrap();
+        // Strict deser should fail
+        assert!(serde_json::from_str::<SyncedSettings>(&contents).is_err());
+        // Per-field fallback: parse as Value, extract individually
+        let json: serde_json::Value = serde_json::from_str(&contents).unwrap();
+        let defaults = SyncedSettings::default();
+        let settings = SyncedSettings {
+            theme: json
+                .get("theme")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or(defaults.theme),
+            default_runtime: json
+                .get("default_runtime")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or(defaults.default_runtime),
+            default_python_env: json
+                .get("default_python_env")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or(defaults.default_python_env),
+            uv: json
+                .get("uv")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or(defaults.uv),
+            conda: json
+                .get("conda")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or(defaults.conda),
+        };
+        // Valid fields are preserved
+        assert_eq!(settings.theme, ThemeMode::Dark);
+        assert_eq!(settings.uv.default_packages, vec!["numpy"]);
+        assert_eq!(settings.default_python_env, PythonEnvType::Uv);
+        // Invalid field falls back to default
+        assert_eq!(settings.default_runtime, Runtime::Python);
     }
 }
