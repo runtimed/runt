@@ -44,6 +44,24 @@ See the `contributing/` directory for detailed guides:
 - `contributing/nteract-elements.md` - Working with nteract/elements registry
 - `contributing/ui.md` - UI components and shadcn setup
 
+## Runtime Daemon (`runtimed`)
+
+The notebook app connects to a background daemon (`runtimed`) that manages prewarmed environments, settings sync, and notebook document sync. The daemon runs as a system service (`io.runtimed` on macOS).
+
+**Important:** The daemon is a separate process from the notebook app. When you change code in `crates/runtimed/`, the running daemon still uses the old binary until you reinstall it. This is a common source of "it works in tests but not in the app" confusion.
+
+```bash
+# Reinstall daemon with your changes (builds release, stops old, copies, restarts)
+cargo xtask install-daemon
+
+# Or manually:
+./target/debug/runtimed stop && ./target/debug/runtimed uninstall && ./target/debug/runtimed install
+```
+
+`cargo xtask dev` and `cargo xtask build` do **not** reinstall the daemon. If you're changing daemon code (settings, sync, environments), you must run `cargo xtask install-daemon` separately to test your changes.
+
+See `docs/runtimed.md` for service management and troubleshooting.
+
 ## Environment Management
 
 Runt supports multiple environment backends (UV, Conda) and project file formats (pyproject.toml, environment.yml, pixi.toml). See `contributing/environments.md` for the full architecture and `docs/environments.md` for the user-facing guide.
