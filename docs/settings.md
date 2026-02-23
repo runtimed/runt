@@ -73,20 +73,6 @@ Example:
 
 The settings structs derive `schemars::JsonSchema`. Both `SyncedSettings` (in runtimed) and `AppSettings` (in the notebook crate) serialize to the same JSON schema.
 
-### Backward Compatibility
-
-For backward compatibility, the old flat format is accepted when reading:
-
-```json
-{
-  "default_runtime": "python",
-  "default_uv_packages": "numpy, pandas, matplotlib",
-  "default_conda_packages": ["scipy"]
-}
-```
-
-Old flat keys (`default_uv_packages`, `default_conda_packages`) and comma-separated strings are migrated to the nested format on first load.
-
 ## Theme
 
 Controls light/dark appearance for the notebook editor and output viewer.

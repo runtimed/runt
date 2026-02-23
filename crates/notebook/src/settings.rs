@@ -95,71 +95,15 @@ fn settings_path() -> PathBuf {
 }
 
 /// Load settings from disk, returning defaults if file doesn't exist.
-///
-/// Handles backward compatibility with the old flat format
-/// (`default_uv_packages`, `default_conda_packages`).
 pub fn load_settings() -> AppSettings {
     let path = settings_path();
-    if !path.exists() {
-        return AppSettings::default();
-    }
-
-    let contents = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(_) => return AppSettings::default(),
-    };
-
-    // Parse as raw JSON first for backward compat migration
-    let json: serde_json::Value = match serde_json::from_str(&contents) {
-        Ok(j) => j,
-        Err(_) => return AppSettings::default(),
-    };
-
-    // Deserialize normally (handles new nested format)
-    let mut settings: AppSettings = serde_json::from_value(json.clone()).unwrap_or_default();
-
-    // Backward compat: migrate old flat package keys if nested fields are empty
-    if settings.uv.default_packages.is_empty() {
-        if let Some(pkgs) = extract_flat_packages(&json, "default_uv_packages") {
-            settings.uv.default_packages = pkgs;
-        }
-    }
-    if settings.conda.default_packages.is_empty() {
-        if let Some(pkgs) = extract_flat_packages(&json, "default_conda_packages") {
-            settings.conda.default_packages = pkgs;
-        }
-    }
-
-    settings
-}
-
-/// Extract packages from an old flat key (comma-separated string or array).
-fn extract_flat_packages(json: &serde_json::Value, key: &str) -> Option<Vec<String>> {
-    match json.get(key) {
-        Some(serde_json::Value::String(s)) => {
-            let pkgs: Vec<String> = s
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            if pkgs.is_empty() {
-                None
-            } else {
-                Some(pkgs)
-            }
-        }
-        Some(serde_json::Value::Array(arr)) => {
-            let pkgs: Vec<String> = arr
-                .iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect();
-            if pkgs.is_empty() {
-                None
-            } else {
-                Some(pkgs)
-            }
-        }
-        _ => None,
+    if path.exists() {
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    } else {
+        AppSettings::default()
     }
 }
 
@@ -209,70 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_old_flat_format() {
-        // Old flat format with comma-separated strings
-        let json = r#"{
-            "default_runtime": "python",
-            "default_python_env": "uv",
-            "default_uv_packages": "numpy, pandas, matplotlib",
-            "default_conda_packages": "scipy"
-        }"#;
-        // The flat keys are unknown to serde, so they'll be ignored.
-        // We handle them in load_settings() via extract_flat_packages.
-        let value: serde_json::Value = serde_json::from_str(json).unwrap();
-        let mut settings: AppSettings = serde_json::from_value(value.clone()).unwrap_or_default();
-
-        // Simulate load_settings() migration
-        if settings.uv.default_packages.is_empty() {
-            if let Some(pkgs) = extract_flat_packages(&value, "default_uv_packages") {
-                settings.uv.default_packages = pkgs;
-            }
-        }
-        if settings.conda.default_packages.is_empty() {
-            if let Some(pkgs) = extract_flat_packages(&value, "default_conda_packages") {
-                settings.conda.default_packages = pkgs;
-            }
-        }
-
-        assert_eq!(
-            settings.uv.default_packages,
-            vec!["numpy", "pandas", "matplotlib"]
-        );
-        assert_eq!(settings.conda.default_packages, vec!["scipy"]);
-    }
-
-    #[test]
-    fn test_deserialize_old_flat_array_format() {
-        // Old flat format with array values
-        let json = r#"{
-            "default_runtime": "python",
-            "default_python_env": "uv",
-            "default_uv_packages": ["numpy", "pandas"],
-            "default_conda_packages": ["scipy", "scikit-learn"]
-        }"#;
-        let value: serde_json::Value = serde_json::from_str(json).unwrap();
-        let mut settings: AppSettings = serde_json::from_value(value.clone()).unwrap_or_default();
-
-        if settings.uv.default_packages.is_empty() {
-            if let Some(pkgs) = extract_flat_packages(&value, "default_uv_packages") {
-                settings.uv.default_packages = pkgs;
-            }
-        }
-        if settings.conda.default_packages.is_empty() {
-            if let Some(pkgs) = extract_flat_packages(&value, "default_conda_packages") {
-                settings.conda.default_packages = pkgs;
-            }
-        }
-
-        assert_eq!(settings.uv.default_packages, vec!["numpy", "pandas"]);
-        assert_eq!(
-            settings.conda.default_packages,
-            vec!["scipy", "scikit-learn"]
-        );
-    }
-
-    #[test]
-    fn test_deserialize_new_nested_format() {
+    fn test_deserialize_nested_format() {
         let json = r#"{
             "theme": "dark",
             "default_runtime": "python",
