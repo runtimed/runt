@@ -51,6 +51,10 @@ impl BlobStore {
     /// Returns the SHA-256 hex hash of the raw bytes.
     /// Rejects data larger than 100 MiB.
     /// Idempotent: if the blob already exists, returns the hash without writing.
+    ///
+    /// Concurrent puts of identical content are safe: if another writer places
+    /// the blob or metadata first (e.g. `rename` fails with `AlreadyExists` on
+    /// Windows), we detect the existing file and return `Ok(hash)`.
     pub async fn put(&self, data: &[u8], media_type: &str) -> io::Result<String> {
         if data.len() > MAX_BLOB_SIZE {
             return Err(io::Error::new(
@@ -66,43 +70,70 @@ impl BlobStore {
         let hash = hex::encode(Sha256::digest(data));
         let (shard_dir, blob_path, meta_path) = self.paths(&hash);
 
-        // Idempotent: skip if both files already exist
+        // Fast path: both files already present — nothing to do.
         if blob_path.exists() && meta_path.exists() {
             return Ok(hash);
         }
 
         tokio::fs::create_dir_all(&shard_dir).await?;
 
-        // Write blob to temp file, then atomic rename
+        // --- Blob ---
+        // Write to a temp file and atomically rename into place.
+        // On Windows `rename` fails with AlreadyExists when the target exists,
+        // so a concurrent put of the same content can race here. Since the hash
+        // is derived from the bytes, any existing file with the same name has
+        // identical content — we just need to ensure the metadata sidecar exists.
+        let we_wrote_blob;
         let tmp_blob = shard_dir.join(format!(".tmp.{}", uuid::Uuid::new_v4()));
-        if let Err(e) = async {
+        match async {
             tokio::fs::write(&tmp_blob, data).await?;
             tokio::fs::rename(&tmp_blob, &blob_path).await
         }
         .await
         {
-            tokio::fs::remove_file(&tmp_blob).await.ok();
-            return Err(e);
+            Ok(()) => {
+                we_wrote_blob = true;
+            }
+            Err(e) => {
+                tokio::fs::remove_file(&tmp_blob).await.ok();
+                if blob_path.exists() {
+                    // Concurrent writer placed the blob — proceed to metadata.
+                    we_wrote_blob = false;
+                } else {
+                    return Err(e);
+                }
+            }
         }
 
-        // Write metadata sidecar (also via temp + rename)
+        // --- Metadata sidecar ---
         let meta = BlobMeta {
             media_type: media_type.to_string(),
             size: data.len() as u64,
             created_at: Utc::now(),
         };
-        let meta_json =
-            serde_json::to_string(&meta).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        let meta_json = serde_json::to_string(&meta).map_err(io::Error::other)?;
 
         let tmp_meta = shard_dir.join(format!(".tmp.{}.meta", uuid::Uuid::new_v4()));
-        if let Err(e) = async {
+        match async {
             tokio::fs::write(&tmp_meta, meta_json).await?;
             tokio::fs::rename(&tmp_meta, &meta_path).await
         }
         .await
         {
-            tokio::fs::remove_file(&tmp_meta).await.ok();
-            return Err(e);
+            Ok(()) => {}
+            Err(e) => {
+                tokio::fs::remove_file(&tmp_meta).await.ok();
+                if meta_path.exists() {
+                    // Concurrent writer placed metadata — done.
+                    return Ok(hash);
+                }
+                // Metadata write truly failed. If *we* created the blob (not a
+                // concurrent writer), remove it to avoid leaving orphaned data.
+                if we_wrote_blob {
+                    tokio::fs::remove_file(&blob_path).await.ok();
+                }
+                return Err(e);
+            }
         }
 
         Ok(hash)

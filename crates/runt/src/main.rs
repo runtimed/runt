@@ -953,11 +953,22 @@ async fn pool_command(command: PoolCommands) -> Result<()> {
 
             match get_running_daemon_info() {
                 Some(info) => {
+                    // Verify the daemon is actually responding, not just a stale
+                    // daemon.json left behind after a crash.
+                    let alive = client.ping().await.is_ok();
+
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&info)?);
+                        let mut val = serde_json::to_value(&info)?;
+                        val.as_object_mut()
+                            .unwrap()
+                            .insert("alive".into(), serde_json::Value::Bool(alive));
+                        println!("{}", serde_json::to_string_pretty(&val)?);
                     } else {
                         println!("Pool Daemon Info");
                         println!("================");
+                        if !alive {
+                            println!("Status:     STALE (daemon not responding)");
+                        }
                         println!("PID:        {}", info.pid);
                         println!("Version:    {}", info.version);
                         println!("Socket:     {}", info.endpoint);
@@ -971,6 +982,9 @@ async fn pool_command(command: PoolCommands) -> Result<()> {
                         let secs = uptime.num_seconds() % 60;
                         println!("Started:    {}", info.started_at);
                         println!("Uptime:     {}h {}m {}s", hours, mins, secs);
+                    }
+                    if !alive {
+                        std::process::exit(1);
                     }
                 }
                 None => {
