@@ -1,6 +1,6 @@
 [package]
 name = "sidecar"
-version = "1.2.0"
+version = "1.3.0"
 edition.workspace = true
 description = "Sidecar jupyter outputs — install via GitHub Releases or `pip install runtimed`, not crates.io"
 repository.workspace = true
