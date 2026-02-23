@@ -10,7 +10,8 @@
 //! - `GET /health` — 200 OK
 //!
 //! The server binds `127.0.0.1:0` (OS-assigned random port) and runs on
-//! the caller's tokio runtime.
+//! the caller's tokio runtime. It shuts down when the process exits; no
+//! explicit cancellation is implemented yet.
 
 use std::convert::Infallible;
 use std::sync::Arc;

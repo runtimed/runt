@@ -231,6 +231,13 @@ impl Daemon {
             if self.config.socket_path.exists() {
                 tokio::fs::remove_file(&self.config.socket_path).await?;
             }
+
+            // Clean up obsolete sync socket from pre-unification daemons
+            let sync_sock = self.config.socket_path.with_file_name("runtimed-sync.sock");
+            if sync_sock.exists() {
+                info!("[runtimed] Removing obsolete sync socket: {:?}", sync_sock);
+                tokio::fs::remove_file(&sync_sock).await.ok();
+            }
         }
 
         // Start the blob HTTP server
