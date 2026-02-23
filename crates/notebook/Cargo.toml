@@ -49,6 +49,7 @@ serde_yaml = "0.9"
 pathdiff = "0.2"
 pyproject-toml = "0.13"
 schemars = { workspace = true }
+ts-rs = { workspace = true }
 
 # Conda environment support via rattler
 rattler = "0.39"

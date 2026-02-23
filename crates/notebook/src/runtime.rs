@@ -2,10 +2,12 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Supported notebook runtime environments
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema, TS)]
 #[serde(rename_all = "lowercase")]
+#[ts(export)]
 pub enum Runtime {
     #[default]
     Python,

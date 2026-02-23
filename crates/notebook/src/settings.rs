@@ -10,14 +10,16 @@
 
 use crate::runtime::Runtime;
 use anyhow::Result;
-use runtimed::settings_doc::{CondaDefaults, UvDefaults};
+use runtimed::settings_doc::{CondaDefaults, ThemeMode, UvDefaults};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use ts_rs::TS;
 
 /// Python environment type for dependency management
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema, TS)]
 #[serde(rename_all = "lowercase")]
+#[ts(export)]
 pub enum PythonEnvType {
     /// Use uv for Python package management (fast, pip-compatible)
     #[default]
@@ -47,11 +49,11 @@ impl std::fmt::Display for PythonEnvType {
 ///   "conda": { "default_packages": [] }
 /// }
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct AppSettings {
-    /// UI theme: "system", "light", or "dark"
-    #[serde(default = "default_theme")]
-    pub theme: String,
+    /// UI theme
+    #[serde(default)]
+    pub theme: ThemeMode,
 
     /// Default runtime for new notebooks (used by Cmd+N)
     #[serde(default)]
@@ -68,22 +70,6 @@ pub struct AppSettings {
     /// Conda environment defaults
     #[serde(default)]
     pub conda: CondaDefaults,
-}
-
-fn default_theme() -> String {
-    "system".to_string()
-}
-
-impl Default for AppSettings {
-    fn default() -> Self {
-        Self {
-            theme: default_theme(),
-            default_runtime: Runtime::Python,
-            default_python_env: PythonEnvType::Uv,
-            uv: UvDefaults::default(),
-            conda: CondaDefaults::default(),
-        }
-    }
 }
 
 /// Get the path to the settings file
@@ -125,7 +111,7 @@ mod tests {
     #[test]
     fn test_default_settings() {
         let settings = AppSettings::default();
-        assert_eq!(settings.theme, "system");
+        assert_eq!(settings.theme, ThemeMode::System);
         assert_eq!(settings.default_runtime, Runtime::Python);
         assert_eq!(settings.default_python_env, PythonEnvType::Uv);
         assert!(settings.uv.default_packages.is_empty());
@@ -135,7 +121,7 @@ mod tests {
     #[test]
     fn test_settings_serde_nested_format() {
         let settings = AppSettings {
-            theme: "dark".to_string(),
+            theme: ThemeMode::Dark,
             default_runtime: Runtime::Deno,
             default_python_env: PythonEnvType::Uv,
             uv: UvDefaults {
@@ -147,7 +133,7 @@ mod tests {
         let json = serde_json::to_string(&settings).unwrap();
         let parsed: AppSettings = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(parsed.theme, "dark");
+        assert_eq!(parsed.theme, ThemeMode::Dark);
         assert_eq!(parsed.default_runtime, Runtime::Deno);
         assert_eq!(parsed.default_python_env, PythonEnvType::Uv);
         assert_eq!(parsed.uv.default_packages, vec!["numpy", "pandas"]);
@@ -163,7 +149,7 @@ mod tests {
             "conda": { "default_packages": ["scipy"] }
         }"#;
         let parsed: AppSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(parsed.theme, "dark");
+        assert_eq!(parsed.theme, ThemeMode::Dark);
         assert_eq!(parsed.uv.default_packages, vec!["numpy", "pandas"]);
         assert_eq!(parsed.conda.default_packages, vec!["scipy"]);
     }
@@ -172,7 +158,7 @@ mod tests {
     fn test_deserialize_missing_fields_defaults() {
         let json = r#"{"default_runtime": "python"}"#;
         let parsed: AppSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(parsed.theme, "system");
+        assert_eq!(parsed.theme, ThemeMode::System);
         assert!(parsed.uv.default_packages.is_empty());
         assert!(parsed.conda.default_packages.is_empty());
     }
@@ -201,7 +187,7 @@ mod tests {
     #[test]
     fn test_serialized_format_matches_synced_settings() {
         let settings = AppSettings {
-            theme: "dark".to_string(),
+            theme: ThemeMode::Dark,
             default_runtime: Runtime::Python,
             default_python_env: PythonEnvType::Uv,
             uv: UvDefaults {

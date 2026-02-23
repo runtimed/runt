@@ -47,6 +47,9 @@ automerge = "0.7"
 # JSON Schema generation
 schemars = { workspace = true }
 
+# TypeScript type generation
+ts-rs = { workspace = true }
+
 # File watching for external settings.json changes
 notify = { workspace = true }
 notify-debouncer-mini = { workspace = true }

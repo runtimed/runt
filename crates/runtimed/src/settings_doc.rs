@@ -27,23 +27,51 @@ use automerge::{AutoCommit, AutomergeError, ObjId, ObjType, ReadDoc};
 use log::info;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+/// UI theme mode for the notebook editor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum ThemeMode {
+    /// Follow the OS preference and update automatically
+    #[default]
+    System,
+    /// Force light mode
+    Light,
+    /// Force dark mode
+    Dark,
+}
+
+impl std::fmt::Display for ThemeMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ThemeMode::System => write!(f, "system"),
+            ThemeMode::Light => write!(f, "light"),
+            ThemeMode::Dark => write!(f, "dark"),
+        }
+    }
+}
 
 /// Default packages for uv environments.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
+#[ts(export)]
 pub struct UvDefaults {
     pub default_packages: Vec<String>,
 }
 
 /// Default packages for conda environments.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
+#[ts(export)]
 pub struct CondaDefaults {
     pub default_packages: Vec<String>,
 }
 
 /// Snapshot of all synced settings.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
+#[ts(export)]
 pub struct SyncedSettings {
-    pub theme: String,
+    pub theme: ThemeMode,
     pub default_runtime: String,
     pub default_python_env: String,
     pub uv: UvDefaults,
@@ -53,7 +81,7 @@ pub struct SyncedSettings {
 impl Default for SyncedSettings {
     fn default() -> Self {
         Self {
-            theme: "system".to_string(),
+            theme: ThemeMode::default(),
             default_runtime: "python".to_string(),
             default_python_env: "uv".to_string(),
             uv: UvDefaults::default(),
@@ -77,7 +105,7 @@ impl SettingsDoc {
         let defaults = SyncedSettings::default();
 
         // Root-level scalars
-        let _ = doc.put(automerge::ROOT, "theme", defaults.theme);
+        let _ = doc.put(automerge::ROOT, "theme", defaults.theme.to_string());
         let _ = doc.put(automerge::ROOT, "default_runtime", defaults.default_runtime);
         let _ = doc.put(
             automerge::ROOT,
@@ -390,7 +418,10 @@ impl SettingsDoc {
         };
 
         SyncedSettings {
-            theme: self.get("theme").unwrap_or(defaults.theme),
+            theme: self
+                .get("theme")
+                .and_then(|s| serde_json::from_str::<ThemeMode>(&format!("\"{s}\"")).ok())
+                .unwrap_or(defaults.theme),
             default_runtime: self
                 .get("default_runtime")
                 .unwrap_or(defaults.default_runtime),
@@ -527,7 +558,7 @@ mod tests {
     fn test_new_has_defaults() {
         let doc = SettingsDoc::new();
         let settings = doc.get_all();
-        assert_eq!(settings.theme, "system");
+        assert_eq!(settings.theme, ThemeMode::System);
         assert_eq!(settings.default_runtime, "python");
         assert_eq!(settings.default_python_env, "uv");
         assert!(settings.uv.default_packages.is_empty());
@@ -669,7 +700,7 @@ mod tests {
         let loaded = SettingsDoc::load_or_create(&path, None);
         let settings = loaded.get_all();
 
-        assert_eq!(settings.theme, "dark");
+        assert_eq!(settings.theme, ThemeMode::Dark);
         assert_eq!(
             settings.uv.default_packages,
             vec!["numpy", "pandas", "matplotlib"]

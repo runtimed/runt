@@ -19,16 +19,13 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import type {
-  PythonEnvMode,
-  RuntimeMode,
+  PythonEnvType,
+  Runtime,
   ThemeMode,
 } from "@/hooks/useSyncedSettings";
 import { cn } from "@/lib/utils";
 import type { EnvProgressState } from "../hooks/useEnvProgress";
 import type { KernelspecInfo } from "../types";
-
-/** Notebook runtime type */
-export type Runtime = "python" | "deno";
 
 /** Deno logo icon (from tabler icons) */
 function DenoIcon({ className }: { className?: string }) {
@@ -155,10 +152,10 @@ interface NotebookToolbarProps {
   envProgress: EnvProgressState | null;
   runtime?: Runtime;
   onThemeChange: (theme: ThemeMode) => void;
-  defaultRuntime?: RuntimeMode;
-  onDefaultRuntimeChange?: (runtime: RuntimeMode) => void;
-  defaultPythonEnv?: PythonEnvMode;
-  onDefaultPythonEnvChange?: (env: PythonEnvMode) => void;
+  defaultRuntime?: Runtime;
+  onDefaultRuntimeChange?: (runtime: Runtime) => void;
+  defaultPythonEnv?: PythonEnvType;
+  onDefaultPythonEnvChange?: (env: PythonEnvType) => void;
   defaultUvPackages?: string[];
   onDefaultUvPackagesChange?: (packages: string[]) => void;
   defaultCondaPackages?: string[];
