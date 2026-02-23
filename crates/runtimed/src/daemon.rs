@@ -3,7 +3,7 @@
 //! The daemon manages prewarmed environment pools and handles requests from
 //! notebook windows via IPC (Unix domain sockets on Unix, named pipes on Windows).
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -25,6 +25,7 @@ use tokio::sync::RwLock;
 use crate::blob_server;
 use crate::blob_store::BlobStore;
 use crate::connection::{self, Handshake};
+use crate::notebook_sync_server::NotebookRooms;
 use crate::protocol::{BlobRequest, BlobResponse, Request, Response};
 use crate::settings_doc::SettingsDoc;
 use crate::singleton::{DaemonInfo, DaemonLock};
@@ -41,6 +42,8 @@ pub struct DaemonConfig {
     pub cache_dir: PathBuf,
     /// Directory for the content-addressed blob store.
     pub blob_store_dir: PathBuf,
+    /// Directory for persisted notebook Automerge documents.
+    pub notebook_docs_dir: PathBuf,
     /// Target number of UV environments to maintain.
     pub uv_pool_size: usize,
     /// Target number of Conda environments to maintain.
@@ -57,6 +60,7 @@ impl Default for DaemonConfig {
             socket_path: default_socket_path(),
             cache_dir: default_cache_dir(),
             blob_store_dir: default_blob_store_dir(),
+            notebook_docs_dir: crate::default_notebook_docs_dir(),
             uv_pool_size: 3,
             conda_pool_size: 3,
             max_age_secs: 172800, // 2 days
@@ -171,6 +175,8 @@ pub struct Daemon {
     blob_store: Arc<BlobStore>,
     /// HTTP port for the blob server (set after startup).
     blob_port: Mutex<Option<u16>>,
+    /// Per-notebook Automerge sync rooms.
+    notebook_rooms: NotebookRooms,
 }
 
 /// Error returned when another daemon is already running.
@@ -214,6 +220,7 @@ impl Daemon {
             settings_changed,
             blob_store,
             blob_port: Mutex::new(None),
+            notebook_rooms: Arc::new(Mutex::new(HashMap::new())),
         }))
     }
 
@@ -636,11 +643,25 @@ impl Daemon {
                 .await
             }
             Handshake::NotebookSync { notebook_id } => {
-                info!(
-                    "[runtimed] NotebookSync requested for {} (stub)",
-                    notebook_id
-                );
-                Ok(())
+                info!("[runtimed] NotebookSync requested for {}", notebook_id);
+                let docs_dir = self.config.notebook_docs_dir.clone();
+                let room = {
+                    let mut rooms = self.notebook_rooms.lock().await;
+                    crate::notebook_sync_server::get_or_create_room(
+                        &mut rooms,
+                        &notebook_id,
+                        &docs_dir,
+                    )
+                };
+                let (reader, writer) = tokio::io::split(stream);
+                crate::notebook_sync_server::handle_notebook_sync_connection(
+                    reader,
+                    writer,
+                    room,
+                    self.notebook_rooms.clone(),
+                    notebook_id,
+                )
+                .await
             }
             Handshake::Blob => self.handle_blob_connection(stream).await,
         }
