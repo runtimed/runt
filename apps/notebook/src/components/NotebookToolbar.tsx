@@ -18,11 +18,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import type {
-  PythonEnvType,
-  Runtime,
-  ThemeMode,
-} from "@/hooks/useSyncedSettings";
+import type { ThemeMode } from "@/hooks/useSyncedSettings";
+import { isKnownPythonEnv, isKnownRuntime } from "@/hooks/useSyncedSettings";
 import { cn } from "@/lib/utils";
 import type { EnvProgressState } from "../hooks/useEnvProgress";
 import type { KernelspecInfo } from "../types";
@@ -150,12 +147,12 @@ interface NotebookToolbarProps {
   hasDependencies: boolean;
   theme: ThemeMode;
   envProgress: EnvProgressState | null;
-  runtime?: Runtime;
+  runtime?: string;
   onThemeChange: (theme: ThemeMode) => void;
-  defaultRuntime?: Runtime;
-  onDefaultRuntimeChange?: (runtime: Runtime) => void;
-  defaultPythonEnv?: PythonEnvType;
-  onDefaultPythonEnvChange?: (env: PythonEnvType) => void;
+  defaultRuntime?: string;
+  onDefaultRuntimeChange?: (runtime: string) => void;
+  defaultPythonEnv?: string;
+  onDefaultPythonEnvChange?: (env: string) => void;
   defaultUvPackages?: string[];
   onDefaultUvPackagesChange?: (packages: string[]) => void;
   defaultCondaPackages?: string[];
@@ -643,41 +640,48 @@ export function NotebookToolbar({
 
               {/* Default Runtime */}
               {onDefaultRuntimeChange && (
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    Default Runtime
-                  </span>
-                  <div
-                    className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5"
-                    data-testid="settings-runtime-group"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => onDefaultRuntimeChange("python")}
-                      className={cn(
-                        "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
-                        defaultRuntime === "python"
-                          ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 shadow-sm"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      Default Runtime
+                    </span>
+                    <div
+                      className="flex items-center gap-1 rounded-md border bg-muted/50 p-0.5"
+                      data-testid="settings-runtime-group"
                     >
-                      <PythonIcon className="h-3.5 w-3.5" />
-                      Python
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDefaultRuntimeChange("deno")}
-                      className={cn(
-                        "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
-                        defaultRuntime === "deno"
-                          ? "bg-teal-500/15 text-teal-600 dark:text-teal-400 shadow-sm"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      <DenoIcon className="h-3.5 w-3.5" />
-                      Deno
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => onDefaultRuntimeChange("python")}
+                        className={cn(
+                          "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
+                          defaultRuntime === "python"
+                            ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 shadow-sm"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        <PythonIcon className="h-3.5 w-3.5" />
+                        Python
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDefaultRuntimeChange("deno")}
+                        className={cn(
+                          "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs transition-colors",
+                          defaultRuntime === "deno"
+                            ? "bg-teal-500/15 text-teal-600 dark:text-teal-400 shadow-sm"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        <DenoIcon className="h-3.5 w-3.5" />
+                        Deno
+                      </button>
+                    </div>
                   </div>
+                  {defaultRuntime && !isKnownRuntime(defaultRuntime) && (
+                    <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                      Unknown runtime: &ldquo;{defaultRuntime}&rdquo;
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -736,6 +740,13 @@ export function NotebookToolbar({
                           Conda
                         </button>
                       </div>
+                      {defaultPythonEnv &&
+                        !isKnownPythonEnv(defaultPythonEnv) && (
+                          <p className="text-[11px] text-amber-600 dark:text-amber-400 col-span-2">
+                            Unknown environment: &ldquo;{defaultPythonEnv}
+                            &rdquo;
+                          </p>
+                        )}
                     </>
                   )}
 

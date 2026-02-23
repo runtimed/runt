@@ -56,15 +56,46 @@ impl std::fmt::Display for ThemeMode {
 use crate::runtime::Runtime;
 
 /// Python environment type for dependency management.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema, TS)]
-#[serde(rename_all = "lowercase")]
+///
+/// Unknown values are captured in the `Other` variant so they survive
+/// serialization round-trips across branches that add new env types.
+#[derive(Debug, Clone, PartialEq, Eq, Default, TS)]
 #[ts(export)]
+#[ts(type = "\"uv\" | \"conda\" | (string & {})")]
 pub enum PythonEnvType {
     /// Use uv for Python package management (fast, pip-compatible)
     #[default]
     Uv,
     /// Use conda/rattler for Python package management (supports conda packages)
     Conda,
+    /// An unrecognized env type value, preserved for round-tripping.
+    Other(String),
+}
+
+impl serde::Serialize for PythonEnvType {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for PythonEnvType {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        Ok(s.parse().expect("FromStr for PythonEnvType is infallible"))
+    }
+}
+
+impl JsonSchema for PythonEnvType {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "PythonEnvType".into()
+    }
+
+    fn json_schema(_gen: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "enum": ["uv", "conda"]
+        })
+    }
 }
 
 impl std::fmt::Display for PythonEnvType {
@@ -72,19 +103,20 @@ impl std::fmt::Display for PythonEnvType {
         match self {
             PythonEnvType::Uv => write!(f, "uv"),
             PythonEnvType::Conda => write!(f, "conda"),
+            PythonEnvType::Other(s) => write!(f, "{}", s),
         }
     }
 }
 
 impl std::str::FromStr for PythonEnvType {
-    type Err = String;
+    type Err = std::convert::Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "uv" => Ok(PythonEnvType::Uv),
-            "conda" => Ok(PythonEnvType::Conda),
-            _ => Err(format!("Unknown python env type: {}", s)),
-        }
+        Ok(match s.to_lowercase().as_str() {
+            "uv" => PythonEnvType::Uv,
+            "conda" => PythonEnvType::Conda,
+            _ => PythonEnvType::Other(s.to_string()),
+        })
     }
 }
 
