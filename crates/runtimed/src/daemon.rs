@@ -395,7 +395,10 @@ impl Daemon {
             }
             parent.to_path_buf()
         } else {
-            error!("[settings-watch] Cannot determine watch path for {:?}", json_path);
+            error!(
+                "[settings-watch] Cannot determine watch path for {:?}",
+                json_path
+            );
             return;
         };
 
@@ -426,7 +429,10 @@ impl Daemon {
             return;
         }
 
-        info!("[settings-watch] Watching {:?} for external changes", watch_path);
+        info!(
+            "[settings-watch] Watching {:?} for external changes",
+            watch_path
+        );
 
         loop {
             tokio::select! {

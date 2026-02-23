@@ -296,11 +296,10 @@ fn cmd_install_daemon() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&install_path, fs::Permissions::from_mode(0o755))
-            .unwrap_or_else(|e| {
-                eprintln!("Failed to set permissions: {e}");
-                exit(1);
-            });
+        fs::set_permissions(&install_path, fs::Permissions::from_mode(0o755)).unwrap_or_else(|e| {
+            eprintln!("Failed to set permissions: {e}");
+            exit(1);
+        });
     }
 
     println!("Installed to {}", install_path.display());

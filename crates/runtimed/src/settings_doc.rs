@@ -460,8 +460,7 @@ impl SettingsDoc {
         // UV packages — try nested format, then flat format
         let has_uv_key = json.get("uv").is_some() || json.get("default_uv_packages").is_some();
         if has_uv_key {
-            let uv_packages =
-                Self::extract_packages_from_json(json, "uv", "default_uv_packages");
+            let uv_packages = Self::extract_packages_from_json(json, "uv", "default_uv_packages");
             if self.get_list("uv.default_packages") != uv_packages {
                 self.put_list("uv.default_packages", &uv_packages);
                 changed = true;
