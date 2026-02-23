@@ -465,6 +465,7 @@ export function NotebookToolbar({
             type="button"
             onClick={onToggleDependencies}
             data-testid="deps-toggle"
+            data-runtime={runtime}
             className={cn(
               "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors",
               runtime === "deno"
