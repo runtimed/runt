@@ -5,83 +5,23 @@
 //! - Linux: ~/.config/runt-notebook/settings.json
 //! - Windows: C:\Users\<User>\AppData\Roaming\runt-notebook\settings.json
 //!
-//! The JSON schema matches `runtimed::settings_doc::SyncedSettings` so both
-//! the daemon and the notebook write the same format to settings.json.
+//! Uses `runtimed::settings_doc::SyncedSettings` as the canonical settings type.
 
-use crate::runtime::Runtime;
 use anyhow::Result;
-use runtimed::settings_doc::{CondaDefaults, ThemeMode, UvDefaults};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use runtimed::settings_doc::SyncedSettings;
 use std::path::PathBuf;
-use ts_rs::TS;
 
-/// Python environment type for dependency management
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export)]
-pub enum PythonEnvType {
-    /// Use uv for Python package management (fast, pip-compatible)
-    #[default]
-    Uv,
-    /// Use conda/rattler for Python package management (supports conda packages)
-    Conda,
-}
-
-impl std::fmt::Display for PythonEnvType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PythonEnvType::Uv => write!(f, "uv"),
-            PythonEnvType::Conda => write!(f, "conda"),
-        }
-    }
-}
-
-/// Application settings for notebook preferences.
-///
-/// Serializes to the same nested JSON schema as `SyncedSettings`:
-/// ```json
-/// {
-///   "theme": "system",
-///   "default_runtime": "python",
-///   "default_python_env": "uv",
-///   "uv": { "default_packages": ["numpy"] },
-///   "conda": { "default_packages": [] }
-/// }
-/// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
-pub struct AppSettings {
-    /// UI theme
-    #[serde(default)]
-    pub theme: ThemeMode,
-
-    /// Default runtime for new notebooks (used by Cmd+N)
-    #[serde(default)]
-    pub default_runtime: Runtime,
-
-    /// Default Python environment type (uv or conda)
-    #[serde(default)]
-    pub default_python_env: PythonEnvType,
-
-    /// UV environment defaults
-    #[serde(default)]
-    pub uv: UvDefaults,
-
-    /// Conda environment defaults
-    #[serde(default)]
-    pub conda: CondaDefaults,
-}
+// Re-export types that notebook code uses from runtimed
+pub use runtimed::runtime::Runtime;
+pub use runtimed::settings_doc::{CondaDefaults, PythonEnvType, ThemeMode, UvDefaults};
 
 /// Get the path to the settings file
 fn settings_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("runt-notebook")
-        .join("settings.json")
+    runtimed::settings_json_path()
 }
 
 /// Load settings from disk, returning defaults if file doesn't exist.
-pub fn load_settings() -> AppSettings {
+pub fn load_settings() -> SyncedSettings {
     let path = settings_path();
     if path.exists() {
         std::fs::read_to_string(&path)
@@ -89,17 +29,27 @@ pub fn load_settings() -> AppSettings {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default()
     } else {
-        AppSettings::default()
+        SyncedSettings::default()
     }
 }
 
-/// Save settings to disk
-pub fn save_settings(settings: &AppSettings) -> Result<()> {
+/// Save settings to disk.
+///
+/// Injects a `$schema` key pointing to the companion schema file so editors
+/// can provide autocomplete and validation.
+pub fn save_settings(settings: &SyncedSettings) -> Result<()> {
     let path = settings_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let json = serde_json::to_string_pretty(settings)?;
+    let mut json_value = serde_json::to_value(settings)?;
+    if let Some(obj) = json_value.as_object_mut() {
+        obj.insert(
+            "$schema".to_string(),
+            serde_json::Value::String("./settings.schema.json".to_string()),
+        );
+    }
+    let json = serde_json::to_string_pretty(&json_value)?;
     std::fs::write(&path, format!("{json}\n"))?;
     Ok(())
 }
@@ -110,7 +60,7 @@ mod tests {
 
     #[test]
     fn test_default_settings() {
-        let settings = AppSettings::default();
+        let settings = SyncedSettings::default();
         assert_eq!(settings.theme, ThemeMode::System);
         assert_eq!(settings.default_runtime, Runtime::Python);
         assert_eq!(settings.default_python_env, PythonEnvType::Uv);
@@ -120,7 +70,7 @@ mod tests {
 
     #[test]
     fn test_settings_serde_nested_format() {
-        let settings = AppSettings {
+        let settings = SyncedSettings {
             theme: ThemeMode::Dark,
             default_runtime: Runtime::Deno,
             default_python_env: PythonEnvType::Uv,
@@ -131,7 +81,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&settings).unwrap();
-        let parsed: AppSettings = serde_json::from_str(&json).unwrap();
+        let parsed: SyncedSettings = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed.theme, ThemeMode::Dark);
         assert_eq!(parsed.default_runtime, Runtime::Deno);
@@ -148,7 +98,7 @@ mod tests {
             "uv": { "default_packages": ["numpy", "pandas"] },
             "conda": { "default_packages": ["scipy"] }
         }"#;
-        let parsed: AppSettings = serde_json::from_str(json).unwrap();
+        let parsed: SyncedSettings = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.theme, ThemeMode::Dark);
         assert_eq!(parsed.uv.default_packages, vec!["numpy", "pandas"]);
         assert_eq!(parsed.conda.default_packages, vec!["scipy"]);
@@ -157,7 +107,7 @@ mod tests {
     #[test]
     fn test_deserialize_missing_fields_defaults() {
         let json = r#"{"default_runtime": "python"}"#;
-        let parsed: AppSettings = serde_json::from_str(json).unwrap();
+        let parsed: SyncedSettings = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.theme, ThemeMode::System);
         assert!(parsed.uv.default_packages.is_empty());
         assert!(parsed.conda.default_packages.is_empty());
@@ -185,31 +135,18 @@ mod tests {
     }
 
     #[test]
-    fn test_serialized_format_matches_synced_settings() {
-        let settings = AppSettings {
-            theme: ThemeMode::Dark,
-            default_runtime: Runtime::Python,
-            default_python_env: PythonEnvType::Uv,
-            uv: UvDefaults {
-                default_packages: vec!["numpy".into()],
-            },
-            conda: CondaDefaults {
-                default_packages: vec!["scipy".into()],
-            },
-        };
-
-        let json: serde_json::Value =
-            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
-
-        // Verify nested structure matches SyncedSettings
-        assert_eq!(json["theme"], "dark");
-        assert_eq!(json["default_runtime"], "python");
-        assert_eq!(json["default_python_env"], "uv");
-        assert_eq!(json["uv"]["default_packages"][0], "numpy");
-        assert_eq!(json["conda"]["default_packages"][0], "scipy");
-
-        // Verify no old flat keys
-        assert!(json.get("default_uv_packages").is_none());
-        assert!(json.get("default_conda_packages").is_none());
+    fn test_schema_key_in_json_ignored_during_deserialization() {
+        let json = r#"{
+            "$schema": "./settings.schema.json",
+            "theme": "dark",
+            "default_runtime": "deno",
+            "default_python_env": "conda",
+            "uv": { "default_packages": [] },
+            "conda": { "default_packages": [] }
+        }"#;
+        let parsed: SyncedSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.theme, ThemeMode::Dark);
+        assert_eq!(parsed.default_runtime, Runtime::Deno);
+        assert_eq!(parsed.default_python_env, PythonEnvType::Conda);
     }
 }

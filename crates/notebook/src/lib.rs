@@ -2882,7 +2882,7 @@ async fn check_formatter_available(
 
 /// Get app settings (default runtime, etc.)
 #[tauri::command]
-async fn get_settings() -> settings::AppSettings {
+async fn get_settings() -> runtimed::settings_doc::SyncedSettings {
     settings::load_settings()
 }
 
@@ -2925,14 +2925,7 @@ async fn get_synced_settings() -> Result<runtimed::settings_doc::SyncedSettings,
                 "[settings] Daemon unavailable ({}), falling back to settings.json",
                 e
             );
-            let local = settings::load_settings();
-            Ok(runtimed::settings_doc::SyncedSettings {
-                theme: local.theme,
-                default_runtime: local.default_runtime.to_string(),
-                default_python_env: local.default_python_env.to_string(),
-                uv: local.uv,
-                conda: local.conda,
-            })
+            Ok(settings::load_settings())
         }
     }
 }

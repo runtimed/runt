@@ -360,8 +360,12 @@ fn get_all_from_doc(doc: &AutoCommit) -> SyncedSettings {
         theme: get_str("theme")
             .and_then(|s| serde_json::from_str::<ThemeMode>(&format!("\"{s}\"")).ok())
             .unwrap_or(defaults.theme),
-        default_runtime: get_str("default_runtime").unwrap_or(defaults.default_runtime),
-        default_python_env: get_str("default_python_env").unwrap_or(defaults.default_python_env),
+        default_runtime: get_str("default_runtime")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default(),
+        default_python_env: get_str("default_python_env")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default(),
         uv: UvDefaults {
             default_packages: uv_packages,
         },
@@ -397,6 +401,8 @@ pub async fn try_get_synced_settings() -> Result<SyncedSettings, SyncClientError
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::Runtime;
+    use crate::settings_doc::{PythonEnvType, ThemeMode};
     use automerge::transaction::Transactable;
 
     #[test]
@@ -416,8 +422,8 @@ mod tests {
 
         let settings = get_all_from_doc(&doc);
         assert_eq!(settings.theme, ThemeMode::Dark);
-        assert_eq!(settings.default_runtime, "deno");
-        assert_eq!(settings.default_python_env, "conda");
+        assert_eq!(settings.default_runtime, Runtime::Deno);
+        assert_eq!(settings.default_python_env, PythonEnvType::Conda);
     }
 
     #[test]
