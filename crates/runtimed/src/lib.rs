@@ -16,6 +16,9 @@ pub mod blob_store;
 pub mod client;
 pub mod connection;
 pub mod daemon;
+pub mod notebook_doc;
+pub mod notebook_sync_client;
+pub mod notebook_sync_server;
 pub mod protocol;
 pub mod runtime;
 pub mod service;
@@ -118,4 +121,12 @@ pub fn settings_schema_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("runt-notebook")
         .join("settings.schema.json")
+}
+
+/// Get the default directory for persisted notebook Automerge documents.
+pub fn default_notebook_docs_dir() -> PathBuf {
+    dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("runt")
+        .join("notebook-docs")
 }
