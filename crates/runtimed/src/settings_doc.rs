@@ -315,16 +315,14 @@ impl SettingsDoc {
             std::fs::create_dir_all(parent)?;
         }
         let settings = self.get_all();
-        let mut json_value =
-            serde_json::to_value(&settings).map_err(std::io::Error::other)?;
+        let mut json_value = serde_json::to_value(&settings).map_err(std::io::Error::other)?;
         if let Some(obj) = json_value.as_object_mut() {
             obj.insert(
                 "$schema".to_string(),
                 serde_json::Value::String("./settings.schema.json".to_string()),
             );
         }
-        let json =
-            serde_json::to_string_pretty(&json_value).map_err(std::io::Error::other)?;
+        let json = serde_json::to_string_pretty(&json_value).map_err(std::io::Error::other)?;
         std::fs::write(path, format!("{json}\n"))
     }
 
