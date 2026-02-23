@@ -40,6 +40,7 @@ const FIXTURE_SPECS = [
   "conda-deps-panel.spec.js",
   "trust-decline.spec.js",
   "run-all-cells.spec.js",
+  "run-all-error-stops.spec.js",
   "iframe-isolation.spec.js",
   "settings-panel.spec.js",
   "deno-runtime.spec.js",

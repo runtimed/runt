@@ -316,6 +316,17 @@ impl NotebookKernel {
                             }
                         }
 
+                        // Check for error output to signal stop-on-error
+                        if let JupyterMessageContent::ErrorOutput(_) = &message.content {
+                            if let Some(ref cid) = cell_id {
+                                if let Some(ref tx) = queue_tx {
+                                    let _ = tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
+                                }
+                            }
+                        }
+
                         let tauri_msg = TauriJupyterMessage {
                             header: message.header,
                             parent_header: message.parent_header,
@@ -591,6 +602,17 @@ impl NotebookKernel {
                             }
                         }
 
+                        // Check for error output to signal stop-on-error
+                        if let JupyterMessageContent::ErrorOutput(_) = &message.content {
+                            if let Some(ref cid) = cell_id {
+                                if let Some(ref tx) = queue_tx {
+                                    let _ = tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
+                                }
+                            }
+                        }
+
                         let tauri_msg = TauriJupyterMessage {
                             header: message.header,
                             parent_header: message.parent_header,
@@ -857,6 +879,17 @@ impl NotebookKernel {
                                             cell_id: cid.clone(),
                                         });
                                     }
+                                }
+                            }
+                        }
+
+                        // Check for error output to signal stop-on-error
+                        if let JupyterMessageContent::ErrorOutput(_) = &message.content {
+                            if let Some(ref cid) = cell_id {
+                                if let Some(ref tx) = queue_tx {
+                                    let _ = tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
                                 }
                             }
                         }
@@ -1344,6 +1377,17 @@ impl NotebookKernel {
                             }
                         }
 
+                        // Check for error output to signal stop-on-error
+                        if let JupyterMessageContent::ErrorOutput(_) = &message.content {
+                            if let Some(ref cid) = cell_id {
+                                if let Some(ref tx) = queue_tx {
+                                    let _ = tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
+                                }
+                            }
+                        }
+
                         let tauri_msg = TauriJupyterMessage {
                             header: message.header,
                             parent_header: message.parent_header,
@@ -1584,6 +1628,17 @@ impl NotebookKernel {
                                             cell_id: cid.clone(),
                                         });
                                     }
+                                }
+                            }
+                        }
+
+                        // Check for error output to signal stop-on-error
+                        if let JupyterMessageContent::ErrorOutput(_) = &message.content {
+                            if let Some(ref cid) = cell_id {
+                                if let Some(ref tx) = queue_tx {
+                                    let _ = tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
                                 }
                             }
                         }
@@ -1862,6 +1917,17 @@ impl NotebookKernel {
                                             cell_id: cid.clone(),
                                         });
                                     }
+                                }
+                            }
+                        }
+
+                        // Check for error output to signal stop-on-error
+                        if let JupyterMessageContent::ErrorOutput(_) = &message.content {
+                            if let Some(ref cid) = cell_id {
+                                if let Some(ref tx) = queue_tx {
+                                    let _ = tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
                                 }
                             }
                         }
@@ -2176,6 +2242,17 @@ impl NotebookKernel {
                                             cell_id: cid.clone(),
                                         });
                                     }
+                                }
+                            }
+                        }
+
+                        // Check for error output to signal stop-on-error
+                        if let JupyterMessageContent::ErrorOutput(_) = &message.content {
+                            if let Some(ref cid) = cell_id {
+                                if let Some(ref tx) = queue_tx {
+                                    let _ = tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
                                 }
                             }
                         }

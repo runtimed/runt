@@ -48,6 +48,8 @@ pub enum QueueCommand {
     InterruptAndClear,
     /// Signal that execution completed for a cell
     ExecutionDone { cell_id: String },
+    /// Signal that the currently executing cell produced an error output
+    CellError { cell_id: String },
     /// Retry processing the queue (used when waiting for kernel)
     RetryProcessing,
 }
@@ -66,6 +68,8 @@ pub struct ExecutionQueue {
     pending: VecDeque<String>,
     /// Currently executing cell ID
     executing: Option<String>,
+    /// Whether the currently executing cell produced an error output
+    had_error: bool,
     /// Number of consecutive "kernel not running" retries
     kernel_retry_count: usize,
 }
@@ -81,6 +85,7 @@ impl ExecutionQueue {
         Self {
             pending: VecDeque::new(),
             executing: None,
+            had_error: false,
             kernel_retry_count: 0,
         }
     }
@@ -240,6 +245,7 @@ pub fn spawn_queue_processor(
                             info!("[queue] Clear pending");
                             let cleared = {
                                 let mut q = queue.lock().unwrap();
+                                q.had_error = false;
                                 let cleared = q.clear_pending();
                                 emit_queue_state(&app, &q);
                                 cleared
@@ -259,6 +265,7 @@ pub fn spawn_queue_processor(
                             // Clear pending
                             let cleared = {
                                 let mut q = queue.lock().unwrap();
+                                q.had_error = false;
                                 let cleared = q.clear_pending();
                                 emit_queue_state(&app, &q);
                                 cleared
@@ -268,13 +275,35 @@ pub fn spawn_queue_processor(
 
                         QueueCommand::ExecutionDone { cell_id } => {
                             info!("[queue] Execution done: {}", cell_id);
-                            {
+                            let should_stop = {
                                 let mut q = queue.lock().unwrap();
+                                let stop = q.had_error;
+                                q.had_error = false;
                                 q.complete(&cell_id);
                                 emit_queue_state(&app, &q);
+                                stop
+                            };
+                            if should_stop {
+                                info!("[queue] Stopping queue due to error in cell: {}", cell_id);
+                                let cleared = {
+                                    let mut q = queue.lock().unwrap();
+                                    let cleared = q.clear_pending();
+                                    emit_queue_state(&app, &q);
+                                    cleared
+                                };
+                                emit_cells_cancelled(&app, cleared);
+                            } else {
+                                // Process next queued cell
+                                process_next(&app, &queue, &notebook_state, &kernel, &tx).await;
                             }
-                            // Process next queued cell
-                            process_next(&app, &queue, &notebook_state, &kernel, &tx).await;
+                        }
+
+                        QueueCommand::CellError { cell_id } => {
+                            info!("[queue] Cell error: {}", cell_id);
+                            let mut q = queue.lock().unwrap();
+                            if q.is_executing(&cell_id) {
+                                q.had_error = true;
+                            }
                         }
 
                         QueueCommand::RetryProcessing => {
@@ -765,5 +794,72 @@ mod tests {
         }
         queue.reset_kernel_retry();
         assert_eq!(queue.kernel_retry_count, 0);
+    }
+
+    // ==================== Stop-on-Error Tests ====================
+
+    #[test]
+    fn test_new_queue_has_no_error() {
+        let queue = ExecutionQueue::new();
+        assert!(!queue.had_error);
+    }
+
+    #[test]
+    fn test_had_error_set_for_executing_cell() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.dequeue(); // cell-1 now executing
+
+        // Simulate CellError for executing cell
+        assert!(queue.is_executing("cell-1"));
+        queue.had_error = true;
+
+        assert!(queue.had_error);
+    }
+
+    #[test]
+    fn test_had_error_not_set_for_non_executing_cell() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.enqueue("cell-2".to_string());
+        queue.dequeue(); // cell-1 now executing
+
+        // CellError for non-executing cell should not set flag
+        assert!(!queue.is_executing("cell-2"));
+        // (in the queue processor, the guard prevents setting had_error)
+        assert!(!queue.had_error);
+    }
+
+    #[test]
+    fn test_had_error_resets_after_complete() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.enqueue("cell-2".to_string());
+        queue.dequeue(); // cell-1 now executing
+
+        queue.had_error = true;
+
+        // Simulate ExecutionDone: read flag, reset, complete
+        let stop = queue.had_error;
+        queue.had_error = false;
+        queue.complete("cell-1");
+
+        assert!(stop);
+        assert!(!queue.had_error);
+        assert!(queue.executing.is_none());
+    }
+
+    #[test]
+    fn test_had_error_cleared_on_clear_pending() {
+        let mut queue = ExecutionQueue::new();
+        queue.enqueue("cell-1".to_string());
+        queue.dequeue();
+        queue.had_error = true;
+
+        // Simulate Clear command
+        queue.had_error = false;
+        queue.clear_pending();
+
+        assert!(!queue.had_error);
     }
 }

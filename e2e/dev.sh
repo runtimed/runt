@@ -248,6 +248,9 @@ case "${1:-help}" in
     run_fixture crates/notebook/fixtures/audit-test/8-multi-cell.ipynb \
                 e2e/specs/run-all-cells.spec.js
 
+    run_fixture crates/notebook/fixtures/audit-test/10-run-all-error.ipynb \
+                e2e/specs/run-all-error-stops.spec.js
+
     run_fixture crates/notebook/fixtures/audit-test/9-html-output.ipynb \
                 e2e/specs/iframe-isolation.spec.js
 
