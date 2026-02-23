@@ -307,9 +307,6 @@ async fn test_notebook_sync_via_unified_socket() {
         .await
         .unwrap();
 
-    // Give the daemon a moment to process and persist
-    sleep(Duration::from_millis(100)).await;
-
     // Connect second client to the same notebook — should see the cell
     let client2 = NotebookSyncClient::connect(socket_path.clone(), "test-notebook".to_string())
         .await
@@ -380,6 +377,219 @@ async fn test_notebook_sync_cross_window_propagation() {
     let cell = cell.unwrap();
     assert_eq!(cell.source, "x = 42");
     assert_eq!(cell.execution_count, "1");
+
+    // Shutdown
+    pool_client.shutdown().await.ok();
+    let _ = tokio::time::timeout(Duration::from_secs(2), daemon_handle).await;
+}
+
+#[tokio::test]
+async fn test_notebook_room_eviction_and_persistence() {
+    let temp_dir = TempDir::new().unwrap();
+    let config = test_config(&temp_dir);
+    let socket_path = config.socket_path.clone();
+
+    let daemon = Daemon::new(config).unwrap();
+    let daemon_handle = tokio::spawn(async move {
+        daemon.run().await.ok();
+    });
+
+    let pool_client = PoolClient::new(socket_path.clone());
+    assert!(wait_for_daemon(&pool_client, Duration::from_secs(5)).await);
+
+    // Phase 1: Two clients connect, add cells, then both disconnect
+    {
+        let mut client1 =
+            NotebookSyncClient::connect(socket_path.clone(), "evict-test".to_string())
+                .await
+                .unwrap();
+        let _client2 = NotebookSyncClient::connect(socket_path.clone(), "evict-test".to_string())
+            .await
+            .unwrap();
+
+        client1.add_cell(0, "c1", "code").await.unwrap();
+        client1
+            .update_source("c1", "persisted = True")
+            .await
+            .unwrap();
+        client1.add_cell(1, "c2", "markdown").await.unwrap();
+        client1.update_source("c2", "# Hello World").await.unwrap();
+
+        // Both clients drop here — the room should be evicted
+        // (sync_to_daemon waits for the server ack, so all changes
+        // are persisted by the time the last write returns)
+    }
+
+    // Give the daemon time to process disconnects and evict the room
+    sleep(Duration::from_millis(200)).await;
+
+    // Phase 2: Reconnect — the room should be recreated from persisted state
+    let client3 = NotebookSyncClient::connect(socket_path.clone(), "evict-test".to_string())
+        .await
+        .expect("should reconnect after room eviction");
+
+    let cells = client3.get_cells();
+    assert_eq!(
+        cells.len(),
+        2,
+        "reconnected client should see persisted cells, got: {:?}",
+        cells
+    );
+
+    let c1 = cells.iter().find(|c| c.id == "c1").expect("should have c1");
+    assert_eq!(c1.source, "persisted = True");
+    assert_eq!(c1.cell_type, "code");
+
+    let c2 = cells.iter().find(|c| c.id == "c2").expect("should have c2");
+    assert_eq!(c2.source, "# Hello World");
+    assert_eq!(c2.cell_type, "markdown");
+
+    // Shutdown
+    pool_client.shutdown().await.ok();
+    let _ = tokio::time::timeout(Duration::from_secs(2), daemon_handle).await;
+}
+
+#[tokio::test]
+async fn test_notebook_cell_delete_propagation() {
+    let temp_dir = TempDir::new().unwrap();
+    let config = test_config(&temp_dir);
+    let socket_path = config.socket_path.clone();
+
+    let daemon = Daemon::new(config).unwrap();
+    let daemon_handle = tokio::spawn(async move {
+        daemon.run().await.ok();
+    });
+
+    let pool_client = PoolClient::new(socket_path.clone());
+    assert!(wait_for_daemon(&pool_client, Duration::from_secs(5)).await);
+
+    // Client1 creates three cells
+    let mut client1 = NotebookSyncClient::connect(socket_path.clone(), "delete-test".to_string())
+        .await
+        .unwrap();
+
+    client1.add_cell(0, "keep-1", "code").await.unwrap();
+    client1.add_cell(1, "to-delete", "code").await.unwrap();
+    client1.add_cell(2, "keep-2", "code").await.unwrap();
+    client1.update_source("keep-1", "a = 1").await.unwrap();
+    client1.update_source("to-delete", "b = 2").await.unwrap();
+    client1.update_source("keep-2", "c = 3").await.unwrap();
+
+    // Client2 joins and verifies all three cells
+    let mut client2 = NotebookSyncClient::connect(socket_path.clone(), "delete-test".to_string())
+        .await
+        .unwrap();
+
+    assert_eq!(client2.get_cells().len(), 3);
+
+    // Client1 deletes the middle cell
+    client1.delete_cell("to-delete").await.unwrap();
+
+    // Client2 receives the deletion
+    let mut final_cells = client2.get_cells();
+    for _ in 0..10 {
+        match tokio::time::timeout(Duration::from_millis(200), client2.recv_changes()).await {
+            Ok(Ok(cells)) => {
+                final_cells = cells;
+                if final_cells.len() == 2 {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+
+    assert_eq!(final_cells.len(), 2, "should have 2 cells after deletion");
+    assert!(
+        final_cells.iter().any(|c| c.id == "keep-1"),
+        "keep-1 should remain"
+    );
+    assert!(
+        final_cells.iter().any(|c| c.id == "keep-2"),
+        "keep-2 should remain"
+    );
+    assert!(
+        !final_cells.iter().any(|c| c.id == "to-delete"),
+        "to-delete should be gone"
+    );
+
+    // Shutdown
+    pool_client.shutdown().await.ok();
+    let _ = tokio::time::timeout(Duration::from_secs(2), daemon_handle).await;
+}
+
+#[tokio::test]
+async fn test_multiple_notebooks_concurrent_isolation() {
+    let temp_dir = TempDir::new().unwrap();
+    let config = test_config(&temp_dir);
+    let socket_path = config.socket_path.clone();
+
+    let daemon = Daemon::new(config).unwrap();
+    let daemon_handle = tokio::spawn(async move {
+        daemon.run().await.ok();
+    });
+
+    let pool_client = PoolClient::new(socket_path.clone());
+    assert!(wait_for_daemon(&pool_client, Duration::from_secs(5)).await);
+
+    // Create three notebooks concurrently
+    let (nb_a, nb_b, nb_c) = tokio::join!(
+        NotebookSyncClient::connect(socket_path.clone(), "nb-alpha".to_string()),
+        NotebookSyncClient::connect(socket_path.clone(), "nb-beta".to_string()),
+        NotebookSyncClient::connect(socket_path.clone(), "nb-gamma".to_string()),
+    );
+    let mut nb_a = nb_a.unwrap();
+    let mut nb_b = nb_b.unwrap();
+    let mut nb_c = nb_c.unwrap();
+
+    // Add cells to each notebook concurrently
+    tokio::join!(
+        async {
+            nb_a.add_cell(0, "alpha-1", "code").await.unwrap();
+            nb_a.update_source("alpha-1", "print('alpha')")
+                .await
+                .unwrap();
+        },
+        async {
+            nb_b.add_cell(0, "beta-1", "markdown").await.unwrap();
+            nb_b.update_source("beta-1", "# Beta").await.unwrap();
+            nb_b.add_cell(1, "beta-2", "code").await.unwrap();
+            nb_b.update_source("beta-2", "x = 99").await.unwrap();
+        },
+        async {
+            nb_c.add_cell(0, "gamma-1", "code").await.unwrap();
+            nb_c.update_source("gamma-1", "import os").await.unwrap();
+            nb_c.add_cell(1, "gamma-2", "code").await.unwrap();
+            nb_c.add_cell(2, "gamma-3", "code").await.unwrap();
+        },
+    );
+
+    // Verify each notebook is isolated by connecting fresh clients
+    let (fresh_a, fresh_b, fresh_c) = tokio::join!(
+        NotebookSyncClient::connect(socket_path.clone(), "nb-alpha".to_string()),
+        NotebookSyncClient::connect(socket_path.clone(), "nb-beta".to_string()),
+        NotebookSyncClient::connect(socket_path.clone(), "nb-gamma".to_string()),
+    );
+
+    let cells_a = fresh_a.unwrap().get_cells();
+    assert_eq!(cells_a.len(), 1, "nb-alpha should have 1 cell");
+    assert_eq!(cells_a[0].id, "alpha-1");
+    assert_eq!(cells_a[0].source, "print('alpha')");
+
+    let cells_b = fresh_b.unwrap().get_cells();
+    assert_eq!(cells_b.len(), 2, "nb-beta should have 2 cells");
+    assert!(cells_b
+        .iter()
+        .any(|c| c.id == "beta-1" && c.cell_type == "markdown"));
+    assert!(cells_b
+        .iter()
+        .any(|c| c.id == "beta-2" && c.source == "x = 99"));
+
+    let cells_c = fresh_c.unwrap().get_cells();
+    assert_eq!(cells_c.len(), 3, "nb-gamma should have 3 cells");
+    assert!(cells_c
+        .iter()
+        .any(|c| c.id == "gamma-1" && c.source == "import os"));
 
     // Shutdown
     pool_client.shutdown().await.ok();
