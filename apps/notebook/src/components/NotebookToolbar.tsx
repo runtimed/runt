@@ -473,11 +473,8 @@ export function NotebookToolbar({
               isDepsOpen && "ring-1 ring-current/25",
             )}
             title={(() => {
-              const lang =
-                runtime === "deno" ? "Deno/TypeScript" : "Python";
-              const mgr = envManager
-                ? ` · ${envManager}`
-                : "";
+              const lang = runtime === "deno" ? "Deno/TypeScript" : "Python";
+              const mgr = envManager ? ` · ${envManager}` : "";
               const action = isDepsOpen
                 ? "close environment panel"
                 : "open environment panel";
