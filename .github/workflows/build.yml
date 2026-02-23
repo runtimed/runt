@@ -212,7 +212,8 @@ jobs:
           # Start runtimed early so the pool fills while the Tauri app builds (~90s).
           # uv-pool-size 6 gives headroom for sequential fixture tests.
           # conda-pool-size 0 because conda fixture tests create inline environments.
-          ./target/release/runtimed run --uv-pool-size 6 --conda-pool-size 0 &
+          # Explicitly pass PATH so the background process can find uv.
+          env PATH="$PATH" ./target/release/runtimed run --uv-pool-size 6 --conda-pool-size 0 &
           echo "RUNTIMED_PID=$!" >> $GITHUB_ENV
 
       - name: Build Tauri app

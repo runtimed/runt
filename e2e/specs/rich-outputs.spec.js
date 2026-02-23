@@ -24,12 +24,11 @@ describe("Rich Output Types", () => {
   }
 
   describe("Image outputs", () => {
-    it("should render PNG images from matplotlib", async () => {
+    it("should render PNG image as img element with data or blob src", async () => {
       const cells = await getCodeCells();
       const cell = cells[0];
 
       // PNG display_data should render as an <img> tag
-      // Images may render in the main DOM or inside an IsolatedFrame
       await browser.waitUntil(
         async () => {
           const img = await cell.$("img");
@@ -50,15 +49,6 @@ describe("Rich Output Types", () => {
       );
       expect(src.startsWith("data:") || src.startsWith("blob:")).toBe(true);
       console.log("PNG image test passed");
-    });
-
-    it("should render display(Image()) output", async () => {
-      // Same cell as matplotlib — the fixture has a single PNG cell
-      // This test verifies the img element has a valid source
-      const cells = await getCodeCells();
-      const cell = cells[0];
-      const img = await cell.$("img");
-      expect(await img.isExisting()).toBe(true);
     });
   });
 
@@ -94,30 +84,23 @@ describe("Rich Output Types", () => {
       const cells = await getCodeCells();
       const cell = cells[2];
 
-      // DataFrame renders as HTML table — may be in iframe or direct DOM
+      // DataFrame has text/html output — renders in an IsolatedFrame iframe
+      const outputArea = await cell.$('[data-slot="output-area"]');
       await browser.waitUntil(
         async () => {
-          const html = await cell.getHTML();
-          return (
-            html.includes("Alice") ||
-            html.includes("dataframe") ||
-            html.includes("iframe")
-          );
+          const iframe = await outputArea.$("iframe");
+          return await iframe.isExisting();
         },
         {
           timeout: 15000,
           interval: 500,
-          timeoutMsg: "DataFrame did not render",
+          timeoutMsg: "DataFrame iframe did not render",
         },
       );
 
-      const cellHtml = await cell.getHTML();
-      const hasTable =
-        cellHtml.includes("<table") ||
-        cellHtml.includes("dataframe") ||
-        cellHtml.includes("Alice");
-      console.log("DataFrame rendered:", hasTable);
-      expect(hasTable).toBe(true);
+      const iframe = await outputArea.$("iframe");
+      expect(await iframe.isExisting()).toBe(true);
+      console.log("DataFrame rendered in iframe");
       console.log("pandas DataFrame test passed");
     });
   });
@@ -156,25 +139,24 @@ describe("Rich Output Types", () => {
       const cells = await getCodeCells();
       const cell = cells[4];
 
-      // Mixed cell has stream + display_data + stream
-      // All outputs go to iframe when any output needs isolation (markdown does)
+      // Mixed cell has stream + markdown display_data + stream.
+      // When any output needs isolation (markdown does), all outputs go to iframe.
+      const outputArea = await cell.$('[data-slot="output-area"]');
       await browser.waitUntil(
         async () => {
-          const html = await cell.getHTML();
-          return (
-            html.includes("stdout") ||
-            html.includes("iframe") ||
-            html.includes("output")
-          );
+          const iframe = await outputArea.$("iframe");
+          return await iframe.isExisting();
         },
         {
           timeout: 15000,
           interval: 500,
-          timeoutMsg: "Mixed outputs did not render",
+          timeoutMsg: "Mixed output iframe did not render",
         },
       );
 
-      console.log("Mixed outputs rendered: true");
+      const iframe = await outputArea.$("iframe");
+      expect(await iframe.isExisting()).toBe(true);
+      console.log("Mixed outputs rendered in iframe");
       console.log("Mixed output types test passed");
     });
   });
