@@ -12,10 +12,13 @@
 //! 2. Client exchanges Automerge sync messages with the room
 //! 3. Additional windows join the same room
 //! 4. Changes from any peer broadcast to all others in the room
-//! 5. Documents persist to `~/.cache/runt/notebook-docs/{hash}.automerge`
+//! 5. When the last peer disconnects, the room is evicted from memory
+//!    (the doc is already persisted on every change)
+//! 6. Documents persist to `~/.cache/runt/notebook-docs/{hash}.automerge`
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use automerge::sync;
@@ -35,6 +38,8 @@ pub struct NotebookRoom {
     pub changed_tx: broadcast::Sender<()>,
     /// Persistence path for this room's document.
     pub persist_path: PathBuf,
+    /// Number of active peer connections in this room.
+    pub active_peers: AtomicUsize,
 }
 
 impl NotebookRoom {
@@ -48,6 +53,7 @@ impl NotebookRoom {
             doc: Arc::new(RwLock::new(doc)),
             changed_tx,
             persist_path,
+            active_peers: AtomicUsize::new(0),
         }
     }
 }
@@ -81,11 +87,62 @@ pub fn get_or_create_room(
 /// 2. Watch loop: wait for changes (from other peers or from this client),
 ///    exchange sync messages to propagate
 ///
-/// Structurally identical to `handle_settings_sync_connection` in sync_server.rs.
+/// When the connection closes (client disconnect or error), the peer count
+/// is decremented. If it reaches zero, the room is evicted from the rooms
+/// map (the doc has already been persisted on every change).
 pub async fn handle_notebook_sync_connection<R, W>(
     mut reader: R,
     mut writer: W,
     room: Arc<NotebookRoom>,
+    rooms: NotebookRooms,
+    notebook_id: String,
+) -> anyhow::Result<()>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    room.active_peers.fetch_add(1, Ordering::Relaxed);
+    let peers = room.active_peers.load(Ordering::Relaxed);
+    info!(
+        "[notebook-sync] Client connected to room {} ({} peer{})",
+        notebook_id,
+        peers,
+        if peers == 1 { "" } else { "s" }
+    );
+
+    let result = run_sync_loop(&mut reader, &mut writer, &room).await;
+
+    // Peer disconnected — decrement and possibly evict the room
+    let remaining = room.active_peers.fetch_sub(1, Ordering::Relaxed) - 1;
+    if remaining == 0 {
+        let mut rooms_guard = rooms.lock().await;
+        // Re-check under the lock — another peer may have joined between
+        // our decrement and acquiring the lock.
+        if room.active_peers.load(Ordering::Relaxed) == 0 {
+            rooms_guard.remove(&notebook_id);
+            info!(
+                "[notebook-sync] Evicted room {} (no remaining peers)",
+                notebook_id
+            );
+        }
+    } else {
+        info!(
+            "[notebook-sync] Client disconnected from room {} ({} peer{} remaining)",
+            notebook_id,
+            remaining,
+            if remaining == 1 { "" } else { "s" }
+        );
+    }
+
+    result
+}
+
+/// Inner sync protocol loop, factored out so the caller can handle
+/// peer-count bookkeeping around it.
+async fn run_sync_loop<R, W>(
+    reader: &mut R,
+    writer: &mut W,
+    room: &NotebookRoom,
 ) -> anyhow::Result<()>
 where
     R: AsyncRead + Unpin,
@@ -94,13 +151,11 @@ where
     let mut peer_state = sync::State::new();
     let mut changed_rx = room.changed_tx.subscribe();
 
-    info!("[notebook-sync] Client connected to room");
-
     // Phase 1: Initial sync — server sends first
     {
         let mut doc = room.doc.write().await;
         if let Some(msg) = doc.generate_sync_message(&mut peer_state) {
-            connection::send_frame(&mut writer, &msg.encode()).await?;
+            connection::send_frame(writer, &msg.encode()).await?;
         }
     }
 
@@ -108,27 +163,35 @@ where
     loop {
         tokio::select! {
             // Incoming message from this client
-            result = connection::recv_frame(&mut reader) => {
+            result = connection::recv_frame(reader) => {
                 match result? {
                     Some(data) => {
                         let message = sync::Message::decode(&data)
                             .map_err(|e| anyhow::anyhow!("decode error: {}", e))?;
 
-                        let mut doc = room.doc.write().await;
-                        doc.receive_sync_message(&mut peer_state, message)?;
+                        // Serialize bytes inside the lock, then persist outside it
+                        let persist_bytes = {
+                            let mut doc = room.doc.write().await;
+                            doc.receive_sync_message(&mut peer_state, message)?;
 
-                        // Persist and notify other peers in this room
-                        persist_notebook(&mut doc, &room.persist_path);
-                        let _ = room.changed_tx.send(());
+                            let bytes = doc.save();
 
-                        // Send our response
-                        if let Some(reply) = doc.generate_sync_message(&mut peer_state) {
-                            connection::send_frame(&mut writer, &reply.encode()).await?;
-                        }
+                            // Notify other peers in this room
+                            let _ = room.changed_tx.send(());
+
+                            // Send our response while still holding the lock
+                            if let Some(reply) = doc.generate_sync_message(&mut peer_state) {
+                                connection::send_frame(writer, &reply.encode()).await?;
+                            }
+
+                            bytes
+                        };
+
+                        // Persist outside the write lock
+                        persist_notebook_bytes(&persist_bytes, &room.persist_path);
                     }
                     None => {
                         // Client disconnected
-                        info!("[notebook-sync] Client disconnected from room");
                         return Ok(());
                     }
                 }
@@ -138,16 +201,25 @@ where
             _ = changed_rx.recv() => {
                 let mut doc = room.doc.write().await;
                 if let Some(msg) = doc.generate_sync_message(&mut peer_state) {
-                    connection::send_frame(&mut writer, &msg.encode()).await?;
+                    connection::send_frame(writer, &msg.encode()).await?;
                 }
             }
         }
     }
 }
 
-/// Persist the notebook document to disk.
-fn persist_notebook(doc: &mut NotebookDoc, path: &Path) {
-    if let Err(e) = doc.save_to_file(path) {
+/// Persist pre-serialized notebook bytes to disk.
+fn persist_notebook_bytes(data: &[u8], path: &Path) {
+    if let Some(parent) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            warn!(
+                "[notebook-sync] Failed to create parent dir for {:?}: {}",
+                path, e
+            );
+            return;
+        }
+    }
+    if let Err(e) = std::fs::write(path, data) {
         warn!("[notebook-sync] Failed to save notebook doc: {}", e);
     }
 }
@@ -164,6 +236,7 @@ mod tests {
         let doc = room.doc.try_read().unwrap();
         assert_eq!(doc.notebook_id(), Some("test-nb".to_string()));
         assert_eq!(doc.cell_count(), 0);
+        assert_eq!(room.active_peers.load(Ordering::Relaxed), 0);
     }
 
     #[test]
@@ -176,7 +249,8 @@ mod tests {
             let mut doc = room.doc.try_write().unwrap();
             doc.add_cell(0, "c1", "code").unwrap();
             doc.update_source("c1", "hello").unwrap();
-            persist_notebook(&mut doc, &room.persist_path);
+            let bytes = doc.save();
+            persist_notebook_bytes(&bytes, &room.persist_path);
         }
 
         // Load again — should have the cell
@@ -212,5 +286,23 @@ mod tests {
         // Should be different rooms
         assert!(!Arc::ptr_eq(&room1, &room2));
         assert_eq!(rooms.len(), 2);
+    }
+
+    #[test]
+    fn test_room_peer_counting() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let room = NotebookRoom::load_or_create("peer-test", tmp.path());
+
+        assert_eq!(room.active_peers.load(Ordering::Relaxed), 0);
+
+        room.active_peers.fetch_add(1, Ordering::Relaxed);
+        room.active_peers.fetch_add(1, Ordering::Relaxed);
+        assert_eq!(room.active_peers.load(Ordering::Relaxed), 2);
+
+        room.active_peers.fetch_sub(1, Ordering::Relaxed);
+        assert_eq!(room.active_peers.load(Ordering::Relaxed), 1);
+
+        room.active_peers.fetch_sub(1, Ordering::Relaxed);
+        assert_eq!(room.active_peers.load(Ordering::Relaxed), 0);
     }
 }

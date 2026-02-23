@@ -28,7 +28,7 @@ use automerge::sync;
 use automerge::sync::SyncDoc;
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, AutomergeError, ObjId, ObjType, ReadDoc};
-use log::info;
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
 /// Snapshot of a single cell's state, suitable for serialization.
@@ -74,12 +74,34 @@ impl NotebookDoc {
     }
 
     /// Load from file or create a new document if the file doesn't exist.
+    ///
+    /// If the file exists but is corrupt (read or decode failure), the broken
+    /// file is renamed to `{path}.corrupt` and a fresh document is created.
+    /// This avoids silent data loss while still allowing the daemon to proceed.
     pub fn load_or_create(path: &Path, notebook_id: &str) -> Self {
         if path.exists() {
-            if let Ok(data) = std::fs::read(path) {
-                if let Ok(doc) = AutoCommit::load(&data) {
-                    info!("[notebook-doc] Loaded from {:?} for {}", path, notebook_id);
-                    return Self { doc };
+            match std::fs::read(path) {
+                Ok(data) => match AutoCommit::load(&data) {
+                    Ok(doc) => {
+                        info!("[notebook-doc] Loaded from {:?} for {}", path, notebook_id);
+                        return Self { doc };
+                    }
+                    Err(e) => {
+                        warn!(
+                            "[notebook-doc] Corrupt doc at {:?} for {}: {}. \
+                             Preserving as .corrupt and creating fresh doc.",
+                            path, notebook_id, e
+                        );
+                        Self::preserve_corrupt(path);
+                    }
+                },
+                Err(e) => {
+                    warn!(
+                        "[notebook-doc] Failed to read {:?} for {}: {}. \
+                         Preserving as .corrupt and creating fresh doc.",
+                        path, notebook_id, e
+                    );
+                    Self::preserve_corrupt(path);
                 }
             }
         }
@@ -89,6 +111,22 @@ impl NotebookDoc {
             notebook_id, path
         );
         Self::new(notebook_id)
+    }
+
+    /// Rename a corrupt persisted file to `{path}.corrupt` for diagnostics.
+    fn preserve_corrupt(path: &Path) {
+        let corrupt_path = path.with_extension("automerge.corrupt");
+        if let Err(e) = std::fs::rename(path, &corrupt_path) {
+            warn!(
+                "[notebook-doc] Failed to rename corrupt file {:?} → {:?}: {}",
+                path, corrupt_path, e
+            );
+        } else {
+            warn!(
+                "[notebook-doc] Corrupt file preserved at {:?}",
+                corrupt_path
+            );
+        }
     }
 
     /// Serialize the document to bytes.
@@ -749,6 +787,29 @@ mod tests {
         let doc = NotebookDoc::load_or_create(&path, "new-nb");
         assert_eq!(doc.notebook_id(), Some("new-nb".to_string()));
         assert_eq!(doc.cell_count(), 0);
+    }
+
+    #[test]
+    fn test_load_or_create_corrupt_file_preserved() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("corrupt.automerge");
+
+        // Write garbage data
+        std::fs::write(&path, b"this is not a valid automerge document").unwrap();
+        assert!(path.exists());
+
+        // load_or_create should create a fresh doc
+        let doc = NotebookDoc::load_or_create(&path, "corrupt-nb");
+        assert_eq!(doc.notebook_id(), Some("corrupt-nb".to_string()));
+        assert_eq!(doc.cell_count(), 0);
+
+        // Original file should have been renamed to .corrupt
+        let corrupt_path = path.with_extension("automerge.corrupt");
+        assert!(corrupt_path.exists(), "corrupt file should be preserved");
+        assert_eq!(
+            std::fs::read(&corrupt_path).unwrap(),
+            b"this is not a valid automerge document"
+        );
     }
 
     #[test]

@@ -654,8 +654,14 @@ impl Daemon {
                     )
                 };
                 let (reader, writer) = tokio::io::split(stream);
-                crate::notebook_sync_server::handle_notebook_sync_connection(reader, writer, room)
-                    .await
+                crate::notebook_sync_server::handle_notebook_sync_connection(
+                    reader,
+                    writer,
+                    room,
+                    self.notebook_rooms.clone(),
+                    notebook_id,
+                )
+                .await
             }
             Handshake::Blob => self.handle_blob_connection(stream).await,
         }
