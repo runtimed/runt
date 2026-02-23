@@ -42,6 +42,8 @@ pub struct DaemonConfig {
     pub cache_dir: PathBuf,
     /// Directory for the content-addressed blob store.
     pub blob_store_dir: PathBuf,
+    /// Directory for persisted notebook Automerge documents.
+    pub notebook_docs_dir: PathBuf,
     /// Target number of UV environments to maintain.
     pub uv_pool_size: usize,
     /// Target number of Conda environments to maintain.
@@ -58,6 +60,7 @@ impl Default for DaemonConfig {
             socket_path: default_socket_path(),
             cache_dir: default_cache_dir(),
             blob_store_dir: default_blob_store_dir(),
+            notebook_docs_dir: crate::default_notebook_docs_dir(),
             uv_pool_size: 3,
             conda_pool_size: 3,
             max_age_secs: 172800, // 2 days
@@ -641,7 +644,7 @@ impl Daemon {
             }
             Handshake::NotebookSync { notebook_id } => {
                 info!("[runtimed] NotebookSync requested for {}", notebook_id);
-                let docs_dir = crate::default_notebook_docs_dir();
+                let docs_dir = self.config.notebook_docs_dir.clone();
                 let room = {
                     let mut rooms = self.notebook_rooms.lock().await;
                     crate::notebook_sync_server::get_or_create_room(
