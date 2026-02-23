@@ -13,8 +13,14 @@
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-/// Maximum frame size: 100 MiB (matches blob size limit).
+/// Maximum frame size for data frames: 100 MiB (matches blob size limit).
 const MAX_FRAME_SIZE: usize = 100 * 1024 * 1024;
+
+/// Maximum frame size for control/handshake frames: 64 KiB.
+/// Applied to the initial handshake and JSON request/response traffic
+/// so that oversized frames can't force large allocations before channel
+/// routing has occurred.
+const MAX_CONTROL_FRAME_SIZE: usize = 64 * 1024;
 
 /// Channel handshake — the first frame on every connection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,8 +45,12 @@ pub async fn send_frame<W: AsyncWrite + Unpin>(writer: &mut W, data: &[u8]) -> s
     Ok(())
 }
 
-/// Receive a length-prefixed frame. Returns `None` on clean disconnect (EOF).
-pub async fn recv_frame<R: AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<Option<Vec<u8>>> {
+/// Receive a length-prefixed frame with a caller-specified size limit.
+/// Returns `None` on clean disconnect (EOF).
+async fn recv_frame_with_limit<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    max_size: usize,
+) -> std::io::Result<Option<Vec<u8>>> {
     let mut len_buf = [0u8; 4];
     match reader.read_exact(&mut len_buf).await {
         Ok(_) => {}
@@ -49,16 +59,31 @@ pub async fn recv_frame<R: AsyncRead + Unpin>(reader: &mut R) -> std::io::Result
     }
     let len = u32::from_be_bytes(len_buf) as usize;
 
-    if len > MAX_FRAME_SIZE {
+    if len > max_size {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("frame too large: {} bytes (max {})", len, MAX_FRAME_SIZE),
+            format!("frame too large: {} bytes (max {})", len, max_size),
         ));
     }
 
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf).await?;
     Ok(Some(buf))
+}
+
+/// Receive a length-prefixed frame (up to 100 MiB for data payloads).
+/// Returns `None` on clean disconnect (EOF).
+pub async fn recv_frame<R: AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<Option<Vec<u8>>> {
+    recv_frame_with_limit(reader, MAX_FRAME_SIZE).await
+}
+
+/// Receive a length-prefixed frame with the control/handshake size limit
+/// (64 KiB). Use this for handshake and JSON request/response traffic to
+/// prevent oversized frames from forcing large allocations.
+pub async fn recv_control_frame<R: AsyncRead + Unpin>(
+    reader: &mut R,
+) -> std::io::Result<Option<Vec<u8>>> {
+    recv_frame_with_limit(reader, MAX_CONTROL_FRAME_SIZE).await
 }
 
 /// Send a value as a JSON-encoded length-prefixed frame.
@@ -116,6 +141,26 @@ mod tests {
         let mut cursor = std::io::Cursor::new(len_bytes.to_vec());
         let result = recv_frame(&mut cursor).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_control_frame_rejects_oversized() {
+        // A frame larger than 64 KiB should be rejected by recv_control_frame
+        let oversized_len = (MAX_CONTROL_FRAME_SIZE as u32 + 1).to_be_bytes();
+        let mut cursor = std::io::Cursor::new(oversized_len.to_vec());
+        let result = recv_control_frame(&mut cursor).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_control_frame_accepts_small() {
+        let data = b"small control payload";
+        let mut buf = Vec::new();
+        send_frame(&mut buf, data).await.unwrap();
+
+        let mut cursor = std::io::Cursor::new(buf);
+        let received = recv_control_frame(&mut cursor).await.unwrap().unwrap();
+        assert_eq!(received, data);
     }
 
     #[tokio::test]

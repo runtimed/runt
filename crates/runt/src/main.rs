@@ -953,9 +953,11 @@ async fn pool_command(command: PoolCommands) -> Result<()> {
 
             match get_running_daemon_info() {
                 Some(info) => {
-                    // Verify the daemon is actually responding, not just a stale
-                    // daemon.json left behind after a crash.
-                    let alive = client.ping().await.is_ok();
+                    // Ping the daemon at the endpoint recorded in daemon.json,
+                    // not the default socket path — the daemon may have been
+                    // started with a custom --socket.
+                    let info_client = PoolClient::new(std::path::PathBuf::from(&info.endpoint));
+                    let alive = info_client.ping().await.is_ok();
 
                     if json {
                         let mut val = serde_json::to_value(&info)?;

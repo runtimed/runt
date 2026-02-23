@@ -612,9 +612,13 @@ impl Daemon {
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        let handshake: Handshake = connection::recv_json_frame(&mut stream)
+        // Read the handshake with the control frame limit (64 KiB) so that
+        // an oversized first frame can't force a large allocation before we
+        // know which channel the connection belongs to.
+        let handshake_bytes = connection::recv_control_frame(&mut stream)
             .await?
             .ok_or_else(|| anyhow::anyhow!("connection closed before handshake"))?;
+        let handshake: Handshake = serde_json::from_slice(&handshake_bytes)?;
 
         match handshake {
             Handshake::Pool => self.handle_pool_connection(stream).await,
