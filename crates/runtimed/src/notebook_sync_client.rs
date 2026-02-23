@@ -311,6 +311,66 @@ where
         self.sync_to_daemon().await
     }
 
+    /// Append a single output to a cell's output list and sync to daemon.
+    pub async fn append_output(
+        &mut self,
+        cell_id: &str,
+        output: &str,
+    ) -> Result<(), NotebookSyncError> {
+        let cells_id = match self.cells_list_id() {
+            Some(id) => id,
+            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
+        };
+        let idx = match self.find_cell_index(&cells_id, cell_id) {
+            Some(i) => i,
+            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
+        };
+        let cell_obj = match self.cell_at_index(&cells_id, idx) {
+            Some(o) => o,
+            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
+        };
+
+        let list_id = self
+            .outputs_list_id(&cell_obj)
+            .ok_or_else(|| NotebookSyncError::SyncError("outputs list not found".to_string()))?;
+
+        let len = self.doc.length(&list_id);
+        self.doc
+            .insert(&list_id, len, output)
+            .map_err(|e| NotebookSyncError::SyncError(format!("insert output: {}", e)))?;
+
+        self.sync_to_daemon().await
+    }
+
+    /// Clear all outputs and reset execution_count for a cell, then sync to daemon.
+    pub async fn clear_outputs(&mut self, cell_id: &str) -> Result<(), NotebookSyncError> {
+        let cells_id = match self.cells_list_id() {
+            Some(id) => id,
+            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
+        };
+        let idx = match self.find_cell_index(&cells_id, cell_id) {
+            Some(i) => i,
+            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
+        };
+        let cell_obj = match self.cell_at_index(&cells_id, idx) {
+            Some(o) => o,
+            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
+        };
+
+        // Replace outputs with a fresh empty list
+        let _ = self.doc.delete(&cell_obj, "outputs");
+        self.doc
+            .put_object(&cell_obj, "outputs", ObjType::List)
+            .map_err(|e| NotebookSyncError::SyncError(format!("put outputs: {}", e)))?;
+
+        // Reset execution count
+        self.doc
+            .put(&cell_obj, "execution_count", "null")
+            .map_err(|e| NotebookSyncError::SyncError(format!("put exec_count: {}", e)))?;
+
+        self.sync_to_daemon().await
+    }
+
     /// Set execution count for a cell and sync to daemon.
     pub async fn set_execution_count(
         &mut self,
@@ -464,6 +524,17 @@ where
             }
         }
         None
+    }
+
+    fn outputs_list_id(&self, cell_obj: &automerge::ObjId) -> Option<automerge::ObjId> {
+        self.doc
+            .get(cell_obj, "outputs")
+            .ok()
+            .flatten()
+            .and_then(|(value, id)| match value {
+                automerge::Value::Object(ObjType::List) => Some(id),
+                _ => None,
+            })
     }
 
     fn text_id(&self, parent: &automerge::ObjId, key: &str) -> Option<automerge::ObjId> {
