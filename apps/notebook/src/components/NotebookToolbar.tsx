@@ -472,11 +472,17 @@ export function NotebookToolbar({
                 : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 dark:text-blue-400",
               isDepsOpen && "ring-1 ring-current/25",
             )}
-            title={
-              runtime === "deno"
-                ? "Deno/TypeScript notebook — manage dependencies"
-                : "Python notebook — manage dependencies"
-            }
+            title={(() => {
+              const lang =
+                runtime === "deno" ? "Deno/TypeScript" : "Python";
+              const mgr = envManager
+                ? ` · ${envManager}`
+                : "";
+              const action = isDepsOpen
+                ? "close environment panel"
+                : "open environment panel";
+              return `${lang}${mgr} — ${action}`;
+            })()}
           >
             {runtime === "deno" ? (
               <>
