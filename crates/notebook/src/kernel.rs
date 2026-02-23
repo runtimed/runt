@@ -316,6 +316,17 @@ impl NotebookKernel {
                             }
                         }
 
+                        // Check for error output to signal stop-on-error
+                        if let JupyterMessageContent::ErrorOutput(_) = &message.content {
+                            if let Some(ref cid) = cell_id {
+                                if let Some(ref tx) = queue_tx {
+                                    let _ = tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
+                                }
+                            }
+                        }
+
                         let tauri_msg = TauriJupyterMessage {
                             header: message.header,
                             parent_header: message.parent_header,
@@ -374,6 +385,7 @@ impl NotebookKernel {
         let pending_hist = self.pending_history.clone();
         let shell_app = app.clone();
         let shell_cell_id_map = self.cell_id_map.clone();
+        let shell_queue_tx = self.queue_tx.clone();
         let shell_reader_task = tokio::spawn(async move {
             loop {
                 match shell_reader.read().await {
@@ -445,6 +457,19 @@ impl NotebookKernel {
                                             {
                                                 error!("Failed to emit page_payload: {}", e);
                                             }
+                                        }
+                                    }
+                                }
+
+                                // Fallback error detection via execute_reply status
+                                if reply.status != jupyter_protocol::ReplyStatus::Ok {
+                                    let cell_id = parent_msg_id.as_ref().and_then(|msg_id| {
+                                        shell_cell_id_map.lock().ok()?.get(msg_id).cloned()
+                                    });
+                                    if let Some(cell_id) = cell_id {
+                                        if let Some(ref tx) = shell_queue_tx {
+                                            let _ =
+                                                tx.try_send(QueueCommand::CellError { cell_id });
                                         }
                                     }
                                 }
@@ -591,6 +616,17 @@ impl NotebookKernel {
                             }
                         }
 
+                        // Check for error output to signal stop-on-error
+                        if let JupyterMessageContent::ErrorOutput(_) = &message.content {
+                            if let Some(ref cid) = cell_id {
+                                if let Some(ref tx) = queue_tx {
+                                    let _ = tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
+                                }
+                            }
+                        }
+
                         let tauri_msg = TauriJupyterMessage {
                             header: message.header,
                             parent_header: message.parent_header,
@@ -649,6 +685,7 @@ impl NotebookKernel {
         let pending_hist = self.pending_history.clone();
         let shell_app = app.clone();
         let shell_cell_id_map = self.cell_id_map.clone();
+        let shell_queue_tx = self.queue_tx.clone();
         let shell_reader_task = tokio::spawn(async move {
             loop {
                 match shell_reader.read().await {
@@ -719,6 +756,19 @@ impl NotebookKernel {
                                             {
                                                 error!("Failed to emit page_payload: {}", e);
                                             }
+                                        }
+                                    }
+                                }
+
+                                // Fallback error detection via execute_reply status
+                                if reply.status != jupyter_protocol::ReplyStatus::Ok {
+                                    let cell_id = parent_msg_id.as_ref().and_then(|msg_id| {
+                                        shell_cell_id_map.lock().ok()?.get(msg_id).cloned()
+                                    });
+                                    if let Some(cell_id) = cell_id {
+                                        if let Some(ref tx) = shell_queue_tx {
+                                            let _ =
+                                                tx.try_send(QueueCommand::CellError { cell_id });
                                         }
                                     }
                                 }
@@ -861,6 +911,17 @@ impl NotebookKernel {
                             }
                         }
 
+                        // Check for error output to signal stop-on-error
+                        if let JupyterMessageContent::ErrorOutput(_) = &message.content {
+                            if let Some(ref cid) = cell_id {
+                                if let Some(ref tx) = queue_tx {
+                                    let _ = tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
+                                }
+                            }
+                        }
+
                         let tauri_msg = TauriJupyterMessage {
                             header: message.header,
                             parent_header: message.parent_header,
@@ -919,6 +980,7 @@ impl NotebookKernel {
         let pending_hist = self.pending_history.clone();
         let shell_app = app.clone();
         let shell_cell_id_map = self.cell_id_map.clone();
+        let shell_queue_tx = self.queue_tx.clone();
         let shell_reader_task = tokio::spawn(async move {
             loop {
                 match shell_reader.read().await {
@@ -989,6 +1051,19 @@ impl NotebookKernel {
                                             {
                                                 error!("Failed to emit page_payload: {}", e);
                                             }
+                                        }
+                                    }
+                                }
+
+                                // Fallback error detection via execute_reply status
+                                if reply.status != jupyter_protocol::ReplyStatus::Ok {
+                                    let cell_id = parent_msg_id.as_ref().and_then(|msg_id| {
+                                        shell_cell_id_map.lock().ok()?.get(msg_id).cloned()
+                                    });
+                                    if let Some(cell_id) = cell_id {
+                                        if let Some(ref tx) = shell_queue_tx {
+                                            let _ =
+                                                tx.try_send(QueueCommand::CellError { cell_id });
                                         }
                                     }
                                 }
@@ -1344,6 +1419,17 @@ impl NotebookKernel {
                             }
                         }
 
+                        // Check for error output to signal stop-on-error
+                        if let JupyterMessageContent::ErrorOutput(_) = &message.content {
+                            if let Some(ref cid) = cell_id {
+                                if let Some(ref tx) = queue_tx {
+                                    let _ = tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
+                                }
+                            }
+                        }
+
                         let tauri_msg = TauriJupyterMessage {
                             header: message.header,
                             parent_header: message.parent_header,
@@ -1374,6 +1460,7 @@ impl NotebookKernel {
         let pending_hist = self.pending_history.clone();
         let shell_app = app.clone();
         let shell_cell_id_map = self.cell_id_map.clone();
+        let shell_queue_tx = self.queue_tx.clone();
         let shell_reader_task = tokio::spawn(async move {
             loop {
                 match shell_reader.read().await {
@@ -1444,6 +1531,19 @@ impl NotebookKernel {
                                             {
                                                 error!("Failed to emit page_payload: {}", e);
                                             }
+                                        }
+                                    }
+                                }
+
+                                // Fallback error detection via execute_reply status
+                                if reply.status != jupyter_protocol::ReplyStatus::Ok {
+                                    let cell_id = parent_msg_id.as_ref().and_then(|msg_id| {
+                                        shell_cell_id_map.lock().ok()?.get(msg_id).cloned()
+                                    });
+                                    if let Some(cell_id) = cell_id {
+                                        if let Some(ref tx) = shell_queue_tx {
+                                            let _ =
+                                                tx.try_send(QueueCommand::CellError { cell_id });
                                         }
                                     }
                                 }
@@ -1588,6 +1688,17 @@ impl NotebookKernel {
                             }
                         }
 
+                        // Check for error output to signal stop-on-error
+                        if let JupyterMessageContent::ErrorOutput(_) = &message.content {
+                            if let Some(ref cid) = cell_id {
+                                if let Some(ref tx) = queue_tx {
+                                    let _ = tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
+                                }
+                            }
+                        }
+
                         let tauri_msg = TauriJupyterMessage {
                             header: message.header,
                             parent_header: message.parent_header,
@@ -1646,6 +1757,7 @@ impl NotebookKernel {
         let pending_hist = self.pending_history.clone();
         let shell_app = app.clone();
         let shell_cell_id_map = self.cell_id_map.clone();
+        let shell_queue_tx = self.queue_tx.clone();
         let shell_reader_task = tokio::spawn(async move {
             loop {
                 match shell_reader.read().await {
@@ -1716,6 +1828,19 @@ impl NotebookKernel {
                                             {
                                                 error!("Failed to emit page_payload: {}", e);
                                             }
+                                        }
+                                    }
+                                }
+
+                                // Fallback error detection via execute_reply status
+                                if reply.status != jupyter_protocol::ReplyStatus::Ok {
+                                    let cell_id = parent_msg_id.as_ref().and_then(|msg_id| {
+                                        shell_cell_id_map.lock().ok()?.get(msg_id).cloned()
+                                    });
+                                    if let Some(cell_id) = cell_id {
+                                        if let Some(ref tx) = shell_queue_tx {
+                                            let _ =
+                                                tx.try_send(QueueCommand::CellError { cell_id });
                                         }
                                     }
                                 }
@@ -1866,6 +1991,17 @@ impl NotebookKernel {
                             }
                         }
 
+                        // Check for error output to signal stop-on-error
+                        if let JupyterMessageContent::ErrorOutput(_) = &message.content {
+                            if let Some(ref cid) = cell_id {
+                                if let Some(ref tx) = queue_tx {
+                                    let _ = tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
+                                }
+                            }
+                        }
+
                         let tauri_msg = TauriJupyterMessage {
                             header: message.header,
                             parent_header: message.parent_header,
@@ -1939,6 +2075,7 @@ impl NotebookKernel {
         let pending_hist = self.pending_history.clone();
         let shell_app = app.clone();
         let shell_cell_id_map = self.cell_id_map.clone();
+        let shell_queue_tx = self.queue_tx.clone();
         let shell_reader_task = tokio::spawn(async move {
             loop {
                 match shell_reader.read().await {
@@ -2009,6 +2146,19 @@ impl NotebookKernel {
                                             {
                                                 error!("Failed to emit page_payload: {}", e);
                                             }
+                                        }
+                                    }
+                                }
+
+                                // Fallback error detection via execute_reply status
+                                if reply.status != jupyter_protocol::ReplyStatus::Ok {
+                                    let cell_id = parent_msg_id.as_ref().and_then(|msg_id| {
+                                        shell_cell_id_map.lock().ok()?.get(msg_id).cloned()
+                                    });
+                                    if let Some(cell_id) = cell_id {
+                                        if let Some(ref tx) = shell_queue_tx {
+                                            let _ =
+                                                tx.try_send(QueueCommand::CellError { cell_id });
                                         }
                                     }
                                 }
@@ -2180,6 +2330,17 @@ impl NotebookKernel {
                             }
                         }
 
+                        // Check for error output to signal stop-on-error
+                        if let JupyterMessageContent::ErrorOutput(_) = &message.content {
+                            if let Some(ref cid) = cell_id {
+                                if let Some(ref tx) = queue_tx {
+                                    let _ = tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
+                                }
+                            }
+                        }
+
                         let tauri_msg = TauriJupyterMessage {
                             header: message.header,
                             parent_header: message.parent_header,
@@ -2238,6 +2399,7 @@ impl NotebookKernel {
         let pending_hist = self.pending_history.clone();
         let shell_app = app.clone();
         let shell_cell_id_map = self.cell_id_map.clone();
+        let shell_queue_tx = self.queue_tx.clone();
         let shell_reader_task = tokio::spawn(async move {
             loop {
                 match shell_reader.read().await {
@@ -2315,6 +2477,19 @@ impl NotebookKernel {
                                                     }
                                                 }
                                             }
+                                        }
+                                    }
+                                }
+
+                                // Fallback error detection via execute_reply status
+                                if reply.status != jupyter_protocol::ReplyStatus::Ok {
+                                    let cell_id = parent_msg_id.as_ref().and_then(|msg_id| {
+                                        shell_cell_id_map.lock().ok()?.get(msg_id).cloned()
+                                    });
+                                    if let Some(cell_id) = cell_id {
+                                        if let Some(ref tx) = shell_queue_tx {
+                                            let _ =
+                                                tx.try_send(QueueCommand::CellError { cell_id });
                                         }
                                     }
                                 }
