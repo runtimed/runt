@@ -1,9 +1,10 @@
 //! Runtime type for notebooks - Python or Deno
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Supported notebook runtime environments
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Runtime {
     #[default]

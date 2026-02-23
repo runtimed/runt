@@ -44,6 +44,13 @@ reqwest-middleware = "0.4"
 # Automerge CRDT for settings sync
 automerge = "0.7"
 
+# JSON Schema generation
+schemars = { workspace = true }
+
+# File watching for external settings.json changes
+notify = { workspace = true }
+notify-debouncer-mini = { workspace = true }
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 

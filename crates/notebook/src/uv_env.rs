@@ -390,7 +390,7 @@ pub async fn find_existing_prewarmed_environments() -> Vec<UvEnvironment> {
 
 /// Read the `default_uv_packages` setting.
 fn parse_extra_packages() -> Vec<String> {
-    crate::settings::load_settings().default_uv_packages
+    crate::settings::load_settings().uv.default_packages
 }
 
 /// Create a prewarmed environment with ipykernel, ipywidgets, and any

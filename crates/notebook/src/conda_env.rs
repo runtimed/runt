@@ -992,7 +992,7 @@ pub async fn create_prewarmed_conda_environment(
 
     // Build dependency list: ipykernel + ipywidgets + user-configured defaults
     let mut deps_list = vec!["ipykernel".to_string(), "ipywidgets".to_string()];
-    let extra: Vec<String> = crate::settings::load_settings().default_conda_packages;
+    let extra: Vec<String> = crate::settings::load_settings().conda.default_packages;
     if !extra.is_empty() {
         info!("[prewarm] Including default packages: {:?}", extra);
         deps_list.extend(extra);
