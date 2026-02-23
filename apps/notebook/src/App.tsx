@@ -555,6 +555,7 @@ function AppContent() {
         onRestartAndRunAll={handleRestartAndRunAll}
         onAddCell={handleAddCell}
         onToggleDependencies={() => setDependencyHeaderOpen((prev) => !prev)}
+        isDepsOpen={dependencyHeaderOpen}
         listKernelspecs={listKernelspecs}
       />
       {/* Dual-dependency choice: both UV and conda deps exist, let user pick */}

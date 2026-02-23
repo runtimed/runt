@@ -25,7 +25,9 @@ describe("Deno Runtime", () => {
 
   it("should show the Deno runtime badge in the toolbar", async () => {
     const isDenoBadge = await browser.execute(() => {
-      return !!document.querySelector('[title="Deno/TypeScript notebook"]');
+      return !!document.querySelector(
+        '[data-testid="deps-toggle"][data-runtime="deno"]',
+      );
     });
     expect(isDenoBadge).toBe(true);
     console.log("Deno runtime badge visible");

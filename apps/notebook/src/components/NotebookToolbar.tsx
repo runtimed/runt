@@ -3,7 +3,6 @@ import {
   Info,
   Monitor,
   Moon,
-  Package,
   Play,
   Plus,
   RotateCcw,
@@ -144,48 +143,6 @@ function PixiIcon({ className }: { className?: string }) {
 /** Badge color variant for environment sources */
 type EnvBadgeVariant = "uv" | "conda" | "pixi";
 
-interface EnvBadgeInfo {
-  label: string;
-  variant: EnvBadgeVariant;
-}
-
-/** Map raw env_source string to badge display info. */
-function getEnvBadgeInfo(source: string | null): EnvBadgeInfo | null {
-  if (!source) return null;
-  switch (source) {
-    case "uv:inline":
-    case "uv:pyproject":
-    case "uv:prewarmed":
-    case "uv:fresh":
-      return { label: "uv", variant: "uv" };
-    case "conda:inline":
-    case "conda:env_yml":
-    case "conda:prewarmed":
-    case "conda:fresh":
-      return { label: "conda", variant: "conda" };
-    case "conda:pixi":
-      return { label: "pixi", variant: "pixi" };
-    default: {
-      const prefix = source.split(":")[0];
-      if (prefix === "uv") return { label: "uv", variant: "uv" };
-      if (prefix === "conda") return { label: "conda", variant: "conda" };
-      return { label: prefix ?? source, variant: "uv" };
-    }
-  }
-}
-
-/** Tailwind classes for an env badge variant */
-function envBadgeClasses(variant: EnvBadgeVariant): string {
-  switch (variant) {
-    case "uv":
-      return "bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400";
-    case "conda":
-      return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
-    case "pixi":
-      return "bg-amber-500/10 text-amber-600 dark:text-amber-400";
-  }
-}
-
 interface NotebookToolbarProps {
   kernelStatus: string;
   kernelErrorMessage: string | null;
@@ -214,6 +171,7 @@ interface NotebookToolbarProps {
   onRestartAndRunAll: () => void;
   onAddCell: (type: "code" | "markdown") => void;
   onToggleDependencies: () => void;
+  isDepsOpen?: boolean;
   listKernelspecs: () => Promise<KernelspecInfo[]>;
 }
 
@@ -328,7 +286,6 @@ export function NotebookToolbar({
   envSource,
   envTypeHint,
   dirty,
-  hasDependencies,
   theme,
   envProgress,
   runtime = "python",
@@ -349,6 +306,7 @@ export function NotebookToolbar({
   onRestartAndRunAll,
   onAddCell,
   onToggleDependencies,
+  isDepsOpen = false,
   listKernelspecs,
 }: NotebookToolbarProps) {
   const [kernelspecs, setKernelspecs] = useState<KernelspecInfo[]>([]);
@@ -374,14 +332,16 @@ export function NotebookToolbar({
     kernelStatus === "busy" ||
     kernelStatus === "starting";
 
-  // Show env badge from backend source when kernel is running, or from metadata hint pre-start
-  const envBadgeInfo =
+  // Derive env manager label for the runtime pill (e.g. "uv", "conda", "pixi")
+  const envManager: EnvBadgeVariant | null =
     runtime === "python"
       ? envSource && (kernelStatus === "idle" || kernelStatus === "busy")
-        ? getEnvBadgeInfo(envSource)
-        : envTypeHint
-          ? { label: envTypeHint, variant: envTypeHint }
-          : null
+        ? envSource.startsWith("conda:pixi")
+          ? "pixi"
+          : envSource.startsWith("conda")
+            ? "conda"
+            : "uv"
+        : (envTypeHint ?? null)
       : null;
 
   return (
@@ -450,7 +410,7 @@ export function NotebookToolbar({
               <button
                 type="button"
                 onClick={onRunAllCells}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
                 title="Run all cells"
                 data-testid="run-all-button"
               >
@@ -460,7 +420,7 @@ export function NotebookToolbar({
               <button
                 type="button"
                 onClick={onRestartKernel}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
                 title="Restart kernel"
                 data-testid="restart-kernel-button"
               >
@@ -470,7 +430,7 @@ export function NotebookToolbar({
               <button
                 type="button"
                 onClick={onRestartAndRunAll}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
                 title="Restart kernel and run all cells"
                 data-testid="restart-run-all-button"
               >
@@ -480,11 +440,19 @@ export function NotebookToolbar({
               <button
                 type="button"
                 onClick={onInterruptKernel}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className={cn(
+                  "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors",
+                  kernelStatus === "busy"
+                    ? "text-destructive hover:bg-destructive/10"
+                    : "text-foreground hover:bg-muted",
+                )}
                 title="Interrupt kernel"
                 data-testid="interrupt-kernel-button"
               >
-                <Square className="h-3 w-3" />
+                <Square
+                  className="h-3 w-3"
+                  fill={kernelStatus === "busy" ? "currentColor" : "none"}
+                />
                 Interrupt
               </button>
             </>
@@ -492,53 +460,27 @@ export function NotebookToolbar({
 
           <div className="flex-1" />
 
-          {/* Dependencies */}
+          {/* Runtime / deps toggle */}
           <button
             type="button"
             onClick={onToggleDependencies}
             data-testid="deps-toggle"
+            data-runtime={runtime}
             className={cn(
-              "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors hover:bg-muted",
-              hasDependencies ? "text-foreground" : "text-muted-foreground",
-            )}
-            title="Manage dependencies"
-          >
-            <Package className="h-3.5 w-3.5" />
-            Deps
-          </button>
-
-          {/* Env source badge */}
-          {envBadgeInfo && (
-            <div
-              className={cn(
-                "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                envBadgeClasses(envBadgeInfo.variant),
-              )}
-              title={`Environment: ${envSource}`}
-            >
-              {envBadgeInfo.variant === "uv" && <UvIcon className="h-2 w-2" />}
-              {envBadgeInfo.variant === "conda" && (
-                <CondaIcon className="h-2.5 w-2.5" />
-              )}
-              {envBadgeInfo.variant === "pixi" && (
-                <PixiIcon className="h-2 w-2" />
-              )}
-            </div>
-          )}
-
-          {/* Runtime badge */}
-          <div
-            className={cn(
-              "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
+              "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors",
               runtime === "deno"
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                : "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+                ? "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400"
+                : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 dark:text-blue-400",
+              isDepsOpen && "ring-1 ring-current/25",
             )}
-            title={
-              runtime === "deno"
-                ? "Deno/TypeScript notebook"
-                : "Python notebook"
-            }
+            title={(() => {
+              const lang = runtime === "deno" ? "Deno/TypeScript" : "Python";
+              const mgr = envManager ? ` · ${envManager}` : "";
+              const action = isDepsOpen
+                ? "close environment panel"
+                : "open environment panel";
+              return `${lang}${mgr} — ${action}`;
+            })()}
           >
             {runtime === "deno" ? (
               <>
@@ -551,7 +493,21 @@ export function NotebookToolbar({
                 <span>Python</span>
               </>
             )}
-          </div>
+            {envManager && (
+              <>
+                <span className="opacity-40">·</span>
+                {envManager === "uv" && (
+                  <UvIcon className="h-2 w-2 text-fuchsia-600 dark:text-fuchsia-400" />
+                )}
+                {envManager === "conda" && (
+                  <CondaIcon className="h-2.5 w-2.5 text-emerald-600 dark:text-emerald-400" />
+                )}
+                {envManager === "pixi" && (
+                  <PixiIcon className="h-2.5 w-2.5 text-amber-600 dark:text-amber-400" />
+                )}
+              </>
+            )}
+          </button>
 
           {/* Kernel status */}
           <div
