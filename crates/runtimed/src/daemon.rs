@@ -185,6 +185,11 @@ impl Daemon {
         let json_path = crate::settings_json_path();
         let settings = SettingsDoc::load_or_create(&automerge_path, Some(&json_path));
 
+        // Write the settings JSON Schema for editor autocomplete
+        if let Err(e) = crate::settings_doc::write_settings_schema() {
+            log::warn!("[settings] Failed to write schema file: {}", e);
+        }
+
         let (settings_changed, _) = tokio::sync::broadcast::channel(16);
 
         Ok(Arc::new(Self {

@@ -53,6 +53,41 @@ impl std::fmt::Display for ThemeMode {
     }
 }
 
+use crate::runtime::Runtime;
+
+/// Python environment type for dependency management.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum PythonEnvType {
+    /// Use uv for Python package management (fast, pip-compatible)
+    #[default]
+    Uv,
+    /// Use conda/rattler for Python package management (supports conda packages)
+    Conda,
+}
+
+impl std::fmt::Display for PythonEnvType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PythonEnvType::Uv => write!(f, "uv"),
+            PythonEnvType::Conda => write!(f, "conda"),
+        }
+    }
+}
+
+impl std::str::FromStr for PythonEnvType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "uv" => Ok(PythonEnvType::Uv),
+            "conda" => Ok(PythonEnvType::Conda),
+            _ => Err(format!("Unknown python env type: {}", s)),
+        }
+    }
+}
+
 /// Default packages for uv environments.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
 #[ts(export)]
@@ -68,26 +103,44 @@ pub struct CondaDefaults {
 }
 
 /// Snapshot of all synced settings.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
 #[ts(export)]
 pub struct SyncedSettings {
+    /// UI theme
+    #[serde(default)]
     pub theme: ThemeMode,
-    pub default_runtime: String,
-    pub default_python_env: String,
+
+    /// Default runtime for new notebooks
+    #[serde(default)]
+    pub default_runtime: Runtime,
+
+    /// Default Python environment type (uv or conda)
+    #[serde(default)]
+    pub default_python_env: PythonEnvType,
+
+    /// UV environment defaults
+    #[serde(default)]
     pub uv: UvDefaults,
+
+    /// Conda environment defaults
+    #[serde(default)]
     pub conda: CondaDefaults,
 }
 
-impl Default for SyncedSettings {
-    fn default() -> Self {
-        Self {
-            theme: ThemeMode::default(),
-            default_runtime: "python".to_string(),
-            default_python_env: "uv".to_string(),
-            uv: UvDefaults::default(),
-            conda: CondaDefaults::default(),
-        }
+/// Generate a JSON Schema string for the settings file.
+pub fn generate_settings_schema() -> Result<String, serde_json::Error> {
+    let schema = schemars::schema_for!(SyncedSettings);
+    serde_json::to_string_pretty(&schema)
+}
+
+/// Write the settings schema file to disk.
+pub fn write_settings_schema() -> std::io::Result<()> {
+    let path = crate::settings_schema_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
     }
+    let schema = generate_settings_schema().map_err(std::io::Error::other)?;
+    std::fs::write(&path, format!("{schema}\n"))
 }
 
 /// Wrapper around an Automerge document storing application settings.
@@ -104,13 +157,17 @@ impl SettingsDoc {
         let mut doc = AutoCommit::new();
         let defaults = SyncedSettings::default();
 
-        // Root-level scalars
+        // Root-level scalars (Automerge stores strings; enums are serialized via Display)
         let _ = doc.put(automerge::ROOT, "theme", defaults.theme.to_string());
-        let _ = doc.put(automerge::ROOT, "default_runtime", defaults.default_runtime);
+        let _ = doc.put(
+            automerge::ROOT,
+            "default_runtime",
+            defaults.default_runtime.to_string(),
+        );
         let _ = doc.put(
             automerge::ROOT,
             "default_python_env",
-            defaults.default_python_env,
+            defaults.default_python_env.to_string(),
         );
 
         // Nested uv map with empty package list
@@ -251,12 +308,22 @@ impl SettingsDoc {
     }
 
     /// Write a human-readable JSON mirror of the settings (for fallback/inspection).
+    ///
+    /// Injects a `$schema` key pointing to the companion schema file so editors
+    /// can provide autocomplete and validation.
     pub fn save_json_mirror(&self, path: &Path) -> std::io::Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let settings = self.get_all();
-        let json = serde_json::to_string_pretty(&settings).map_err(std::io::Error::other)?;
+        let mut json_value = serde_json::to_value(&settings).map_err(std::io::Error::other)?;
+        if let Some(obj) = json_value.as_object_mut() {
+            obj.insert(
+                "$schema".to_string(),
+                serde_json::Value::String("./settings.schema.json".to_string()),
+            );
+        }
+        let json = serde_json::to_string_pretty(&json_value).map_err(std::io::Error::other)?;
         std::fs::write(path, format!("{json}\n"))
     }
 
@@ -424,10 +491,12 @@ impl SettingsDoc {
                 .unwrap_or(defaults.theme),
             default_runtime: self
                 .get("default_runtime")
-                .unwrap_or(defaults.default_runtime),
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
             default_python_env: self
                 .get("default_python_env")
-                .unwrap_or(defaults.default_python_env),
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
             uv: UvDefaults {
                 default_packages: uv_packages,
             },
@@ -559,8 +628,8 @@ mod tests {
         let doc = SettingsDoc::new();
         let settings = doc.get_all();
         assert_eq!(settings.theme, ThemeMode::System);
-        assert_eq!(settings.default_runtime, "python");
-        assert_eq!(settings.default_python_env, "uv");
+        assert_eq!(settings.default_runtime, Runtime::Python);
+        assert_eq!(settings.default_python_env, PythonEnvType::Uv);
         assert!(settings.uv.default_packages.is_empty());
         assert!(settings.conda.default_packages.is_empty());
     }
@@ -756,9 +825,56 @@ mod tests {
 
         let contents = std::fs::read_to_string(&json_path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
+        assert_eq!(parsed["$schema"], "./settings.schema.json");
         assert_eq!(parsed["theme"], "dark");
         assert_eq!(parsed["uv"]["default_packages"][0], "numpy");
         assert_eq!(parsed["uv"]["default_packages"][1], "pandas");
+    }
+
+    #[test]
+    fn test_apply_json_changes_ignores_schema_key() {
+        let mut doc = SettingsDoc::new();
+        let json = serde_json::json!({
+            "$schema": "./settings.schema.json",
+            "theme": "dark",
+        });
+        let changed = doc.apply_json_changes(&json);
+        assert!(changed);
+        assert_eq!(doc.get("theme"), Some("dark".to_string()));
+    }
+
+    #[test]
+    fn test_generate_settings_schema() {
+        let schema = generate_settings_schema().unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&schema).unwrap();
+        // Should be a valid JSON Schema with properties
+        let schema_str = &schema;
+        assert!(schema_str.contains("theme"));
+        assert!(schema_str.contains("default_runtime"));
+        assert!(schema_str.contains("default_python_env"));
+        // Should have enum constraints from the typed enums
+        assert!(schema_str.contains("python"));
+        assert!(schema_str.contains("deno"));
+        assert!(schema_str.contains("uv"));
+        assert!(schema_str.contains("conda"));
+        // Should be a proper JSON Schema object
+        assert!(parsed.is_object());
+    }
+
+    #[test]
+    fn test_schema_key_ignored_during_deserialization() {
+        let json = r#"{
+            "$schema": "./settings.schema.json",
+            "theme": "dark",
+            "default_runtime": "deno",
+            "default_python_env": "conda",
+            "uv": { "default_packages": [] },
+            "conda": { "default_packages": [] }
+        }"#;
+        let parsed: SyncedSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.theme, ThemeMode::Dark);
+        assert_eq!(parsed.default_runtime, Runtime::Deno);
+        assert_eq!(parsed.default_python_env, PythonEnvType::Conda);
     }
 
     #[test]
@@ -767,7 +883,12 @@ mod tests {
         server.put("theme", "dark");
         server.put_list("uv.default_packages", &["numpy".to_string()]);
 
-        let mut client = SettingsDoc::new();
+        // Client starts empty — avoids conflicting object creation for nested
+        // maps (both docs creating their own "uv" Map independently would cause
+        // Automerge CRDT conflicts that resolve nondeterministically).
+        let mut client = SettingsDoc {
+            doc: AutoCommit::new(),
+        };
 
         let mut server_state = sync::State::new();
         let mut client_state = sync::State::new();
@@ -778,9 +899,6 @@ mod tests {
             }
             if let Some(msg) = server.generate_sync_message(&mut server_state) {
                 client.receive_sync_message(&mut client_state, msg).unwrap();
-            }
-            if client.get("theme") == Some("dark".to_string()) {
-                break;
             }
         }
 

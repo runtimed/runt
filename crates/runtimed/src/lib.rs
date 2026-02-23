@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 pub mod client;
 pub mod daemon;
 pub mod protocol;
+pub mod runtime;
 pub mod service;
 pub mod settings_doc;
 pub mod singleton;
@@ -116,4 +117,12 @@ pub fn settings_json_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("runt-notebook")
         .join("settings.json")
+}
+
+/// Get the path to the settings JSON Schema file.
+pub fn settings_schema_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("runt-notebook")
+        .join("settings.schema.json")
 }
