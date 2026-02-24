@@ -324,6 +324,12 @@ async fn handle_json_request(
                         error: format!("clear outputs failed: {}", e),
                     };
                 }
+                // Also reset execution count to null (matches pre-execution state)
+                if let Err(e) = doc.set_execution_count(&cell_id, "null") {
+                    return NotebookSyncResponse::Error {
+                        error: format!("reset execution count failed: {}", e),
+                    };
+                }
                 let bytes = doc.save();
                 let _ = room.changed_tx.send(());
                 bytes

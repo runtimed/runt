@@ -591,90 +591,166 @@ where
         self.sync_to_daemon().await
     }
 
-    /// Append a single output to a cell's output list and sync to daemon.
+    /// Append a single output to a cell's output list via server-side manifest creation.
+    ///
+    /// Phase 6: Sends the output JSON to the server, which creates a manifest
+    /// (with blob storage for large data), stores the manifest hash in the CRDT,
+    /// and broadcasts the change to all peers.
     pub async fn append_output(
         &mut self,
         cell_id: &str,
         output: &str,
     ) -> Result<(), NotebookSyncError> {
-        let cells_id = match self.cells_list_id() {
-            Some(id) => id,
-            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
-        };
-        let idx = match self.find_cell_index(&cells_id, cell_id) {
-            Some(i) => i,
-            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
-        };
-        let cell_obj = match self.cell_at_index(&cells_id, idx) {
-            Some(o) => o,
-            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
-        };
+        use crate::protocol::{NotebookSyncRequest, NotebookSyncResponse};
 
-        let list_id = self
-            .outputs_list_id(&cell_obj)
-            .ok_or_else(|| NotebookSyncError::SyncError("outputs list not found".to_string()))?;
+        let request = NotebookSyncRequest::AppendOutput {
+            cell_id: cell_id.to_string(),
+            output_json: output.to_string(),
+        };
+        let request_bytes = serde_json::to_vec(&request)
+            .map_err(|e| NotebookSyncError::SyncError(format!("serialize: {}", e)))?;
 
-        let len = self.doc.length(&list_id);
-        self.doc
-            .insert(&list_id, len, output)
-            .map_err(|e| NotebookSyncError::SyncError(format!("insert output: {}", e)))?;
+        connection::send_typed_frame(&mut self.stream, FrameKind::JsonRequest, &request_bytes)
+            .await?;
 
-        self.sync_to_daemon().await
+        // Wait for response, processing any Automerge sync messages that arrive first
+        loop {
+            match connection::recv_typed_frame(&mut self.stream).await? {
+                Some((FrameKind::JsonRequest, data)) => {
+                    let response: NotebookSyncResponse =
+                        serde_json::from_slice(&data).map_err(|e| {
+                            NotebookSyncError::SyncError(format!("parse response: {}", e))
+                        })?;
+                    return match response {
+                        NotebookSyncResponse::OutputStored { hash: _ } => {
+                            // Server stored the manifest and updated CRDT.
+                            Ok(())
+                        }
+                        NotebookSyncResponse::Ok {} => Ok(()),
+                        NotebookSyncResponse::Error { error } => {
+                            Err(NotebookSyncError::SyncError(error))
+                        }
+                    };
+                }
+                Some((FrameKind::AutomergeSync, data)) => {
+                    // Server sent an Automerge sync message (CRDT update broadcast).
+                    // Process it and continue waiting for our JSON response.
+                    let message = sync::Message::decode(&data)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                    self.doc
+                        .sync()
+                        .receive_sync_message(&mut self.peer_state, message)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+                    // Continue loop to get JSON response
+                }
+                None => return Err(NotebookSyncError::Disconnected),
+            }
+        }
     }
 
-    /// Clear all outputs and reset execution_count for a cell, then sync to daemon.
+    /// Clear all outputs for a cell via server-side request.
+    ///
+    /// Phase 6: Sends a ClearOutputs request to the server, which clears
+    /// the outputs in the CRDT and broadcasts the change to all peers.
     pub async fn clear_outputs(&mut self, cell_id: &str) -> Result<(), NotebookSyncError> {
-        let cells_id = match self.cells_list_id() {
-            Some(id) => id,
-            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
-        };
-        let idx = match self.find_cell_index(&cells_id, cell_id) {
-            Some(i) => i,
-            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
-        };
-        let cell_obj = match self.cell_at_index(&cells_id, idx) {
-            Some(o) => o,
-            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
-        };
+        use crate::protocol::{NotebookSyncRequest, NotebookSyncResponse};
 
-        // Replace outputs with a fresh empty list
-        let _ = self.doc.delete(&cell_obj, "outputs");
-        self.doc
-            .put_object(&cell_obj, "outputs", ObjType::List)
-            .map_err(|e| NotebookSyncError::SyncError(format!("put outputs: {}", e)))?;
+        let request = NotebookSyncRequest::ClearOutputs {
+            cell_id: cell_id.to_string(),
+        };
+        let request_bytes = serde_json::to_vec(&request)
+            .map_err(|e| NotebookSyncError::SyncError(format!("serialize: {}", e)))?;
 
-        // Reset execution count
-        self.doc
-            .put(&cell_obj, "execution_count", "null")
-            .map_err(|e| NotebookSyncError::SyncError(format!("put exec_count: {}", e)))?;
+        connection::send_typed_frame(&mut self.stream, FrameKind::JsonRequest, &request_bytes)
+            .await?;
 
-        self.sync_to_daemon().await
+        // Wait for response, processing any Automerge sync messages that arrive first
+        loop {
+            match connection::recv_typed_frame(&mut self.stream).await? {
+                Some((FrameKind::JsonRequest, data)) => {
+                    let response: NotebookSyncResponse =
+                        serde_json::from_slice(&data).map_err(|e| {
+                            NotebookSyncError::SyncError(format!("parse response: {}", e))
+                        })?;
+                    return match response {
+                        NotebookSyncResponse::Ok {} => Ok(()),
+                        NotebookSyncResponse::Error { error } => {
+                            Err(NotebookSyncError::SyncError(error))
+                        }
+                        _ => Err(NotebookSyncError::SyncError(
+                            "unexpected response".to_string(),
+                        )),
+                    };
+                }
+                Some((FrameKind::AutomergeSync, data)) => {
+                    // Server sent an Automerge sync message (CRDT update broadcast).
+                    // Process it and continue waiting for our JSON response.
+                    let message = sync::Message::decode(&data)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                    self.doc
+                        .sync()
+                        .receive_sync_message(&mut self.peer_state, message)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+                    // Continue loop to get JSON response
+                }
+                None => return Err(NotebookSyncError::Disconnected),
+            }
+        }
     }
 
-    /// Set execution count for a cell and sync to daemon.
+    /// Set execution count for a cell via server-side request.
+    ///
+    /// Phase 6: Sends a SetExecutionCount request to the server, which updates
+    /// the CRDT and broadcasts the change to all peers.
     pub async fn set_execution_count(
         &mut self,
         cell_id: &str,
         count: &str,
     ) -> Result<(), NotebookSyncError> {
-        let cells_id = match self.cells_list_id() {
-            Some(id) => id,
-            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
-        };
-        let idx = match self.find_cell_index(&cells_id, cell_id) {
-            Some(i) => i,
-            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
-        };
-        let cell_obj = match self.cell_at_index(&cells_id, idx) {
-            Some(o) => o,
-            None => return Err(NotebookSyncError::CellNotFound(cell_id.to_string())),
-        };
+        use crate::protocol::{NotebookSyncRequest, NotebookSyncResponse};
 
-        self.doc
-            .put(&cell_obj, "execution_count", count)
-            .map_err(|e| NotebookSyncError::SyncError(format!("put: {}", e)))?;
+        let request = NotebookSyncRequest::SetExecutionCount {
+            cell_id: cell_id.to_string(),
+            count: count.to_string(),
+        };
+        let request_bytes = serde_json::to_vec(&request)
+            .map_err(|e| NotebookSyncError::SyncError(format!("serialize: {}", e)))?;
 
-        self.sync_to_daemon().await
+        connection::send_typed_frame(&mut self.stream, FrameKind::JsonRequest, &request_bytes)
+            .await?;
+
+        // Wait for response, processing any Automerge sync messages that arrive first
+        loop {
+            match connection::recv_typed_frame(&mut self.stream).await? {
+                Some((FrameKind::JsonRequest, data)) => {
+                    let response: NotebookSyncResponse =
+                        serde_json::from_slice(&data).map_err(|e| {
+                            NotebookSyncError::SyncError(format!("parse response: {}", e))
+                        })?;
+                    return match response {
+                        NotebookSyncResponse::Ok {} => Ok(()),
+                        NotebookSyncResponse::Error { error } => {
+                            Err(NotebookSyncError::SyncError(error))
+                        }
+                        _ => Err(NotebookSyncError::SyncError(
+                            "unexpected response".to_string(),
+                        )),
+                    };
+                }
+                Some((FrameKind::AutomergeSync, data)) => {
+                    // Server sent an Automerge sync message (CRDT update broadcast).
+                    // Process it and continue waiting for our JSON response.
+                    let message = sync::Message::decode(&data)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                    self.doc
+                        .sync()
+                        .receive_sync_message(&mut self.peer_state, message)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+                    // Continue loop to get JSON response
+                }
+                None => return Err(NotebookSyncError::Disconnected),
+            }
+        }
     }
 
     /// Mark a cell as currently executing (cross-window sync).
@@ -692,24 +768,37 @@ where
         connection::send_typed_frame(&mut self.stream, FrameKind::JsonRequest, &request_bytes)
             .await?;
 
-        // Wait for response
-        match connection::recv_typed_frame(&mut self.stream).await? {
-            Some((FrameKind::JsonRequest, data)) => {
-                let response: NotebookSyncResponse = serde_json::from_slice(&data)
-                    .map_err(|e| NotebookSyncError::SyncError(format!("parse response: {}", e)))?;
-                match response {
-                    NotebookSyncResponse::Ok {} => Ok(()),
-                    NotebookSyncResponse::Error { error } => {
-                        Err(NotebookSyncError::SyncError(error))
-                    }
-                    _ => Err(NotebookSyncError::SyncError(
-                        "unexpected response".to_string(),
-                    )),
+        // Wait for response, processing any Automerge sync messages that arrive first
+        loop {
+            match connection::recv_typed_frame(&mut self.stream).await? {
+                Some((FrameKind::JsonRequest, data)) => {
+                    let response: NotebookSyncResponse =
+                        serde_json::from_slice(&data).map_err(|e| {
+                            NotebookSyncError::SyncError(format!("parse response: {}", e))
+                        })?;
+                    return match response {
+                        NotebookSyncResponse::Ok {} => Ok(()),
+                        NotebookSyncResponse::Error { error } => {
+                            Err(NotebookSyncError::SyncError(error))
+                        }
+                        _ => Err(NotebookSyncError::SyncError(
+                            "unexpected response".to_string(),
+                        )),
+                    };
                 }
+                Some((FrameKind::AutomergeSync, data)) => {
+                    // Server sent an Automerge sync message (CRDT update broadcast).
+                    // Process it and continue waiting for our JSON response.
+                    let message = sync::Message::decode(&data)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                    self.doc
+                        .sync()
+                        .receive_sync_message(&mut self.peer_state, message)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+                    // Continue loop to get JSON response
+                }
+                None => return Err(NotebookSyncError::Disconnected),
             }
-            _ => Err(NotebookSyncError::SyncError(
-                "expected JSON response".to_string(),
-            )),
         }
     }
 
@@ -728,24 +817,37 @@ where
         connection::send_typed_frame(&mut self.stream, FrameKind::JsonRequest, &request_bytes)
             .await?;
 
-        // Wait for response
-        match connection::recv_typed_frame(&mut self.stream).await? {
-            Some((FrameKind::JsonRequest, data)) => {
-                let response: NotebookSyncResponse = serde_json::from_slice(&data)
-                    .map_err(|e| NotebookSyncError::SyncError(format!("parse response: {}", e)))?;
-                match response {
-                    NotebookSyncResponse::Ok {} => Ok(()),
-                    NotebookSyncResponse::Error { error } => {
-                        Err(NotebookSyncError::SyncError(error))
-                    }
-                    _ => Err(NotebookSyncError::SyncError(
-                        "unexpected response".to_string(),
-                    )),
+        // Wait for response, processing any Automerge sync messages that arrive first
+        loop {
+            match connection::recv_typed_frame(&mut self.stream).await? {
+                Some((FrameKind::JsonRequest, data)) => {
+                    let response: NotebookSyncResponse =
+                        serde_json::from_slice(&data).map_err(|e| {
+                            NotebookSyncError::SyncError(format!("parse response: {}", e))
+                        })?;
+                    return match response {
+                        NotebookSyncResponse::Ok {} => Ok(()),
+                        NotebookSyncResponse::Error { error } => {
+                            Err(NotebookSyncError::SyncError(error))
+                        }
+                        _ => Err(NotebookSyncError::SyncError(
+                            "unexpected response".to_string(),
+                        )),
+                    };
                 }
+                Some((FrameKind::AutomergeSync, data)) => {
+                    // Server sent an Automerge sync message (CRDT update broadcast).
+                    // Process it and continue waiting for our JSON response.
+                    let message = sync::Message::decode(&data)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                    self.doc
+                        .sync()
+                        .receive_sync_message(&mut self.peer_state, message)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+                    // Continue loop to get JSON response
+                }
+                None => return Err(NotebookSyncError::Disconnected),
             }
-            _ => Err(NotebookSyncError::SyncError(
-                "expected JSON response".to_string(),
-            )),
         }
     }
 
@@ -892,17 +994,6 @@ where
             }
         }
         None
-    }
-
-    fn outputs_list_id(&self, cell_obj: &automerge::ObjId) -> Option<automerge::ObjId> {
-        self.doc
-            .get(cell_obj, "outputs")
-            .ok()
-            .flatten()
-            .and_then(|(value, id)| match value {
-                automerge::Value::Object(ObjType::List) => Some(id),
-                _ => None,
-            })
     }
 
     fn text_id(&self, parent: &automerge::ObjId, key: &str) -> Option<automerge::ObjId> {
