@@ -153,6 +153,27 @@ export function useKernel({
       } else if (event.payload.state === "ready" && event.payload.env_source) {
         setEnvSource(event.payload.env_source);
         setKernelErrorMessage(null);
+
+        // Register kernel with daemon for iopub watching (enables multi-window sync)
+        (async () => {
+          try {
+            const connectionFile = await invoke<string | null>(
+              "get_kernel_connection_file",
+            );
+            if (connectionFile) {
+              const kernelType = event.payload.runtime; // "python" or "deno"
+              const envSource = event.payload.env_source;
+              const result = await invoke<string>("sync_register_kernel", {
+                connectionFile,
+                kernelType,
+                envSource,
+              });
+              console.log("[kernel] Registered with daemon:", result);
+            }
+          } catch (e) {
+            console.warn("[kernel] Failed to register with daemon:", e);
+          }
+        })();
       } else if (event.payload.state === "error") {
         setKernelStatus("error");
         setKernelErrorMessage(event.payload.error_message ?? null);
