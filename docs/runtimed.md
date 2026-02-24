@@ -832,6 +832,26 @@ For output manifests, the `output_type` field provides structural versioning. Ne
 
 ---
 
+## Known Limitations
+
+### Sync Race Condition During Execution
+
+When a cell executes, there's a brief window where daemon sync updates may conflict with local output updates. The flow is:
+
+1. Frontend clears outputs and marks cell as executing
+2. Kernel outputs arrive via iopub → frontend updates local state
+3. Frontend calls `sync_append_output` (async to daemon)
+4. Daemon may send `notebook:updated` before our append arrives
+5. Frontend must decide: trust daemon state or preserve local outputs?
+
+**Current workaround**: The frontend tracks "executing cells" in `executingCellsRef` and preserves local outputs for those cells during `notebook:updated`. When execution completes (`markExecutionComplete`), the cell trusts daemon state again.
+
+**Limitation**: This is imperfect. There's no correlation between the kernel's `msg_id` and outputs in the CRDT. If the daemon sends stale state, we might briefly show wrong outputs.
+
+**Proper fix (future)**: Store `parent_header.msg_id` in cell metadata to correlate execution requests with outputs. Only accept daemon outputs that match the expected `msg_id`.
+
+---
+
 ## Summary
 
 | Phase | What | Status |
@@ -841,6 +861,6 @@ For output manifests, the `output_type` field provides structural versioning. Ne
 | **3** | Blob store (on-disk CAS + HTTP server) | Implemented (PR #220) |
 | **4** | Protocol consolidation (single socket) | Implemented (PR #220, #223) |
 | **5** | Tauri <-> daemon notebook sync (multi-window) | Implemented (PR #238, #241) |
-| **6** | Output store (manifests, ContentRef, inlining) | Next (foundation in PR #237) |
-| **7** | ipynb round-tripping | After 6 |
+| **6** | Output store (manifests, ContentRef, inlining) | Implemented (foundation PR #237, full pipeline wired) |
+| **7** | ipynb round-tripping | Next |
 | **8** | Daemon-owned kernels | After 7 |
