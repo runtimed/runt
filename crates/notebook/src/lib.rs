@@ -26,9 +26,11 @@ pub use runtime::Runtime;
 use execution_queue::{ExecutionQueue, ExecutionQueueState, QueueCommand, SharedExecutionQueue};
 use kernel::{CompletionResult, HistoryResult, NotebookKernel};
 use notebook_state::{FrontendCell, NotebookState};
+use runtimed::notebook_doc::CellSnapshot;
 use runtimed::notebook_sync_client::{NotebookSyncClient, NotebookSyncHandle};
 
 use log::{error, info, warn};
+use nbformat::v4::{Cell, CellId, CellMetadata};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -123,6 +125,67 @@ fn derive_notebook_id(state: &NotebookState) -> String {
     }
 }
 
+/// Convert a CellSnapshot from Automerge to an nbformat Cell.
+/// Used when joining an existing room to update local state.
+fn cell_snapshot_to_nbformat(snap: &CellSnapshot) -> Cell {
+    let id = CellId::from(uuid::Uuid::parse_str(&snap.id).unwrap_or_else(|_| uuid::Uuid::new_v4()));
+    let source: Vec<String> = if snap.source.is_empty() {
+        Vec::new()
+    } else {
+        snap.source
+            .split_inclusive('\n')
+            .map(|s| s.to_string())
+            .collect()
+    };
+    let metadata = CellMetadata {
+        id: None,
+        collapsed: None,
+        scrolled: None,
+        deletable: None,
+        editable: None,
+        format: None,
+        name: None,
+        tags: None,
+        jupyter: None,
+        execution: None,
+        additional: std::collections::HashMap::new(),
+    };
+
+    match snap.cell_type.as_str() {
+        "code" => {
+            let execution_count = if snap.execution_count == "null" {
+                None
+            } else {
+                snap.execution_count.parse().ok()
+            };
+            // Parse outputs from JSON strings
+            let outputs: Vec<nbformat::v4::Output> = snap
+                .outputs
+                .iter()
+                .filter_map(|json_str| serde_json::from_str(json_str).ok())
+                .collect();
+            Cell::Code {
+                id,
+                metadata,
+                execution_count,
+                source,
+                outputs,
+            }
+        }
+        "markdown" => Cell::Markdown {
+            id,
+            metadata,
+            source,
+            attachments: None,
+        },
+        _ => Cell::Raw {
+            id,
+            metadata,
+            source,
+        },
+    }
+}
+
 /// Initialize notebook sync with the daemon.
 ///
 /// Connects to the daemon's notebook sync service using the split pattern,
@@ -182,7 +245,20 @@ async fn initialize_notebook_sync(
             "[notebook-sync] Joining existing room with {} cells",
             initial_cells.len()
         );
-        // Emit Automerge state to frontend to replace stale disk content
+        // Update local NotebookState to match Automerge state
+        // This prevents race conditions where load_notebook returns stale disk content
+        {
+            let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
+            state.notebook.cells = initial_cells
+                .iter()
+                .map(cell_snapshot_to_nbformat)
+                .collect();
+            info!(
+                "[notebook-sync] Updated local state with {} cells from Automerge",
+                state.notebook.cells.len()
+            );
+        }
+        // Emit Automerge state to frontend (for immediate UI update)
         if let Err(e) = app.emit("notebook:updated", &initial_cells) {
             warn!("[notebook-sync] Failed to emit initial cells: {}", e);
         }
