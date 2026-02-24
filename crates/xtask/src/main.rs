@@ -18,7 +18,6 @@ fn main() {
             let notebook = args.get(1).map(String::as_str);
             cmd_run(notebook);
         }
-        "watch-isolated" => cmd_watch_isolated(),
         "icons" => {
             let source = args.get(1).map(String::as_str);
             cmd_icons(source);
@@ -46,7 +45,6 @@ Development:
   build                 Quick debug build (no DMG)
   build-e2e             Debug build with built-in WebDriver server
   run [notebook.ipynb]  Build and run debug app
-  watch-isolated        Watch and rebuild isolated renderer
 
 Release:
   build-app             Build .app bundle with icons
@@ -63,27 +61,21 @@ Other:
 }
 
 fn cmd_dev() {
-    // Build isolated renderer first (separate IIFE bundle, not part of Vite dev server)
-    println!("Building isolated renderer...");
-    run_cmd("pnpm", &["run", "isolated-renderer:build"]);
-
     println!("Starting dev server with hot reload...");
-    run_cmd("cargo", &["tauri", "dev", "--", "-p", "notebook"]);
-}
 
-fn cmd_watch_isolated() {
-    println!("Watching isolated renderer for changes...");
-    println!("Reload app or open new notebook to see changes.");
-    run_cmd(
-        "pnpm",
-        &[
-            "vite",
-            "build",
-            "--watch",
-            "--config",
-            "src/isolated-renderer/vite.config.ts",
-        ],
-    );
+    // Check if CONDUCTOR_PORT is set and override devUrl accordingly
+    let config_override = env::var("CONDUCTOR_PORT").ok().map(|port| {
+        println!("Using CONDUCTOR_PORT={port}");
+        format!(r#"{{"build":{{"devUrl":"http://localhost:{port}"}}}}"#)
+    });
+
+    let mut args = vec!["tauri", "dev"];
+    if let Some(ref config) = config_override {
+        args.extend(["--config", config]);
+    }
+    args.extend(["--", "-p", "notebook"]);
+
+    run_cmd("cargo", &args);
 }
 
 fn cmd_build() {
