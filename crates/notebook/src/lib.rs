@@ -182,6 +182,10 @@ async fn initialize_notebook_sync(
             "[notebook-sync] Joining existing room with {} cells",
             initial_cells.len()
         );
+        // Emit Automerge state to frontend to replace stale disk content
+        if let Err(e) = app.emit("notebook:updated", &initial_cells) {
+            warn!("[notebook-sync] Failed to emit initial cells: {}", e);
+        }
     }
 
     // Store the handle for commands to use
