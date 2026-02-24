@@ -53,7 +53,8 @@ pub struct NotebookRoom {
     /// Number of active peer connections in this room.
     pub active_peers: AtomicUsize,
     /// Optional kernel for this room (Phase 8: daemon-owned execution).
-    pub kernel: Mutex<Option<RoomKernel>>,
+    /// Arc-wrapped so spawned command processor task can access it.
+    pub kernel: Arc<Mutex<Option<RoomKernel>>>,
 }
 
 impl NotebookRoom {
@@ -70,7 +71,7 @@ impl NotebookRoom {
             kernel_broadcast_tx,
             persist_path,
             active_peers: AtomicUsize::new(0),
-            kernel: Mutex::new(None),
+            kernel: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -423,6 +424,44 @@ async fn handle_notebook_request(
                 Ok(()) => {
                     let kt = kernel.kernel_type().to_string();
                     let es = kernel.env_source().to_string();
+
+                    // Take the command receiver and spawn a task to process execution events
+                    if let Some(mut cmd_rx) = kernel.take_command_rx() {
+                        let room_kernel = room.kernel.clone();
+                        tokio::spawn(async move {
+                            use crate::kernel_manager::QueueCommand;
+                            while let Some(cmd) = cmd_rx.recv().await {
+                                match cmd {
+                                    QueueCommand::ExecutionDone { cell_id } => {
+                                        info!(
+                                            "[notebook-sync] Processing ExecutionDone for {}",
+                                            cell_id
+                                        );
+                                        let mut guard = room_kernel.lock().await;
+                                        if let Some(ref mut k) = *guard {
+                                            if let Err(e) = k.execution_done(&cell_id).await {
+                                                warn!(
+                                                    "[notebook-sync] execution_done error: {}",
+                                                    e
+                                                );
+                                            }
+                                        }
+                                    }
+                                    QueueCommand::CellError { cell_id } => {
+                                        warn!(
+                                            "[notebook-sync] Cell error (stop-on-error): {}",
+                                            cell_id
+                                        );
+                                        // TODO: implement stop-on-error behavior
+                                    }
+                                }
+                            }
+                            info!(
+                                "[notebook-sync] Command receiver closed, kernel likely shutdown"
+                            );
+                        });
+                    }
+
                     *kernel_guard = Some(kernel);
                     NotebookResponse::KernelLaunched {
                         kernel_type: kt,

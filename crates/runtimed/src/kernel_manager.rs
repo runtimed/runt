@@ -97,19 +97,21 @@ pub struct RoomKernel {
     status: KernelStatus,
     /// Broadcast channel for sending outputs to peers
     broadcast_tx: broadcast::Sender<NotebookBroadcast>,
-    /// Command channel for queue processing
+    /// Command sender for iopub/shell tasks
     cmd_tx: Option<mpsc::Sender<QueueCommand>>,
+    /// Command receiver for queue state updates (polled by sync server)
+    cmd_rx: Option<mpsc::Receiver<QueueCommand>>,
 }
 
-/// Commands for the queue processor
+/// Commands from iopub/shell handlers for queue state management.
+///
+/// These are sent from spawned tasks and must be processed by code
+/// that has access to `&mut RoomKernel` (e.g., the notebook sync server).
 #[derive(Debug)]
-#[allow(dead_code)] // ProcessNext will be used when queue processing is fully wired
-enum QueueCommand {
-    /// Process the next cell in queue
-    ProcessNext,
-    /// A cell finished executing
+pub enum QueueCommand {
+    /// A cell finished executing (received status=idle from kernel)
     ExecutionDone { cell_id: String },
-    /// A cell produced an error
+    /// A cell produced an error (for stop-on-error behavior)
     CellError { cell_id: String },
 }
 
@@ -134,7 +136,17 @@ impl RoomKernel {
             status: KernelStatus::Starting,
             broadcast_tx,
             cmd_tx: None,
+            cmd_rx: None,
         }
+    }
+
+    /// Take the command receiver for polling by the sync server.
+    ///
+    /// This should be called after `launch()` and polled in the sync server's
+    /// select loop. When commands arrive, call the appropriate methods on
+    /// `RoomKernel` (e.g., `execution_done` for `ExecutionDone`).
+    pub fn take_command_rx(&mut self) -> Option<mpsc::Receiver<QueueCommand>> {
+        self.cmd_rx.take()
     }
 
     /// Get the kernel type.
@@ -176,8 +188,10 @@ impl RoomKernel {
         env_source: &str,
         notebook_path: Option<&std::path::Path>,
     ) -> Result<()> {
-        // Shutdown existing kernel if any
-        self.shutdown().await.ok();
+        // Shutdown existing kernel if any (but don't broadcast shutdown for fresh kernel)
+        if self.is_running() {
+            self.shutdown().await.ok();
+        }
 
         self.kernel_type = kernel_type.to_string();
         self.env_source = env_source.to_string();
@@ -274,7 +288,7 @@ impl RoomKernel {
                 .await?;
 
         // Create command channel for queue processing
-        let (cmd_tx, mut cmd_rx) = mpsc::channel::<QueueCommand>(100);
+        let (cmd_tx, cmd_rx) = mpsc::channel::<QueueCommand>(100);
         self.cmd_tx = Some(cmd_tx.clone());
 
         let broadcast_tx = self.broadcast_tx.clone();
@@ -471,25 +485,9 @@ impl RoomKernel {
             }
         });
 
-        // Spawn queue processor
-        let queue_broadcast_tx = self.broadcast_tx.clone();
-        tokio::spawn(async move {
-            while let Some(cmd) = cmd_rx.recv().await {
-                match cmd {
-                    QueueCommand::ProcessNext => {
-                        // Queue processing is handled inline by queue_cell
-                    }
-                    QueueCommand::ExecutionDone { cell_id } => {
-                        info!("[kernel-manager] Execution done: {}", cell_id);
-                        let _ =
-                            queue_broadcast_tx.send(NotebookBroadcast::ExecutionDone { cell_id });
-                    }
-                    QueueCommand::CellError { cell_id } => {
-                        warn!("[kernel-manager] Cell error: {}", cell_id);
-                    }
-                }
-            }
-        });
+        // Store command receiver for sync server to poll
+        // (the sync server will call execution_done when it receives ExecutionDone)
+        self.cmd_rx = Some(cmd_rx);
 
         // Store state
         self.connection_info = Some(connection_info);
@@ -593,6 +591,11 @@ impl RoomKernel {
         if self.executing.as_ref() == Some(&cell_id.to_string()) {
             self.executing = None;
             self.status = KernelStatus::Idle;
+
+            // Clean up cell_id_map entries for this cell (prevent unbounded growth)
+            if let Ok(mut map) = self.cell_id_map.lock() {
+                map.retain(|_, v| v != cell_id);
+            }
 
             // Broadcast done
             let _ = self.broadcast_tx.send(NotebookBroadcast::ExecutionDone {
