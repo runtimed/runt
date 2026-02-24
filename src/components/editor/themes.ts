@@ -6,7 +6,7 @@ import {
   isDarkMode,
   prefersDarkMode,
   useDarkMode,
-} from "@/components/outputs/dark-mode";
+} from "@/lib/dark-mode";
 
 // Re-export theme detection utilities from canonical location
 export { documentHasDarkMode, isDarkMode, prefersDarkMode, useDarkMode };

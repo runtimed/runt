@@ -10,6 +10,8 @@
  */
 
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/lib/error-boundary";
+import { WidgetErrorFallback } from "@/lib/widget-error-fallback";
 import { AnyWidgetView, isAnyWidget } from "./anywidget-view";
 import { useLayoutStyles } from "./use-layout-styles";
 import { getWidgetComponent } from "./widget-registry";
@@ -116,13 +118,37 @@ export function WidgetView({ modelId, className }: WidgetViewProps) {
     }
   }
 
+  // Wrap with ErrorBoundary for fault isolation
+  const wrappedWidget = (
+    <ErrorBoundary
+      resetKeys={[model.state ? JSON.stringify(model.state) : modelId]}
+      fallback={(error, reset) => (
+        <WidgetErrorFallback
+          error={error}
+          modelId={modelId}
+          modelName={model.modelName}
+          onRetry={reset}
+        />
+      )}
+      onError={(error, errorInfo) => {
+        console.error(
+          `[WidgetView] Error rendering widget ${modelId}:`,
+          error,
+          errorInfo.componentStack,
+        );
+      }}
+    >
+      {renderedWidget}
+    </ErrorBoundary>
+  );
+
   // Wrap with layout positioning if the widget has grid placement styles
   const hasChildStyles = Object.keys(childStyle).length > 0;
   if (hasChildStyles) {
-    return <div style={childStyle}>{renderedWidget}</div>;
+    return <div style={childStyle}>{wrappedWidget}</div>;
   }
 
-  return renderedWidget;
+  return wrappedWidget;
 }
 
 export default WidgetView;

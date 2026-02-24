@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { useState } from "react";
-import { ErrorBoundary } from "../ErrorBoundary";
+import { ErrorBoundary } from "../error-boundary";
 
 // Suppress React's noisy error boundary console output during tests
 beforeEach(() => {

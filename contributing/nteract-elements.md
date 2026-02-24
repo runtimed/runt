@@ -87,7 +87,8 @@ Some utilities are shared across components:
 
 | Utility | Location | Purpose |
 |---------|----------|---------|
-| `isDarkMode()` | `@/components/outputs/dark-mode` | Theme detection (bundled from elements) |
+| `isDarkMode()` | `@/lib/dark-mode` | Theme detection |
+| `ErrorBoundary` | `@/lib/error-boundary` | Fault isolation with resetKeys |
 | `cn()` | `@/lib/utils` | Class name merging |
 
 ## Troubleshooting

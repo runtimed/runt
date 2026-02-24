@@ -12,7 +12,7 @@ import {
 import { CellContainer } from "@/components/cell/CellContainer";
 import { CompactExecutionButton } from "@/components/cell/CompactExecutionButton";
 import { OutputArea } from "@/components/cell/OutputArea";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ErrorBoundary } from "@/lib/error-boundary";
 import {
   CodeMirrorEditor,
   type CodeMirrorEditorRef,

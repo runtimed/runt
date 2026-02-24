@@ -9,12 +9,14 @@ import {
   useRef,
   useState,
 } from "react";
+import { isDarkMode as detectDarkMode } from "@/lib/dark-mode";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/lib/error-boundary";
+import { OutputErrorFallback } from "@/lib/output-error-fallback";
 import {
   AnsiErrorOutput,
   AnsiStreamOutput,
 } from "@/components/outputs/ansi-output";
-import { isDarkMode as detectDarkMode } from "@/components/outputs/dark-mode";
 import {
   CommBridgeManager,
   type IframeToParentMessage,
@@ -504,9 +506,28 @@ export function OutputArea({
 
           {/* In-DOM outputs (when not using isolation) */}
           {!shouldIsolate &&
-            outputs.map((output, index) =>
-              renderOutput(output, index, renderers, priority),
-            )}
+            outputs.map((output, index) => (
+              <ErrorBoundary
+                key={`output-${index}`}
+                resetKeys={[JSON.stringify(output)]}
+                fallback={(error, reset) => (
+                  <OutputErrorFallback
+                    error={error}
+                    outputIndex={index}
+                    onRetry={reset}
+                  />
+                )}
+                onError={(error, errorInfo) => {
+                  console.error(
+                    `[OutputArea] Error rendering output ${index}:`,
+                    error,
+                    errorInfo.componentStack,
+                  );
+                }}
+              >
+                {renderOutput(output, index, renderers, priority)}
+              </ErrorBoundary>
+            ))}
         </div>
       )}
     </div>

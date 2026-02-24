@@ -12,7 +12,7 @@ import {
   oneDark,
   oneLight,
 } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { isDarkMode } from "@/components/outputs/dark-mode";
+import { isDarkMode } from "@/lib/dark-mode";
 import {
   Command,
   CommandEmpty,
