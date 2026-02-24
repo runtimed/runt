@@ -26,10 +26,18 @@ pub use runtime::Runtime;
 use execution_queue::{ExecutionQueue, ExecutionQueueState, QueueCommand, SharedExecutionQueue};
 use kernel::{CompletionResult, HistoryResult, NotebookKernel};
 use notebook_state::{FrontendCell, NotebookState};
+use runtimed::notebook_doc::CellSnapshot;
+use runtimed::notebook_sync_client::{NotebookSyncClient, NotebookSyncHandle};
 
-use log::{error, info};
+use log::{error, info, warn};
+use nbformat::v4::{Cell, CellId, CellMetadata};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+
+/// Shared notebook sync handle for cross-window state synchronization.
+/// The Option allows graceful fallback when daemon is unavailable.
+/// Uses the split handle pattern - the handle is clonable and doesn't block.
+type SharedNotebookSync = Arc<tokio::sync::Mutex<Option<NotebookSyncHandle>>>;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -87,6 +95,197 @@ pub enum EnvSyncState {
         /// Dependencies synced but no longer declared
         removed: Vec<String>,
     },
+}
+
+/// Derive a notebook ID for sync purposes.
+///
+/// For saved notebooks, uses the canonical file path (stable across processes).
+/// For unsaved notebooks, uses the env_id from metadata (random UUID).
+fn derive_notebook_id(state: &NotebookState) -> String {
+    match &state.path {
+        Some(path) => {
+            // Use canonical path for deterministic ID across processes
+            path.canonicalize()
+                .unwrap_or_else(|_| path.clone())
+                .to_string_lossy()
+                .to_string()
+        }
+        None => {
+            // Unsaved notebook - use env_id from metadata (already generated)
+            state
+                .notebook
+                .metadata
+                .additional
+                .get("runt")
+                .and_then(|v| v.get("env_id"))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+        }
+    }
+}
+
+/// Convert a CellSnapshot from Automerge to an nbformat Cell.
+/// Used when joining an existing room to update local state.
+fn cell_snapshot_to_nbformat(snap: &CellSnapshot) -> Cell {
+    let id = CellId::from(uuid::Uuid::parse_str(&snap.id).unwrap_or_else(|_| uuid::Uuid::new_v4()));
+    let source: Vec<String> = if snap.source.is_empty() {
+        Vec::new()
+    } else {
+        snap.source
+            .split_inclusive('\n')
+            .map(|s| s.to_string())
+            .collect()
+    };
+    let metadata = CellMetadata {
+        id: None,
+        collapsed: None,
+        scrolled: None,
+        deletable: None,
+        editable: None,
+        format: None,
+        name: None,
+        tags: None,
+        jupyter: None,
+        execution: None,
+        additional: std::collections::HashMap::new(),
+    };
+
+    match snap.cell_type.as_str() {
+        "code" => {
+            let execution_count = if snap.execution_count == "null" {
+                None
+            } else {
+                snap.execution_count.parse().ok()
+            };
+            // Parse outputs from JSON strings
+            let outputs: Vec<nbformat::v4::Output> = snap
+                .outputs
+                .iter()
+                .filter_map(|json_str| serde_json::from_str(json_str).ok())
+                .collect();
+            Cell::Code {
+                id,
+                metadata,
+                execution_count,
+                source,
+                outputs,
+            }
+        }
+        "markdown" => Cell::Markdown {
+            id,
+            metadata,
+            source,
+            attachments: None,
+        },
+        _ => Cell::Raw {
+            id,
+            metadata,
+            source,
+        },
+    }
+}
+
+/// Initialize notebook sync with the daemon.
+///
+/// Connects to the daemon's notebook sync service using the split pattern,
+/// populates the Automerge doc if this is a new room, and spawns a background
+/// task to receive changes from other peers (cross-window sync).
+///
+/// The split pattern separates the handle (for sending commands) from the
+/// receiver (for incoming changes), avoiding lock contention during network I/O.
+async fn initialize_notebook_sync(
+    app: tauri::AppHandle,
+    notebook_state: Arc<Mutex<NotebookState>>,
+    notebook_sync: SharedNotebookSync,
+) -> Result<(), String> {
+    let (notebook_id, cells) = {
+        let state = notebook_state.lock().map_err(|e| e.to_string())?;
+        (derive_notebook_id(&state), state.cells_for_frontend())
+    };
+
+    let socket_path = runtimed::default_socket_path();
+    info!(
+        "[notebook-sync] Connecting to daemon for notebook: {} ({})",
+        notebook_id,
+        socket_path.display()
+    );
+
+    // Connect using the split pattern - returns handle, receiver, and initial cells
+    let (handle, mut receiver, initial_cells) =
+        NotebookSyncClient::connect_split(socket_path, notebook_id.clone())
+            .await
+            .map_err(|e| format!("sync connect: {}", e))?;
+
+    // Populate Automerge doc if empty (new room or first window)
+    if initial_cells.is_empty() {
+        info!(
+            "[notebook-sync] Populating Automerge doc with {} cells",
+            cells.len()
+        );
+        for (i, cell) in cells.iter().enumerate() {
+            let (id, cell_type, source) = match cell {
+                FrontendCell::Code { id, source, .. } => (id.as_str(), "code", source.as_str()),
+                FrontendCell::Markdown { id, source } => (id.as_str(), "markdown", source.as_str()),
+                FrontendCell::Raw { id, source } => (id.as_str(), "raw", source.as_str()),
+            };
+            handle
+                .add_cell(i, id, cell_type)
+                .await
+                .map_err(|e| format!("add_cell: {}", e))?;
+            if !source.is_empty() {
+                handle
+                    .update_source(id, source)
+                    .await
+                    .map_err(|e| format!("update_source: {}", e))?;
+            }
+        }
+    } else {
+        info!(
+            "[notebook-sync] Joining existing room with {} cells",
+            initial_cells.len()
+        );
+        // Update local NotebookState to match Automerge state
+        // This prevents race conditions where load_notebook returns stale disk content
+        {
+            let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
+            state.notebook.cells = initial_cells
+                .iter()
+                .map(cell_snapshot_to_nbformat)
+                .collect();
+            info!(
+                "[notebook-sync] Updated local state with {} cells from Automerge",
+                state.notebook.cells.len()
+            );
+        }
+        // Emit Automerge state to frontend (for immediate UI update)
+        if let Err(e) = app.emit("notebook:updated", &initial_cells) {
+            warn!("[notebook-sync] Failed to emit initial cells: {}", e);
+        }
+    }
+
+    // Store the handle for commands to use
+    *notebook_sync.lock().await = Some(handle);
+
+    // Spawn receiver task for cross-window sync
+    // The receiver is separate from the handle, so it doesn't block commands
+    tokio::spawn(async move {
+        info!("[notebook-sync] Starting receiver loop");
+        while let Some(cells) = receiver.recv().await {
+            info!("[notebook-sync] Received {} cells from peer", cells.len());
+            // Emit event for frontend to reconcile state
+            if let Err(e) = app.emit("notebook:updated", &cells) {
+                warn!("[notebook-sync] Failed to emit notebook:updated: {}", e);
+            }
+        }
+        info!("[notebook-sync] Receiver loop ended");
+    });
+
+    info!(
+        "[notebook-sync] Initialization complete for {}",
+        notebook_id
+    );
+    Ok(())
 }
 
 /// Get the path to the bundled runtimed binary.
@@ -498,9 +697,25 @@ async fn update_cell_source(
     cell_id: String,
     source: String,
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<(), String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-    state.update_cell_source(&cell_id, &source);
+    // Update local state synchronously for responsiveness
+    {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        s.update_cell_source(&cell_id, &source);
+    }
+
+    // Sync to daemon (fire-and-forget errors to maintain responsiveness)
+    let guard = notebook_sync.lock().await;
+    if let Some(handle) = guard.as_ref() {
+        info!("[notebook-sync] Syncing source update for cell {}", cell_id);
+        if let Err(e) = handle.update_source(&cell_id, &source).await {
+            warn!("[notebook-sync] update_source failed: {}", e);
+        }
+    } else {
+        info!("[notebook-sync] No sync handle available for update_source");
+    }
+
     Ok(())
 }
 
@@ -509,24 +724,69 @@ async fn add_cell(
     cell_type: String,
     after_cell_id: Option<String>,
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<FrontendCell, String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-    state
-        .add_cell(&cell_type, after_cell_id.as_deref())
-        .ok_or_else(|| format!("Invalid cell type: {}", cell_type))
+    // Add to local state first
+    let (cell, index) = {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+
+        // Find the index where the new cell will be inserted
+        let insert_index = match &after_cell_id {
+            Some(id) => s.find_cell_index(id).map(|i| i + 1).unwrap_or(0),
+            None => 0,
+        };
+
+        let cell = s
+            .add_cell(&cell_type, after_cell_id.as_deref())
+            .ok_or_else(|| format!("Invalid cell type: {}", cell_type))?;
+
+        (cell, insert_index)
+    };
+
+    // Sync to daemon
+    let guard = notebook_sync.lock().await;
+    if let Some(handle) = guard.as_ref() {
+        let cell_id = match &cell {
+            FrontendCell::Code { id, .. } => id,
+            FrontendCell::Markdown { id, .. } => id,
+            FrontendCell::Raw { id, .. } => id,
+        };
+        info!(
+            "[notebook-sync] Syncing add_cell {} at index {}",
+            cell_id, index
+        );
+        if let Err(e) = handle.add_cell(index, cell_id, &cell_type).await {
+            warn!("[notebook-sync] add_cell failed: {}", e);
+        }
+    } else {
+        info!("[notebook-sync] No sync handle available for add_cell");
+    }
+
+    Ok(cell)
 }
 
 #[tauri::command]
 async fn delete_cell(
     cell_id: String,
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<(), String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-    if state.delete_cell(&cell_id) {
-        Ok(())
-    } else {
-        Err("Cannot delete cell (last cell or not found)".to_string())
+    // Delete from local state first
+    {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        if !s.delete_cell(&cell_id) {
+            return Err("Cannot delete cell (last cell or not found)".to_string());
+        }
     }
+
+    // Sync to daemon
+    if let Some(handle) = notebook_sync.lock().await.as_ref() {
+        if let Err(e) = handle.delete_cell(&cell_id).await {
+            warn!("[notebook-sync] delete_cell failed: {}", e);
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -534,6 +794,7 @@ async fn execute_cell(
     cell_id: String,
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
     kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<String, String> {
     let code = {
         let mut nb = state.lock().map_err(|e| e.to_string())?;
@@ -543,6 +804,13 @@ async fn execute_cell(
         nb.clear_cell_outputs(&cell_id);
         src
     };
+
+    // Clear outputs in Automerge for cross-window sync
+    if let Some(handle) = notebook_sync.lock().await.as_ref() {
+        if let Err(e) = handle.clear_outputs(&cell_id).await {
+            warn!("[notebook-sync] clear_outputs failed: {}", e);
+        }
+    }
 
     info!(
         "execute_cell: cell_id={}, code={:?}",
@@ -3250,6 +3518,9 @@ pub fn run(
     // Track auto-launch state for frontend to query
     let auto_launch_in_progress = Arc::new(AtomicBool::new(false));
 
+    // Notebook sync client for cross-window state synchronization
+    let notebook_sync: SharedNotebookSync = Arc::new(tokio::sync::Mutex::new(None));
+
     // Recovery completion flags - set when prewarming loops finish recovery
     let uv_recovery_complete = Arc::new(AtomicBool::new(false));
     let conda_recovery_complete = Arc::new(AtomicBool::new(false));
@@ -3278,6 +3549,10 @@ pub fn run(
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     let notebook_for_open = notebook_state.clone();
 
+    // Clone for notebook sync initialization
+    let notebook_for_sync = notebook_state.clone();
+    let notebook_sync_for_init = notebook_sync.clone();
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(notebook_state)
@@ -3286,6 +3561,7 @@ pub fn run(
         .manage(env_pool)
         .manage(conda_env_pool)
         .manage(auto_launch_in_progress)
+        .manage(notebook_sync)
         .invoke_handler(tauri::generate_handler![
             load_notebook,
             has_notebook_path,
@@ -3431,21 +3707,38 @@ pub fn run(
             // The daemon provides centralized prewarming across all notebook windows
             let app_for_daemon = app.handle().clone();
             let app_for_sync = app.handle().clone();
+            let app_for_notebook_sync = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 // Get path to bundled runtimed binary (for auto-installation)
                 let binary_path = get_bundled_runtimed_path(&app_for_daemon);
-                match runtimed::client::ensure_daemon_running(binary_path).await {
+                let daemon_available = match runtimed::client::ensure_daemon_running(binary_path).await {
                     Ok(endpoint) => {
                         log::info!("[startup] runtimed running at {}", endpoint);
+                        true
                     }
                     Err(e) => {
                         // Not critical - in-process prewarming will work as fallback
                         log::info!("[startup] runtimed not available: {}. Using in-process prewarming.", e);
+                        false
                     }
-                }
+                };
 
                 // Start settings sync subscription (reconnects automatically)
-                run_settings_sync(app_for_sync).await;
+                // Spawn as separate task since it runs forever
+                tokio::spawn(run_settings_sync(app_for_sync));
+
+                // Initialize notebook sync if daemon is available
+                if daemon_available {
+                    if let Err(e) = initialize_notebook_sync(
+                        app_for_notebook_sync,
+                        notebook_for_sync,
+                        notebook_sync_for_init,
+                    )
+                    .await
+                    {
+                        log::warn!("[startup] Notebook sync initialization failed: {}", e);
+                    }
+                }
             });
 
             // Spawn the UV environment prewarming loop

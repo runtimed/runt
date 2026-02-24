@@ -4,7 +4,12 @@
 //! Automerge document replica of the notebook. Changes made locally are sent
 //! to the daemon, and changes from other peers arrive as sync messages.
 //!
-//! Follows the same pattern as `sync_client.rs` (settings sync client).
+//! The client uses a split pattern with channels:
+//! - `NotebookSyncHandle` is a clonable handle for sending commands
+//! - `NotebookSyncReceiver` receives incoming changes from other peers
+//! - A background task owns the actual connection and Automerge state
+//!
+//! This design avoids holding locks during network I/O.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -12,8 +17,9 @@ use std::time::Duration;
 use automerge::sync::{self, SyncDoc};
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjType, ReadDoc};
-use log::info;
+use log::{info, warn};
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::connection::{self, Handshake};
 use crate::notebook_doc::{get_cells_from_doc, CellSnapshot};
@@ -35,6 +41,202 @@ pub enum NotebookSyncError {
 
     #[error("Cell not found: {0}")]
     CellNotFound(String),
+
+    #[error("Channel closed")]
+    ChannelClosed,
+}
+
+/// Commands sent from handles to the sync task.
+#[derive(Debug)]
+enum SyncCommand {
+    AddCell {
+        index: usize,
+        cell_id: String,
+        cell_type: String,
+        reply: oneshot::Sender<Result<(), NotebookSyncError>>,
+    },
+    DeleteCell {
+        cell_id: String,
+        reply: oneshot::Sender<Result<(), NotebookSyncError>>,
+    },
+    UpdateSource {
+        cell_id: String,
+        source: String,
+        reply: oneshot::Sender<Result<(), NotebookSyncError>>,
+    },
+    ClearOutputs {
+        cell_id: String,
+        reply: oneshot::Sender<Result<(), NotebookSyncError>>,
+    },
+    AppendOutput {
+        cell_id: String,
+        output: String,
+        reply: oneshot::Sender<Result<(), NotebookSyncError>>,
+    },
+    SetExecutionCount {
+        cell_id: String,
+        count: String,
+        reply: oneshot::Sender<Result<(), NotebookSyncError>>,
+    },
+    GetCells {
+        reply: oneshot::Sender<Vec<CellSnapshot>>,
+    },
+}
+
+/// Handle for sending commands to the notebook sync task.
+///
+/// This is clonable and can be shared across threads. Commands are sent
+/// through a channel and processed by the background sync task.
+#[derive(Clone)]
+pub struct NotebookSyncHandle {
+    tx: mpsc::Sender<SyncCommand>,
+    notebook_id: String,
+}
+
+impl NotebookSyncHandle {
+    /// Get the notebook ID this handle is connected to.
+    pub fn notebook_id(&self) -> &str {
+        &self.notebook_id
+    }
+
+    /// Get all cells from the local replica.
+    pub async fn get_cells(&self) -> Result<Vec<CellSnapshot>, NotebookSyncError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(SyncCommand::GetCells { reply: reply_tx })
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?;
+        reply_rx.await.map_err(|_| NotebookSyncError::ChannelClosed)
+    }
+
+    /// Add a new cell at the given index.
+    pub async fn add_cell(
+        &self,
+        index: usize,
+        cell_id: &str,
+        cell_type: &str,
+    ) -> Result<(), NotebookSyncError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(SyncCommand::AddCell {
+                index,
+                cell_id: cell_id.to_string(),
+                cell_type: cell_type.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?;
+        reply_rx
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?
+    }
+
+    /// Delete a cell by ID.
+    pub async fn delete_cell(&self, cell_id: &str) -> Result<(), NotebookSyncError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(SyncCommand::DeleteCell {
+                cell_id: cell_id.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?;
+        reply_rx
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?
+    }
+
+    /// Update a cell's source text.
+    pub async fn update_source(
+        &self,
+        cell_id: &str,
+        source: &str,
+    ) -> Result<(), NotebookSyncError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(SyncCommand::UpdateSource {
+                cell_id: cell_id.to_string(),
+                source: source.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?;
+        reply_rx
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?
+    }
+
+    /// Clear all outputs for a cell.
+    pub async fn clear_outputs(&self, cell_id: &str) -> Result<(), NotebookSyncError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(SyncCommand::ClearOutputs {
+                cell_id: cell_id.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?;
+        reply_rx
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?
+    }
+
+    /// Append an output to a cell.
+    pub async fn append_output(
+        &self,
+        cell_id: &str,
+        output: &str,
+    ) -> Result<(), NotebookSyncError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(SyncCommand::AppendOutput {
+                cell_id: cell_id.to_string(),
+                output: output.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?;
+        reply_rx
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?
+    }
+
+    /// Set execution count for a cell.
+    pub async fn set_execution_count(
+        &self,
+        cell_id: &str,
+        count: &str,
+    ) -> Result<(), NotebookSyncError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(SyncCommand::SetExecutionCount {
+                cell_id: cell_id.to_string(),
+                count: count.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?;
+        reply_rx
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?
+    }
+}
+
+/// Receiver for incoming changes from other peers.
+///
+/// This is separate from the handle to allow receiving changes independently
+/// of sending commands. Call `recv()` to wait for the next batch of changes.
+pub struct NotebookSyncReceiver {
+    rx: mpsc::Receiver<Vec<CellSnapshot>>,
+}
+
+impl NotebookSyncReceiver {
+    /// Wait for the next batch of changes from other peers.
+    ///
+    /// Returns `None` if the sync task has stopped.
+    pub async fn recv(&mut self) -> Option<Vec<CellSnapshot>> {
+        self.rx.recv().await
+    }
 }
 
 /// Client for the notebook sync service.
@@ -76,6 +278,20 @@ impl NotebookSyncClient<tokio::net::UnixStream> {
 
         Self::init(stream, notebook_id).await
     }
+
+    /// Connect and return split handle/receiver for concurrent send/receive.
+    ///
+    /// This is the preferred API for use in applications. The returned handle
+    /// can be cloned and used from multiple tasks to send commands. The receiver
+    /// should be polled in a dedicated task to receive changes from other peers.
+    pub async fn connect_split(
+        socket_path: PathBuf,
+        notebook_id: String,
+    ) -> Result<(NotebookSyncHandle, NotebookSyncReceiver, Vec<CellSnapshot>), NotebookSyncError>
+    {
+        let client = Self::connect(socket_path, notebook_id).await?;
+        Ok(client.into_split())
+    }
 }
 
 #[cfg(windows)]
@@ -90,6 +306,16 @@ impl NotebookSyncClient<tokio::net::windows::named_pipe::NamedPipeClient> {
             .open(&pipe_name)
             .map_err(NotebookSyncError::ConnectionFailed)?;
         Self::init(client, notebook_id).await
+    }
+
+    /// Connect and return split handle/receiver for concurrent send/receive.
+    pub async fn connect_split(
+        socket_path: PathBuf,
+        notebook_id: String,
+    ) -> Result<(NotebookSyncHandle, NotebookSyncReceiver, Vec<CellSnapshot>), NotebookSyncError>
+    {
+        let client = Self::connect(socket_path, notebook_id).await?;
+        Ok(client.into_split())
     }
 }
 
@@ -547,6 +773,127 @@ where
                 _ => None,
             })
     }
+}
+
+/// Split impl requires Send + 'static for spawning background task.
+impl<S> NotebookSyncClient<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    /// Split this client into a handle and receiver.
+    ///
+    /// Returns:
+    /// - `NotebookSyncHandle`: Clonable handle for sending commands
+    /// - `NotebookSyncReceiver`: Receiver for changes from other peers
+    /// - `Vec<CellSnapshot>`: Initial cells after sync
+    ///
+    /// The client is consumed and a background task is spawned to process
+    /// both commands and incoming changes concurrently.
+    pub fn into_split(self) -> (NotebookSyncHandle, NotebookSyncReceiver, Vec<CellSnapshot>) {
+        let initial_cells = self.get_cells();
+        let notebook_id = self.notebook_id.clone();
+
+        // Channel for commands from handles
+        let (cmd_tx, cmd_rx) = mpsc::channel::<SyncCommand>(32);
+
+        // Channel for changes to receivers
+        let (changes_tx, changes_rx) = mpsc::channel::<Vec<CellSnapshot>>(32);
+
+        // Spawn background task
+        tokio::spawn(run_sync_task(self, cmd_rx, changes_tx));
+
+        let handle = NotebookSyncHandle {
+            tx: cmd_tx,
+            notebook_id,
+        };
+        let receiver = NotebookSyncReceiver { rx: changes_rx };
+
+        (handle, receiver, initial_cells)
+    }
+}
+
+/// Background task that owns the client and processes commands/changes.
+async fn run_sync_task<S>(
+    mut client: NotebookSyncClient<S>,
+    mut cmd_rx: mpsc::Receiver<SyncCommand>,
+    changes_tx: mpsc::Sender<Vec<CellSnapshot>>,
+) where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    use tokio::time::{interval, Duration};
+
+    info!("[notebook-sync-task] Starting for {}", client.notebook_id());
+
+    // Use a short poll interval to check for incoming data
+    let mut poll_interval = interval(Duration::from_millis(50));
+
+    loop {
+        tokio::select! {
+            // Process commands from handles
+            Some(cmd) = cmd_rx.recv() => {
+                match cmd {
+                    SyncCommand::AddCell { index, cell_id, cell_type, reply } => {
+                        let result = client.add_cell(index, &cell_id, &cell_type).await;
+                        let _ = reply.send(result);
+                    }
+                    SyncCommand::DeleteCell { cell_id, reply } => {
+                        let result = client.delete_cell(&cell_id).await;
+                        let _ = reply.send(result);
+                    }
+                    SyncCommand::UpdateSource { cell_id, source, reply } => {
+                        let result = client.update_source(&cell_id, &source).await;
+                        let _ = reply.send(result);
+                    }
+                    SyncCommand::ClearOutputs { cell_id, reply } => {
+                        let result = client.clear_outputs(&cell_id).await;
+                        let _ = reply.send(result);
+                    }
+                    SyncCommand::AppendOutput { cell_id, output, reply } => {
+                        let result = client.append_output(&cell_id, &output).await;
+                        let _ = reply.send(result);
+                    }
+                    SyncCommand::SetExecutionCount { cell_id, count, reply } => {
+                        let result = client.set_execution_count(&cell_id, &count).await;
+                        let _ = reply.send(result);
+                    }
+                    SyncCommand::GetCells { reply } => {
+                        let cells = client.get_cells();
+                        let _ = reply.send(cells);
+                    }
+                }
+            }
+
+            // Check for incoming changes (with timeout to not block commands)
+            _ = poll_interval.tick() => {
+                // Try to receive with a short timeout
+                match tokio::time::timeout(
+                    Duration::from_millis(10),
+                    client.recv_changes()
+                ).await {
+                    Ok(Ok(cells)) => {
+                        // Got changes from another peer
+                        if changes_tx.send(cells).await.is_err() {
+                            info!("[notebook-sync-task] Receiver dropped, stopping");
+                            break;
+                        }
+                    }
+                    Ok(Err(NotebookSyncError::Disconnected)) => {
+                        warn!("[notebook-sync-task] Disconnected from daemon");
+                        break;
+                    }
+                    Ok(Err(e)) => {
+                        warn!("[notebook-sync-task] Error receiving changes: {}", e);
+                        break;
+                    }
+                    Err(_) => {
+                        // Timeout - no data available, continue
+                    }
+                }
+            }
+        }
+    }
+
+    info!("[notebook-sync-task] Stopped for {}", client.notebook_id());
 }
 
 #[cfg(test)]
