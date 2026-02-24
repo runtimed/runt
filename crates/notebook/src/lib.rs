@@ -28,6 +28,7 @@ use kernel::{CompletionResult, HistoryResult, NotebookKernel};
 use notebook_state::{FrontendCell, NotebookState};
 use runtimed::notebook_doc::CellSnapshot;
 use runtimed::notebook_sync_client::{NotebookSyncClient, NotebookSyncHandle};
+use runtimed::protocol::{NotebookRequest, NotebookResponse};
 
 use log::{error, info, warn};
 use nbformat::v4::{Cell, CellId, CellMetadata};
@@ -211,8 +212,8 @@ async fn initialize_notebook_sync(
         socket_path.display()
     );
 
-    // Connect using the split pattern - returns handle, receiver, and initial cells
-    let (handle, mut receiver, initial_cells) =
+    // Connect using the split pattern - returns handle, receiver, broadcast receiver, and initial cells
+    let (handle, mut receiver, mut broadcast_receiver, initial_cells) =
         NotebookSyncClient::connect_split(socket_path, notebook_id.clone())
             .await
             .map_err(|e| format!("sync connect: {}", e))?;
@@ -269,16 +270,30 @@ async fn initialize_notebook_sync(
 
     // Spawn receiver task for cross-window sync
     // The receiver is separate from the handle, so it doesn't block commands
+    let app_clone = app.clone();
     tokio::spawn(async move {
         info!("[notebook-sync] Starting receiver loop");
         while let Some(cells) = receiver.recv().await {
             info!("[notebook-sync] Received {} cells from peer", cells.len());
             // Emit event for frontend to reconcile state
-            if let Err(e) = app.emit("notebook:updated", &cells) {
+            if let Err(e) = app_clone.emit("notebook:updated", &cells) {
                 warn!("[notebook-sync] Failed to emit notebook:updated: {}", e);
             }
         }
         info!("[notebook-sync] Receiver loop ended");
+    });
+
+    // Spawn broadcast receiver task for daemon kernel events
+    tokio::spawn(async move {
+        info!("[notebook-sync] Starting broadcast receiver loop");
+        while let Some(broadcast) = broadcast_receiver.recv().await {
+            info!("[notebook-sync] Received broadcast: {:?}", broadcast);
+            // Emit broadcast events to frontend
+            if let Err(e) = app.emit("daemon:broadcast", &broadcast) {
+                warn!("[notebook-sync] Failed to emit daemon:broadcast: {}", e);
+            }
+        }
+        info!("[notebook-sync] Broadcast receiver loop ended");
     });
 
     info!(
@@ -886,6 +901,144 @@ async fn sync_execution_count(
         }
     }
     Ok(())
+}
+
+// ============================================================================
+// Daemon Kernel Operations (Phase 8)
+// ============================================================================
+// These commands route kernel operations through the daemon, which owns the
+// kernel lifecycle and execution queue. This enables multi-window kernel sharing.
+
+/// Launch a kernel via the daemon.
+///
+/// If a kernel is already running for this notebook, returns info about the existing kernel.
+#[tauri::command]
+async fn launch_kernel_via_daemon(
+    kernel_type: String,
+    env_source: String,
+    notebook_path: Option<String>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<NotebookResponse, String> {
+    info!(
+        "[daemon-kernel] launch_kernel_via_daemon: type={}, env_source={}",
+        kernel_type, env_source
+    );
+
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    handle
+        .send_request(NotebookRequest::LaunchKernel {
+            kernel_type,
+            env_source,
+            notebook_path,
+        })
+        .await
+        .map_err(|e| format!("daemon request failed: {}", e))
+}
+
+/// Queue a cell for execution via the daemon.
+///
+/// The daemon manages the execution queue and broadcasts outputs to all windows.
+#[tauri::command]
+async fn queue_cell_via_daemon(
+    cell_id: String,
+    code: String,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<NotebookResponse, String> {
+    info!("[daemon-kernel] queue_cell_via_daemon: cell_id={}", cell_id);
+
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    handle
+        .send_request(NotebookRequest::QueueCell { cell_id, code })
+        .await
+        .map_err(|e| format!("daemon request failed: {}", e))
+}
+
+/// Clear outputs for a cell via the daemon.
+#[tauri::command]
+async fn clear_outputs_via_daemon(
+    cell_id: String,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<NotebookResponse, String> {
+    info!(
+        "[daemon-kernel] clear_outputs_via_daemon: cell_id={}",
+        cell_id
+    );
+
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    handle
+        .send_request(NotebookRequest::ClearOutputs { cell_id })
+        .await
+        .map_err(|e| format!("daemon request failed: {}", e))
+}
+
+/// Interrupt kernel execution via the daemon.
+#[tauri::command]
+async fn interrupt_via_daemon(
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<NotebookResponse, String> {
+    info!("[daemon-kernel] interrupt_via_daemon");
+
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    handle
+        .send_request(NotebookRequest::InterruptExecution {})
+        .await
+        .map_err(|e| format!("daemon request failed: {}", e))
+}
+
+/// Shutdown the kernel via the daemon.
+#[tauri::command]
+async fn shutdown_kernel_via_daemon(
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<NotebookResponse, String> {
+    info!("[daemon-kernel] shutdown_kernel_via_daemon");
+
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    handle
+        .send_request(NotebookRequest::ShutdownKernel {})
+        .await
+        .map_err(|e| format!("daemon request failed: {}", e))
+}
+
+/// Get kernel info from the daemon.
+#[tauri::command]
+async fn get_daemon_kernel_info(
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<NotebookResponse, String> {
+    info!("[daemon-kernel] get_daemon_kernel_info");
+
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    handle
+        .send_request(NotebookRequest::GetKernelInfo {})
+        .await
+        .map_err(|e| format!("daemon request failed: {}", e))
+}
+
+/// Get execution queue state from the daemon.
+#[tauri::command]
+async fn get_daemon_queue_state(
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<NotebookResponse, String> {
+    info!("[daemon-kernel] get_daemon_queue_state");
+
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    handle
+        .send_request(NotebookRequest::GetQueueState {})
+        .await
+        .map_err(|e| format!("daemon request failed: {}", e))
 }
 
 /// Queue a cell for execution. The queue processor will execute cells in FIFO order.
@@ -3635,6 +3788,14 @@ pub fn run(
             execute_cell,
             sync_append_output,
             sync_execution_count,
+            // Daemon kernel operations (Phase 8)
+            launch_kernel_via_daemon,
+            queue_cell_via_daemon,
+            clear_outputs_via_daemon,
+            interrupt_via_daemon,
+            shutdown_kernel_via_daemon,
+            get_daemon_kernel_info,
+            get_daemon_queue_state,
             queue_execute_cell,
             clear_execution_queue,
             get_execution_queue_state,

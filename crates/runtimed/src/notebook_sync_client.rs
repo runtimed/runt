@@ -23,6 +23,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::connection::{self, Handshake, NotebookFrameType, ProtocolCapabilities, PROTOCOL_V2};
 use crate::notebook_doc::{get_cells_from_doc, CellSnapshot};
+use crate::protocol::{NotebookBroadcast, NotebookRequest, NotebookResponse};
 
 /// Error type for notebook sync client operations.
 #[derive(Debug, thiserror::Error)]
@@ -80,6 +81,12 @@ enum SyncCommand {
     },
     GetCells {
         reply: oneshot::Sender<Vec<CellSnapshot>>,
+    },
+    /// Send a request to the daemon and wait for a response.
+    /// Only works with v2 protocol; returns error on v1.
+    SendRequest {
+        request: NotebookRequest,
+        reply: oneshot::Sender<Result<NotebookResponse, NotebookSyncError>>,
     },
 }
 
@@ -220,6 +227,27 @@ impl NotebookSyncHandle {
             .await
             .map_err(|_| NotebookSyncError::ChannelClosed)?
     }
+
+    /// Send a request to the daemon and wait for a response.
+    ///
+    /// This only works with v2 protocol. If the daemon is running v1,
+    /// this will return an error.
+    pub async fn send_request(
+        &self,
+        request: NotebookRequest,
+    ) -> Result<NotebookResponse, NotebookSyncError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(SyncCommand::SendRequest {
+                request,
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?;
+        reply_rx
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?
+    }
 }
 
 /// Receiver for incoming changes from other peers.
@@ -235,6 +263,23 @@ impl NotebookSyncReceiver {
     ///
     /// Returns `None` if the sync task has stopped.
     pub async fn recv(&mut self) -> Option<Vec<CellSnapshot>> {
+        self.rx.recv().await
+    }
+}
+
+/// Receiver for kernel broadcast events from the daemon.
+///
+/// These are events like kernel status changes, execution outputs, etc.
+/// that are broadcast to all clients connected to the same notebook room.
+pub struct NotebookBroadcastReceiver {
+    rx: mpsc::Receiver<NotebookBroadcast>,
+}
+
+impl NotebookBroadcastReceiver {
+    /// Wait for the next broadcast event.
+    ///
+    /// Returns `None` if the sync task has stopped.
+    pub async fn recv(&mut self) -> Option<NotebookBroadcast> {
         self.rx.recv().await
     }
 }
@@ -287,11 +332,19 @@ impl NotebookSyncClient<tokio::net::UnixStream> {
     /// This is the preferred API for use in applications. The returned handle
     /// can be cloned and used from multiple tasks to send commands. The receiver
     /// should be polled in a dedicated task to receive changes from other peers.
+    /// The broadcast receiver receives kernel events from the daemon.
     pub async fn connect_split(
         socket_path: PathBuf,
         notebook_id: String,
-    ) -> Result<(NotebookSyncHandle, NotebookSyncReceiver, Vec<CellSnapshot>), NotebookSyncError>
-    {
+    ) -> Result<
+        (
+            NotebookSyncHandle,
+            NotebookSyncReceiver,
+            NotebookBroadcastReceiver,
+            Vec<CellSnapshot>,
+        ),
+        NotebookSyncError,
+    > {
         let client = Self::connect(socket_path, notebook_id).await?;
         Ok(client.into_split())
     }
@@ -315,8 +368,15 @@ impl NotebookSyncClient<tokio::net::windows::named_pipe::NamedPipeClient> {
     pub async fn connect_split(
         socket_path: PathBuf,
         notebook_id: String,
-    ) -> Result<(NotebookSyncHandle, NotebookSyncReceiver, Vec<CellSnapshot>), NotebookSyncError>
-    {
+    ) -> Result<
+        (
+            NotebookSyncHandle,
+            NotebookSyncReceiver,
+            NotebookBroadcastReceiver,
+            Vec<CellSnapshot>,
+        ),
+        NotebookSyncError,
+    > {
         let client = Self::connect(socket_path, notebook_id).await?;
         Ok(client.into_split())
     }
@@ -779,6 +839,69 @@ where
         }
     }
 
+    /// Receive any frame type from the daemon.
+    ///
+    /// Returns `Ok(None)` if no frame is available (v1 protocol always returns None).
+    /// This is used by the background task to handle all frame types.
+    async fn recv_frame_any(&mut self) -> Result<Option<ReceivedFrame>, NotebookSyncError> {
+        if !self.use_typed_frames {
+            // v1 protocol: fall back to recv_changes behavior
+            match self.recv_changes_v1().await {
+                Ok(cells) => Ok(Some(ReceivedFrame::Changes(cells))),
+                Err(NotebookSyncError::Disconnected) => Err(NotebookSyncError::Disconnected),
+                Err(e) => Err(e),
+            }
+        } else {
+            // v2 protocol: handle all frame types
+            match connection::recv_typed_frame(&mut self.stream).await? {
+                Some(frame) => match frame.frame_type {
+                    NotebookFrameType::AutomergeSync => {
+                        let message = sync::Message::decode(&frame.payload)
+                            .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                        self.doc
+                            .sync()
+                            .receive_sync_message(&mut self.peer_state, message)
+                            .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+
+                        // Send ack if needed
+                        if let Some(msg) =
+                            self.doc.sync().generate_sync_message(&mut self.peer_state)
+                        {
+                            connection::send_typed_frame(
+                                &mut self.stream,
+                                NotebookFrameType::AutomergeSync,
+                                &msg.encode(),
+                            )
+                            .await?;
+                        }
+
+                        Ok(Some(ReceivedFrame::Changes(self.get_cells())))
+                    }
+                    NotebookFrameType::Broadcast => {
+                        let broadcast: NotebookBroadcast = serde_json::from_slice(&frame.payload)
+                            .map_err(|e| {
+                            NotebookSyncError::SyncError(format!("deserialize broadcast: {}", e))
+                        })?;
+                        Ok(Some(ReceivedFrame::Broadcast(broadcast)))
+                    }
+                    NotebookFrameType::Response => {
+                        let response: NotebookResponse = serde_json::from_slice(&frame.payload)
+                            .map_err(|e| {
+                                NotebookSyncError::SyncError(format!("deserialize response: {}", e))
+                            })?;
+                        Ok(Some(ReceivedFrame::Response(response)))
+                    }
+                    NotebookFrameType::Request => {
+                        // Unexpected - server shouldn't send requests
+                        warn!("[notebook-sync-client] Unexpected Request frame from server");
+                        Ok(None)
+                    }
+                },
+                None => Err(NotebookSyncError::Disconnected),
+            }
+        }
+    }
+
     // ── Internal helpers ────────────────────────────────────────────
 
     /// Generate and send sync message to daemon, then wait for the
@@ -865,6 +988,81 @@ where
         Ok(())
     }
 
+    // ── Request/Response ───────────────────────────────────────────────
+
+    /// Send a request to the daemon and wait for the response.
+    ///
+    /// This only works with v2 protocol. The request is sent as a typed
+    /// Request frame, and we wait for a Response frame back.
+    pub async fn send_request(
+        &mut self,
+        request: &NotebookRequest,
+    ) -> Result<NotebookResponse, NotebookSyncError> {
+        if !self.use_typed_frames {
+            return Err(NotebookSyncError::SyncError(
+                "send_request requires v2 protocol".to_string(),
+            ));
+        }
+
+        // Serialize and send the request
+        let payload = serde_json::to_vec(request)
+            .map_err(|e| NotebookSyncError::SyncError(format!("serialize request: {}", e)))?;
+
+        connection::send_typed_frame(&mut self.stream, NotebookFrameType::Request, &payload)
+            .await?;
+
+        // Wait for a Response frame (with timeout)
+        match tokio::time::timeout(Duration::from_secs(30), self.wait_for_response()).await {
+            Ok(result) => result,
+            Err(_) => Err(NotebookSyncError::Timeout),
+        }
+    }
+
+    /// Wait for a Response frame, handling other frame types that may arrive first.
+    async fn wait_for_response(&mut self) -> Result<NotebookResponse, NotebookSyncError> {
+        loop {
+            match connection::recv_typed_frame(&mut self.stream).await? {
+                Some(frame) => match frame.frame_type {
+                    NotebookFrameType::Response => {
+                        let response: NotebookResponse = serde_json::from_slice(&frame.payload)
+                            .map_err(|e| {
+                                NotebookSyncError::SyncError(format!("deserialize response: {}", e))
+                            })?;
+                        return Ok(response);
+                    }
+                    NotebookFrameType::AutomergeSync => {
+                        // Handle sync message while waiting
+                        let message = sync::Message::decode(&frame.payload)
+                            .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                        self.doc
+                            .sync()
+                            .receive_sync_message(&mut self.peer_state, message)
+                            .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+                        // Continue waiting for Response
+                    }
+                    NotebookFrameType::Broadcast => {
+                        // Ignore broadcasts while waiting for response
+                        // (The background task handles these)
+                        continue;
+                    }
+                    NotebookFrameType::Request => {
+                        // Unexpected - server shouldn't send requests
+                        warn!(
+                            "[notebook-sync-client] Unexpected Request frame while waiting for response"
+                        );
+                        continue;
+                    }
+                },
+                None => return Err(NotebookSyncError::Disconnected),
+            }
+        }
+    }
+
+    /// Check if this client is using the v2 typed frames protocol.
+    pub fn uses_typed_frames(&self) -> bool {
+        self.use_typed_frames
+    }
+
     fn cells_list_id(&self) -> Option<automerge::ObjId> {
         self.doc
             .get(automerge::ROOT, "cells")
@@ -948,16 +1146,24 @@ impl<S> NotebookSyncClient<S>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    /// Split this client into a handle and receiver.
+    /// Split this client into a handle and receivers.
     ///
     /// Returns:
     /// - `NotebookSyncHandle`: Clonable handle for sending commands
     /// - `NotebookSyncReceiver`: Receiver for changes from other peers
+    /// - `NotebookBroadcastReceiver`: Receiver for kernel broadcast events
     /// - `Vec<CellSnapshot>`: Initial cells after sync
     ///
     /// The client is consumed and a background task is spawned to process
     /// both commands and incoming changes concurrently.
-    pub fn into_split(self) -> (NotebookSyncHandle, NotebookSyncReceiver, Vec<CellSnapshot>) {
+    pub fn into_split(
+        self,
+    ) -> (
+        NotebookSyncHandle,
+        NotebookSyncReceiver,
+        NotebookBroadcastReceiver,
+        Vec<CellSnapshot>,
+    ) {
         let initial_cells = self.get_cells();
         let notebook_id = self.notebook_id.clone();
 
@@ -967,16 +1173,20 @@ where
         // Channel for changes to receivers
         let (changes_tx, changes_rx) = mpsc::channel::<Vec<CellSnapshot>>(32);
 
+        // Channel for kernel broadcasts
+        let (broadcast_tx, broadcast_rx) = mpsc::channel::<NotebookBroadcast>(64);
+
         // Spawn background task
-        tokio::spawn(run_sync_task(self, cmd_rx, changes_tx));
+        tokio::spawn(run_sync_task(self, cmd_rx, changes_tx, broadcast_tx));
 
         let handle = NotebookSyncHandle {
             tx: cmd_tx,
             notebook_id,
         };
         let receiver = NotebookSyncReceiver { rx: changes_rx };
+        let broadcast_receiver = NotebookBroadcastReceiver { rx: broadcast_rx };
 
-        (handle, receiver, initial_cells)
+        (handle, receiver, broadcast_receiver, initial_cells)
     }
 }
 
@@ -985,6 +1195,7 @@ async fn run_sync_task<S>(
     mut client: NotebookSyncClient<S>,
     mut cmd_rx: mpsc::Receiver<SyncCommand>,
     changes_tx: mpsc::Sender<Vec<CellSnapshot>>,
+    broadcast_tx: mpsc::Sender<NotebookBroadcast>,
 ) where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -1028,6 +1239,10 @@ async fn run_sync_task<S>(
                         let cells = client.get_cells();
                         let _ = reply.send(cells);
                     }
+                    SyncCommand::SendRequest { request, reply } => {
+                        let result = client.send_request(&request).await;
+                        let _ = reply.send(result);
+                    }
                 }
             }
 
@@ -1036,21 +1251,35 @@ async fn run_sync_task<S>(
                 // Try to receive with a short timeout
                 match tokio::time::timeout(
                     Duration::from_millis(10),
-                    client.recv_changes()
+                    client.recv_frame_any()
                 ).await {
-                    Ok(Ok(cells)) => {
+                    Ok(Ok(Some(ReceivedFrame::Changes(cells)))) => {
                         // Got changes from another peer
                         if changes_tx.send(cells).await.is_err() {
-                            info!("[notebook-sync-task] Receiver dropped, stopping");
+                            info!("[notebook-sync-task] Changes receiver dropped, stopping");
                             break;
                         }
+                    }
+                    Ok(Ok(Some(ReceivedFrame::Broadcast(broadcast)))) => {
+                        // Got a broadcast from daemon
+                        if broadcast_tx.send(broadcast).await.is_err() {
+                            info!("[notebook-sync-task] Broadcast receiver dropped");
+                            // Continue - broadcasts are optional
+                        }
+                    }
+                    Ok(Ok(Some(ReceivedFrame::Response(_)))) => {
+                        // Unexpected response - we weren't waiting for one
+                        warn!("[notebook-sync-task] Unexpected response frame");
+                    }
+                    Ok(Ok(None)) => {
+                        // No frame available
                     }
                     Ok(Err(NotebookSyncError::Disconnected)) => {
                         warn!("[notebook-sync-task] Disconnected from daemon");
                         break;
                     }
                     Ok(Err(e)) => {
-                        warn!("[notebook-sync-task] Error receiving changes: {}", e);
+                        warn!("[notebook-sync-task] Error receiving: {}", e);
                         break;
                     }
                     Err(_) => {
@@ -1062,6 +1291,17 @@ async fn run_sync_task<S>(
     }
 
     info!("[notebook-sync-task] Stopped for {}", client.notebook_id());
+}
+
+/// Result of receiving a frame from the daemon.
+#[allow(dead_code)] // Response variant inner value is logged but not read
+enum ReceivedFrame {
+    /// Document changes from another peer.
+    Changes(Vec<CellSnapshot>),
+    /// Kernel broadcast event.
+    Broadcast(NotebookBroadcast),
+    /// Response to a request (unexpected in background task).
+    Response(NotebookResponse),
 }
 
 #[cfg(test)]
