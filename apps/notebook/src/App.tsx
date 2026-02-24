@@ -226,6 +226,11 @@ function AppContent() {
       }
 
       appendOutput(cellId, output);
+      // Sync output to Automerge for cross-window sync (only if not captured by widget)
+      invoke("sync_append_output", {
+        cellId,
+        outputJson: JSON.stringify(output),
+      }).catch(() => {}); // Fire-and-forget
     },
     [appendOutput, sendWidgetUpdate, widgetStore],
   );

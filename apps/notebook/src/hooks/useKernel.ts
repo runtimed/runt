@@ -231,54 +231,49 @@ export function useKernel({
 
       if (msgType === "stream") {
         const content = msg.content as { name: string; text: string };
-        const output = {
-          output_type: "stream" as const,
-          name: content.name as "stdout" | "stderr",
-          text: content.text,
-        };
-        onOutput(cellId, output, { parentMsgId: msg.parent_header?.msg_id });
-        // Sync output to Automerge for cross-window sync
-        invoke("sync_append_output", {
+        onOutput(
           cellId,
-          outputJson: JSON.stringify(output),
-        }).catch(() => {}); // Fire-and-forget
+          {
+            output_type: "stream",
+            name: content.name as "stdout" | "stderr",
+            text: content.text,
+          },
+          { parentMsgId: msg.parent_header?.msg_id },
+        );
       } else if (msgType === "display_data") {
         const content = msg.content as {
           data: Record<string, unknown>;
           metadata: Record<string, unknown>;
           transient?: { display_id?: string };
         };
-        const output = {
-          output_type: "display_data" as const,
-          data: content.data,
-          metadata: content.metadata,
-          display_id: content.transient?.display_id,
-        };
-        onOutput(cellId, output, { parentMsgId: msg.parent_header?.msg_id });
-        // Sync output to Automerge for cross-window sync
-        invoke("sync_append_output", {
+        onOutput(
           cellId,
-          outputJson: JSON.stringify(output),
-        }).catch(() => {}); // Fire-and-forget
+          {
+            output_type: "display_data",
+            data: content.data,
+            metadata: content.metadata,
+            display_id: content.transient?.display_id,
+          },
+          { parentMsgId: msg.parent_header?.msg_id },
+        );
       } else if (msgType === "execute_result") {
         const content = msg.content as {
           data: Record<string, unknown>;
           metadata: Record<string, unknown>;
           execution_count: number;
         };
-        const output = {
-          output_type: "execute_result" as const,
-          data: content.data,
-          metadata: content.metadata,
-          execution_count: content.execution_count,
-        };
-        onOutput(cellId, output, { parentMsgId: msg.parent_header?.msg_id });
-        onExecutionCount(cellId, content.execution_count);
-        // Sync output and execution count to Automerge for cross-window sync
-        invoke("sync_append_output", {
+        onOutput(
           cellId,
-          outputJson: JSON.stringify(output),
-        }).catch(() => {}); // Fire-and-forget
+          {
+            output_type: "execute_result",
+            data: content.data,
+            metadata: content.metadata,
+            execution_count: content.execution_count,
+          },
+          { parentMsgId: msg.parent_header?.msg_id },
+        );
+        onExecutionCount(cellId, content.execution_count);
+        // Sync execution count to Automerge for cross-window sync
         invoke("sync_execution_count", {
           cellId,
           count: content.execution_count,
@@ -289,18 +284,16 @@ export function useKernel({
           evalue: string;
           traceback: string[];
         };
-        const output = {
-          output_type: "error" as const,
-          ename: content.ename,
-          evalue: content.evalue,
-          traceback: content.traceback,
-        };
-        onOutput(cellId, output, { parentMsgId: msg.parent_header?.msg_id });
-        // Sync error output to Automerge for cross-window sync
-        invoke("sync_append_output", {
+        onOutput(
           cellId,
-          outputJson: JSON.stringify(output),
-        }).catch(() => {}); // Fire-and-forget
+          {
+            output_type: "error",
+            ename: content.ename,
+            evalue: content.evalue,
+            traceback: content.traceback,
+          },
+          { parentMsgId: msg.parent_header?.msg_id },
+        );
       }
     });
 
