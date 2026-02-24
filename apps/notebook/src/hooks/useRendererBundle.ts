@@ -1,18 +1,31 @@
 import { useEffect, useState } from "react";
-import { loadRendererBundle, type RendererBundle } from "../renderer-bundle";
+import {
+  getRendererBundle,
+  loadRendererBundle,
+  type RendererBundle,
+} from "../renderer-bundle";
 
 /**
  * Hook to load the isolated renderer bundle lazily.
  *
  * Returns null while loading, then the bundle once ready.
  * Uses singleton caching - multiple components share the same load.
+ *
+ * If the bundle was preloaded (via preloadRendererBundle), the initial
+ * state will have it immediately, avoiding a flash of empty content.
  */
 export function useRendererBundle(): RendererBundle | null {
-  const [bundle, setBundle] = useState<RendererBundle | null>(null);
+  // Use synchronous getter for initial state - if preloaded, we get it immediately
+  const [bundle, setBundle] = useState<RendererBundle | null>(
+    getRendererBundle,
+  );
 
   useEffect(() => {
-    loadRendererBundle().then(setBundle);
-  }, []);
+    // If not already loaded, trigger load and update state when ready
+    if (!bundle) {
+      loadRendererBundle().then(setBundle);
+    }
+  }, [bundle]);
 
   return bundle;
 }

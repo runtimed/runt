@@ -14,17 +14,27 @@
 export type RendererBundle = { rendererCode: string; rendererCss: string };
 
 let bundlePromise: Promise<RendererBundle> | null = null;
+let cachedBundle: RendererBundle | null = null;
 
 /**
  * Load the renderer bundle lazily. Returns a cached promise on subsequent calls.
  */
 export function loadRendererBundle(): Promise<RendererBundle> {
   if (!bundlePromise) {
-    bundlePromise = import(
-      "virtual:isolated-renderer"
-    ) as Promise<RendererBundle>;
+    bundlePromise = import("virtual:isolated-renderer").then((bundle) => {
+      cachedBundle = bundle as RendererBundle;
+      return cachedBundle;
+    });
   }
   return bundlePromise;
+}
+
+/**
+ * Get the renderer bundle synchronously if already loaded.
+ * Returns null if still loading.
+ */
+export function getRendererBundle(): RendererBundle | null {
+  return cachedBundle;
 }
 
 /**
