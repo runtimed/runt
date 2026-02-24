@@ -288,6 +288,16 @@ export const IsolatedFrame = forwardRef<
   // Inject React renderer when iframe is ready AND bundle props are available
   // This handles lazy-loaded bundles that arrive after iframe "ready" event
   useEffect(() => {
+    console.log("[IsolatedFrame] Injection check:", {
+      useReactRenderer,
+      isIframeReady,
+      isReady,
+      bootstrapping: bootstrappingRef.current,
+      hasRendererCode: !!rendererCode,
+      hasRendererCss: !!rendererCss,
+      hasContentWindow: !!iframeRef.current?.contentWindow,
+    });
+
     if (
       useReactRenderer &&
       isIframeReady &&
@@ -297,6 +307,11 @@ export const IsolatedFrame = forwardRef<
       rendererCss &&
       iframeRef.current?.contentWindow
     ) {
+      console.log("[IsolatedFrame] Injecting renderer bundle...", {
+        codeLength: rendererCode.length,
+        cssLength: rendererCss.length,
+        codeStart: rendererCode.substring(0, 100),
+      });
       bootstrappingRef.current = true;
 
       // Inject CSS first
@@ -316,6 +331,7 @@ export const IsolatedFrame = forwardRef<
         { type: "eval", payload: { code: rendererCode } },
         "*",
       );
+      console.log("[IsolatedFrame] Injection messages sent");
     }
   }, [useReactRenderer, isIframeReady, isReady, rendererCode, rendererCss]);
 
@@ -399,6 +415,15 @@ export const IsolatedFrame = forwardRef<
         case "error":
           if (data.payload) {
             onError?.(data.payload);
+          }
+          break;
+
+        case "eval_result":
+          // Log eval results for debugging
+          if (data.payload?.success === false) {
+            console.error("[IsolatedFrame] Eval failed:", data.payload.error);
+          } else {
+            console.log("[IsolatedFrame] Eval succeeded");
           }
           break;
       }

@@ -59,7 +59,12 @@ export function isolatedRendererPlugin(
 
     const result = await build({
       configFile: false,
-      plugins: [react(), tailwindcss()],
+      plugins: [
+        // Use classic JSX transform so React.createElement is used instead of jsx-runtime
+        // This is necessary because the IIFE bundle can't import jsx-runtime
+        react({ jsxRuntime: "classic" }),
+        tailwindcss(),
+      ],
       resolve: {
         alias: {
           "@/": `${srcDir}/`,

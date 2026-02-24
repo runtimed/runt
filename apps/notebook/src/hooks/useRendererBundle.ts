@@ -23,7 +23,14 @@ export function useRendererBundle(): RendererBundle | null {
   useEffect(() => {
     // If not already loaded, trigger load and update state when ready
     if (!bundle) {
-      loadRendererBundle().then(setBundle);
+      loadRendererBundle()
+        .then((loaded) => {
+          console.log("[useRendererBundle] Bundle loaded, updating state");
+          setBundle(loaded);
+        })
+        .catch((err) => {
+          console.error("[useRendererBundle] Failed to load bundle:", err);
+        });
     }
   }, [bundle]);
 

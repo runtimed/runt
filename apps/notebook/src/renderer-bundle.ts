@@ -21,10 +21,22 @@ let cachedBundle: RendererBundle | null = null;
  */
 export function loadRendererBundle(): Promise<RendererBundle> {
   if (!bundlePromise) {
-    bundlePromise = import("virtual:isolated-renderer").then((bundle) => {
-      cachedBundle = bundle as RendererBundle;
-      return cachedBundle;
-    });
+    console.log("[renderer-bundle] Starting load...");
+    bundlePromise = import("virtual:isolated-renderer")
+      .then((bundle) => {
+        console.log("[renderer-bundle] Loaded successfully", {
+          hasCode: !!bundle.rendererCode,
+          hasCSS: !!bundle.rendererCss,
+          codeLength: bundle.rendererCode?.length,
+          cssLength: bundle.rendererCss?.length,
+        });
+        cachedBundle = bundle as RendererBundle;
+        return cachedBundle;
+      })
+      .catch((err) => {
+        console.error("[renderer-bundle] Failed to load:", err);
+        throw err;
+      });
   }
   return bundlePromise;
 }
