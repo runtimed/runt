@@ -67,6 +67,10 @@ pub fn load_settings() -> SyncedSettings {
             .get("conda")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or(defaults.conda),
+        daemon_execution: json
+            .get("daemon_execution")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or(defaults.daemon_execution),
     }
 }
 
@@ -115,6 +119,7 @@ mod tests {
                 default_packages: vec!["numpy".into(), "pandas".into()],
             },
             conda: CondaDefaults::default(),
+            daemon_execution: false,
         };
 
         let json = serde_json::to_string(&settings).unwrap();
@@ -249,6 +254,10 @@ mod tests {
                 .get("conda")
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or(defaults.conda),
+            daemon_execution: json_val
+                .get("daemon_execution")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or(defaults.daemon_execution),
         };
         // Valid fields are preserved
         assert_eq!(settings.theme, ThemeMode::Dark);
