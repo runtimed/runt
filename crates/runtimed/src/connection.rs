@@ -9,6 +9,16 @@
 //! The first frame on every connection is a JSON handshake declaring the
 //! channel. After the handshake, the daemon routes the connection to the
 //! appropriate handler.
+//!
+//! ## Notebook Sync Frame Types (Phase 8)
+//!
+//! Notebook sync connections use a typed frame format where the first byte
+//! of the payload indicates the frame type:
+//!
+//! - `0x00`: Automerge sync message (binary)
+//! - `0x01`: NotebookRequest (JSON)
+//! - `0x02`: NotebookResponse (JSON)
+//! - `0x03`: NotebookBroadcast (JSON)
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -34,6 +44,94 @@ pub enum Handshake {
     NotebookSync { notebook_id: String },
     /// Blob store: write blobs, query port.
     Blob,
+}
+
+/// Frame types for notebook sync connections.
+///
+/// The first byte of each frame payload indicates the type of message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum NotebookFrameType {
+    /// Automerge sync message (binary).
+    AutomergeSync = 0x00,
+    /// NotebookRequest (JSON).
+    Request = 0x01,
+    /// NotebookResponse (JSON).
+    Response = 0x02,
+    /// NotebookBroadcast (JSON).
+    Broadcast = 0x03,
+}
+
+impl TryFrom<u8> for NotebookFrameType {
+    type Error = std::io::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00 => Ok(Self::AutomergeSync),
+            0x01 => Ok(Self::Request),
+            0x02 => Ok(Self::Response),
+            0x03 => Ok(Self::Broadcast),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("unknown notebook frame type: 0x{:02x}", value),
+            )),
+        }
+    }
+}
+
+/// A typed notebook frame with its type and payload.
+#[derive(Debug)]
+pub struct TypedNotebookFrame {
+    pub frame_type: NotebookFrameType,
+    pub payload: Vec<u8>,
+}
+
+/// Send a typed notebook frame.
+pub async fn send_typed_frame<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    frame_type: NotebookFrameType,
+    payload: &[u8],
+) -> std::io::Result<()> {
+    let mut data = Vec::with_capacity(1 + payload.len());
+    data.push(frame_type as u8);
+    data.extend_from_slice(payload);
+    send_frame(writer, &data).await
+}
+
+/// Send a typed notebook frame with JSON payload.
+pub async fn send_typed_json_frame<W: AsyncWrite + Unpin, T: Serialize>(
+    writer: &mut W,
+    frame_type: NotebookFrameType,
+    value: &T,
+) -> anyhow::Result<()> {
+    let json_bytes = serde_json::to_vec(value)?;
+    send_typed_frame(writer, frame_type, &json_bytes).await?;
+    Ok(())
+}
+
+/// Receive a typed notebook frame.
+/// Returns `None` on clean disconnect (EOF).
+pub async fn recv_typed_frame<R: AsyncRead + Unpin>(
+    reader: &mut R,
+) -> std::io::Result<Option<TypedNotebookFrame>> {
+    let Some(data) = recv_frame(reader).await? else {
+        return Ok(None);
+    };
+
+    if data.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "empty frame",
+        ));
+    }
+
+    let frame_type = NotebookFrameType::try_from(data[0])?;
+    let payload = data[1..].to_vec();
+
+    Ok(Some(TypedNotebookFrame {
+        frame_type,
+        payload,
+    }))
 }
 
 /// Send a length-prefixed frame.
@@ -210,5 +308,78 @@ mod tests {
         assert_eq!(recv_frame(&mut cursor).await.unwrap().unwrap(), b"third");
         // EOF
         assert!(recv_frame(&mut cursor).await.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_notebook_frame_type_conversion() {
+        assert_eq!(
+            NotebookFrameType::try_from(0x00).unwrap(),
+            NotebookFrameType::AutomergeSync
+        );
+        assert_eq!(
+            NotebookFrameType::try_from(0x01).unwrap(),
+            NotebookFrameType::Request
+        );
+        assert_eq!(
+            NotebookFrameType::try_from(0x02).unwrap(),
+            NotebookFrameType::Response
+        );
+        assert_eq!(
+            NotebookFrameType::try_from(0x03).unwrap(),
+            NotebookFrameType::Broadcast
+        );
+        assert!(NotebookFrameType::try_from(0xFF).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_typed_frame_roundtrip() {
+        let payload = b"test payload";
+
+        let mut buf = Vec::new();
+        send_typed_frame(&mut buf, NotebookFrameType::Request, payload)
+            .await
+            .unwrap();
+
+        let mut cursor = std::io::Cursor::new(buf);
+        let frame = recv_typed_frame(&mut cursor).await.unwrap().unwrap();
+        assert_eq!(frame.frame_type, NotebookFrameType::Request);
+        assert_eq!(frame.payload, payload);
+    }
+
+    #[tokio::test]
+    async fn test_typed_frame_automerge_sync() {
+        let sync_data = b"\x00binary automerge data";
+
+        let mut buf = Vec::new();
+        send_typed_frame(&mut buf, NotebookFrameType::AutomergeSync, sync_data)
+            .await
+            .unwrap();
+
+        let mut cursor = std::io::Cursor::new(buf);
+        let frame = recv_typed_frame(&mut cursor).await.unwrap().unwrap();
+        assert_eq!(frame.frame_type, NotebookFrameType::AutomergeSync);
+        assert_eq!(frame.payload, sync_data);
+    }
+
+    #[tokio::test]
+    async fn test_typed_json_frame() {
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        struct TestMsg {
+            value: i32,
+        }
+
+        let msg = TestMsg { value: 42 };
+
+        let mut buf = Vec::new();
+        send_typed_json_frame(&mut buf, NotebookFrameType::Request, &msg)
+            .await
+            .unwrap();
+
+        let mut cursor = std::io::Cursor::new(buf);
+        let frame = recv_typed_frame(&mut cursor).await.unwrap().unwrap();
+        assert_eq!(frame.frame_type, NotebookFrameType::Request);
+
+        let parsed: TestMsg = serde_json::from_slice(&frame.payload).unwrap();
+        assert_eq!(parsed, msg);
     }
 }
