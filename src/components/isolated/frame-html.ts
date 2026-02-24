@@ -1,14 +1,3 @@
-/**
- * HTML template generator for isolated output frames.
- *
- * Creates the minimal HTML document that runs inside the blob URL iframe.
- * This document handles the message protocol and provides a render target
- * for output content.
- *
- * Security: This code runs in an isolated origin (blob:) with sandbox
- * restrictions, so it cannot access Tauri APIs or the parent DOM.
- */
-
 export interface FrameHtmlOptions {
   /**
    * Whether to include dark mode styles by default.
@@ -37,7 +26,11 @@ export interface FrameHtmlOptions {
  * @returns HTML string to be used with a blob URL
  */
 export function generateFrameHtml(options: FrameHtmlOptions = {}): string {
-  const { darkMode = true, additionalCss = "", additionalScript = "" } = options;
+  const {
+    darkMode = true,
+    additionalCss = "",
+    additionalScript = "",
+  } = options;
 
   return `<!DOCTYPE html>
 <html>
@@ -344,7 +337,7 @@ export function generateFrameHtml(options: FrameHtmlOptions = {}): string {
           return style ? '<span style="' + style + '">' : '';
         });
 
-        // Also handle \e[ format
+        // Also handle \\e[ format
         result = result.replace(/\\e\\[(\\d+(?:;\\d+)*)m/g, function(match, codes) {
           const codeList = codes.split(';');
           let style = '';

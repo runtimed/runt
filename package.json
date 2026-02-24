@@ -17,7 +17,6 @@
     "e2e:docker:shell": "docker compose --profile dev run --rm tauri-e2e-shell"
   },
   "dependencies": {
-    "@tauri-apps/api": "~2.5.0",
     "@codemirror/autocomplete": "^6.20.0",
     "@codemirror/commands": "^6.10.2",
     "@codemirror/lang-html": "^6.4.11",
@@ -30,6 +29,8 @@
     "@codemirror/lint": "^6.9.3",
     "@codemirror/state": "^6.5.4",
     "@codemirror/view": "^6.39.12",
+    "@radix-ui/react-collapsible": "^1.1.12",
+    "@tauri-apps/api": "~2.5.0",
     "@uiw/codemirror-theme-github": "^4.25.4",
     "@uiw/react-codemirror": "^4.25.4",
     "@uiw/react-json-view": "^2.0.0-alpha.41",
@@ -53,7 +54,6 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
-    "rollup-plugin-visualizer": "^5.14.0",
     "@tailwindcss/vite": "^4.1.8",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -69,6 +69,7 @@
     "@wdio/spec-reporter": "^8.40.0",
     "@wdio/types": "^8.40.0",
     "jsdom": "^26.0.0",
+    "rollup-plugin-visualizer": "^5.14.0",
     "tailwindcss": "^4.1.8",
     "ts-node": "^10.9.2",
     "typescript": "~5.8.3",

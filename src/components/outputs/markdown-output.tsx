@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Copy } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import {
@@ -13,7 +13,7 @@ import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { cn } from "@/lib/utils";
-import { isDarkMode } from "@/components/themes";
+import { useDarkMode } from "./dark-mode";
 
 import "katex/dist/katex.min.css";
 
@@ -46,37 +46,6 @@ function isInIframe(): boolean {
   } catch {
     return true;
   }
-}
-
-/**
- * Hook to detect dark mode from document state or system preference.
- * Watches for theme changes via MutationObserver and media query.
- */
-function useDarkMode(): boolean {
-  const [isDark, setIsDark] = useState(() =>
-    typeof window !== "undefined" ? isDarkMode() : false,
-  );
-
-  useEffect(() => {
-    setIsDark(isDarkMode());
-
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const handleChange = () => setIsDark(isDarkMode());
-    mediaQuery.addEventListener("change", handleChange);
-
-    const observer = new MutationObserver(() => setIsDark(isDarkMode()));
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class", "style", "data-theme", "data-mode"],
-    });
-
-    return () => {
-      mediaQuery.removeEventListener("change", handleChange);
-      observer.disconnect();
-    };
-  }, []);
-
-  return isDark;
 }
 
 interface CodeBlockProps {

@@ -1,4 +1,7 @@
 import type { KeyBinding } from "@codemirror/view";
+import rendererCss from "@isolated-bundle/isolated-renderer.css?raw";
+// Inline isolated renderer bundle for instant output rendering (no HTTP fetch)
+import rendererCode from "@isolated-bundle/isolated-renderer.js?raw";
 import { Trash2, X } from "lucide-react";
 import {
   lazy,
@@ -271,7 +274,14 @@ export function CodeCell({
             )}
           </>
         }
-        outputContent={<OutputArea outputs={cell.outputs} preloadIframe />}
+        outputContent={
+          <OutputArea
+            outputs={cell.outputs}
+            preloadIframe
+            rendererCode={rendererCode}
+            rendererCss={rendererCss}
+          />
+        }
         hideOutput={cell.outputs.length === 0}
       />
 

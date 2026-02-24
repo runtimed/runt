@@ -6,10 +6,7 @@ import {
   CodeMirrorEditor,
   type CodeMirrorEditorRef,
 } from "@/components/editor/codemirror-editor";
-import {
-  IsolatedFrame,
-  type IsolatedFrameHandle,
-} from "@/components/outputs/isolated";
+import { IsolatedFrame, type IsolatedFrameHandle } from "@/components/isolated";
 import { isDarkMode as detectDarkMode } from "@/components/themes";
 import { cn } from "@/lib/utils";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";

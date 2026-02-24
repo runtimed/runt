@@ -324,7 +324,7 @@ describe("MediaRouter component", () => {
 
   describe("fallback behavior", () => {
     it("renders fallback when no data matches", () => {
-      const { container } = render(
+      render(
         <MediaProvider>
           <MediaRouter data={{}} fallback={<div>No output</div>} />
         </MediaProvider>

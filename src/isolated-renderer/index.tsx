@@ -23,7 +23,7 @@ import { HtmlOutput } from "@/components/outputs/html-output";
 import { ImageOutput } from "@/components/outputs/image-output";
 import { SvgOutput } from "@/components/outputs/svg-output";
 import { JsonOutput } from "@/components/outputs/json-output";
-import type { RenderPayload } from "@/components/outputs/isolated/frame-bridge";
+import type { RenderPayload } from "@/components/isolated/frame-bridge";
 
 // Import widget support
 import { IframeWidgetStoreProvider } from "./widget-provider";

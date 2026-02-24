@@ -19,6 +19,8 @@ export default defineConfig({
     alias: {
       "@/": path.resolve(__dirname, "../../src") + "/",
       "~/": path.resolve(__dirname, "./src") + "/",
+      // Alias for inline bundle imports
+      "@isolated-bundle/": path.resolve(__dirname, "./public/isolated") + "/",
     },
   },
   build: {
