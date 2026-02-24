@@ -41,6 +41,19 @@ export function isolatedRendererPlugin(
   let rendererCss = "";
   let buildPromise: Promise<void> | null = null;
 
+  // Directories to watch for changes that should trigger rebuild
+  const isolatedRendererDir = path.resolve(
+    __dirname,
+    "../../src/isolated-renderer",
+  );
+  const componentsDir = path.resolve(__dirname, "../../src/components");
+
+  function invalidateCache() {
+    buildPromise = null;
+    rendererCode = "";
+    rendererCss = "";
+  }
+
   async function buildRenderer() {
     const srcDir = path.resolve(__dirname, "../../src");
 
@@ -137,15 +150,49 @@ export const rendererCss = ${JSON.stringify(rendererCss)};
     },
 
     // For dev server: serve the virtual module
-    configureServer(server) {
+    configureServer(devServer) {
       // Ensure renderer is built before serving
-      server.middlewares.use(async (_req, _res, next) => {
+      devServer.middlewares.use(async (_req, _res, next) => {
         if (!buildPromise) {
           buildPromise = buildRenderer();
         }
         await buildPromise;
         next();
       });
+    },
+
+    // Handle HMR: rebuild when isolated renderer source files change
+    async handleHotUpdate({ file, server: devServer }) {
+      // Check if the changed file is part of the isolated renderer bundle
+      const isIsolatedRendererFile =
+        file.startsWith(isolatedRendererDir) ||
+        // Components used by the isolated renderer
+        (file.startsWith(componentsDir) &&
+          (file.includes("/outputs/") ||
+            file.includes("/isolated/") ||
+            file.includes("/widgets/")));
+
+      if (isIsolatedRendererFile) {
+        console.log(
+          `[isolated-renderer] Rebuilding due to change in: ${path.relative(path.resolve(__dirname, "../.."), file)}`,
+        );
+        invalidateCache();
+        buildPromise = buildRenderer();
+        await buildPromise;
+
+        // Invalidate the virtual module to trigger re-import
+        const mod = devServer.moduleGraph.getModuleById(
+          RESOLVED_VIRTUAL_MODULE_ID,
+        );
+        if (mod) {
+          devServer.moduleGraph.invalidateModule(mod);
+          // Send HMR update
+          devServer.ws.send({
+            type: "full-reload",
+            path: "*",
+          });
+        }
+      }
     },
   };
 }
