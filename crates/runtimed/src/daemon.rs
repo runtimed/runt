@@ -642,8 +642,16 @@ impl Daemon {
                 )
                 .await
             }
-            Handshake::NotebookSync { notebook_id } => {
-                info!("[runtimed] NotebookSync requested for {}", notebook_id);
+            Handshake::NotebookSync {
+                notebook_id,
+                protocol,
+            } => {
+                let use_typed_frames = protocol.as_deref() == Some(connection::PROTOCOL_V2);
+                info!(
+                    "[runtimed] NotebookSync requested for {} (protocol: {})",
+                    notebook_id,
+                    protocol.as_deref().unwrap_or("v1")
+                );
                 let docs_dir = self.config.notebook_docs_dir.clone();
                 let room = {
                     let mut rooms = self.notebook_rooms.lock().await;
@@ -660,6 +668,7 @@ impl Daemon {
                     room,
                     self.notebook_rooms.clone(),
                     notebook_id,
+                    use_typed_frames,
                 )
                 .await
             }

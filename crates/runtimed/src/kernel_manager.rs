@@ -1,0 +1,765 @@
+//! Daemon-owned kernel management for notebook rooms.
+//!
+//! Each notebook room can have one kernel. The daemon owns the kernel lifecycle
+//! and execution queue, broadcasting outputs to all connected peers.
+//!
+//! This replaces the notebook app's local kernel management for Phase 8:
+//! - Execute requests flow through the daemon
+//! - Daemon tracks msg_id → cell_id perfectly
+//! - Outputs broadcast to all windows showing the same notebook
+
+use std::collections::{HashMap, VecDeque};
+use std::net::Ipv4Addr;
+use std::path::PathBuf;
+use std::process::Stdio;
+use std::sync::{Arc, Mutex as StdMutex};
+
+use anyhow::Result;
+use jupyter_protocol::{
+    ConnectionInfo, ExecuteRequest, InterruptRequest, JupyterMessage, JupyterMessageContent,
+    KernelInfoRequest, ShutdownRequest,
+};
+use log::{debug, error, info};
+use serde::Serialize;
+use tokio::sync::{broadcast, mpsc};
+use uuid::Uuid;
+
+use crate::protocol::NotebookBroadcast;
+
+/// A cell queued for execution.
+#[derive(Debug, Clone)]
+pub struct QueuedCell {
+    pub cell_id: String,
+    pub code: String,
+}
+
+/// Kernel status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KernelStatus {
+    /// Kernel is starting up
+    Starting,
+    /// Kernel is ready and idle
+    Idle,
+    /// Kernel is executing code
+    Busy,
+    /// Kernel encountered an error
+    Error,
+    /// Kernel is shutting down
+    ShuttingDown,
+}
+
+impl std::fmt::Display for KernelStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KernelStatus::Starting => write!(f, "starting"),
+            KernelStatus::Idle => write!(f, "idle"),
+            KernelStatus::Busy => write!(f, "busy"),
+            KernelStatus::Error => write!(f, "error"),
+            KernelStatus::ShuttingDown => write!(f, "shutdown"),
+        }
+    }
+}
+
+/// A kernel owned by the daemon for a notebook room.
+///
+/// Unlike the notebook app's `NotebookKernel`, this broadcasts outputs
+/// to all connected peers rather than emitting Tauri events.
+pub struct RoomKernel {
+    /// Kernel type (e.g., "python", "deno")
+    kernel_type: String,
+    /// Environment source (e.g., "uv:inline", "conda:prewarmed")
+    env_source: String,
+    /// Connection info for the kernel
+    connection_info: Option<ConnectionInfo>,
+    /// Path to the connection file
+    connection_file: Option<PathBuf>,
+    /// Session ID for Jupyter protocol
+    session_id: String,
+    /// Handle to the iopub listener task
+    iopub_task: Option<tokio::task::JoinHandle<()>>,
+    /// Handle to the shell reader task
+    shell_reader_task: Option<tokio::task::JoinHandle<()>>,
+    /// Shell writer for sending execute requests
+    shell_writer: Option<runtimelib::DealerSendConnection>,
+    /// The kernel process
+    process: Option<tokio::process::Child>,
+    /// Process group ID for cleanup (Unix only)
+    #[cfg(unix)]
+    process_group_id: Option<i32>,
+    /// Mapping from msg_id → cell_id for routing iopub messages
+    cell_id_map: Arc<StdMutex<HashMap<String, String>>>,
+    /// Execution queue (pending cells)
+    queue: VecDeque<QueuedCell>,
+    /// Currently executing cell
+    executing: Option<String>,
+    /// Current kernel status
+    status: KernelStatus,
+    /// Broadcast channel for sending outputs to peers
+    broadcast_tx: broadcast::Sender<NotebookBroadcast>,
+    /// Command sender for iopub/shell tasks
+    cmd_tx: Option<mpsc::Sender<QueueCommand>>,
+    /// Command receiver for queue state updates (polled by sync server)
+    cmd_rx: Option<mpsc::Receiver<QueueCommand>>,
+}
+
+/// Commands from iopub/shell handlers for queue state management.
+///
+/// These are sent from spawned tasks and must be processed by code
+/// that has access to `&mut RoomKernel` (e.g., the notebook sync server).
+#[derive(Debug)]
+pub enum QueueCommand {
+    /// A cell finished executing (received status=idle from kernel)
+    ExecutionDone { cell_id: String },
+    /// A cell produced an error (for stop-on-error behavior)
+    CellError { cell_id: String },
+}
+
+impl RoomKernel {
+    /// Create a new room kernel with a broadcast channel for outputs.
+    pub fn new(broadcast_tx: broadcast::Sender<NotebookBroadcast>) -> Self {
+        Self {
+            kernel_type: String::new(),
+            env_source: String::new(),
+            connection_info: None,
+            connection_file: None,
+            session_id: Uuid::new_v4().to_string(),
+            iopub_task: None,
+            shell_reader_task: None,
+            shell_writer: None,
+            process: None,
+            #[cfg(unix)]
+            process_group_id: None,
+            cell_id_map: Arc::new(StdMutex::new(HashMap::new())),
+            queue: VecDeque::new(),
+            executing: None,
+            status: KernelStatus::Starting,
+            broadcast_tx,
+            cmd_tx: None,
+            cmd_rx: None,
+        }
+    }
+
+    /// Take the command receiver for polling by the sync server.
+    ///
+    /// This should be called after `launch()` and polled in the sync server's
+    /// select loop. When commands arrive, call the appropriate methods on
+    /// `RoomKernel` (e.g., `execution_done` for `ExecutionDone`).
+    pub fn take_command_rx(&mut self) -> Option<mpsc::Receiver<QueueCommand>> {
+        self.cmd_rx.take()
+    }
+
+    /// Get the kernel type.
+    pub fn kernel_type(&self) -> &str {
+        &self.kernel_type
+    }
+
+    /// Get the environment source.
+    pub fn env_source(&self) -> &str {
+        &self.env_source
+    }
+
+    /// Get the current kernel status.
+    pub fn status(&self) -> KernelStatus {
+        self.status
+    }
+
+    /// Check if the kernel is running.
+    pub fn is_running(&self) -> bool {
+        self.shell_writer.is_some()
+    }
+
+    /// Get the currently executing cell ID.
+    pub fn executing_cell(&self) -> Option<&String> {
+        self.executing.as_ref()
+    }
+
+    /// Get the queued cell IDs.
+    pub fn queued_cells(&self) -> Vec<String> {
+        self.queue.iter().map(|c| c.cell_id.clone()).collect()
+    }
+
+    /// Launch a kernel for this room.
+    ///
+    /// Currently launches via kernelspec. Future: integrate with prewarmed pool.
+    pub async fn launch(
+        &mut self,
+        kernel_type: &str,
+        env_source: &str,
+        notebook_path: Option<&std::path::Path>,
+    ) -> Result<()> {
+        // Shutdown existing kernel if any (but don't broadcast shutdown for fresh kernel)
+        if self.is_running() {
+            self.shutdown().await.ok();
+        }
+
+        self.kernel_type = kernel_type.to_string();
+        self.env_source = env_source.to_string();
+        self.status = KernelStatus::Starting;
+
+        // Broadcast starting status
+        let _ = self.broadcast_tx.send(NotebookBroadcast::KernelStatus {
+            status: "starting".to_string(),
+            cell_id: None,
+        });
+
+        // Find kernelspec
+        let kernelspec_name = match kernel_type {
+            "python" => "python3",
+            "deno" => "deno",
+            _ => kernel_type,
+        };
+
+        let kernelspec = runtimelib::find_kernelspec(kernelspec_name).await?;
+
+        // Reserve ports
+        let ip = std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+        let ports = runtimelib::peek_ports(ip, 5).await?;
+
+        let connection_info = ConnectionInfo {
+            transport: jupyter_protocol::connection_info::Transport::TCP,
+            ip: ip.to_string(),
+            stdin_port: ports[0],
+            control_port: ports[1],
+            hb_port: ports[2],
+            shell_port: ports[3],
+            iopub_port: ports[4],
+            signature_scheme: "hmac-sha256".to_string(),
+            key: Uuid::new_v4().to_string(),
+            kernel_name: Some(kernelspec_name.to_string()),
+        };
+
+        // Write connection file
+        let runtime_dir = runtimelib::dirs::runtime_dir();
+        tokio::fs::create_dir_all(&runtime_dir).await?;
+
+        let kernel_id: String =
+            petname::petname(2, "-").unwrap_or_else(|| Uuid::new_v4().to_string());
+        let connection_file_path = runtime_dir.join(format!("runtimed-kernel-{}.json", kernel_id));
+
+        tokio::fs::write(
+            &connection_file_path,
+            serde_json::to_string_pretty(&connection_info)?,
+        )
+        .await?;
+
+        info!(
+            "[kernel-manager] Starting kernel {} at {:?}",
+            kernelspec_name, connection_file_path
+        );
+
+        // Determine working directory
+        let cwd = if let Some(path) = notebook_path {
+            path.parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(std::env::temp_dir)
+        } else {
+            dirs::home_dir()
+                .map(|h| h.join("notebooks"))
+                .unwrap_or_else(std::env::temp_dir)
+        };
+
+        // Launch kernel process
+        let mut cmd = kernelspec.command(
+            &connection_file_path,
+            Some(Stdio::null()),
+            Some(Stdio::null()),
+        )?;
+        cmd.current_dir(&cwd);
+
+        #[cfg(unix)]
+        cmd.process_group(0);
+
+        let process = cmd.kill_on_drop(true).spawn()?;
+
+        #[cfg(unix)]
+        {
+            self.process_group_id = process.id().map(|pid| pid as i32);
+        }
+
+        // Small delay to let the kernel start
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        self.session_id = Uuid::new_v4().to_string();
+
+        // Create iopub connection and spawn listener
+        let mut iopub =
+            runtimelib::create_client_iopub_connection(&connection_info, "", &self.session_id)
+                .await?;
+
+        // Create command channel for queue processing
+        let (cmd_tx, cmd_rx) = mpsc::channel::<QueueCommand>(100);
+        self.cmd_tx = Some(cmd_tx.clone());
+
+        let broadcast_tx = self.broadcast_tx.clone();
+        let cell_id_map = self.cell_id_map.clone();
+        let iopub_cmd_tx = cmd_tx.clone();
+
+        let iopub_task = tokio::spawn(async move {
+            loop {
+                match iopub.read().await {
+                    Ok(message) => {
+                        debug!(
+                            "[kernel-manager] iopub: type={} parent_msg_id={:?}",
+                            message.header.msg_type,
+                            message.parent_header.as_ref().map(|h| &h.msg_id)
+                        );
+
+                        // Look up cell_id from msg_id
+                        let cell_id = message
+                            .parent_header
+                            .as_ref()
+                            .and_then(|h| cell_id_map.lock().ok()?.get(&h.msg_id).cloned());
+
+                        // Handle different message types
+                        match &message.content {
+                            JupyterMessageContent::Status(status) => {
+                                let status_str = match status.execution_state {
+                                    jupyter_protocol::ExecutionState::Busy => "busy",
+                                    jupyter_protocol::ExecutionState::Idle => "idle",
+                                    jupyter_protocol::ExecutionState::Starting => "starting",
+                                    jupyter_protocol::ExecutionState::Restarting => "restarting",
+                                    jupyter_protocol::ExecutionState::Terminating
+                                    | jupyter_protocol::ExecutionState::Dead => "shutdown",
+                                    _ => "unknown",
+                                };
+
+                                let _ = broadcast_tx.send(NotebookBroadcast::KernelStatus {
+                                    status: status_str.to_string(),
+                                    cell_id: cell_id.clone(),
+                                });
+
+                                // Signal execution done when idle
+                                if status.execution_state == jupyter_protocol::ExecutionState::Idle
+                                {
+                                    if let Some(cid) = cell_id {
+                                        let _ = iopub_cmd_tx
+                                            .try_send(QueueCommand::ExecutionDone { cell_id: cid });
+                                    }
+                                }
+                            }
+
+                            JupyterMessageContent::ExecuteInput(input) => {
+                                if let Some(ref cid) = cell_id {
+                                    let _ =
+                                        broadcast_tx.send(NotebookBroadcast::ExecutionStarted {
+                                            cell_id: cid.clone(),
+                                            execution_count: input.execution_count.0 as i64,
+                                        });
+                                }
+                            }
+
+                            JupyterMessageContent::StreamContent(_)
+                            | JupyterMessageContent::DisplayData(_)
+                            | JupyterMessageContent::UpdateDisplayData(_)
+                            | JupyterMessageContent::ExecuteResult(_) => {
+                                if let Some(ref cid) = cell_id {
+                                    let output_type = match &message.content {
+                                        JupyterMessageContent::StreamContent(_) => "stream",
+                                        JupyterMessageContent::DisplayData(_) => "display_data",
+                                        JupyterMessageContent::UpdateDisplayData(_) => {
+                                            "update_display_data"
+                                        }
+                                        JupyterMessageContent::ExecuteResult(_) => "execute_result",
+                                        _ => "unknown",
+                                    };
+
+                                    // Serialize the content as JSON
+                                    if let Ok(output_json) = serde_json::to_string(&message.content)
+                                    {
+                                        let _ = broadcast_tx.send(NotebookBroadcast::Output {
+                                            cell_id: cid.clone(),
+                                            output_type: output_type.to_string(),
+                                            output_json,
+                                        });
+                                    }
+                                }
+                            }
+
+                            JupyterMessageContent::ErrorOutput(_) => {
+                                if let Some(ref cid) = cell_id {
+                                    // Send error output
+                                    if let Ok(output_json) = serde_json::to_string(&message.content)
+                                    {
+                                        let _ = broadcast_tx.send(NotebookBroadcast::Output {
+                                            cell_id: cid.clone(),
+                                            output_type: "error".to_string(),
+                                            output_json,
+                                        });
+                                    }
+
+                                    // Signal cell error for stop-on-error
+                                    let _ = iopub_cmd_tx.try_send(QueueCommand::CellError {
+                                        cell_id: cid.clone(),
+                                    });
+                                }
+                            }
+
+                            _ => {
+                                debug!(
+                                    "[kernel-manager] Unhandled iopub message: {}",
+                                    message.header.msg_type
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("[kernel-manager] iopub read error: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Create shell connection
+        let identity = runtimelib::peer_identity_for_session(&self.session_id)?;
+        let mut shell = runtimelib::create_client_shell_connection_with_identity(
+            &connection_info,
+            &self.session_id,
+            identity,
+        )
+        .await?;
+
+        // Verify kernel is alive
+        let request: JupyterMessage = KernelInfoRequest::default().into();
+        shell.send(request).await?;
+
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(30), shell.read()).await;
+        match reply {
+            Ok(Ok(msg)) => {
+                info!(
+                    "[kernel-manager] Kernel alive: got {} reply",
+                    msg.header.msg_type
+                );
+            }
+            Ok(Err(e)) => {
+                error!("[kernel-manager] Error reading kernel_info_reply: {}", e);
+                return Err(anyhow::anyhow!("Kernel did not respond: {}", e));
+            }
+            Err(_) => {
+                error!("[kernel-manager] Timeout waiting for kernel_info_reply");
+                return Err(anyhow::anyhow!("Kernel did not respond within 30s"));
+            }
+        }
+
+        // Split shell into reader/writer
+        let (shell_writer, mut shell_reader) = shell.split();
+
+        // Spawn shell reader task
+        let shell_broadcast_tx = self.broadcast_tx.clone();
+        let shell_cell_id_map = self.cell_id_map.clone();
+
+        let shell_reader_task = tokio::spawn(async move {
+            loop {
+                match shell_reader.read().await {
+                    Ok(msg) => {
+                        let _parent_msg_id = msg.parent_header.as_ref().map(|h| h.msg_id.clone());
+
+                        match msg.content {
+                            JupyterMessageContent::ExecuteReply(ref reply) => {
+                                // Could handle page payloads here if needed
+                                if reply.status != jupyter_protocol::ReplyStatus::Ok {
+                                    let cell_id = msg.parent_header.as_ref().and_then(|h| {
+                                        shell_cell_id_map.lock().ok()?.get(&h.msg_id).cloned()
+                                    });
+                                    if let Some(cid) = cell_id {
+                                        let _ = shell_broadcast_tx.send(
+                                            NotebookBroadcast::ExecutionDone { cell_id: cid },
+                                        );
+                                    }
+                                }
+                            }
+                            _ => {
+                                debug!(
+                                    "[kernel-manager] shell reply: type={}",
+                                    msg.header.msg_type
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("[kernel-manager] shell read error: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Store command receiver for sync server to poll
+        // (the sync server will call execution_done when it receives ExecutionDone)
+        self.cmd_rx = Some(cmd_rx);
+
+        // Store state
+        self.connection_info = Some(connection_info);
+        self.connection_file = Some(connection_file_path);
+        self.iopub_task = Some(iopub_task);
+        self.shell_reader_task = Some(shell_reader_task);
+        self.shell_writer = Some(shell_writer);
+        self.process = Some(process);
+        self.status = KernelStatus::Idle;
+
+        // Broadcast idle status
+        let _ = self.broadcast_tx.send(NotebookBroadcast::KernelStatus {
+            status: "idle".to_string(),
+            cell_id: None,
+        });
+
+        info!("[kernel-manager] Kernel started: {}", kernel_id);
+        Ok(())
+    }
+
+    /// Queue a cell for execution.
+    pub async fn queue_cell(&mut self, cell_id: String, code: String) -> Result<()> {
+        info!("[kernel-manager] Queuing cell: {}", cell_id);
+
+        // Add to queue
+        self.queue.push_back(QueuedCell {
+            cell_id: cell_id.clone(),
+            code,
+        });
+
+        // Broadcast queue state
+        let _ = self.broadcast_tx.send(NotebookBroadcast::QueueChanged {
+            executing: self.executing.clone(),
+            queued: self.queued_cells(),
+        });
+
+        // Try to process if nothing executing
+        self.process_next().await
+    }
+
+    /// Clear outputs for a cell (before re-execution).
+    pub fn clear_outputs(&self, cell_id: &str) {
+        info!("[kernel-manager] Clearing outputs for cell: {}", cell_id);
+        // The frontend handles the actual clearing; we just broadcast the event
+        // so all windows know to clear
+    }
+
+    /// Process the next cell in the queue.
+    async fn process_next(&mut self) -> Result<()> {
+        // Already executing?
+        if self.executing.is_some() {
+            return Ok(());
+        }
+
+        // Get next cell
+        let Some(cell) = self.queue.pop_front() else {
+            return Ok(());
+        };
+
+        // Check kernel is running
+        if self.shell_writer.is_none() {
+            return Err(anyhow::anyhow!("No kernel running"));
+        }
+
+        self.executing = Some(cell.cell_id.clone());
+        self.status = KernelStatus::Busy;
+
+        // Collect queue state before borrowing shell_writer
+        let executing = self.executing.clone();
+        let queued = self.queued_cells();
+
+        // Broadcast queue state
+        let _ = self
+            .broadcast_tx
+            .send(NotebookBroadcast::QueueChanged { executing, queued });
+
+        // Send execute request
+        let request = ExecuteRequest::new(cell.code.clone());
+        let message: JupyterMessage = request.into();
+        let msg_id = message.header.msg_id.clone();
+
+        // Register msg_id → cell_id BEFORE sending
+        self.cell_id_map
+            .lock()
+            .unwrap()
+            .insert(msg_id.clone(), cell.cell_id.clone());
+
+        // Now borrow shell_writer mutably
+        let shell = self.shell_writer.as_mut().unwrap();
+        shell.send(message).await?;
+        info!(
+            "[kernel-manager] Sent execute_request: msg_id={} cell_id={}",
+            msg_id, cell.cell_id
+        );
+
+        Ok(())
+    }
+
+    /// Mark a cell execution as complete and process next.
+    pub async fn execution_done(&mut self, cell_id: &str) -> Result<()> {
+        if self.executing.as_ref() == Some(&cell_id.to_string()) {
+            self.executing = None;
+            self.status = KernelStatus::Idle;
+
+            // Clean up cell_id_map entries for this cell (prevent unbounded growth)
+            if let Ok(mut map) = self.cell_id_map.lock() {
+                map.retain(|_, v| v != cell_id);
+            }
+
+            // Broadcast done
+            let _ = self.broadcast_tx.send(NotebookBroadcast::ExecutionDone {
+                cell_id: cell_id.to_string(),
+            });
+
+            // Broadcast queue state
+            let _ = self.broadcast_tx.send(NotebookBroadcast::QueueChanged {
+                executing: None,
+                queued: self.queued_cells(),
+            });
+
+            // Process next
+            self.process_next().await?;
+        }
+        Ok(())
+    }
+
+    /// Interrupt the currently executing cell.
+    pub async fn interrupt(&self) -> Result<()> {
+        let connection_info = self
+            .connection_info
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No kernel running"))?;
+
+        let mut control =
+            runtimelib::create_client_control_connection(connection_info, &self.session_id).await?;
+
+        let request: JupyterMessage = InterruptRequest {}.into();
+        control.send(request).await?;
+
+        info!("[kernel-manager] Sent interrupt_request");
+        Ok(())
+    }
+
+    /// Clear the execution queue.
+    pub fn clear_queue(&mut self) -> Vec<String> {
+        let cleared: Vec<String> = self.queue.drain(..).map(|c| c.cell_id).collect();
+
+        // Broadcast queue state
+        let _ = self.broadcast_tx.send(NotebookBroadcast::QueueChanged {
+            executing: self.executing.clone(),
+            queued: vec![],
+        });
+
+        cleared
+    }
+
+    /// Shutdown the kernel.
+    pub async fn shutdown(&mut self) -> Result<()> {
+        info!("[kernel-manager] Shutting down kernel");
+
+        self.status = KernelStatus::ShuttingDown;
+
+        // Broadcast shutdown status
+        let _ = self.broadcast_tx.send(NotebookBroadcast::KernelStatus {
+            status: "shutdown".to_string(),
+            cell_id: None,
+        });
+
+        // Abort tasks
+        if let Some(task) = self.iopub_task.take() {
+            task.abort();
+        }
+        if let Some(task) = self.shell_reader_task.take() {
+            task.abort();
+        }
+
+        // Try graceful shutdown via shell
+        if let Some(mut shell) = self.shell_writer.take() {
+            let request: JupyterMessage = ShutdownRequest { restart: false }.into();
+            let _ = shell.send(request).await;
+        }
+
+        // Kill process group on Unix
+        #[cfg(unix)]
+        if let Some(pgid) = self.process_group_id.take() {
+            use nix::sys::signal::{killpg, Signal};
+            use nix::unistd::Pid;
+            if let Err(e) = killpg(Pid::from_raw(pgid), Signal::SIGKILL) {
+                if e != nix::errno::Errno::ESRCH {
+                    error!(
+                        "[kernel-manager] Failed to kill process group {}: {}",
+                        pgid, e
+                    );
+                }
+            }
+        }
+
+        // Clean up process
+        self.process = None;
+
+        // Clean up connection file
+        if let Some(ref path) = self.connection_file {
+            let _ = std::fs::remove_file(path);
+        }
+
+        // Clear state
+        self.connection_info = None;
+        self.connection_file = None;
+        self.cell_id_map.lock().unwrap().clear();
+        self.queue.clear();
+        self.executing = None;
+        self.cmd_tx = None;
+
+        info!("[kernel-manager] Kernel shutdown complete");
+        Ok(())
+    }
+}
+
+impl Drop for RoomKernel {
+    fn drop(&mut self) {
+        // Abort any running tasks
+        if let Some(task) = self.iopub_task.take() {
+            task.abort();
+        }
+        if let Some(task) = self.shell_reader_task.take() {
+            task.abort();
+        }
+
+        // Kill process group on Unix
+        #[cfg(unix)]
+        if let Some(pgid) = self.process_group_id.take() {
+            use nix::sys::signal::{killpg, Signal};
+            use nix::unistd::Pid;
+            let _ = killpg(Pid::from_raw(pgid), Signal::SIGKILL);
+        }
+
+        // Clean up connection file
+        if let Some(ref path) = self.connection_file {
+            let _ = std::fs::remove_file(path);
+        }
+
+        info!("[kernel-manager] RoomKernel dropped - resources cleaned up");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_kernel_status_display() {
+        assert_eq!(KernelStatus::Starting.to_string(), "starting");
+        assert_eq!(KernelStatus::Idle.to_string(), "idle");
+        assert_eq!(KernelStatus::Busy.to_string(), "busy");
+        assert_eq!(KernelStatus::Error.to_string(), "error");
+        assert_eq!(KernelStatus::ShuttingDown.to_string(), "shutdown");
+    }
+
+    #[test]
+    fn test_kernel_status_serialize() {
+        let json = serde_json::to_string(&KernelStatus::Idle).unwrap();
+        assert_eq!(json, "\"idle\"");
+    }
+
+    #[test]
+    fn test_room_kernel_new() {
+        let (tx, _rx) = broadcast::channel(16);
+        let kernel = RoomKernel::new(tx);
+
+        assert!(!kernel.is_running());
+        assert!(kernel.executing_cell().is_none());
+        assert!(kernel.queued_cells().is_empty());
+        assert_eq!(kernel.status(), KernelStatus::Starting);
+    }
+}
