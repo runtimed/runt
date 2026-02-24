@@ -15,6 +15,14 @@
 //! 5. When the last peer disconnects, the room is evicted from memory
 //!    (the doc is already persisted on every change)
 //! 6. Documents persist to `~/.cache/runt/notebook-docs/{hash}.automerge`
+//!
+//! ## Phase 8: Daemon-owned kernel execution
+//!
+//! Each room can have an optional kernel. When a kernel is launched:
+//! - Execute requests flow through the daemon
+//! - Daemon tracks msg_id → cell_id mapping
+//! - Outputs are broadcast to all connected windows
+//! - Multiple windows share the same kernel
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -27,7 +35,9 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{broadcast, Mutex, RwLock};
 
 use crate::connection;
+use crate::kernel_manager::RoomKernel;
 use crate::notebook_doc::{notebook_doc_filename, NotebookDoc};
+use crate::protocol::NotebookBroadcast;
 
 /// A notebook sync room — holds the canonical document and a broadcast
 /// channel for notifying peers of changes.
@@ -36,10 +46,14 @@ pub struct NotebookRoom {
     pub doc: Arc<RwLock<NotebookDoc>>,
     /// Broadcast channel to notify all peers in this room of changes.
     pub changed_tx: broadcast::Sender<()>,
+    /// Broadcast channel for kernel events (outputs, status changes).
+    pub kernel_broadcast_tx: broadcast::Sender<NotebookBroadcast>,
     /// Persistence path for this room's document.
     pub persist_path: PathBuf,
     /// Number of active peer connections in this room.
     pub active_peers: AtomicUsize,
+    /// Optional kernel for this room (Phase 8: daemon-owned execution).
+    pub kernel: Mutex<Option<RoomKernel>>,
 }
 
 impl NotebookRoom {
@@ -49,12 +63,37 @@ impl NotebookRoom {
         let persist_path = docs_dir.join(filename);
         let doc = NotebookDoc::load_or_create(&persist_path, notebook_id);
         let (changed_tx, _) = broadcast::channel(16);
+        let (kernel_broadcast_tx, _) = broadcast::channel(64);
         Self {
             doc: Arc::new(RwLock::new(doc)),
             changed_tx,
+            kernel_broadcast_tx,
             persist_path,
             active_peers: AtomicUsize::new(0),
+            kernel: Mutex::new(None),
         }
+    }
+
+    /// Check if this room has an active kernel.
+    pub async fn has_kernel(&self) -> bool {
+        let kernel = self.kernel.lock().await;
+        kernel.as_ref().map_or(false, |k| k.is_running())
+    }
+
+    /// Get kernel info if a kernel is running.
+    pub async fn kernel_info(&self) -> Option<(String, String, String)> {
+        let kernel = self.kernel.lock().await;
+        kernel.as_ref().and_then(|k| {
+            if k.is_running() {
+                Some((
+                    k.kernel_type().to_string(),
+                    k.env_source().to_string(),
+                    k.status().to_string(),
+                ))
+            } else {
+                None
+            }
+        })
     }
 }
 
