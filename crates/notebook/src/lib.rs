@@ -26,24 +26,16 @@ pub use runtime::Runtime;
 use execution_queue::{ExecutionQueue, ExecutionQueueState, QueueCommand, SharedExecutionQueue};
 use kernel::{CompletionResult, HistoryResult, NotebookKernel};
 use notebook_state::{FrontendCell, NotebookState};
-use runtimed::notebook_sync_client::NotebookSyncClient;
+use runtimed::notebook_sync_client::{NotebookSyncClient, NotebookSyncHandle};
 
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-/// Shared notebook sync client for cross-window state synchronization.
+/// Shared notebook sync handle for cross-window state synchronization.
 /// The Option allows graceful fallback when daemon is unavailable.
-#[cfg(unix)]
-type SharedNotebookSync =
-    Arc<tokio::sync::Mutex<Option<NotebookSyncClient<tokio::net::UnixStream>>>>;
-
-#[cfg(windows)]
-type SharedNotebookSync = Arc<
-    tokio::sync::Mutex<
-        Option<NotebookSyncClient<tokio::net::windows::named_pipe::NamedPipeClient>>,
-    >,
->;
+/// Uses the split handle pattern - the handle is clonable and doesn't block.
+type SharedNotebookSync = Arc<tokio::sync::Mutex<Option<NotebookSyncHandle>>>;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -133,9 +125,12 @@ fn derive_notebook_id(state: &NotebookState) -> String {
 
 /// Initialize notebook sync with the daemon.
 ///
-/// Connects to the daemon's notebook sync service, populates the Automerge doc
-/// if this is a new room, and spawns a background task to receive changes from
-/// other peers (cross-window sync).
+/// Connects to the daemon's notebook sync service using the split pattern,
+/// populates the Automerge doc if this is a new room, and spawns a background
+/// task to receive changes from other peers (cross-window sync).
+///
+/// The split pattern separates the handle (for sending commands) from the
+/// receiver (for incoming changes), avoiding lock contention during network I/O.
 async fn initialize_notebook_sync(
     app: tauri::AppHandle,
     notebook_state: Arc<Mutex<NotebookState>>,
@@ -153,12 +148,14 @@ async fn initialize_notebook_sync(
         socket_path.display()
     );
 
-    let mut client = NotebookSyncClient::connect(socket_path, notebook_id.clone())
-        .await
-        .map_err(|e| format!("sync connect: {}", e))?;
+    // Connect using the split pattern - returns handle, receiver, and initial cells
+    let (handle, mut receiver, initial_cells) =
+        NotebookSyncClient::connect_split(socket_path, notebook_id.clone())
+            .await
+            .map_err(|e| format!("sync connect: {}", e))?;
 
     // Populate Automerge doc if empty (new room or first window)
-    if client.get_cells().is_empty() {
+    if initial_cells.is_empty() {
         info!(
             "[notebook-sync] Populating Automerge doc with {} cells",
             cells.len()
@@ -169,12 +166,12 @@ async fn initialize_notebook_sync(
                 FrontendCell::Markdown { id, source } => (id.as_str(), "markdown", source.as_str()),
                 FrontendCell::Raw { id, source } => (id.as_str(), "raw", source.as_str()),
             };
-            client
+            handle
                 .add_cell(i, id, cell_type)
                 .await
                 .map_err(|e| format!("add_cell: {}", e))?;
             if !source.is_empty() {
-                client
+                handle
                     .update_source(id, source)
                     .await
                     .map_err(|e| format!("update_source: {}", e))?;
@@ -183,38 +180,25 @@ async fn initialize_notebook_sync(
     } else {
         info!(
             "[notebook-sync] Joining existing room with {} cells",
-            client.get_cells().len()
+            initial_cells.len()
         );
     }
 
-    // Store the connected client
-    *notebook_sync.lock().await = Some(client);
+    // Store the handle for commands to use
+    *notebook_sync.lock().await = Some(handle);
 
-    // Spawn recv_changes loop for cross-window sync
-    let sync_clone = notebook_sync.clone();
+    // Spawn receiver task for cross-window sync
+    // The receiver is separate from the handle, so it doesn't block commands
     tokio::spawn(async move {
-        info!("[notebook-sync] Starting recv_changes loop");
-        loop {
-            let cells = {
-                let mut guard = sync_clone.lock().await;
-                match guard.as_mut() {
-                    Some(client) => match client.recv_changes().await {
-                        Ok(cells) => cells,
-                        Err(e) => {
-                            warn!("[notebook-sync] Disconnected: {}", e);
-                            *guard = None;
-                            break;
-                        }
-                    },
-                    None => break,
-                }
-            };
+        info!("[notebook-sync] Starting receiver loop");
+        while let Some(cells) = receiver.recv().await {
+            info!("[notebook-sync] Received {} cells from peer", cells.len());
             // Emit event for frontend to reconcile state
             if let Err(e) = app.emit("notebook:updated", &cells) {
                 warn!("[notebook-sync] Failed to emit notebook:updated: {}", e);
             }
         }
-        info!("[notebook-sync] recv_changes loop ended");
+        info!("[notebook-sync] Receiver loop ended");
     });
 
     info!(
@@ -642,10 +626,14 @@ async fn update_cell_source(
     }
 
     // Sync to daemon (fire-and-forget errors to maintain responsiveness)
-    if let Some(client) = notebook_sync.lock().await.as_mut() {
-        if let Err(e) = client.update_source(&cell_id, &source).await {
+    let guard = notebook_sync.lock().await;
+    if let Some(handle) = guard.as_ref() {
+        info!("[notebook-sync] Syncing source update for cell {}", cell_id);
+        if let Err(e) = handle.update_source(&cell_id, &source).await {
             warn!("[notebook-sync] update_source failed: {}", e);
         }
+    } else {
+        info!("[notebook-sync] No sync handle available for update_source");
     }
 
     Ok(())
@@ -676,15 +664,22 @@ async fn add_cell(
     };
 
     // Sync to daemon
-    if let Some(client) = notebook_sync.lock().await.as_mut() {
+    let guard = notebook_sync.lock().await;
+    if let Some(handle) = guard.as_ref() {
         let cell_id = match &cell {
             FrontendCell::Code { id, .. } => id,
             FrontendCell::Markdown { id, .. } => id,
             FrontendCell::Raw { id, .. } => id,
         };
-        if let Err(e) = client.add_cell(index, cell_id, &cell_type).await {
+        info!(
+            "[notebook-sync] Syncing add_cell {} at index {}",
+            cell_id, index
+        );
+        if let Err(e) = handle.add_cell(index, cell_id, &cell_type).await {
             warn!("[notebook-sync] add_cell failed: {}", e);
         }
+    } else {
+        info!("[notebook-sync] No sync handle available for add_cell");
     }
 
     Ok(cell)
@@ -705,8 +700,8 @@ async fn delete_cell(
     }
 
     // Sync to daemon
-    if let Some(client) = notebook_sync.lock().await.as_mut() {
-        if let Err(e) = client.delete_cell(&cell_id).await {
+    if let Some(handle) = notebook_sync.lock().await.as_ref() {
+        if let Err(e) = handle.delete_cell(&cell_id).await {
             warn!("[notebook-sync] delete_cell failed: {}", e);
         }
     }
@@ -731,8 +726,8 @@ async fn execute_cell(
     };
 
     // Clear outputs in Automerge for cross-window sync
-    if let Some(client) = notebook_sync.lock().await.as_mut() {
-        if let Err(e) = client.clear_outputs(&cell_id).await {
+    if let Some(handle) = notebook_sync.lock().await.as_ref() {
+        if let Err(e) = handle.clear_outputs(&cell_id).await {
             warn!("[notebook-sync] clear_outputs failed: {}", e);
         }
     }
