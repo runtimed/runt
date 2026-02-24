@@ -139,8 +139,14 @@ export function isolatedRendererPlugin(
       }
     },
 
-    load(id) {
+    async load(id) {
       if (id === RESOLVED_VIRTUAL_MODULE_ID) {
+        // Ensure build is complete before returning module content
+        // This handles race conditions in dev mode where load() may be
+        // called before buildStart() completes
+        if (buildPromise) {
+          await buildPromise;
+        }
         // Export the built code as strings
         return `
 export const rendererCode = ${JSON.stringify(rendererCode)};
