@@ -622,6 +622,26 @@ async fn watch_iopub(
                                     "[iopub-watcher] Mapped msg_id {} → cell_id {} (exec_count={})",
                                     parent_id, cell_id, input.execution_count
                                 );
+
+                                // Clear existing outputs for this cell since a new execution is starting
+                                let persist_bytes = {
+                                    let mut doc = doc.write().await;
+                                    if let Err(e) = doc.clear_outputs(cell_id) {
+                                        warn!(
+                                            "[iopub-watcher] Failed to clear outputs for cell {}: {}",
+                                            cell_id, e
+                                        );
+                                        // Continue anyway - we still want to track the cell_id mapping
+                                    }
+                                    let bytes = doc.save();
+                                    let _ = changed_tx.send(());
+                                    bytes
+                                };
+                                persist_notebook_bytes(&persist_bytes, &persist_path);
+                                debug!(
+                                    "[iopub-watcher] Cleared outputs for cell {} (new execution starting)",
+                                    cell_id
+                                );
                             }
                         }
                     }
