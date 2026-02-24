@@ -19,7 +19,7 @@ use jupyter_protocol::{
     ConnectionInfo, ExecuteRequest, InterruptRequest, JupyterMessage, JupyterMessageContent,
     KernelInfoRequest, ShutdownRequest,
 };
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use serde::Serialize;
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
@@ -677,7 +677,7 @@ impl RoomKernel {
             use nix::unistd::Pid;
             if let Err(e) = killpg(Pid::from_raw(pgid), Signal::SIGKILL) {
                 if e != nix::errno::Errno::ESRCH {
-                    warn!(
+                    error!(
                         "[kernel-manager] Failed to kill process group {}: {}",
                         pgid, e
                     );
