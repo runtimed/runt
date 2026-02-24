@@ -4,7 +4,7 @@ import {
   open as openDialog,
   save as saveDialog,
 } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { JupyterOutput, NotebookCell } from "../types";
 
 /**
@@ -17,10 +17,24 @@ interface CellSnapshot {
   source: string;
   execution_count: string; // "5" or "null"
   outputs: string[]; // JSON-encoded Jupyter outputs
+  running?: boolean; // Cross-window execution state
+}
+
+/**
+ * Check if a string looks like a blob hash (64-char hex).
+ * Phase 6 outputs are stored as hashes in the CRDT.
+ */
+function looksLikeBlobHash(s: string): boolean {
+  return /^[a-f0-9]{64}$/.test(s);
 }
 
 /**
  * Convert a CellSnapshot from Automerge to a NotebookCell for React state.
+ *
+ * Phase 6: Output strings from the CRDT may be JSON (Phase 5 format) or
+ * 64-char hex blob hashes (Phase 6 format). We store raw strings for
+ * ResolvedOutputArea to resolve lazily, and also pre-parse JSON outputs
+ * for immediate display (since JSON parsing is fast).
  */
 function cellSnapshotToNotebookCell(snap: CellSnapshot): NotebookCell {
   const executionCount =
@@ -28,14 +42,20 @@ function cellSnapshotToNotebookCell(snap: CellSnapshot): NotebookCell {
       ? null
       : Number.parseInt(snap.execution_count, 10);
 
+  // Pre-parse JSON outputs for immediate display
+  // Blob hashes (64-char hex) will be resolved lazily by ResolvedOutputArea
   const outputs: JupyterOutput[] = snap.outputs
-    .map((outputJson) => {
+    .map((outputStr) => {
+      // Skip blob hashes - they need manifest resolution
+      if (looksLikeBlobHash(outputStr)) {
+        return null;
+      }
       try {
-        return JSON.parse(outputJson) as JupyterOutput;
+        return JSON.parse(outputStr) as JupyterOutput;
       } catch {
         console.warn(
-          "[notebook-sync] Failed to parse output JSON:",
-          outputJson,
+          "[notebook-sync] Failed to parse output:",
+          outputStr.substring(0, 100),
         );
         return null;
       }
@@ -49,6 +69,8 @@ function cellSnapshotToNotebookCell(snap: CellSnapshot): NotebookCell {
       source: snap.source,
       execution_count: Number.isNaN(executionCount) ? null : executionCount,
       outputs,
+      // Store raw strings for ResolvedOutputArea to resolve (Phase 6)
+      outputStrings: snap.outputs,
     };
   }
   // markdown or raw
@@ -63,6 +85,39 @@ export function useNotebook() {
   const [cells, setCells] = useState<NotebookCell[]>([]);
   const [focusedCellId, setFocusedCellId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+
+  /**
+   * Cell IDs that are marked as running in the CRDT (cross-window sync).
+   * Updated when notebook:updated events arrive from the daemon.
+   */
+  const [crdtRunningCells, setCrdtRunningCells] = useState<Set<string>>(
+    new Set(),
+  );
+
+  /**
+   * Track cells that are currently executing.
+   * Map from cellId to msgId. Used to prevent daemon sync from
+   * overwriting local outputs during execution (race condition fix).
+   */
+  const executingCellsRef = useRef<Map<string, string>>(new Map());
+
+  /**
+   * Mark a cell as currently executing.
+   * Called when execution starts, before outputs arrive.
+   */
+  const markCellExecuting = useCallback((cellId: string, msgId: string) => {
+    executingCellsRef.current.set(cellId, msgId);
+  }, []);
+
+  /**
+   * Mark a cell as no longer executing.
+   * Called when execution completes (idle status received).
+   */
+  const markCellNotExecuting = useCallback((cellId: string) => {
+    executingCellsRef.current.delete(cellId);
+    // Mark cell as not running in CRDT for cross-window sync
+    invoke("sync_mark_cell_not_running", { cellId }).catch(() => {});
+  }, []);
 
   const loadCells = useCallback(() => {
     invoke<NotebookCell[]>("load_notebook")
@@ -116,7 +171,7 @@ export function useNotebook() {
       setCells((prev) =>
         prev.map((c) =>
           clearedIds.has(c.id) && c.cell_type === "code"
-            ? { ...c, outputs: [], execution_count: null }
+            ? { ...c, outputs: [], outputStrings: [], execution_count: null }
             : c,
         ),
       );
@@ -134,12 +189,50 @@ export function useNotebook() {
         event.payload.length,
         "cells",
       );
-      // Trust Automerge as source of truth for cross-window sync.
-      // Note: This may cause brief output flicker on the executing window
-      // while waiting for iopub → Automerge round-trip. A cleaner solution
-      // would be daemon-managed kernel execution (future phase).
+
+      // Extract running cells from CRDT for cross-window execution state
+      const runningFromCrdt = new Set<string>();
+      for (const snap of event.payload) {
+        if (snap.running) {
+          runningFromCrdt.add(snap.id);
+        }
+      }
+      setCrdtRunningCells(runningFromCrdt);
+
+      // Convert snapshots to notebook cells
       const newCells = event.payload.map(cellSnapshotToNotebookCell);
-      setCells(newCells);
+
+      // Preserve local outputs for cells that are currently executing.
+      // This prevents the race condition where daemon sync overwrites
+      // local outputs before they've been synced back to the CRDT.
+      setCells((prevCells) => {
+        const executingIds = executingCellsRef.current;
+        if (executingIds.size === 0) {
+          // No cells executing, use daemon state directly
+          return newCells;
+        }
+
+        // Merge: preserve local outputs for executing cells
+        return newCells.map((newCell) => {
+          if (newCell.cell_type === "code" && executingIds.has(newCell.id)) {
+            // Find the previous cell to preserve its local outputs
+            const prevCell = prevCells.find((c) => c.id === newCell.id);
+            if (prevCell && prevCell.cell_type === "code") {
+              console.log(
+                "[notebook-sync] Preserving local outputs for executing cell:",
+                newCell.id,
+              );
+              return {
+                ...newCell,
+                outputs: prevCell.outputs,
+                outputStrings: prevCell.outputStrings,
+                execution_count: prevCell.execution_count,
+              };
+            }
+          }
+          return newCell;
+        });
+      });
     });
     return () => {
       unlisten.then((fn) => fn());
@@ -162,7 +255,7 @@ export function useNotebook() {
     setCells((prev) =>
       prev.map((c) =>
         c.id === cellId && c.cell_type === "code"
-          ? { ...c, outputs: [], execution_count: null }
+          ? { ...c, outputs: [], outputStrings: [], execution_count: null }
           : c,
       ),
     );
@@ -176,13 +269,17 @@ export function useNotebook() {
       try {
         const msgId = await invoke<string>("execute_cell", { cellId });
         console.log("[notebook] execute_cell returned msg_id:", msgId);
+        // Track this cell as executing to prevent sync race conditions
+        markCellExecuting(cellId, msgId);
+        // Mark cell as running in CRDT for cross-window sync
+        invoke("sync_mark_cell_running", { cellId }).catch(() => {});
         return msgId;
       } catch (e) {
         console.error("[notebook] execute_cell failed:", e);
         return null;
       }
     },
-    [clearCellOutputs],
+    [clearCellOutputs, markCellExecuting],
   );
 
   const addCell = useCallback(
@@ -393,5 +490,8 @@ export function useNotebook() {
     updateOutputByDisplayId,
     setExecutionCount,
     formatCell,
+    markCellNotExecuting,
+    /** Cell IDs marked as running in the CRDT (cross-window execution state) */
+    crdtRunningCells,
   };
 }

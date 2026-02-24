@@ -82,6 +82,44 @@ pub enum BlobResponse {
     Error { error: String },
 }
 
+/// JSON request on the notebook sync channel.
+///
+/// These requests are sent with `FrameKind::JsonRequest` and processed
+/// server-side to create output manifests with blob store access.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum NotebookSyncRequest {
+    /// Append output to a cell. Server creates manifest and stores hash in CRDT.
+    AppendOutput {
+        cell_id: String,
+        /// Raw Jupyter output as JSON string.
+        output_json: String,
+    },
+    /// Clear outputs for a cell.
+    ClearOutputs { cell_id: String },
+    /// Set execution count for a cell.
+    SetExecutionCount { cell_id: String, count: String },
+    /// Mark a cell as currently executing.
+    MarkCellRunning { cell_id: String },
+    /// Mark a cell as no longer executing.
+    MarkCellNotRunning { cell_id: String },
+}
+
+/// JSON response from notebook sync server.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "result", rename_all = "snake_case")]
+pub enum NotebookSyncResponse {
+    /// Output manifest stored successfully.
+    OutputStored {
+        /// The manifest hash stored in the CRDT.
+        hash: String,
+    },
+    /// Operation completed successfully.
+    Ok {},
+    /// Operation failed.
+    Error { error: String },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,5 +328,99 @@ mod tests {
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("abc123"));
+    }
+
+    #[test]
+    fn test_notebook_sync_request_append_output() {
+        let req = NotebookSyncRequest::AppendOutput {
+            cell_id: "cell-123".into(),
+            output_json: r#"{"output_type":"stream"}"#.into(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("append_output"));
+        assert!(json.contains("cell-123"));
+
+        let parsed: NotebookSyncRequest = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, NotebookSyncRequest::AppendOutput { .. }));
+    }
+
+    #[test]
+    fn test_notebook_sync_request_clear_outputs() {
+        let req = NotebookSyncRequest::ClearOutputs {
+            cell_id: "cell-456".into(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("clear_outputs"));
+        assert!(json.contains("cell-456"));
+
+        let parsed: NotebookSyncRequest = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, NotebookSyncRequest::ClearOutputs { .. }));
+    }
+
+    #[test]
+    fn test_notebook_sync_request_set_execution_count() {
+        let req = NotebookSyncRequest::SetExecutionCount {
+            cell_id: "cell-789".into(),
+            count: "5".into(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("set_execution_count"));
+
+        let parsed: NotebookSyncRequest = serde_json::from_str(&json).unwrap();
+        assert!(matches!(
+            parsed,
+            NotebookSyncRequest::SetExecutionCount { .. }
+        ));
+    }
+
+    #[test]
+    fn test_notebook_sync_request_mark_cell_running() {
+        let req = NotebookSyncRequest::MarkCellRunning {
+            cell_id: "cell-abc".into(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("mark_cell_running"));
+
+        let parsed: NotebookSyncRequest = serde_json::from_str(&json).unwrap();
+        assert!(matches!(
+            parsed,
+            NotebookSyncRequest::MarkCellRunning { .. }
+        ));
+    }
+
+    #[test]
+    fn test_notebook_sync_response_output_stored() {
+        let resp = NotebookSyncResponse::OutputStored {
+            hash: "deadbeef".into(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("output_stored"));
+        assert!(json.contains("deadbeef"));
+
+        let parsed: NotebookSyncResponse = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, NotebookSyncResponse::OutputStored { .. }));
+    }
+
+    #[test]
+    fn test_notebook_sync_response_ok() {
+        let resp = NotebookSyncResponse::Ok {};
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("ok"));
+
+        let parsed: NotebookSyncResponse = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, NotebookSyncResponse::Ok {}));
+    }
+
+    #[test]
+    fn test_notebook_sync_response_error() {
+        let resp = NotebookSyncResponse::Error {
+            error: "something went wrong".into(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("error"));
+        assert!(json.contains("something went wrong"));
+
+        let parsed: NotebookSyncResponse = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, NotebookSyncResponse::Error { .. }));
     }
 }

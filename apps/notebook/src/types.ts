@@ -4,6 +4,12 @@ export interface CodeCell {
   source: string;
   execution_count: number | null;
   outputs: JupyterOutput[];
+  /**
+   * Raw output strings from CRDT sync (Phase 6).
+   * May be JSON-encoded Jupyter outputs or 64-char hex blob hashes.
+   * Used by ResolvedOutputArea for lazy manifest resolution.
+   */
+  outputStrings?: string[];
 }
 
 export interface MarkdownCell {

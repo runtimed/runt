@@ -11,7 +11,6 @@ import {
 } from "react";
 import { CellContainer } from "@/components/cell/CellContainer";
 import { CompactExecutionButton } from "@/components/cell/CompactExecutionButton";
-import { OutputArea } from "@/components/cell/OutputArea";
 import {
   CodeMirrorEditor,
   type CodeMirrorEditorRef,
@@ -19,6 +18,7 @@ import {
 import type { SupportedLanguage } from "@/components/editor/languages";
 import { AnsiOutput } from "@/components/outputs/ansi-output";
 import { ErrorBoundary } from "@/lib/error-boundary";
+import { ResolvedOutputArea } from "~/components/ResolvedOutputArea";
 import type { CellPagePayload } from "../App";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
 import { useEditorRegistry } from "../hooks/useEditorRegistry";
@@ -273,14 +273,17 @@ export function CodeCell({
           </>
         }
         outputContent={
-          <OutputArea
+          <ResolvedOutputArea
+            outputStrings={cell.outputStrings ?? []}
             outputs={cell.outputs}
             preloadIframe
             rendererCode={rendererCode}
             rendererCss={rendererCss}
           />
         }
-        hideOutput={cell.outputs.length === 0}
+        hideOutput={
+          cell.outputs.length === 0 && (cell.outputStrings?.length ?? 0) === 0
+        }
       />
 
       {/* History Search Dialog (Ctrl+R) - lazy loaded */}

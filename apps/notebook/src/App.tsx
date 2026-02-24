@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IsolationTest } from "@/components/isolated";
 import { MediaProvider } from "@/components/outputs/media-provider";
 import {
@@ -68,6 +68,8 @@ function AppContent() {
     setExecutionCount,
     clearCellOutputs,
     formatCell,
+    markCellNotExecuting,
+    crdtRunningCells,
   } = useNotebook();
 
   const { theme, setTheme } = useSyncedTheme();
@@ -86,8 +88,18 @@ function AppContent() {
   const {
     queueCell,
     runAllCells,
-    queuedCellIds: executingCellIds,
+    queuedCellIds: localExecutingCellIds,
   } = useExecutionQueue();
+
+  // Combine local executing cells with CRDT running cells for cross-window sync.
+  // A cell is shown as executing if it's queued locally OR marked running in CRDT.
+  const executingCellIds = useMemo(() => {
+    const combined = new Set<string>(localExecutingCellIds);
+    for (const cellId of crdtRunningCells) {
+      combined.add(cellId);
+    }
+    return combined;
+  }, [localExecutingCellIds, crdtRunningCells]);
 
   const [dependencyHeaderOpen, setDependencyHeaderOpen] = useState(false);
   const [showIsolationTest, setShowIsolationTest] = useState(false);
@@ -242,11 +254,15 @@ function AppContent() {
     [setExecutionCount],
   );
 
-  // Execution completion is handled by the queue via queue:state events
-  // This callback is still called by useKernel but is now a no-op
-  const handleExecutionDone = useCallback((_cellId: string) => {
-    // Queue handles execution tracking via backend events
-  }, []);
+  // Mark cell as no longer executing when kernel goes idle.
+  // This clears the execution tracking that prevents daemon sync from
+  // overwriting local outputs during execution (race condition fix).
+  const handleExecutionDone = useCallback(
+    (cellId: string) => {
+      markCellNotExecuting(cellId);
+    },
+    [markCellNotExecuting],
+  );
 
   const handleCommMessage = useCallback(
     (msg: JupyterMessage) => {

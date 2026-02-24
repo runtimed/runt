@@ -36,6 +36,20 @@ pub enum Handshake {
     Blob,
 }
 
+/// Frame kind for notebook sync channel.
+///
+/// After the initial handshake, frames on the notebook sync channel include
+/// a 1-byte kind indicator to distinguish between Automerge sync messages
+/// and JSON requests (like append_output).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum FrameKind {
+    /// Automerge sync message (binary).
+    AutomergeSync = 0x00,
+    /// JSON request/response for operations like append_output.
+    JsonRequest = 0x01,
+}
+
 /// Send a length-prefixed frame.
 pub async fn send_frame<W: AsyncWrite + Unpin>(writer: &mut W, data: &[u8]) -> std::io::Result<()> {
     let len = (data.len() as u32).to_be_bytes();
@@ -105,6 +119,54 @@ pub async fn recv_json_frame<R: AsyncRead + Unpin, T: DeserializeOwned>(
         Some(data) => {
             let value = serde_json::from_slice(&data)?;
             Ok(Some(value))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Send a frame with a kind prefix byte.
+///
+/// The frame format is: `[4 bytes: length] [1 byte: kind] [payload bytes]`
+///
+/// Used on the notebook sync channel to distinguish Automerge sync messages
+/// from JSON requests.
+pub async fn send_typed_frame<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    kind: FrameKind,
+    data: &[u8],
+) -> std::io::Result<()> {
+    let mut frame = Vec::with_capacity(1 + data.len());
+    frame.push(kind as u8);
+    frame.extend_from_slice(data);
+    send_frame(writer, &frame).await
+}
+
+/// Receive a frame and extract the kind prefix byte.
+///
+/// The frame format is: `[4 bytes: length] [1 byte: kind] [payload bytes]`
+///
+/// Returns `None` on clean disconnect (EOF).
+/// Returns an error if the frame is empty or has an unknown kind.
+pub async fn recv_typed_frame<R: AsyncRead + Unpin>(
+    reader: &mut R,
+) -> std::io::Result<Option<(FrameKind, Vec<u8>)>> {
+    match recv_frame(reader).await? {
+        Some(frame) if frame.is_empty() => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "empty typed frame",
+        )),
+        Some(frame) => {
+            let kind = match frame[0] {
+                0x00 => FrameKind::AutomergeSync,
+                0x01 => FrameKind::JsonRequest,
+                k => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("unknown frame kind: 0x{:02x}", k),
+                    ))
+                }
+            };
+            Ok(Some((kind, frame[1..].to_vec())))
         }
         None => Ok(None),
     }
@@ -210,5 +272,103 @@ mod tests {
         assert_eq!(recv_frame(&mut cursor).await.unwrap().unwrap(), b"third");
         // EOF
         assert!(recv_frame(&mut cursor).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_typed_frame_roundtrip_automerge() {
+        let data = b"automerge sync message";
+
+        let mut buf = Vec::new();
+        send_typed_frame(&mut buf, FrameKind::AutomergeSync, data)
+            .await
+            .unwrap();
+
+        // Frame should be 4 (length) + 1 (kind) + data.len()
+        assert_eq!(buf.len(), 4 + 1 + data.len());
+
+        let mut cursor = std::io::Cursor::new(buf);
+        let (kind, received) = recv_typed_frame(&mut cursor).await.unwrap().unwrap();
+        assert_eq!(kind, FrameKind::AutomergeSync);
+        assert_eq!(received, data);
+    }
+
+    #[tokio::test]
+    async fn test_typed_frame_roundtrip_json() {
+        let data = b"{\"action\":\"append_output\"}";
+
+        let mut buf = Vec::new();
+        send_typed_frame(&mut buf, FrameKind::JsonRequest, data)
+            .await
+            .unwrap();
+
+        let mut cursor = std::io::Cursor::new(buf);
+        let (kind, received) = recv_typed_frame(&mut cursor).await.unwrap().unwrap();
+        assert_eq!(kind, FrameKind::JsonRequest);
+        assert_eq!(received, data);
+    }
+
+    #[tokio::test]
+    async fn test_typed_frame_eof() {
+        let buf: &[u8] = &[];
+        let mut cursor = std::io::Cursor::new(buf);
+        let result = recv_typed_frame(&mut cursor).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_typed_frame_empty_payload() {
+        // A frame with only the length prefix (no kind byte) should error
+        let len_bytes = (0u32).to_be_bytes();
+        let mut cursor = std::io::Cursor::new(len_bytes.to_vec());
+        let result = recv_typed_frame(&mut cursor).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_typed_frame_unknown_kind() {
+        // Create a frame with an invalid kind byte (0xFF)
+        let mut buf = Vec::new();
+        send_frame(&mut buf, &[0xFF, 0x01, 0x02, 0x03])
+            .await
+            .unwrap();
+
+        let mut cursor = std::io::Cursor::new(buf);
+        let result = recv_typed_frame(&mut cursor).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("unknown frame kind"));
+    }
+
+    #[tokio::test]
+    async fn test_mixed_typed_frames() {
+        let mut buf = Vec::new();
+        send_typed_frame(&mut buf, FrameKind::AutomergeSync, b"sync1")
+            .await
+            .unwrap();
+        send_typed_frame(&mut buf, FrameKind::JsonRequest, b"json1")
+            .await
+            .unwrap();
+        send_typed_frame(&mut buf, FrameKind::AutomergeSync, b"sync2")
+            .await
+            .unwrap();
+
+        let mut cursor = std::io::Cursor::new(buf);
+
+        let (kind, data) = recv_typed_frame(&mut cursor).await.unwrap().unwrap();
+        assert_eq!(kind, FrameKind::AutomergeSync);
+        assert_eq!(data, b"sync1");
+
+        let (kind, data) = recv_typed_frame(&mut cursor).await.unwrap().unwrap();
+        assert_eq!(kind, FrameKind::JsonRequest);
+        assert_eq!(data, b"json1");
+
+        let (kind, data) = recv_typed_frame(&mut cursor).await.unwrap().unwrap();
+        assert_eq!(kind, FrameKind::AutomergeSync);
+        assert_eq!(data, b"sync2");
+
+        // EOF
+        assert!(recv_typed_frame(&mut cursor).await.unwrap().is_none());
     }
 }

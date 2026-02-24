@@ -660,6 +660,7 @@ impl Daemon {
                     room,
                     self.notebook_rooms.clone(),
                     notebook_id,
+                    self.blob_store.clone(),
                 )
                 .await
             }

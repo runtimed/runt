@@ -15,6 +15,12 @@
 //! 5. When the last peer disconnects, the room is evicted from memory
 //!    (the doc is already persisted on every change)
 //! 6. Documents persist to `~/.cache/runt/notebook-docs/{hash}.automerge`
+//!
+//! ## Phase 6: Manifest-based outputs
+//!
+//! Clients can send JSON requests (via `FrameKind::JsonRequest`) to append
+//! outputs. The server creates output manifests with blob store access,
+//! stores the manifest hash in the CRDT, and returns the hash to the client.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -26,8 +32,11 @@ use log::{info, warn};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{broadcast, Mutex, RwLock};
 
-use crate::connection;
+use crate::blob_store::BlobStore;
+use crate::connection::{self, FrameKind};
 use crate::notebook_doc::{notebook_doc_filename, NotebookDoc};
+use crate::output_store::{create_manifest, store_manifest, DEFAULT_INLINE_THRESHOLD};
+use crate::protocol::{NotebookSyncRequest, NotebookSyncResponse};
 
 /// A notebook sync room — holds the canonical document and a broadcast
 /// channel for notifying peers of changes.
@@ -87,6 +96,9 @@ pub fn get_or_create_room(
 /// 2. Watch loop: wait for changes (from other peers or from this client),
 ///    exchange sync messages to propagate
 ///
+/// JSON requests (like `AppendOutput`) are handled inline. The server creates
+/// output manifests using the blob store and stores hashes in the CRDT.
+///
 /// When the connection closes (client disconnect or error), the peer count
 /// is decremented. If it reaches zero, the room is evicted from the rooms
 /// map (the doc has already been persisted on every change).
@@ -96,6 +108,7 @@ pub async fn handle_notebook_sync_connection<R, W>(
     room: Arc<NotebookRoom>,
     rooms: NotebookRooms,
     notebook_id: String,
+    blob_store: Arc<BlobStore>,
 ) -> anyhow::Result<()>
 where
     R: AsyncRead + Unpin,
@@ -110,7 +123,7 @@ where
         if peers == 1 { "" } else { "s" }
     );
 
-    let result = run_sync_loop(&mut reader, &mut writer, &room).await;
+    let result = run_sync_loop(&mut reader, &mut writer, &room, &blob_store).await;
 
     // Peer disconnected — decrement and possibly evict the room
     let remaining = room.active_peers.fetch_sub(1, Ordering::Relaxed) - 1;
@@ -139,10 +152,15 @@ where
 
 /// Inner sync protocol loop, factored out so the caller can handle
 /// peer-count bookkeeping around it.
+///
+/// Handles two types of frames:
+/// - `FrameKind::AutomergeSync`: Standard Automerge sync messages
+/// - `FrameKind::JsonRequest`: JSON requests like AppendOutput
 async fn run_sync_loop<R, W>(
     reader: &mut R,
     writer: &mut W,
     room: &NotebookRoom,
+    blob_store: &BlobStore,
 ) -> anyhow::Result<()>
 where
     R: AsyncRead + Unpin,
@@ -155,7 +173,7 @@ where
     {
         let mut doc = room.doc.write().await;
         if let Some(msg) = doc.generate_sync_message(&mut peer_state) {
-            connection::send_frame(writer, &msg.encode()).await?;
+            connection::send_typed_frame(writer, FrameKind::AutomergeSync, &msg.encode()).await?;
         }
     }
 
@@ -163,9 +181,9 @@ where
     loop {
         tokio::select! {
             // Incoming message from this client
-            result = connection::recv_frame(reader) => {
+            result = connection::recv_typed_frame(reader) => {
                 match result? {
-                    Some(data) => {
+                    Some((FrameKind::AutomergeSync, data)) => {
                         let message = sync::Message::decode(&data)
                             .map_err(|e| anyhow::anyhow!("decode error: {}", e))?;
 
@@ -181,7 +199,11 @@ where
 
                             // Send our response while still holding the lock
                             if let Some(reply) = doc.generate_sync_message(&mut peer_state) {
-                                connection::send_frame(writer, &reply.encode()).await?;
+                                connection::send_typed_frame(
+                                    writer,
+                                    FrameKind::AutomergeSync,
+                                    &reply.encode()
+                                ).await?;
                             }
 
                             bytes
@@ -189,6 +211,16 @@ where
 
                         // Persist outside the write lock
                         persist_notebook_bytes(&persist_bytes, &room.persist_path);
+                    }
+                    Some((FrameKind::JsonRequest, data)) => {
+                        // Handle JSON request (append_output, clear_outputs, etc.)
+                        let response = handle_json_request(&data, room, blob_store).await;
+                        let response_bytes = serde_json::to_vec(&response)?;
+                        connection::send_typed_frame(
+                            writer,
+                            FrameKind::JsonRequest,
+                            &response_bytes
+                        ).await?;
                     }
                     None => {
                         // Client disconnected
@@ -201,9 +233,151 @@ where
             _ = changed_rx.recv() => {
                 let mut doc = room.doc.write().await;
                 if let Some(msg) = doc.generate_sync_message(&mut peer_state) {
-                    connection::send_frame(writer, &msg.encode()).await?;
+                    connection::send_typed_frame(
+                        writer,
+                        FrameKind::AutomergeSync,
+                        &msg.encode()
+                    ).await?;
                 }
             }
+        }
+    }
+}
+
+/// Handle a JSON request from a client.
+///
+/// For `AppendOutput`: creates an output manifest, stores it in the blob store,
+/// and appends the manifest hash to the cell's outputs in the CRDT.
+async fn handle_json_request(
+    data: &[u8],
+    room: &NotebookRoom,
+    blob_store: &BlobStore,
+) -> NotebookSyncResponse {
+    // Parse the request
+    let request: NotebookSyncRequest = match serde_json::from_slice(data) {
+        Ok(r) => r,
+        Err(e) => {
+            return NotebookSyncResponse::Error {
+                error: format!("invalid JSON request: {}", e),
+            }
+        }
+    };
+
+    match request {
+        NotebookSyncRequest::AppendOutput {
+            cell_id,
+            output_json,
+        } => {
+            // Parse the output JSON
+            let output: serde_json::Value = match serde_json::from_str(&output_json) {
+                Ok(v) => v,
+                Err(e) => {
+                    return NotebookSyncResponse::Error {
+                        error: format!("invalid output JSON: {}", e),
+                    }
+                }
+            };
+
+            // Create manifest (handles inlining and blob storage)
+            let manifest_json =
+                match create_manifest(&output, blob_store, DEFAULT_INLINE_THRESHOLD).await {
+                    Ok(m) => m,
+                    Err(e) => {
+                        return NotebookSyncResponse::Error {
+                            error: format!("manifest creation failed: {}", e),
+                        }
+                    }
+                };
+
+            // Store manifest in blob store
+            let hash = match store_manifest(&manifest_json, blob_store).await {
+                Ok(h) => h,
+                Err(e) => {
+                    return NotebookSyncResponse::Error {
+                        error: format!("manifest storage failed: {}", e),
+                    }
+                }
+            };
+
+            // Append hash to cell outputs in CRDT
+            let persist_bytes = {
+                let mut doc = room.doc.write().await;
+                if let Err(e) = doc.append_output(&cell_id, &hash) {
+                    return NotebookSyncResponse::Error {
+                        error: format!("CRDT append failed: {}", e),
+                    };
+                }
+                let bytes = doc.save();
+                let _ = room.changed_tx.send(());
+                bytes
+            };
+
+            persist_notebook_bytes(&persist_bytes, &room.persist_path);
+            NotebookSyncResponse::OutputStored { hash }
+        }
+
+        NotebookSyncRequest::ClearOutputs { cell_id } => {
+            let persist_bytes = {
+                let mut doc = room.doc.write().await;
+                if let Err(e) = doc.clear_outputs(&cell_id) {
+                    return NotebookSyncResponse::Error {
+                        error: format!("clear outputs failed: {}", e),
+                    };
+                }
+                let bytes = doc.save();
+                let _ = room.changed_tx.send(());
+                bytes
+            };
+            persist_notebook_bytes(&persist_bytes, &room.persist_path);
+            NotebookSyncResponse::Ok {}
+        }
+
+        NotebookSyncRequest::SetExecutionCount { cell_id, count } => {
+            let persist_bytes = {
+                let mut doc = room.doc.write().await;
+                if let Err(e) = doc.set_execution_count(&cell_id, &count) {
+                    return NotebookSyncResponse::Error {
+                        error: format!("set execution count failed: {}", e),
+                    };
+                }
+                let bytes = doc.save();
+                let _ = room.changed_tx.send(());
+                bytes
+            };
+            persist_notebook_bytes(&persist_bytes, &room.persist_path);
+            NotebookSyncResponse::Ok {}
+        }
+
+        NotebookSyncRequest::MarkCellRunning { cell_id } => {
+            let persist_bytes = {
+                let mut doc = room.doc.write().await;
+                if let Err(e) = doc.mark_cell_running(&cell_id) {
+                    return NotebookSyncResponse::Error {
+                        error: format!("mark cell running failed: {}", e),
+                    };
+                }
+                let bytes = doc.save();
+                let _ = room.changed_tx.send(());
+                bytes
+            };
+            persist_notebook_bytes(&persist_bytes, &room.persist_path);
+            NotebookSyncResponse::Ok {}
+        }
+
+        NotebookSyncRequest::MarkCellNotRunning { cell_id } => {
+            let persist_bytes = {
+                let mut doc = room.doc.write().await;
+                if let Err(e) = doc.mark_cell_not_running(&cell_id) {
+                    return NotebookSyncResponse::Error {
+                        error: format!("mark cell not running failed: {}", e),
+                    };
+                }
+                let bytes = doc.save();
+                let _ = room.changed_tx.send(());
+                bytes
+            };
+            persist_notebook_bytes(&persist_bytes, &room.persist_path);
+            NotebookSyncResponse::Ok {}
         }
     }
 }

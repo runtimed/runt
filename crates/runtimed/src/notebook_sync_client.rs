@@ -21,7 +21,7 @@ use log::{info, warn};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::connection::{self, Handshake};
+use crate::connection::{self, FrameKind, Handshake};
 use crate::notebook_doc::{get_cells_from_doc, CellSnapshot};
 
 /// Error type for notebook sync client operations.
@@ -76,6 +76,14 @@ enum SyncCommand {
     SetExecutionCount {
         cell_id: String,
         count: String,
+        reply: oneshot::Sender<Result<(), NotebookSyncError>>,
+    },
+    MarkCellRunning {
+        cell_id: String,
+        reply: oneshot::Sender<Result<(), NotebookSyncError>>,
+    },
+    MarkCellNotRunning {
+        cell_id: String,
         reply: oneshot::Sender<Result<(), NotebookSyncError>>,
     },
     GetCells {
@@ -220,6 +228,36 @@ impl NotebookSyncHandle {
             .await
             .map_err(|_| NotebookSyncError::ChannelClosed)?
     }
+
+    /// Mark a cell as currently executing (cross-window sync).
+    pub async fn mark_cell_running(&self, cell_id: &str) -> Result<(), NotebookSyncError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(SyncCommand::MarkCellRunning {
+                cell_id: cell_id.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?;
+        reply_rx
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?
+    }
+
+    /// Mark a cell as no longer executing (cross-window sync).
+    pub async fn mark_cell_not_running(&self, cell_id: &str) -> Result<(), NotebookSyncError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(SyncCommand::MarkCellNotRunning {
+                cell_id: cell_id.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?;
+        reply_rx
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?
+    }
 }
 
 /// Receiver for incoming changes from other peers.
@@ -339,31 +377,37 @@ where
         let mut peer_state = sync::State::new();
 
         // The server sends first — receive and apply
-        match connection::recv_frame(&mut stream).await? {
-            Some(data) => {
+        match connection::recv_typed_frame(&mut stream).await? {
+            Some((FrameKind::AutomergeSync, data)) => {
                 let message = sync::Message::decode(&data)
                     .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
                 doc.sync()
                     .receive_sync_message(&mut peer_state, message)
                     .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
             }
+            Some((FrameKind::JsonRequest, _)) => {
+                return Err(NotebookSyncError::SyncError(
+                    "unexpected JSON frame during init".to_string(),
+                ))
+            }
             None => return Err(NotebookSyncError::Disconnected),
         }
 
         // Send our sync message back
         if let Some(msg) = doc.sync().generate_sync_message(&mut peer_state) {
-            connection::send_frame(&mut stream, &msg.encode()).await?;
+            connection::send_typed_frame(&mut stream, FrameKind::AutomergeSync, &msg.encode())
+                .await?;
         }
 
         // Continue sync rounds until no more messages (short timeout)
         loop {
             match tokio::time::timeout(
                 Duration::from_millis(100),
-                connection::recv_frame(&mut stream),
+                connection::recv_typed_frame(&mut stream),
             )
             .await
             {
-                Ok(Ok(Some(data))) => {
+                Ok(Ok(Some((FrameKind::AutomergeSync, data)))) => {
                     let message = sync::Message::decode(&data)
                         .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
                     doc.sync()
@@ -371,8 +415,18 @@ where
                         .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
 
                     if let Some(msg) = doc.sync().generate_sync_message(&mut peer_state) {
-                        connection::send_frame(&mut stream, &msg.encode()).await?;
+                        connection::send_typed_frame(
+                            &mut stream,
+                            FrameKind::AutomergeSync,
+                            &msg.encode(),
+                        )
+                        .await?;
                     }
+                }
+                Ok(Ok(Some((FrameKind::JsonRequest, _)))) => {
+                    return Err(NotebookSyncError::SyncError(
+                        "unexpected JSON frame during init".to_string(),
+                    ))
                 }
                 Ok(Ok(None)) => return Err(NotebookSyncError::Disconnected),
                 Ok(Err(e)) => return Err(NotebookSyncError::ConnectionFailed(e)),
@@ -623,6 +677,78 @@ where
         self.sync_to_daemon().await
     }
 
+    /// Mark a cell as currently executing (cross-window sync).
+    ///
+    /// Sends a JSON request to the daemon to update the running_cells list.
+    pub async fn mark_cell_running(&mut self, cell_id: &str) -> Result<(), NotebookSyncError> {
+        use crate::protocol::{NotebookSyncRequest, NotebookSyncResponse};
+
+        let request = NotebookSyncRequest::MarkCellRunning {
+            cell_id: cell_id.to_string(),
+        };
+        let request_bytes = serde_json::to_vec(&request)
+            .map_err(|e| NotebookSyncError::SyncError(format!("serialize: {}", e)))?;
+
+        connection::send_typed_frame(&mut self.stream, FrameKind::JsonRequest, &request_bytes)
+            .await?;
+
+        // Wait for response
+        match connection::recv_typed_frame(&mut self.stream).await? {
+            Some((FrameKind::JsonRequest, data)) => {
+                let response: NotebookSyncResponse = serde_json::from_slice(&data)
+                    .map_err(|e| NotebookSyncError::SyncError(format!("parse response: {}", e)))?;
+                match response {
+                    NotebookSyncResponse::Ok {} => Ok(()),
+                    NotebookSyncResponse::Error { error } => {
+                        Err(NotebookSyncError::SyncError(error))
+                    }
+                    _ => Err(NotebookSyncError::SyncError(
+                        "unexpected response".to_string(),
+                    )),
+                }
+            }
+            _ => Err(NotebookSyncError::SyncError(
+                "expected JSON response".to_string(),
+            )),
+        }
+    }
+
+    /// Mark a cell as no longer executing (cross-window sync).
+    ///
+    /// Sends a JSON request to the daemon to update the running_cells list.
+    pub async fn mark_cell_not_running(&mut self, cell_id: &str) -> Result<(), NotebookSyncError> {
+        use crate::protocol::{NotebookSyncRequest, NotebookSyncResponse};
+
+        let request = NotebookSyncRequest::MarkCellNotRunning {
+            cell_id: cell_id.to_string(),
+        };
+        let request_bytes = serde_json::to_vec(&request)
+            .map_err(|e| NotebookSyncError::SyncError(format!("serialize: {}", e)))?;
+
+        connection::send_typed_frame(&mut self.stream, FrameKind::JsonRequest, &request_bytes)
+            .await?;
+
+        // Wait for response
+        match connection::recv_typed_frame(&mut self.stream).await? {
+            Some((FrameKind::JsonRequest, data)) => {
+                let response: NotebookSyncResponse = serde_json::from_slice(&data)
+                    .map_err(|e| NotebookSyncError::SyncError(format!("parse response: {}", e)))?;
+                match response {
+                    NotebookSyncResponse::Ok {} => Ok(()),
+                    NotebookSyncResponse::Error { error } => {
+                        Err(NotebookSyncError::SyncError(error))
+                    }
+                    _ => Err(NotebookSyncError::SyncError(
+                        "unexpected response".to_string(),
+                    )),
+                }
+            }
+            _ => Err(NotebookSyncError::SyncError(
+                "expected JSON response".to_string(),
+            )),
+        }
+    }
+
     // ── Receiving changes ───────────────────────────────────────────
 
     /// Wait for the next change from the daemon.
@@ -630,8 +756,8 @@ where
     /// Blocks until a sync message arrives, applies it, and returns
     /// the updated cells.
     pub async fn recv_changes(&mut self) -> Result<Vec<CellSnapshot>, NotebookSyncError> {
-        match connection::recv_frame(&mut self.stream).await? {
-            Some(data) => {
+        match connection::recv_typed_frame(&mut self.stream).await? {
+            Some((FrameKind::AutomergeSync, data)) => {
                 let message = sync::Message::decode(&data)
                     .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
                 self.doc
@@ -641,10 +767,22 @@ where
 
                 // Send ack if needed
                 if let Some(msg) = self.doc.sync().generate_sync_message(&mut self.peer_state) {
-                    connection::send_frame(&mut self.stream, &msg.encode()).await?;
+                    connection::send_typed_frame(
+                        &mut self.stream,
+                        FrameKind::AutomergeSync,
+                        &msg.encode(),
+                    )
+                    .await?;
                 }
 
                 Ok(self.get_cells())
+            }
+            Some((FrameKind::JsonRequest, _)) => {
+                // Unexpected JSON frame during recv_changes
+                // This shouldn't happen in normal operation
+                Err(NotebookSyncError::SyncError(
+                    "unexpected JSON frame during recv_changes".to_string(),
+                ))
             }
             None => Err(NotebookSyncError::Disconnected),
         }
@@ -669,7 +807,7 @@ where
         };
 
         if let Some(data) = encoded {
-            connection::send_frame(&mut self.stream, &data).await?;
+            connection::send_typed_frame(&mut self.stream, FrameKind::AutomergeSync, &data).await?;
 
             // Wait for the daemon's ack. The server always sends a reply
             // after processing a client's sync message (to advance the
@@ -677,17 +815,21 @@ where
             // the server has nothing to send back (already converged).
             match tokio::time::timeout(
                 Duration::from_millis(500),
-                connection::recv_frame(&mut self.stream),
+                connection::recv_typed_frame(&mut self.stream),
             )
             .await
             {
-                Ok(Ok(Some(reply))) => {
+                Ok(Ok(Some((FrameKind::AutomergeSync, reply)))) => {
                     let message = sync::Message::decode(&reply)
                         .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
                     self.doc
                         .sync()
                         .receive_sync_message(&mut self.peer_state, message)
                         .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+                }
+                Ok(Ok(Some((FrameKind::JsonRequest, _)))) => {
+                    // Unexpected but not fatal - server shouldn't send JSON here
+                    warn!("[notebook-sync-client] Unexpected JSON frame during sync_to_daemon");
                 }
                 Ok(Ok(None)) => return Err(NotebookSyncError::Disconnected),
                 Ok(Err(e)) => return Err(NotebookSyncError::ConnectionFailed(e)),
@@ -854,6 +996,14 @@ async fn run_sync_task<S>(
                     }
                     SyncCommand::SetExecutionCount { cell_id, count, reply } => {
                         let result = client.set_execution_count(&cell_id, &count).await;
+                        let _ = reply.send(result);
+                    }
+                    SyncCommand::MarkCellRunning { cell_id, reply } => {
+                        let result = client.mark_cell_running(&cell_id).await;
+                        let _ = reply.send(result);
+                    }
+                    SyncCommand::MarkCellNotRunning { cell_id, reply } => {
+                        let result = client.mark_cell_not_running(&cell_id).await;
                         let _ = reply.send(result);
                     }
                     SyncCommand::GetCells { reply } => {

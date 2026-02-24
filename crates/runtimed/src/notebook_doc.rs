@@ -42,6 +42,9 @@ pub struct CellSnapshot {
     pub execution_count: String,
     /// JSON-encoded Jupyter output objects (will become manifest hashes in Phase 5)
     pub outputs: Vec<String>,
+    /// Whether this cell is currently executing (cross-window sync).
+    #[serde(default)]
+    pub running: bool,
 }
 
 /// Wrapper around an Automerge document storing a notebook.
@@ -166,11 +169,18 @@ impl NotebookDoc {
             Some(id) => id,
             None => return vec![],
         };
+
+        // Get the set of running cell IDs for cross-window execution state
+        let running_cells = self.get_running_cells();
+        let running_set: std::collections::HashSet<_> = running_cells.into_iter().collect();
+
         let len = self.doc.length(&cells_id);
         (0..len)
             .filter_map(|i| {
                 let cell_obj = self.cell_at_index(&cells_id, i)?;
-                self.read_cell(&cell_obj)
+                let mut cell = self.read_cell(&cell_obj)?;
+                cell.running = running_set.contains(&cell.id);
+                Some(cell)
             })
             .collect()
     }
@@ -365,6 +375,79 @@ impl NotebookDoc {
         Ok(())
     }
 
+    // ── Running cells (cross-window execution state sync) ───────────
+
+    /// Mark a cell as currently executing.
+    ///
+    /// Adds the cell_id to the `running_cells` list if not already present.
+    pub fn mark_cell_running(&mut self, cell_id: &str) -> Result<(), AutomergeError> {
+        let running_id = self.ensure_running_cells_list()?;
+
+        // Check if already in list
+        let len = self.doc.length(&running_id);
+        for i in 0..len {
+            if read_str(&self.doc, &running_id, i).as_deref() == Some(cell_id) {
+                return Ok(()); // Already running
+            }
+        }
+
+        // Add to list
+        self.doc.insert(&running_id, len, cell_id)?;
+        Ok(())
+    }
+
+    /// Mark a cell as no longer executing.
+    ///
+    /// Removes the cell_id from the `running_cells` list.
+    pub fn mark_cell_not_running(&mut self, cell_id: &str) -> Result<(), AutomergeError> {
+        let running_id = match self.running_cells_list_id() {
+            Some(id) => id,
+            None => return Ok(()), // No running cells list, nothing to do
+        };
+
+        // Find and remove
+        let len = self.doc.length(&running_id);
+        for i in 0..len {
+            if read_str(&self.doc, &running_id, i).as_deref() == Some(cell_id) {
+                self.doc.delete(&running_id, i)?;
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Get the list of currently running cell IDs.
+    pub fn get_running_cells(&self) -> Vec<String> {
+        let running_id = match self.running_cells_list_id() {
+            Some(id) => id,
+            None => return vec![],
+        };
+
+        let len = self.doc.length(&running_id);
+        (0..len)
+            .filter_map(|i| read_str(&self.doc, &running_id, i))
+            .collect()
+    }
+
+    fn running_cells_list_id(&self) -> Option<ObjId> {
+        self.doc
+            .get(automerge::ROOT, "running_cells")
+            .ok()
+            .flatten()
+            .and_then(|(value, id)| match value {
+                automerge::Value::Object(ObjType::List) => Some(id),
+                _ => None,
+            })
+    }
+
+    fn ensure_running_cells_list(&mut self) -> Result<ObjId, AutomergeError> {
+        if let Some(id) = self.running_cells_list_id() {
+            return Ok(id);
+        }
+        self.doc
+            .put_object(automerge::ROOT, "running_cells", ObjType::List)
+    }
+
     // ── Sync protocol ───────────────────────────────────────────────
 
     /// Generate a sync message to send to a peer.
@@ -479,6 +562,7 @@ impl NotebookDoc {
             source,
             execution_count,
             outputs,
+            running: false, // Will be set by get_cells() from running_cells list
         })
     }
 }
@@ -520,6 +604,18 @@ pub fn get_cells_from_doc(doc: &AutoCommit) -> Vec<CellSnapshot> {
         _ => return vec![],
     };
 
+    // Get the list of running cells for cross-window execution state
+    let running_cells: std::collections::HashSet<String> =
+        match doc.get(automerge::ROOT, "running_cells").ok().flatten() {
+            Some((automerge::Value::Object(ObjType::List), list_id)) => {
+                let len = doc.length(&list_id);
+                (0..len)
+                    .filter_map(|i| read_str(doc, &list_id, i))
+                    .collect()
+            }
+            _ => std::collections::HashSet::new(),
+        };
+
     let len = doc.length(&cells_id);
     (0..len)
         .filter_map(|i| {
@@ -553,12 +649,16 @@ pub fn get_cells_from_doc(doc: &AutoCommit) -> Vec<CellSnapshot> {
                 _ => vec![],
             };
 
+            // Check if this cell is in the running list
+            let running = running_cells.contains(&id);
+
             Some(CellSnapshot {
                 id,
                 cell_type,
                 source,
                 execution_count,
                 outputs,
+                running,
             })
         })
         .collect()

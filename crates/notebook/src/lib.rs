@@ -26,8 +26,10 @@ pub use runtime::Runtime;
 use execution_queue::{ExecutionQueue, ExecutionQueueState, QueueCommand, SharedExecutionQueue};
 use kernel::{CompletionResult, HistoryResult, NotebookKernel};
 use notebook_state::{FrontendCell, NotebookState};
+use runtimed::connection::Handshake;
 use runtimed::notebook_doc::CellSnapshot;
 use runtimed::notebook_sync_client::{NotebookSyncClient, NotebookSyncHandle};
+use runtimed::protocol::{BlobRequest, BlobResponse};
 
 use log::{error, info, warn};
 use nbformat::v4::{Cell, CellId, CellMetadata};
@@ -862,6 +864,80 @@ async fn sync_execution_count(
         }
     }
     Ok(())
+}
+
+/// Mark a cell as currently executing in the CRDT (cross-window sync).
+/// Called from frontend when execution starts.
+#[tauri::command]
+async fn sync_mark_cell_running(
+    cell_id: String,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<(), String> {
+    if let Some(handle) = notebook_sync.lock().await.as_ref() {
+        if let Err(e) = handle.mark_cell_running(&cell_id).await {
+            warn!("[notebook-sync] mark_cell_running failed: {}", e);
+        }
+    }
+    Ok(())
+}
+
+/// Mark a cell as no longer executing in the CRDT (cross-window sync).
+/// Called from frontend when execution completes.
+#[tauri::command]
+async fn sync_mark_cell_not_running(
+    cell_id: String,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<(), String> {
+    if let Some(handle) = notebook_sync.lock().await.as_ref() {
+        if let Err(e) = handle.mark_cell_not_running(&cell_id).await {
+            warn!("[notebook-sync] mark_cell_not_running failed: {}", e);
+        }
+    }
+    Ok(())
+}
+
+/// Get the blob HTTP server port from the daemon.
+/// Used by frontend to construct URLs for fetching output manifests and blobs.
+#[tauri::command]
+async fn get_blob_port() -> Result<u16, String> {
+    use runtimed::connection;
+
+    let socket_path = runtimed::default_socket_path();
+
+    #[cfg(unix)]
+    let mut stream = tokio::net::UnixStream::connect(&socket_path)
+        .await
+        .map_err(|e| format!("connect: {}", e))?;
+
+    #[cfg(windows)]
+    let mut stream = {
+        // Windows named pipe connection
+        tokio::net::windows::named_pipe::ClientOptions::new()
+            .open(&socket_path)
+            .map_err(|e| format!("connect: {}", e))?
+    };
+
+    // Send blob channel handshake
+    connection::send_json_frame(&mut stream, &Handshake::Blob)
+        .await
+        .map_err(|e| format!("handshake: {}", e))?;
+
+    // Send GetPort request
+    connection::send_json_frame(&mut stream, &BlobRequest::GetPort)
+        .await
+        .map_err(|e| format!("request: {}", e))?;
+
+    // Read response
+    let response: BlobResponse = connection::recv_json_frame(&mut stream)
+        .await
+        .map_err(|e| format!("response: {}", e))?
+        .ok_or("daemon disconnected")?;
+
+    match response {
+        BlobResponse::Port { port } => Ok(port),
+        BlobResponse::Error { error } => Err(error),
+        _ => Err("unexpected response".into()),
+    }
 }
 
 /// Queue a cell for execution. The queue processor will execute cells in FIFO order.
@@ -3611,6 +3687,9 @@ pub fn run(
             execute_cell,
             sync_append_output,
             sync_execution_count,
+            sync_mark_cell_running,
+            sync_mark_cell_not_running,
+            get_blob_port,
             queue_execute_cell,
             clear_execution_queue,
             get_execution_queue_state,
