@@ -49,8 +49,7 @@ RUN corepack enable && pnpm install --frozen-lockfile
 # Copy source code (this layer changes frequently — everything above is cached)
 COPY . .
 
-# Build frontend assets
-RUN pnpm run isolated-renderer:build
+# Build frontend assets (isolated-renderer is built inline via vite plugin)
 RUN pnpm --dir apps/notebook build
 
 # Generate icons (needed for bundling)

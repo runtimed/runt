@@ -18,7 +18,7 @@ fn main() {
             let notebook = args.get(1).map(String::as_str);
             cmd_run(notebook);
         }
-        "watch-isolated" => cmd_watch_isolated(),
+        // watch-isolated removed - HMR handled by vite-plugin-isolated-renderer
         "icons" => {
             let source = args.get(1).map(String::as_str);
             cmd_icons(source);
@@ -46,7 +46,6 @@ Development:
   build                 Quick debug build (no DMG)
   build-e2e             Debug build with built-in WebDriver server
   run [notebook.ipynb]  Build and run debug app
-  watch-isolated        Watch and rebuild isolated renderer
 
 Release:
   build-app             Build .app bundle with icons
@@ -63,35 +62,19 @@ Other:
 }
 
 fn cmd_dev() {
-    // Build isolated renderer first (separate IIFE bundle, not part of Vite dev server)
-    println!("Building isolated renderer...");
-    run_cmd("pnpm", &["run", "isolated-renderer:build"]);
-
+    // Isolated renderer is built inline via vite-plugin-isolated-renderer
     println!("Starting dev server with hot reload...");
     run_cmd("cargo", &["tauri", "dev", "--", "-p", "notebook"]);
 }
 
-fn cmd_watch_isolated() {
-    println!("Watching isolated renderer for changes...");
-    println!("Reload app or open new notebook to see changes.");
-    run_cmd(
-        "pnpm",
-        &[
-            "vite",
-            "build",
-            "--watch",
-            "--config",
-            "src/isolated-renderer/vite.config.ts",
-        ],
-    );
-}
+// cmd_watch_isolated removed - HMR handled by vite-plugin-isolated-renderer
 
 fn cmd_build() {
     // Build runtimed daemon binary for bundling
     build_runtimed_daemon();
 
-    // pnpm build runs: isolated-renderer + sidecar + notebook
-    println!("Building frontend (isolated-renderer, sidecar, notebook)...");
+    // pnpm build runs: sidecar + notebook (isolated-renderer is built inline)
+    println!("Building frontend (sidecar, notebook)...");
     run_cmd("pnpm", &["build"]);
 
     println!("Building debug binary (no bundle)...");
@@ -124,8 +107,8 @@ fn cmd_build_e2e() {
     // Build runtimed daemon binary for bundling
     build_runtimed_daemon();
 
-    // pnpm build runs: isolated-renderer + sidecar + notebook
-    println!("Building frontend (isolated-renderer, sidecar, notebook)...");
+    // pnpm build runs: sidecar + notebook (isolated-renderer is built inline)
+    println!("Building frontend (sidecar, notebook)...");
     run_cmd("pnpm", &["build"]);
 
     println!("Building debug binary with WebDriver server...");
