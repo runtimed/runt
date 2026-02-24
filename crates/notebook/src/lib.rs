@@ -3649,7 +3649,8 @@ pub fn run(
                 };
 
                 // Start settings sync subscription (reconnects automatically)
-                run_settings_sync(app_for_sync).await;
+                // Spawn as separate task since it runs forever
+                tokio::spawn(run_settings_sync(app_for_sync));
 
                 // Initialize notebook sync if daemon is available
                 if daemon_available {
