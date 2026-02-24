@@ -186,8 +186,40 @@ describe("Settings Panel", () => {
   });
 
   describe("Active button states", () => {
+    before(async () => {
+      // Ensure panel is open for button state tests (sibling describe blocks don't share before hooks)
+      const panelExists = await browser.execute(() => {
+        return !!document.querySelector('[data-testid="settings-panel"]');
+      });
+      if (!panelExists) {
+        const gearButton = await $('[aria-label="Settings"]');
+        await gearButton.click();
+        await browser.waitUntil(
+          async () => {
+            return await browser.execute(() => {
+              return !!document.querySelector('[data-testid="settings-panel"]');
+            });
+          },
+          { timeout: 3000, interval: 100 },
+        );
+      }
+    });
+
     it("should highlight the active theme button", async () => {
-      // After the previous test, "Light" should be the active theme.
+      // Click Light to ensure theme is set (don't rely on state from previous describe block)
+      await browser.execute(() => {
+        const group = document.querySelector(
+          '[data-testid="settings-theme-group"]',
+        );
+        const buttons = group?.querySelectorAll("button");
+        for (const btn of buttons || []) {
+          if (btn.textContent?.includes("Light")) {
+            btn.click();
+            break;
+          }
+        }
+      });
+
       // Wait for React re-render to propagate to button classes — on CI Linux
       // the HTML class update and button re-render can happen in separate frames.
       await browser.waitUntil(
