@@ -124,25 +124,24 @@ describe("Settings Panel", () => {
       });
       expect(darkButton).toBe(true);
 
-      // Wait for DOM class to update
+      // Wait for DOM class to update - check both conditions atomically to avoid race
       await browser.waitUntil(
         async () => {
           return await browser.execute(() => {
-            return document.documentElement.classList.contains("dark");
+            const html = document.documentElement;
+            return (
+              html.classList.contains("dark") &&
+              !html.classList.contains("light")
+            );
           });
         },
         {
           timeout: 2000,
           interval: 100,
-          timeoutMsg: "<html> did not get 'dark' class",
+          timeoutMsg:
+            "<html> did not get 'dark' class or still has 'light' class",
         },
       );
-
-      // Verify "light" is removed
-      const hasLight = await browser.execute(() => {
-        return document.documentElement.classList.contains("light");
-      });
-      expect(hasLight).toBe(false);
 
       console.log("Dark theme applied to <html>");
     });
@@ -163,23 +162,24 @@ describe("Settings Panel", () => {
       });
       expect(lightButton).toBe(true);
 
+      // Wait for DOM class to update - check both conditions atomically to avoid race
       await browser.waitUntil(
         async () => {
           return await browser.execute(() => {
-            return document.documentElement.classList.contains("light");
+            const html = document.documentElement;
+            return (
+              html.classList.contains("light") &&
+              !html.classList.contains("dark")
+            );
           });
         },
         {
           timeout: 2000,
           interval: 100,
-          timeoutMsg: "<html> did not get 'light' class",
+          timeoutMsg:
+            "<html> did not get 'light' class or still has 'dark' class",
         },
       );
-
-      const hasDark = await browser.execute(() => {
-        return document.documentElement.classList.contains("dark");
-      });
-      expect(hasDark).toBe(false);
 
       console.log("Light theme applied to <html>");
     });
