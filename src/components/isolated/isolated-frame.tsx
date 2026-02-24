@@ -188,40 +188,6 @@ const SANDBOX_ATTRS = [
  * />
  * ```
  */
-/**
- * Cache for the renderer bundle to avoid re-fetching.
- */
-let rendererBundleCache: string | null = null;
-let rendererCssCache: string | null = null;
-
-/**
- * Fetch the React renderer bundle and CSS.
- */
-async function fetchRendererBundle(): Promise<{ js: string; css: string }> {
-  if (rendererBundleCache && rendererCssCache) {
-    return { js: rendererBundleCache, css: rendererCssCache };
-  }
-
-  const [jsResponse, cssResponse] = await Promise.all([
-    fetch("/isolated/isolated-renderer.js"),
-    fetch("/isolated/isolated-renderer.css"),
-  ]);
-
-  if (!jsResponse.ok) {
-    throw new Error(`Failed to fetch renderer bundle: ${jsResponse.status}`);
-  }
-  if (!cssResponse.ok) {
-    throw new Error(`Failed to fetch renderer CSS: ${cssResponse.status}`);
-  }
-
-  const [js, css] = await Promise.all([jsResponse.text(), cssResponse.text()]);
-
-  rendererBundleCache = js;
-  rendererCssCache = css;
-
-  return { js, css };
-}
-
 export const IsolatedFrame = forwardRef<
   IsolatedFrameHandle,
   IsolatedFrameProps
@@ -319,6 +285,40 @@ export const IsolatedFrame = forwardRef<
     }
   }, [isReady]);
 
+  // Inject React renderer when iframe is ready AND bundle props are available
+  // This handles lazy-loaded bundles that arrive after iframe "ready" event
+  useEffect(() => {
+    if (
+      useReactRenderer &&
+      isIframeReady &&
+      !isReady &&
+      !bootstrappingRef.current &&
+      rendererCode &&
+      rendererCss &&
+      iframeRef.current?.contentWindow
+    ) {
+      bootstrappingRef.current = true;
+
+      // Inject CSS first
+      const cssCode = `
+        (function() {
+          var style = document.createElement('style');
+          style.textContent = ${JSON.stringify(rendererCss)};
+          document.head.appendChild(style);
+        })();
+      `;
+      iframeRef.current.contentWindow.postMessage(
+        { type: "eval", payload: { code: cssCode } },
+        "*",
+      );
+      // Then inject JS bundle
+      iframeRef.current.contentWindow.postMessage(
+        { type: "eval", payload: { code: rendererCode } },
+        "*",
+      );
+    }
+  }, [useReactRenderer, isIframeReady, isReady, rendererCode, rendererCss]);
+
   // Handle messages from iframe
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -341,51 +341,7 @@ export const IsolatedFrame = forwardRef<
           // Iframe bootstrap HTML is loaded
           setIsIframeReady(true);
 
-          if (useReactRenderer) {
-            // Bootstrap the React renderer if not already doing so
-            if (!bootstrappingRef.current) {
-              bootstrappingRef.current = true;
-
-              // Helper to inject the renderer bundle
-              const injectRenderer = (js: string, css: string) => {
-                // Inject CSS first
-                const cssCode = `
-                    (function() {
-                      var style = document.createElement('style');
-                      style.textContent = ${JSON.stringify(css)};
-                      document.head.appendChild(style);
-                    })();
-                  `;
-                iframeRef.current?.contentWindow?.postMessage(
-                  { type: "eval", payload: { code: cssCode } },
-                  "*",
-                );
-                // Then inject JS bundle
-                iframeRef.current?.contentWindow?.postMessage(
-                  { type: "eval", payload: { code: js } },
-                  "*",
-                );
-              };
-
-              // Use inline code if provided, otherwise fetch from URLs
-              if (rendererCode && rendererCss) {
-                injectRenderer(rendererCode, rendererCss);
-              } else {
-                fetchRendererBundle()
-                  .then(({ js, css }) => injectRenderer(js, css))
-                  .catch((err) => {
-                    console.error(
-                      "[IsolatedFrame] Failed to load renderer:",
-                      err,
-                    );
-                    onError?.({ message: err.message });
-                    // Fall back to inline renderer
-                    setIsReady(true);
-                    onReady?.();
-                  });
-              }
-            }
-          } else {
+          if (!useReactRenderer) {
             // Using inline renderer, mark as ready immediately
             setIsReady(true);
             onReady?.();
@@ -397,6 +353,7 @@ export const IsolatedFrame = forwardRef<
               );
             }
           }
+          // React renderer injection is handled by useEffect below
           break;
 
         case "renderer_ready":
@@ -454,8 +411,6 @@ export const IsolatedFrame = forwardRef<
     minHeight,
     maxHeight,
     useReactRenderer,
-    rendererCode,
-    rendererCss,
     onReady,
     onResize,
     onLinkClick,
