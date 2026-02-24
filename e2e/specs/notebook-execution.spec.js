@@ -147,6 +147,11 @@ describe("Notebook Execution Happy Path", () => {
   it("should clear previous outputs when re-executing", async () => {
     // This test catches the bug where outputs accumulate instead of being cleared
 
+    // Re-query the first code cell to avoid stale element references
+    // (sync updates can cause React re-renders which invalidate WebDriver elements)
+    codeCell = await $('[data-cell-type="code"]');
+    await codeCell.waitForExist({ timeout: 5000 });
+
     // First, check how many outputs we have after the first test
     const initialOutputCount = await countOutputs();
     console.log("Initial output count:", initialOutputCount);

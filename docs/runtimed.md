@@ -389,7 +389,14 @@ pub enum BlobResponse {
 
 ## Phase 5: Tauri <-> daemon notebook sync
 
+> **Implemented** (PR #238 for cell/source sync, PR #241 for output/execution_count sync)
+
 Wire the Tauri app and React frontend to use the daemon's automerge doc as the source of truth for notebook state. This gives us multi-window sync immediately. Outputs still flow as inline JSON strings through the CRDT for now — Phase 6 makes them efficient.
+
+**Known limitations** (tracked in issues):
+- Output clearing on re-execution uses frontend-driven approach; atomic clearing would be cleaner (#244)
+- Stream outputs sync individually without merging consecutive outputs (#243)
+- Widget-captured outputs are correctly excluded from sync (handled in App.tsx after widget routing)
 
 ### Current state (what changes)
 
@@ -479,6 +486,8 @@ The frontend doesn't know about automerge. It still calls Tauri commands and rec
 ---
 
 ## Phase 6: Output store
+
+> **Foundation implemented** (PR #237 adds ContentRef, manifest types, inlining threshold)
 
 Move outputs from inline JSON in the CRDT to the blob store. This solves the CRDT bloat problem from Phase 5 and introduces two-level serving.
 
@@ -823,6 +832,26 @@ For output manifests, the `output_type` field provides structural versioning. Ne
 
 ---
 
+## Known Limitations
+
+### Sync Race Condition During Execution
+
+When a cell executes, there's a brief window where daemon sync updates may conflict with local output updates. The flow is:
+
+1. Frontend clears outputs and marks cell as executing
+2. Kernel outputs arrive via iopub → frontend updates local state
+3. Frontend calls `sync_append_output` (async to daemon)
+4. Daemon may send `notebook:updated` before our append arrives
+5. Frontend must decide: trust daemon state or preserve local outputs?
+
+**Current workaround**: The frontend tracks "executing cells" in `executingCellsRef` and preserves local outputs for those cells during `notebook:updated`. When execution completes (`markExecutionComplete`), the cell trusts daemon state again.
+
+**Limitation**: This is imperfect. There's no correlation between the kernel's `msg_id` and outputs in the CRDT. If the daemon sends stale state, we might briefly show wrong outputs.
+
+**Proper fix (future)**: Store `parent_header.msg_id` in cell metadata to correlate execution requests with outputs. Only accept daemon outputs that match the expected `msg_id`.
+
+---
+
 ## Summary
 
 | Phase | What | Status |
@@ -831,7 +860,7 @@ For output manifests, the `output_type` field provides structural versioning. Ne
 | **2** | CRDT sync (settings + notebooks) | Implemented (PR #220, #223) |
 | **3** | Blob store (on-disk CAS + HTTP server) | Implemented (PR #220) |
 | **4** | Protocol consolidation (single socket) | Implemented (PR #220, #223) |
-| **5** | Tauri <-> daemon notebook sync (multi-window) | Next |
-| **6** | Output store (manifests, ContentRef, inlining) | After 5 |
-| **7** | ipynb round-tripping | After 6 |
+| **5** | Tauri <-> daemon notebook sync (multi-window) | Implemented (PR #238, #241) |
+| **6** | Output store (manifests, ContentRef, inlining) | Implemented (foundation PR #237, full pipeline wired) |
+| **7** | ipynb round-tripping | Next |
 | **8** | Daemon-owned kernels | After 7 |

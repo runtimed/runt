@@ -1,0 +1,275 @@
+import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { JupyterOutput } from "../types";
+
+/**
+ * ContentRef represents a reference to content that may be inlined or stored in the blob store.
+ * Matches the Rust ContentRef type in output_store.rs.
+ */
+type ContentRef = { inline: string } | { blob: string; size: number };
+
+/**
+ * Output manifest types matching the Rust OutputManifest enum.
+ */
+interface DisplayDataManifest {
+  output_type: "display_data";
+  data: Record<string, ContentRef>;
+  metadata?: Record<string, unknown>;
+}
+
+interface ExecuteResultManifest {
+  output_type: "execute_result";
+  data: Record<string, ContentRef>;
+  metadata?: Record<string, unknown>;
+  execution_count?: number | null;
+}
+
+interface StreamManifest {
+  output_type: "stream";
+  name: string;
+  text: ContentRef;
+}
+
+interface ErrorManifest {
+  output_type: "error";
+  ename: string;
+  evalue: string;
+  traceback: ContentRef;
+}
+
+type OutputManifest =
+  | DisplayDataManifest
+  | ExecuteResultManifest
+  | StreamManifest
+  | ErrorManifest;
+
+/**
+ * Check if a string looks like a blob hash (hex string).
+ */
+function looksLikeBlobHash(s: string): boolean {
+  // Blob hashes are 64-char hex strings (SHA-256)
+  return /^[a-f0-9]{64}$/.test(s);
+}
+
+/**
+ * Resolve a ContentRef to its string value.
+ */
+async function resolveContentRef(
+  ref: ContentRef,
+  blobPort: number,
+): Promise<string> {
+  if ("inline" in ref) {
+    return ref.inline;
+  }
+  // Fetch from blob store
+  const response = await fetch(`http://127.0.0.1:${blobPort}/blob/${ref.blob}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch blob ${ref.blob}: ${response.status}`);
+  }
+  return response.text();
+}
+
+/**
+ * Resolve a data bundle (MIME type -> ContentRef) to resolved strings.
+ */
+async function resolveDataBundle(
+  data: Record<string, ContentRef>,
+  blobPort: number,
+): Promise<Record<string, unknown>> {
+  const resolved: Record<string, unknown> = {};
+  for (const [mimeType, ref] of Object.entries(data)) {
+    const content = await resolveContentRef(ref, blobPort);
+    // For JSON MIME types, parse the content
+    if (mimeType.includes("json")) {
+      try {
+        resolved[mimeType] = JSON.parse(content);
+      } catch {
+        resolved[mimeType] = content;
+      }
+    } else {
+      resolved[mimeType] = content;
+    }
+  }
+  return resolved;
+}
+
+/**
+ * Resolve an output manifest to a full Jupyter output.
+ */
+async function resolveManifest(
+  manifest: OutputManifest,
+  blobPort: number,
+): Promise<JupyterOutput> {
+  switch (manifest.output_type) {
+    case "display_data": {
+      const data = await resolveDataBundle(manifest.data, blobPort);
+      return {
+        output_type: "display_data",
+        data,
+        metadata: manifest.metadata ?? {},
+      };
+    }
+    case "execute_result": {
+      const data = await resolveDataBundle(manifest.data, blobPort);
+      return {
+        output_type: "execute_result",
+        data,
+        metadata: manifest.metadata ?? {},
+        execution_count: manifest.execution_count ?? null,
+      };
+    }
+    case "stream": {
+      const text = await resolveContentRef(manifest.text, blobPort);
+      return {
+        output_type: "stream",
+        name: manifest.name as "stdout" | "stderr",
+        text,
+      };
+    }
+    case "error": {
+      const tracebackJson = await resolveContentRef(
+        manifest.traceback,
+        blobPort,
+      );
+      const traceback = JSON.parse(tracebackJson) as string[];
+      return {
+        output_type: "error",
+        ename: manifest.ename,
+        evalue: manifest.evalue,
+        traceback,
+      };
+    }
+  }
+}
+
+/**
+ * Fetch blob port with retry logic.
+ */
+async function fetchBlobPortWithRetry(
+  maxAttempts = 5,
+  delayMs = 500,
+): Promise<number | null> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const port = await invoke<number>("get_blob_port");
+      return port;
+    } catch (e) {
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      } else {
+        console.warn(
+          `[manifest-resolver] Failed to get blob port after ${maxAttempts} attempts:`,
+          e,
+        );
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Hook for resolving output manifests from the blob store.
+ *
+ * This hook fetches the blob server port from the daemon and provides
+ * a function to resolve manifest hashes to full Jupyter outputs.
+ * Results are cached to avoid redundant fetches.
+ */
+export function useManifestResolver() {
+  const [blobPort, setBlobPort] = useState<number | null>(null);
+  const cacheRef = useRef<Map<string, JupyterOutput>>(new Map());
+  const pendingRef = useRef<Map<string, Promise<JupyterOutput | null>>>(
+    new Map(),
+  );
+  const blobPortPromiseRef = useRef<Promise<number | null> | null>(null);
+
+  // Fetch blob port on mount with retry
+  useEffect(() => {
+    blobPortPromiseRef.current = fetchBlobPortWithRetry();
+    blobPortPromiseRef.current.then(setBlobPort);
+  }, []);
+
+  /**
+   * Resolve an output string to a JupyterOutput.
+   *
+   * The output string may be:
+   * - A blob hash (64-char hex) pointing to an output manifest
+   * - Raw Jupyter output JSON (for backward compatibility during transition)
+   *
+   * Returns null if resolution fails.
+   */
+  const resolveOutput = useCallback(
+    async (outputStr: string): Promise<JupyterOutput | null> => {
+      // Check cache
+      const cached = cacheRef.current.get(outputStr);
+      if (cached) {
+        return cached;
+      }
+
+      // Check for in-flight request
+      const pending = pendingRef.current.get(outputStr);
+      if (pending) {
+        return pending;
+      }
+
+      // If it doesn't look like a blob hash, try parsing as raw JSON
+      if (!looksLikeBlobHash(outputStr)) {
+        try {
+          const output = JSON.parse(outputStr) as JupyterOutput;
+          cacheRef.current.set(outputStr, output);
+          return output;
+        } catch {
+          console.warn(
+            "[manifest-resolver] Failed to parse output as JSON:",
+            outputStr.substring(0, 100),
+          );
+          return null;
+        }
+      }
+
+      // Need blob port for manifest resolution
+      if (blobPort === null) {
+        console.warn("[manifest-resolver] Blob port not available yet");
+        return null;
+      }
+
+      // Create the promise and store it to dedupe concurrent requests
+      const promise = (async () => {
+        try {
+          // Fetch manifest from blob store
+          const response = await fetch(
+            `http://127.0.0.1:${blobPort}/blob/${outputStr}`,
+          );
+          if (!response.ok) {
+            console.warn(
+              `[manifest-resolver] Failed to fetch manifest ${outputStr}: ${response.status}`,
+            );
+            return null;
+          }
+
+          const manifestJson = await response.text();
+          const manifest = JSON.parse(manifestJson) as OutputManifest;
+          const output = await resolveManifest(manifest, blobPort);
+
+          // Cache the result
+          cacheRef.current.set(outputStr, output);
+          return output;
+        } catch (e) {
+          console.warn(
+            `[manifest-resolver] Failed to resolve ${outputStr}:`,
+            e,
+          );
+          return null;
+        } finally {
+          // Remove from pending
+          pendingRef.current.delete(outputStr);
+        }
+      })();
+
+      pendingRef.current.set(outputStr, promise);
+      return promise;
+    },
+    [blobPort],
+  );
+
+  return { resolveOutput, blobPort };
+}
