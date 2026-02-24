@@ -4,7 +4,6 @@ import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { sql } from "@codemirror/lang-sql";
-import { indentUnit } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 
 /**
@@ -16,9 +15,7 @@ export type SupportedLanguage =
   | "sql"
   | "html"
   | "javascript"
-  | "jsx"
   | "typescript"
-  | "tsx"
   | "json"
   | "plain";
 
@@ -37,28 +34,13 @@ export function getLanguageExtension(language: SupportedLanguage): Extension {
       return html();
     case "javascript":
       return javascript();
-    case "jsx":
-      return javascript({ jsx: true });
     case "typescript":
       return javascript({ typescript: true });
-    case "tsx":
-      return javascript({ typescript: true, jsx: true });
     case "json":
       return json();
     default:
       return [];
   }
-}
-
-/**
- * Get the indentation extension for a given language
- * Python uses 4 spaces (PEP 8), web languages use 2 spaces
- */
-export function getIndentationExtension(language: SupportedLanguage): Extension {
-  if (language === "python") {
-    return indentUnit.of("    ");
-  }
-  return indentUnit.of("  ");
 }
 
 /**
@@ -70,9 +52,7 @@ export const languageDisplayNames: Record<SupportedLanguage, string> = {
   sql: "SQL",
   html: "HTML",
   javascript: "JavaScript",
-  jsx: "JavaScript (JSX)",
   typescript: "TypeScript",
-  tsx: "TypeScript (TSX)",
   json: "JSON",
   plain: "Plain Text",
 };
@@ -88,9 +68,9 @@ export const fileExtensionToLanguage: Record<string, SupportedLanguage> = {
   ".html": "html",
   ".htm": "html",
   ".js": "javascript",
-  ".jsx": "jsx",
+  ".jsx": "javascript",
   ".ts": "typescript",
-  ".tsx": "tsx",
+  ".tsx": "typescript",
   ".json": "json",
   ".txt": "plain",
 };

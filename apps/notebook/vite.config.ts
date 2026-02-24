@@ -3,11 +3,13 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { visualizer } from "rollup-plugin-visualizer";
 import path from "path";
+import { isolatedRendererPlugin } from "./vite-plugin-isolated-renderer";
 
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    isolatedRendererPlugin(),
     visualizer({
       filename: "dist/stats.html",
       open: false,

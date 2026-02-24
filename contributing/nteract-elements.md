@@ -87,12 +87,8 @@ Some utilities are shared across components:
 
 | Utility | Location | Purpose |
 |---------|----------|---------|
-| `isDarkMode()` | `@/components/themes` | Theme detection |
+| `isDarkMode()` | `@/components/outputs/dark-mode` | Theme detection (bundled from elements) |
 | `cn()` | `@/lib/utils` | Class name merging |
-
-If nteract/elements bundles utilities with components (like `dark-mode.ts` with `markdown-output`), we can either:
-- Use the bundled version (self-contained)
-- Use our shared module and adjust the import
 
 ## Troubleshooting
 

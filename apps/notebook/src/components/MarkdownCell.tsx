@@ -6,14 +6,12 @@ import {
   CodeMirrorEditor,
   type CodeMirrorEditorRef,
 } from "@/components/editor/codemirror-editor";
-import {
-  IsolatedFrame,
-  type IsolatedFrameHandle,
-} from "@/components/outputs/isolated";
-import { isDarkMode as detectDarkMode } from "@/components/themes";
+import { IsolatedFrame, type IsolatedFrameHandle } from "@/components/isolated";
+import { isDarkMode as detectDarkMode } from "@/components/outputs/dark-mode";
 import { cn } from "@/lib/utils";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
 import { useEditorRegistry } from "../hooks/useEditorRegistry";
+import { rendererCode, rendererCss } from "../renderer-bundle";
 import type { MarkdownCell as MarkdownCellType } from "../types";
 
 interface MarkdownCellProps {
@@ -252,6 +250,8 @@ export function MarkdownCell({
             ref={frameRef}
             darkMode={darkMode}
             useReactRenderer={true}
+            rendererCode={rendererCode}
+            rendererCss={rendererCss}
             minHeight={24}
             maxHeight={2000}
             onReady={handleFrameReady}

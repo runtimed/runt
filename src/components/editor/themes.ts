@@ -1,15 +1,20 @@
 import type { Extension } from "@codemirror/state";
 import { githubDark, githubLight } from "@uiw/codemirror-theme-github";
 
-// Re-export generic theme utilities from shared module
-export {
-  type ThemeMode,
-  prefersDarkMode,
+import {
   documentHasDarkMode,
   isDarkMode,
-} from "@/components/themes";
+  prefersDarkMode,
+  useDarkMode,
+} from "@/components/outputs/dark-mode";
 
-import { isDarkMode } from "@/components/themes";
+// Re-export theme detection utilities from canonical location
+export { documentHasDarkMode, isDarkMode, prefersDarkMode, useDarkMode };
+
+/**
+ * Theme mode options
+ */
+export type ThemeMode = "light" | "dark" | "system";
 
 /**
  * Light theme - GitHub Light
@@ -24,7 +29,7 @@ export const darkTheme: Extension = githubDark;
 /**
  * Get the appropriate theme extension based on mode
  */
-export function getTheme(mode: "light" | "dark" | "system"): Extension {
+export function getTheme(mode: ThemeMode): Extension {
   if (mode === "light") {
     return lightTheme;
   }

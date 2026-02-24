@@ -15,9 +15,8 @@ compile.
 ```mermaid
 graph TD
     subgraph "Frontend Assets (pnpm / Vite)"
-        IR["isolated-renderer<br/><i>src/isolated-renderer/</i>"]
         SUI["sidecar-ui<br/><i>apps/sidecar/</i>"]
-        NUI["notebook-ui<br/><i>apps/notebook/</i>"]
+        NUI["notebook-ui<br/><i>apps/notebook/</i><br/>(includes isolated-renderer)"]
     end
 
     subgraph "Rust Crates (Cargo workspace)"
@@ -33,10 +32,6 @@ graph TD
         APP["Notebook .app / .dmg<br/>.AppImage / .exe"]
         PY["Python wheel<br/><i>pip install runtimed</i>"]
     end
-
-    %% Frontend build order
-    IR -->|"built first<br/>(pnpm run isolated-renderer:build)"| SUI
-    IR -->|"built first"| NUI
 
     %% Frontend → Rust compile-time dependencies
     SUI -->|"build.rs panics<br/>if dist/ missing"| SC
@@ -59,7 +54,6 @@ graph TD
     SUI -->|"embedded via<br/>rust-embed in sidecar crate"| PY
 
     %% xtask orchestrates everything
-    XT -.->|"orchestrates"| IR
     XT -.->|"orchestrates"| SUI
     XT -.->|"orchestrates"| NUI
     XT -.->|"builds + copies<br/>runtimed & runt binaries"| APP
@@ -68,7 +62,7 @@ graph TD
     classDef rust fill:#fff3e0,stroke:#ef6c00
     classDef artifact fill:#e8f5e9,stroke:#2e7d32
 
-    class IR,SUI,NUI frontend
+    class SUI,NUI frontend
     class TJ,RD,SC,RC,NB,XT rust
     class APP,PY artifact
 ```
@@ -80,16 +74,15 @@ here is what happens under the hood:
 
 ```mermaid
 graph LR
-    A["1. pnpm install"] --> B["2. isolated-renderer:build"]
-    B --> C["3. pnpm --dir apps/sidecar build"]
-    B --> D["4. pnpm --dir apps/notebook build"]
-    C --> E["5. cargo build --release<br/>-p runtimed -p runt-cli"]
-    D --> E
-    E --> F["6. Copy binaries to<br/>crates/notebook/binaries/"]
-    F --> G["7. cargo tauri build"]
+    A["1. pnpm install"] --> B["2. pnpm --dir apps/sidecar build"]
+    A --> C["3. pnpm --dir apps/notebook build<br/>(includes isolated-renderer)"]
+    B --> D["4. cargo build --release<br/>-p runtimed -p runt-cli"]
+    C --> D
+    D --> E["5. Copy binaries to<br/>crates/notebook/binaries/"]
+    E --> F["6. cargo tauri build"]
 
     classDef step fill:#f3e5f5,stroke:#7b1fa2
-    class A,B,C,D,E,F,G step
+    class A,B,C,D,E,F step
 ```
 
 ## Rust Crate Dependency Graph
@@ -126,6 +119,6 @@ graph BT
 | `sidecar-ui` must build before `sidecar` crate | `build.rs` panics if `apps/sidecar/dist/index.html` is missing — the UI is embedded via `rust-embed` |
 | `notebook-ui` must build before Tauri bundle | `tauri.conf.json` `beforeBuildCommand` runs `pnpm --dir apps/notebook build` |
 | `runtimed` + `runt` binaries must exist in `crates/notebook/binaries/` | `tauri.conf.json` lists them in `bundle.externalBin` — Tauri bundles them into the .app/.dmg/.exe |
-| `isolated-renderer` builds first | Both `sidecar-ui` and `notebook-ui` depend on it (root `pnpm build` runs it first) |
+| `isolated-renderer` built inline | The notebook-ui Vite plugin builds the isolated renderer and embeds it as a virtual module — no separate build step needed |
 | `xtask` has no Cargo deps | It shells out to `cargo build`, `pnpm`, and `cargo tauri` to orchestrate the full build |
 | Python wheel uses maturin | `python/runtimed/pyproject.toml` points `maturin` at `crates/runt/Cargo.toml` with `bindings = "bin"` |

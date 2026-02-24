@@ -1,18 +1,41 @@
 "use client";
 
-import { type ReactNode, Suspense } from "react";
+import { lazy, type ReactNode, Suspense } from "react";
 import { useMediaContext } from "./media-provider";
 
-// Direct imports for non-isolated output components (render in-DOM)
-// These are lightweight and don't need lazy loading
-import { AnsiOutput } from "./ansi-output";
-import { ImageOutput } from "./image-output";
-import { JsonOutput } from "./json-output";
+// Lazy load built-in output components for better bundle splitting
+const AnsiOutput = lazy(() =>
+  import("./ansi-output").then((m) => ({ default: m.AnsiOutput })),
+);
+const MarkdownOutput = lazy(() =>
+  import("./markdown-output").then((m) => ({ default: m.MarkdownOutput })),
+);
+const HtmlOutput = lazy(() =>
+  import("./html-output").then((m) => ({ default: m.HtmlOutput })),
+);
+const ImageOutput = lazy(() =>
+  import("./image-output").then((m) => ({ default: m.ImageOutput })),
+);
+const SvgOutput = lazy(() =>
+  import("./svg-output").then((m) => ({ default: m.SvgOutput })),
+);
+const JsonOutput = lazy(() =>
+  import("./json-output").then((m) => ({ default: m.JsonOutput })),
+);
 
-// NOTE: MarkdownOutput, HtmlOutput, and SvgOutput are intentionally NOT imported here.
-// These MIME types are always rendered in the isolated iframe (see OutputArea.tsx),
-// so including them in the main bundle would be wasteful duplication.
-// They are bundled separately in src/isolated-renderer/index.tsx.
+/**
+ * Check if the current window is inside an iframe
+ */
+function isInIframe(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    // If we can't access window.top due to cross-origin restrictions,
+    // we're definitely in an iframe
+    return true;
+  }
+}
 
 /**
  * Default MIME type priority order for rendering.
@@ -111,11 +134,6 @@ interface MediaRouterProps {
    */
   renderers?: Record<string, CustomRenderer>;
   /**
-   * Whether to allow unsafe HTML rendering (requires iframe).
-   * Applies to text/html and text/markdown MIME types.
-   */
-  unsafe?: boolean;
-  /**
    * Custom fallback component when no supported MIME type is found.
    */
   fallback?: ReactNode;
@@ -213,7 +231,6 @@ export function MediaRouter({
   metadata = {},
   priority: priorityProp,
   renderers: renderersProp,
-  unsafe: _unsafeProp, // Kept for API compatibility; HTML/Markdown now in IsolatedFrame
   fallback,
   loading,
   className = "",
@@ -223,8 +240,6 @@ export function MediaRouter({
   // Props override context, context overrides built-in defaults
   const priority = priorityProp ?? ctx?.priority ?? DEFAULT_PRIORITY;
   const renderers = renderersProp ?? ctx?.renderers ?? {};
-  // Note: unsafe prop is kept for API compatibility with custom renderers,
-  // but built-in HTML/Markdown rendering is now handled by IsolatedFrame
 
   const mimeType = selectMimeType(data, priority);
 
@@ -256,30 +271,40 @@ export function MediaRouter({
   }
 
   const renderBuiltIn = () => {
-    // ISOLATED MIME TYPES - These are routed to IsolatedFrame by OutputArea.
-    // They should never reach MediaRouter in normal usage. If they do, it means
-    // OutputArea's isolation detection was bypassed (e.g., isolated={false}).
-    // Return null to avoid rendering potentially unsafe content in the main DOM.
-    if (
+    // ISOLATION GUARD: These MIME types require iframe isolation for security.
+    // If we're already in an iframe, we can render them safely.
+    // If we're in the main DOM, block rendering and warn in development.
+    const needsIsolation =
       mimeType === "text/markdown" ||
       mimeType === "text/html" ||
-      mimeType === "image/svg+xml"
-    ) {
+      mimeType === "image/svg+xml";
+
+    if (needsIsolation && !isInIframe()) {
       if (process.env.NODE_ENV === "development") {
         console.warn(
-          `MediaRouter received isolated MIME type "${mimeType}". ` +
-            `This should be rendered via IsolatedFrame instead.`
+          `MediaRouter: "${mimeType}" requires iframe isolation. ` +
+            `Use OutputArea with isolated="auto" or IsolatedFrame directly.`,
         );
       }
       return null;
     }
 
-    // Plain text (may contain ANSI)
-    if (mimeType === "text/plain") {
-      return <AnsiOutput className={className}>{String(content)}</AnsiOutput>;
+    // Text/Markdown (only renders when in iframe)
+    if (mimeType === "text/markdown") {
+      return <MarkdownOutput content={String(content)} className={className} />;
     }
 
-    // Images (PNG, JPEG, GIF, WebP - NOT SVG which is isolated)
+    // HTML (only renders when in iframe)
+    if (mimeType === "text/html") {
+      return <HtmlOutput content={String(content)} className={className} />;
+    }
+
+    // SVG (only renders when in iframe)
+    if (mimeType === "image/svg+xml") {
+      return <SvgOutput data={String(content)} className={className} />;
+    }
+
+    // Images (not SVG)
     if (mimeType.startsWith("image/")) {
       const imageType = mimeType as
         | "image/png"
@@ -297,7 +322,7 @@ export function MediaRouter({
       );
     }
 
-    // JSON and structured data
+    // JSON and structured data (but not custom +json types without a renderer)
     if (mimeType === "application/json") {
       return (
         <JsonOutput
@@ -306,6 +331,11 @@ export function MediaRouter({
           className={className}
         />
       );
+    }
+
+    // Plain text (may contain ANSI)
+    if (mimeType === "text/plain") {
+      return <AnsiOutput className={className}>{String(content)}</AnsiOutput>;
     }
 
     // Unknown +json types without custom renderer - show as JSON
@@ -323,8 +353,7 @@ export function MediaRouter({
     return <AnsiOutput className={className}>{String(content)}</AnsiOutput>;
   };
 
-  // Built-in components are eagerly loaded, no Suspense needed
-  return renderBuiltIn();
+  return <Suspense fallback={loadingComponent}>{renderBuiltIn()}</Suspense>;
 }
 
 /**

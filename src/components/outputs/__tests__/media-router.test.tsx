@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { getSelectedMimeType, DEFAULT_PRIORITY, MediaRouter } from "../media-router";
 import { MediaProvider } from "../media-provider";
 
@@ -276,17 +276,19 @@ describe("MediaRouter component", () => {
 
   });
 
-  describe("non-isolated rendering (all eager)", () => {
-    it("renders text/plain synchronously", () => {
+  describe("non-isolated rendering (lazy loaded)", () => {
+    it("renders text/plain after lazy load", async () => {
       render(
         <MediaProvider>
           <MediaRouter data={{ "text/plain": "Hello World" }} />
         </MediaProvider>
       );
-      expect(screen.getByText("Hello World")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText("Hello World")).toBeInTheDocument();
+      });
     });
 
-    it("renders images synchronously", () => {
+    it("renders images after lazy load", async () => {
       // 1x1 transparent PNG as base64
       const pngData =
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
@@ -296,20 +298,24 @@ describe("MediaRouter component", () => {
           <MediaRouter data={{ "image/png": pngData }} />
         </MediaProvider>
       );
-      expect(screen.getByRole("img")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByRole("img")).toBeInTheDocument();
+      });
     });
 
-    it("renders JSON synchronously", () => {
+    it("renders JSON after lazy load", async () => {
       render(
         <MediaProvider>
           <MediaRouter data={{ "application/json": { key: "value" } }} />
         </MediaProvider>
       );
       // JsonOutput renders in a pre element with the JSON structure
-      expect(screen.getByText(/"key"/)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/"key"/)).toBeInTheDocument();
+      });
     });
 
-    it("renders ANSI escape sequences correctly", () => {
+    it("renders ANSI escape sequences correctly", async () => {
       // Red text using ANSI escape code
       const ansiText = "\x1b[31mRed text\x1b[0m";
 
@@ -318,7 +324,9 @@ describe("MediaRouter component", () => {
           <MediaRouter data={{ "text/plain": ansiText }} />
         </MediaProvider>
       );
-      expect(screen.getByText("Red text")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText("Red text")).toBeInTheDocument();
+      });
     });
   });
 
@@ -341,14 +349,16 @@ describe("MediaRouter component", () => {
       expect(screen.getByText("No displayable output")).toBeInTheDocument();
     });
 
-    it("renders unknown types as plain text (fallback)", () => {
+    it("renders unknown types as plain text (fallback)", async () => {
       render(
         <MediaProvider>
           <MediaRouter data={{ "application/octet-stream": "binary data" }} />
         </MediaProvider>
       );
       // Falls back to AnsiOutput which renders as text
-      expect(screen.getByText("binary data")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText("binary data")).toBeInTheDocument();
+      });
     });
   });
 

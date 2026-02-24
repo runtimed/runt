@@ -164,8 +164,8 @@ function NotebookViewContent({
 
       if (cell.cell_type === "code") {
         const pagePayload = pagePayloads.get(cell.id) ?? null;
-        // Use TSX for Deno (TypeScript with JSX), Python otherwise
-        const language = runtime === "deno" ? "tsx" : "python";
+        // Use TypeScript for Deno, Python otherwise
+        const language = runtime === "deno" ? "typescript" : "python";
         return (
           <CodeCell
             key={cell.id}
