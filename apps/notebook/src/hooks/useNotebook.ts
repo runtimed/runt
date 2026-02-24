@@ -7,6 +7,58 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import type { JupyterOutput, NotebookCell } from "../types";
 
+/**
+ * Snapshot of a cell from the Automerge sync client.
+ * Matches the Rust CellSnapshot struct.
+ */
+interface CellSnapshot {
+  id: string;
+  cell_type: string;
+  source: string;
+  execution_count: string; // "5" or "null"
+  outputs: string[]; // JSON-encoded Jupyter outputs
+}
+
+/**
+ * Convert a CellSnapshot from Automerge to a NotebookCell for React state.
+ */
+function cellSnapshotToNotebookCell(snap: CellSnapshot): NotebookCell {
+  const executionCount =
+    snap.execution_count === "null"
+      ? null
+      : Number.parseInt(snap.execution_count, 10);
+
+  const outputs: JupyterOutput[] = snap.outputs
+    .map((outputJson) => {
+      try {
+        return JSON.parse(outputJson) as JupyterOutput;
+      } catch {
+        console.warn(
+          "[notebook-sync] Failed to parse output JSON:",
+          outputJson,
+        );
+        return null;
+      }
+    })
+    .filter((o): o is JupyterOutput => o !== null);
+
+  if (snap.cell_type === "code") {
+    return {
+      id: snap.id,
+      cell_type: "code",
+      source: snap.source,
+      execution_count: Number.isNaN(executionCount) ? null : executionCount,
+      outputs,
+    };
+  }
+  // markdown or raw
+  return {
+    id: snap.id,
+    cell_type: snap.cell_type as "markdown" | "raw",
+    source: snap.source,
+  };
+}
+
 export function useNotebook() {
   const [cells, setCells] = useState<NotebookCell[]>([]);
   const [focusedCellId, setFocusedCellId] = useState<string | null>(null);
@@ -68,6 +120,41 @@ export function useNotebook() {
             : c,
         ),
       );
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  // Listen for cross-window sync updates from the Automerge daemon
+  useEffect(() => {
+    const unlisten = listen<CellSnapshot[]>("notebook:updated", (event) => {
+      console.log(
+        "[notebook-sync] Received notebook:updated with",
+        event.payload.length,
+        "cells",
+      );
+      setCells((prev) => {
+        // Convert Automerge snapshots to NotebookCells
+        const newCells = event.payload.map(cellSnapshotToNotebookCell);
+
+        // Reconcile: preserve local outputs if they exist (dual-delivery pattern)
+        // The kernel:iopub events provide low-latency updates; Automerge provides sync
+        return newCells.map((newCell) => {
+          const localCell = prev.find((c) => c.id === newCell.id);
+          if (
+            localCell &&
+            localCell.cell_type === "code" &&
+            newCell.cell_type === "code"
+          ) {
+            // Keep local outputs if they're non-empty (fresher from iopub)
+            if (localCell.outputs.length > 0 && newCell.outputs.length === 0) {
+              return { ...newCell, outputs: localCell.outputs };
+            }
+          }
+          return newCell;
+        });
+      });
     });
     return () => {
       unlisten.then((fn) => fn());
