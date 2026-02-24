@@ -23,8 +23,8 @@ import type { CellPagePayload } from "../App";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
 import { useEditorRegistry } from "../hooks/useEditorRegistry";
 import type { MimeBundle } from "../hooks/useKernel";
+import { useRendererBundle } from "../hooks/useRendererBundle";
 import { kernelCompletionExtension } from "../lib/kernel-completion";
-import { rendererCode, rendererCss } from "../renderer-bundle";
 import type { CodeCell as CodeCellType } from "../types";
 
 // Lazy load HistorySearchDialog - it pulls in react-syntax-highlighter (~800KB)
@@ -115,6 +115,7 @@ export function CodeCell({
   const editorRef = useRef<CodeMirrorEditorRef>(null);
   const { registerEditor, unregisterEditor } = useEditorRegistry();
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const rendererBundle = useRendererBundle();
 
   // Register editor with the registry for cross-cell navigation
   useEffect(() => {
@@ -276,8 +277,8 @@ export function CodeCell({
           <OutputArea
             outputs={cell.outputs}
             preloadIframe
-            rendererCode={rendererCode}
-            rendererCss={rendererCss}
+            rendererCode={rendererBundle?.rendererCode}
+            rendererCss={rendererBundle?.rendererCss}
           />
         }
         hideOutput={cell.outputs.length === 0}

@@ -11,7 +11,7 @@ import { isDarkMode as detectDarkMode } from "@/lib/dark-mode";
 import { cn } from "@/lib/utils";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
 import { useEditorRegistry } from "../hooks/useEditorRegistry";
-import { rendererCode, rendererCss } from "../renderer-bundle";
+import { useRendererBundle } from "../hooks/useRendererBundle";
 import type { MarkdownCell as MarkdownCellType } from "../types";
 
 interface MarkdownCellProps {
@@ -42,6 +42,7 @@ export function MarkdownCell({
   const frameRef = useRef<IsolatedFrameHandle>(null);
   const viewRef = useRef<HTMLDivElement>(null);
   const { registerEditor, unregisterEditor } = useEditorRegistry();
+  const rendererBundle = useRendererBundle();
 
   // Track dark mode state for iframe theme sync
   const [darkMode, setDarkMode] = useState(() => detectDarkMode());
@@ -250,8 +251,8 @@ export function MarkdownCell({
             ref={frameRef}
             darkMode={darkMode}
             useReactRenderer={true}
-            rendererCode={rendererCode}
-            rendererCss={rendererCss}
+            rendererCode={rendererBundle?.rendererCode}
+            rendererCss={rendererBundle?.rendererCss}
             minHeight={24}
             maxHeight={2000}
             onReady={handleFrameReady}
