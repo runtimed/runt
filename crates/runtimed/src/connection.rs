@@ -41,9 +41,35 @@ pub enum Handshake {
     /// Automerge settings sync.
     SettingsSync,
     /// Automerge notebook sync (per-notebook room).
-    NotebookSync { notebook_id: String },
+    ///
+    /// The optional `protocol` field enables version negotiation:
+    /// - Absent or "v1": Raw Automerge frames (legacy protocol)
+    /// - "v2": Typed frames with first-byte type indicator
+    ///
+    /// After handshake, new servers send a `ProtocolCapabilities` response
+    /// before starting sync. Old servers skip this and send raw Automerge frames.
+    NotebookSync {
+        notebook_id: String,
+        /// Protocol version requested by client. Default is "v1" (raw frames).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        protocol: Option<String>,
+    },
     /// Blob store: write blobs, query port.
     Blob,
+}
+
+/// Protocol version constants.
+pub const PROTOCOL_V1: &str = "v1";
+pub const PROTOCOL_V2: &str = "v2";
+
+/// Server response indicating negotiated protocol capabilities.
+///
+/// Sent by new servers immediately after handshake, before starting sync.
+/// Old servers don't send this (they start sync immediately).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProtocolCapabilities {
+    /// Negotiated protocol version: "v1" or "v2"
+    pub protocol: String,
 }
 
 /// Frame types for notebook sync connections.
@@ -283,12 +309,24 @@ mod tests {
         let json = serde_json::to_string(&Handshake::SettingsSync).unwrap();
         assert_eq!(json, r#"{"channel":"settings_sync"}"#);
 
-        // NotebookSync
+        // NotebookSync (without protocol - should omit the field)
         let json = serde_json::to_string(&Handshake::NotebookSync {
             notebook_id: "abc".into(),
+            protocol: None,
         })
         .unwrap();
         assert_eq!(json, r#"{"channel":"notebook_sync","notebook_id":"abc"}"#);
+
+        // NotebookSync with v2 protocol
+        let json = serde_json::to_string(&Handshake::NotebookSync {
+            notebook_id: "abc".into(),
+            protocol: Some("v2".into()),
+        })
+        .unwrap();
+        assert_eq!(
+            json,
+            r#"{"channel":"notebook_sync","notebook_id":"abc","protocol":"v2"}"#
+        );
 
         // Blob
         let json = serde_json::to_string(&Handshake::Blob).unwrap();

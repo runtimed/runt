@@ -129,12 +129,17 @@ pub fn get_or_create_room(
 /// When the connection closes (client disconnect or error), the peer count
 /// is decremented. If it reaches zero, the room is evicted from the rooms
 /// map (the doc has already been persisted on every change).
+///
+/// The `use_typed_frames` parameter determines the protocol version:
+/// - `false` (v1): Raw Automerge frames (legacy, for old clients)
+/// - `true` (v2): Typed frames with first-byte type indicator
 pub async fn handle_notebook_sync_connection<R, W>(
     mut reader: R,
     mut writer: W,
     room: Arc<NotebookRoom>,
     rooms: NotebookRooms,
     notebook_id: String,
+    use_typed_frames: bool,
 ) -> anyhow::Result<()>
 where
     R: AsyncRead + Unpin,
@@ -143,13 +148,26 @@ where
     room.active_peers.fetch_add(1, Ordering::Relaxed);
     let peers = room.active_peers.load(Ordering::Relaxed);
     info!(
-        "[notebook-sync] Client connected to room {} ({} peer{})",
+        "[notebook-sync] Client connected to room {} ({} peer{}, protocol {})",
         notebook_id,
         peers,
-        if peers == 1 { "" } else { "s" }
+        if peers == 1 { "" } else { "s" },
+        if use_typed_frames { "v2" } else { "v1" }
     );
 
-    let result = run_sync_loop(&mut reader, &mut writer, &room).await;
+    // For v2 protocol, send capabilities response first
+    if use_typed_frames {
+        let caps = connection::ProtocolCapabilities {
+            protocol: connection::PROTOCOL_V2.to_string(),
+        };
+        connection::send_json_frame(&mut writer, &caps).await?;
+    }
+
+    let result = if use_typed_frames {
+        run_sync_loop_v2(&mut reader, &mut writer, &room).await
+    } else {
+        run_sync_loop_v1(&mut reader, &mut writer, &room).await
+    };
 
     // Peer disconnected — decrement and possibly evict the room
     let remaining = room.active_peers.fetch_sub(1, Ordering::Relaxed) - 1;
@@ -176,12 +194,84 @@ where
     result
 }
 
-/// Inner sync protocol loop, factored out so the caller can handle
-/// peer-count bookkeeping around it.
+/// Protocol v1: Raw Automerge frames (legacy, for backwards compatibility).
 ///
-/// Handles both Automerge sync messages and NotebookRequest messages
-/// using the typed frame protocol.
-async fn run_sync_loop<R, W>(
+/// This is the original sync protocol used by older clients. It only supports
+/// Automerge document sync, not kernel execution through the daemon.
+async fn run_sync_loop_v1<R, W>(
+    reader: &mut R,
+    writer: &mut W,
+    room: &NotebookRoom,
+) -> anyhow::Result<()>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let mut peer_state = sync::State::new();
+    let mut changed_rx = room.changed_tx.subscribe();
+
+    // Phase 1: Initial sync — server sends first (raw frame)
+    {
+        let mut doc = room.doc.write().await;
+        if let Some(msg) = doc.generate_sync_message(&mut peer_state) {
+            connection::send_frame(writer, &msg.encode()).await?;
+        }
+    }
+
+    // Phase 2: Exchange messages until sync is complete, then watch for changes
+    loop {
+        tokio::select! {
+            // Incoming message from this client (raw frame)
+            result = connection::recv_frame(reader) => {
+                match result? {
+                    Some(data) => {
+                        let message = sync::Message::decode(&data)
+                            .map_err(|e| anyhow::anyhow!("decode error: {}", e))?;
+
+                        // Serialize bytes inside the lock, then persist outside it
+                        let persist_bytes = {
+                            let mut doc = room.doc.write().await;
+                            doc.receive_sync_message(&mut peer_state, message)?;
+
+                            let bytes = doc.save();
+
+                            // Notify other peers in this room
+                            let _ = room.changed_tx.send(());
+
+                            // Send our response while still holding the lock (raw frame)
+                            if let Some(reply) = doc.generate_sync_message(&mut peer_state) {
+                                connection::send_frame(writer, &reply.encode()).await?;
+                            }
+
+                            bytes
+                        };
+
+                        // Persist outside the write lock
+                        persist_notebook_bytes(&persist_bytes, &room.persist_path);
+                    }
+                    None => {
+                        // Client disconnected
+                        return Ok(());
+                    }
+                }
+            }
+
+            // Another peer changed the document — push update to this client
+            _ = changed_rx.recv() => {
+                let mut doc = room.doc.write().await;
+                if let Some(msg) = doc.generate_sync_message(&mut peer_state) {
+                    connection::send_frame(writer, &msg.encode()).await?;
+                }
+            }
+        }
+    }
+}
+
+/// Protocol v2: Typed frames with first-byte type indicator.
+///
+/// Handles both Automerge sync messages and NotebookRequest messages.
+/// This protocol supports daemon-owned kernel execution (Phase 8).
+async fn run_sync_loop_v2<R, W>(
     reader: &mut R,
     writer: &mut W,
     room: &NotebookRoom,
@@ -194,11 +284,10 @@ where
     let mut changed_rx = room.changed_tx.subscribe();
     let mut kernel_broadcast_rx = room.kernel_broadcast_tx.subscribe();
 
-    // Phase 1: Initial sync — server sends first
+    // Phase 1: Initial sync — server sends first (typed frame)
     {
         let mut doc = room.doc.write().await;
         if let Some(msg) = doc.generate_sync_message(&mut peer_state) {
-            // Send as typed frame (AutomergeSync)
             connection::send_typed_frame(writer, NotebookFrameType::AutomergeSync, &msg.encode())
                 .await?;
         }

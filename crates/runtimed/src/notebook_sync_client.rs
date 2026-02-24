@@ -21,7 +21,7 @@ use log::{info, warn};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::connection::{self, Handshake, NotebookFrameType};
+use crate::connection::{self, Handshake, NotebookFrameType, ProtocolCapabilities, PROTOCOL_V2};
 use crate::notebook_doc::{get_cells_from_doc, CellSnapshot};
 
 /// Error type for notebook sync client operations.
@@ -248,6 +248,9 @@ pub struct NotebookSyncClient<S> {
     peer_state: sync::State,
     stream: S,
     notebook_id: String,
+    /// Whether to use typed frames (v2 protocol) or raw frames (v1).
+    /// Determined during connection based on server capabilities.
+    use_typed_frames: bool,
 }
 
 #[cfg(unix)]
@@ -324,12 +327,18 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     /// Initialize the client by sending the handshake and performing initial sync.
+    ///
+    /// The client requests the v2 protocol (typed frames) in the handshake.
+    /// If the server supports v2, it responds with a ProtocolCapabilities frame.
+    /// Old servers (v1) ignore the protocol field and send raw Automerge frames.
+    /// The client detects which protocol to use based on the first response.
     async fn init(mut stream: S, notebook_id: String) -> Result<Self, NotebookSyncError> {
-        // Send the channel handshake
+        // Send the channel handshake, requesting v2 protocol
         connection::send_json_frame(
             &mut stream,
             &Handshake::NotebookSync {
                 notebook_id: notebook_id.clone(),
+                protocol: Some(PROTOCOL_V2.to_string()),
             },
         )
         .await
@@ -338,60 +347,107 @@ where
         let mut doc = AutoCommit::new();
         let mut peer_state = sync::State::new();
 
-        // The server sends first — receive and apply (using typed frames)
-        match connection::recv_typed_frame(&mut stream).await? {
-            Some(frame) => {
-                if frame.frame_type != NotebookFrameType::AutomergeSync {
-                    return Err(NotebookSyncError::SyncError(format!(
-                        "expected AutomergeSync frame, got {:?}",
-                        frame.frame_type
-                    )));
-                }
-                let message = sync::Message::decode(&frame.payload)
+        // Read first frame to detect protocol version
+        // v2 servers send ProtocolCapabilities JSON first
+        // v1 servers send raw Automerge sync message first
+        let first_frame = connection::recv_frame(&mut stream)
+            .await?
+            .ok_or(NotebookSyncError::Disconnected)?;
+
+        // Try to parse as ProtocolCapabilities (v2 server)
+        let use_typed_frames = match serde_json::from_slice::<ProtocolCapabilities>(&first_frame) {
+            Ok(caps) if caps.protocol == PROTOCOL_V2 => {
+                info!(
+                    "[notebook-sync-client] Server supports v2 protocol for {}",
+                    notebook_id
+                );
+                true
+            }
+            _ => {
+                // Not valid capabilities JSON — this is a raw Automerge frame from v1 server
+                // Process it as the initial sync message
+                info!(
+                    "[notebook-sync-client] Server uses v1 protocol for {}",
+                    notebook_id
+                );
+                let message = sync::Message::decode(&first_frame)
                     .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
                 doc.sync()
                     .receive_sync_message(&mut peer_state, message)
                     .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+                false
             }
-            None => return Err(NotebookSyncError::Disconnected),
-        }
+        };
 
-        // Send our sync message back (as typed frame)
-        if let Some(msg) = doc.sync().generate_sync_message(&mut peer_state) {
-            connection::send_typed_frame(
-                &mut stream,
-                NotebookFrameType::AutomergeSync,
-                &msg.encode(),
-            )
-            .await?;
-        }
-
-        // Continue sync rounds until no more messages (short timeout)
-        loop {
-            match tokio::time::timeout(
-                Duration::from_millis(100),
-                connection::recv_typed_frame(&mut stream),
-            )
-            .await
-            {
-                Ok(Ok(Some(frame))) => {
-                    // Only process AutomergeSync frames during initial sync
+        // For v2 protocol, read the first typed frame (Automerge sync)
+        if use_typed_frames {
+            match connection::recv_typed_frame(&mut stream).await? {
+                Some(frame) => {
                     if frame.frame_type != NotebookFrameType::AutomergeSync {
-                        continue; // Ignore non-sync frames during initial sync
+                        return Err(NotebookSyncError::SyncError(format!(
+                            "expected AutomergeSync frame, got {:?}",
+                            frame.frame_type
+                        )));
                     }
                     let message = sync::Message::decode(&frame.payload)
                         .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
                     doc.sync()
                         .receive_sync_message(&mut peer_state, message)
                         .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+                }
+                None => return Err(NotebookSyncError::Disconnected),
+            }
+        }
+
+        // Send our sync message back using the negotiated protocol
+        if let Some(msg) = doc.sync().generate_sync_message(&mut peer_state) {
+            if use_typed_frames {
+                connection::send_typed_frame(
+                    &mut stream,
+                    NotebookFrameType::AutomergeSync,
+                    &msg.encode(),
+                )
+                .await?;
+            } else {
+                connection::send_frame(&mut stream, &msg.encode()).await?;
+            }
+        }
+
+        // Continue sync rounds until no more messages (short timeout)
+        loop {
+            let recv_result = if use_typed_frames {
+                tokio::time::timeout(Duration::from_millis(100), async {
+                    let frame = connection::recv_typed_frame(&mut stream).await?;
+                    Ok::<_, std::io::Error>(frame.map(|f| f.payload))
+                })
+                .await
+            } else {
+                tokio::time::timeout(
+                    Duration::from_millis(100),
+                    connection::recv_frame(&mut stream),
+                )
+                .await
+            };
+
+            match recv_result {
+                Ok(Ok(Some(data))) => {
+                    let message = sync::Message::decode(&data)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                    doc.sync()
+                        .receive_sync_message(&mut peer_state, message)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
 
                     if let Some(msg) = doc.sync().generate_sync_message(&mut peer_state) {
-                        connection::send_typed_frame(
-                            &mut stream,
-                            NotebookFrameType::AutomergeSync,
-                            &msg.encode(),
-                        )
-                        .await?;
+                        if use_typed_frames {
+                            connection::send_typed_frame(
+                                &mut stream,
+                                NotebookFrameType::AutomergeSync,
+                                &msg.encode(),
+                            )
+                            .await?;
+                        } else {
+                            connection::send_frame(&mut stream, &msg.encode()).await?;
+                        }
                     }
                 }
                 Ok(Ok(None)) => return Err(NotebookSyncError::Disconnected),
@@ -402,9 +458,10 @@ where
 
         let cells = get_cells_from_doc(&doc);
         info!(
-            "[notebook-sync-client] Initial sync complete for {}: {} cells",
+            "[notebook-sync-client] Initial sync complete for {}: {} cells (protocol {})",
             notebook_id,
-            cells.len()
+            cells.len(),
+            if use_typed_frames { "v2" } else { "v1" }
         );
 
         Ok(Self {
@@ -412,6 +469,7 @@ where
             peer_state,
             stream,
             notebook_id,
+            use_typed_frames,
         })
     }
 
@@ -648,8 +706,39 @@ where
     /// Wait for the next change from the daemon.
     ///
     /// Blocks until a sync message arrives, applies it, and returns
-    /// the updated cells. This also handles Broadcast frames (kernel events).
+    /// the updated cells. For v2 protocol, this also handles Broadcast frames.
     pub async fn recv_changes(&mut self) -> Result<Vec<CellSnapshot>, NotebookSyncError> {
+        if self.use_typed_frames {
+            self.recv_changes_v2().await
+        } else {
+            self.recv_changes_v1().await
+        }
+    }
+
+    /// v1 protocol: receive raw Automerge frame
+    async fn recv_changes_v1(&mut self) -> Result<Vec<CellSnapshot>, NotebookSyncError> {
+        match connection::recv_frame(&mut self.stream).await? {
+            Some(data) => {
+                let message = sync::Message::decode(&data)
+                    .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                self.doc
+                    .sync()
+                    .receive_sync_message(&mut self.peer_state, message)
+                    .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+
+                // Send ack if needed
+                if let Some(msg) = self.doc.sync().generate_sync_message(&mut self.peer_state) {
+                    connection::send_frame(&mut self.stream, &msg.encode()).await?;
+                }
+
+                Ok(self.get_cells())
+            }
+            None => Err(NotebookSyncError::Disconnected),
+        }
+    }
+
+    /// v2 protocol: receive typed frame
+    async fn recv_changes_v2(&mut self) -> Result<Vec<CellSnapshot>, NotebookSyncError> {
         match connection::recv_typed_frame(&mut self.stream).await? {
             Some(frame) => match frame.frame_type {
                 NotebookFrameType::AutomergeSync => {
@@ -701,8 +790,47 @@ where
     /// daemon has processed and persisted the change when the write
     /// method returns.
     async fn sync_to_daemon(&mut self) -> Result<(), NotebookSyncError> {
-        // Generate the sync message (drops the mutable borrow on self.doc
-        // before we need it again for receiving the reply).
+        if self.use_typed_frames {
+            self.sync_to_daemon_v2().await
+        } else {
+            self.sync_to_daemon_v1().await
+        }
+    }
+
+    /// v1 protocol: raw Automerge frames
+    async fn sync_to_daemon_v1(&mut self) -> Result<(), NotebookSyncError> {
+        let encoded = {
+            let msg = self.doc.sync().generate_sync_message(&mut self.peer_state);
+            msg.map(|m| m.encode())
+        };
+
+        if let Some(data) = encoded {
+            connection::send_frame(&mut self.stream, &data).await?;
+
+            match tokio::time::timeout(
+                Duration::from_millis(500),
+                connection::recv_frame(&mut self.stream),
+            )
+            .await
+            {
+                Ok(Ok(Some(data))) => {
+                    let message = sync::Message::decode(&data)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                    self.doc
+                        .sync()
+                        .receive_sync_message(&mut self.peer_state, message)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+                }
+                Ok(Ok(None)) => return Err(NotebookSyncError::Disconnected),
+                Ok(Err(e)) => return Err(NotebookSyncError::ConnectionFailed(e)),
+                Err(_) => {} // Timeout — server had nothing to send back
+            }
+        }
+        Ok(())
+    }
+
+    /// v2 protocol: typed frames
+    async fn sync_to_daemon_v2(&mut self) -> Result<(), NotebookSyncError> {
         let encoded = {
             let msg = self.doc.sync().generate_sync_message(&mut self.peer_state);
             msg.map(|m| m.encode())
@@ -712,10 +840,6 @@ where
             connection::send_typed_frame(&mut self.stream, NotebookFrameType::AutomergeSync, &data)
                 .await?;
 
-            // Wait for the daemon's ack. The server always sends a reply
-            // after processing a client's sync message (to advance the
-            // sync state). A short timeout handles the rare case where
-            // the server has nothing to send back (already converged).
             match tokio::time::timeout(
                 Duration::from_millis(500),
                 connection::recv_typed_frame(&mut self.stream),
