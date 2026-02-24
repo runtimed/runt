@@ -9,12 +9,6 @@ interface HtmlOutputProps {
    */
   content: string;
   /**
-   * Allow rendering potentially unsafe HTML with script execution.
-   * When true, throws an error if not running inside an iframe.
-   * When false (default), renders HTML without script execution.
-   */
-  unsafe?: boolean;
-  /**
    * Additional CSS classes
    */
   className?: string;
@@ -34,47 +28,37 @@ function isInIframe(): boolean {
 }
 
 /**
- * HtmlOutput component for rendering HTML content in notebook outputs
+ * HtmlOutput component for rendering HTML content in notebook outputs.
  *
  * This component handles HTML output from Jupyter kernels, such as
- * pandas DataFrames, rich HTML displays, and basic interactives.
+ * pandas DataFrames, rich HTML displays, and interactive visualizations.
  *
- * Security considerations:
- * - By default, renders HTML statically without script execution
- * - Set `unsafe={true}` to enable script execution (requires iframe sandbox)
- * - When `unsafe={true}`, throws if not inside an iframe for security
+ * SECURITY: This component MUST be rendered inside a sandboxed iframe.
+ * Use OutputArea (with isolated="auto") or IsolatedFrame directly.
+ * Throws an error if rendered in the main DOM.
  */
-export function HtmlOutput({
-  content,
-  unsafe = false,
-  className = "",
-}: HtmlOutputProps) {
+export function HtmlOutput({ content, className = "" }: HtmlOutputProps) {
   const ref = useRef<HTMLDivElement>(null);
+
+  // Require iframe for security - HTML can contain CSS attacks, forms, etc.
+  if (typeof window !== "undefined" && !isInIframe()) {
+    throw new Error(
+      "HtmlOutput must be rendered inside an iframe. " +
+        "Use OutputArea or IsolatedFrame for HTML content.",
+    );
+  }
 
   useEffect(() => {
     if (!ref.current || !content) return;
 
-    if (unsafe) {
-      // For unsafe mode, require iframe sandboxing
-      if (!isInIframe()) {
-        throw new Error(
-          "HtmlOutput with unsafe={true} must be rendered inside an iframe for security. " +
-            "Use unsafe={false} for static HTML rendering without script execution.",
-        );
-      }
-
-      // Use createContextualFragment for proper script execution
-      // This allows scripts in the HTML to run, which is necessary for
-      // interactive outputs like Plotly, Bokeh, etc.
-      const range = document.createRange();
-      const fragment = range.createContextualFragment(content);
-      ref.current.innerHTML = "";
-      ref.current.appendChild(fragment);
-    } else {
-      // Safe mode: just set innerHTML (scripts won't execute)
-      ref.current.innerHTML = content;
-    }
-  }, [content, unsafe]);
+    // Use createContextualFragment for proper script execution
+    // This allows scripts in the HTML to run, which is necessary for
+    // interactive outputs like Plotly, Bokeh, etc.
+    const range = document.createRange();
+    const fragment = range.createContextualFragment(content);
+    ref.current.innerHTML = "";
+    ref.current.appendChild(fragment);
+  }, [content]);
 
   if (!content) {
     return null;
@@ -85,9 +69,6 @@ export function HtmlOutput({
       ref={ref}
       data-slot="html-output"
       className={cn("not-prose py-2 max-w-none overflow-auto", className)}
-      // For SSR/initial render, use dangerouslySetInnerHTML
-      // The useEffect will take over on the client
-      dangerouslySetInnerHTML={unsafe ? undefined : { __html: content }}
     />
   );
 }

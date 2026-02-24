@@ -1,22 +1,30 @@
 "use client";
 
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
+import { isDarkMode as detectDarkMode } from "@/lib/dark-mode";
 import { cn } from "@/lib/utils";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ErrorBoundary } from "@/lib/error-boundary";
+import { OutputErrorFallback } from "@/lib/output-error-fallback";
 import {
   AnsiErrorOutput,
   AnsiStreamOutput,
 } from "@/components/outputs/ansi-output";
-import { MediaRouter, DEFAULT_PRIORITY } from "@/components/outputs/media-router";
 import {
-  IsolatedFrame,
-  type IsolatedFrameHandle,
   CommBridgeManager,
   type IframeToParentMessage,
-} from "@/components/outputs/isolated";
+  IsolatedFrame,
+  type IsolatedFrameHandle,
+} from "@/components/isolated";
+import { DEFAULT_PRIORITY, MediaRouter } from "@/components/outputs/media-router";
 import { useWidgetStore } from "@/components/widgets/widget-store-context";
-import { isDarkMode as detectDarkMode } from "@/components/themes";
 
 /**
  * Jupyter output types based on the nbformat spec.
@@ -78,10 +86,6 @@ interface OutputAreaProps {
    */
   priority?: readonly string[];
   /**
-   * Whether to allow unsafe HTML rendering.
-   */
-  unsafe?: boolean;
-  /**
    * Force isolation mode. When true, all outputs render in an isolated iframe.
    * When "auto" (default), isolation is used when any output needs it.
    * When false, outputs render in-DOM (less secure but faster for simple outputs).
@@ -103,6 +107,25 @@ interface OutputAreaProps {
    * @deprecated Use the comm bridge instead for full widget support
    */
   onWidgetUpdate?: (commId: string, state: Record<string, unknown>) => void;
+  /**
+   * Whether to use the React renderer bundle inside the iframe.
+   * When true, fetches and loads isolated-renderer.js for full React rendering.
+   * When false, uses the inline JavaScript renderer (simpler, no build required).
+   * @default true
+   */
+  useReactRenderer?: boolean;
+  /**
+   * Inline React renderer JavaScript bundle for the iframe.
+   * When provided with rendererCss, uses this code directly instead of fetching.
+   * Use with Vite's `?raw` import: `import code from "./renderer.js?raw"`
+   */
+  rendererCode?: string;
+  /**
+   * Inline React renderer CSS for the iframe.
+   * When provided with rendererCode, uses this CSS directly instead of fetching.
+   * Use with Vite's `?raw` import: `import css from "./renderer.css?raw"`
+   */
+  rendererCss?: string;
 }
 
 /**
@@ -134,7 +157,7 @@ const ISOLATED_MIME_TYPES = new Set([
  */
 function selectMimeType(
   data: Record<string, unknown>,
-  priority: readonly string[] = DEFAULT_PRIORITY
+  priority: readonly string[] = DEFAULT_PRIORITY,
 ): string | null {
   const availableTypes = Object.keys(data);
   for (const mimeType of priority) {
@@ -151,9 +174,12 @@ function selectMimeType(
  */
 function outputNeedsIsolation(
   output: JupyterOutput,
-  priority: readonly string[] = DEFAULT_PRIORITY
+  priority: readonly string[] = DEFAULT_PRIORITY,
 ): boolean {
-  if (output.output_type === "execute_result" || output.output_type === "display_data") {
+  if (
+    output.output_type === "execute_result" ||
+    output.output_type === "display_data"
+  ) {
     const mimeType = selectMimeType(output.data, priority);
     return mimeType ? ISOLATED_MIME_TYPES.has(mimeType) : false;
   }
@@ -167,7 +193,7 @@ function outputNeedsIsolation(
  */
 function anyOutputNeedsIsolation(
   outputs: JupyterOutput[],
-  priority: readonly string[] = DEFAULT_PRIORITY
+  priority: readonly string[] = DEFAULT_PRIORITY,
 ): boolean {
   return outputs.some((output) => outputNeedsIsolation(output, priority));
 }
@@ -177,10 +203,13 @@ function anyOutputNeedsIsolation(
  */
 function hasWidgetOutputs(
   outputs: JupyterOutput[],
-  priority: readonly string[] = DEFAULT_PRIORITY
+  priority: readonly string[] = DEFAULT_PRIORITY,
 ): boolean {
   return outputs.some((output) => {
-    if (output.output_type === "execute_result" || output.output_type === "display_data") {
+    if (
+      output.output_type === "execute_result" ||
+      output.output_type === "display_data"
+    ) {
       const mimeType = selectMimeType(output.data, priority);
       return mimeType === "application/vnd.jupyter.widget-view+json";
     }
@@ -196,7 +225,6 @@ function renderOutput(
   index: number,
   renderers?: OutputAreaProps["renderers"],
   priority?: readonly string[],
-  unsafe?: boolean,
 ) {
   const key = `output-${index}`;
 
@@ -215,7 +243,6 @@ function renderOutput(
           }
           renderers={renderers}
           priority={priority}
-          unsafe={unsafe}
         />
       );
 
@@ -243,20 +270,6 @@ function renderOutput(
   }
 }
 
-function OutputErrorFallback({
-  error,
-  outputIndex,
-}: {
-  error: Error;
-  outputIndex: number;
-}) {
-  return (
-    <div className="rounded border border-dashed border-destructive/30 px-3 py-2 text-xs text-destructive/80">
-      Output {outputIndex + 1} failed to render: {error.message}
-    </div>
-  );
-}
-
 /**
  * OutputArea renders multiple Jupyter outputs with proper layout.
  *
@@ -281,11 +294,13 @@ export function OutputArea({
   className,
   renderers,
   priority = DEFAULT_PRIORITY,
-  unsafe = false,
   isolated = "auto",
   preloadIframe = false,
   onLinkClick,
   onWidgetUpdate,
+  useReactRenderer = true,
+  rendererCode,
+  rendererCss,
 }: OutputAreaProps) {
   const id = useId();
   const frameRef = useRef<IsolatedFrameHandle>(null);
@@ -314,16 +329,12 @@ export function OutputArea({
   // Determine if we should use isolation (when we have outputs)
   const shouldIsolate =
     outputs.length > 0 &&
-    (isolated === true || (isolated === "auto" && anyOutputNeedsIsolation(outputs, priority)));
+    (isolated === true ||
+      (isolated === "auto" && anyOutputNeedsIsolation(outputs, priority)));
 
   // When preloading, we render the iframe even with no outputs (hidden)
   // This allows it to bootstrap ahead of time for instant rendering
   const showPreloadedIframe = preloadIframe && !collapsed;
-
-  // Empty state: render nothing (unless preloading iframe)
-  if (outputs.length === 0 && !showPreloadedIframe) {
-    return null;
-  }
 
   // Check if we have widgets and should set up comm bridge
   const hasWidgets = hasWidgetOutputs(outputs, priority);
@@ -345,7 +356,7 @@ export function OutputArea({
         onWidgetUpdate(message.payload.commId, message.payload.state);
       }
     },
-    [onWidgetUpdate]
+    [onWidgetUpdate],
   );
 
   // Callback when frame is ready - set up bridge and render outputs
@@ -370,13 +381,18 @@ export function OutputArea({
     outputs.forEach((output, index) => {
       const append = index > 0;
 
-      if (output.output_type === "execute_result" || output.output_type === "display_data") {
+      if (
+        output.output_type === "execute_result" ||
+        output.output_type === "display_data"
+      ) {
         const mimeType = selectMimeType(output.data, priority);
         if (mimeType) {
           frameRef.current?.render({
             mimeType,
             data: output.data[mimeType],
-            metadata: output.metadata?.[mimeType] as Record<string, unknown> | undefined,
+            metadata: output.metadata?.[mimeType] as
+              | Record<string, unknown>
+              | undefined,
             outputIndex: index,
             append,
           });
@@ -422,13 +438,21 @@ export function OutputArea({
     if (frameRef.current?.isReady) {
       handleFrameReady();
     }
-  }, [outputs, handleFrameReady]);
+  }, [handleFrameReady]);
+
+  // Empty state: render nothing (unless preloading iframe)
+  if (outputs.length === 0 && !showPreloadedIframe) {
+    return null;
+  }
 
   // Hide the entire output area when only preloading (no visible outputs)
   const isPreloadOnly = showPreloadedIframe && outputs.length === 0;
 
   return (
-    <div data-slot="output-area" className={cn("output-area", isPreloadOnly && "hidden", className)}>
+    <div
+      data-slot="output-area"
+      className={cn("output-area", isPreloadOnly && "hidden", className)}
+    >
       {/* Collapse toggle */}
       {hasCollapseControl && (
         <button
@@ -464,14 +488,18 @@ export function OutputArea({
               <IsolatedFrame
                 ref={frameRef}
                 darkMode={darkMode}
-                useReactRenderer={true}
+                useReactRenderer={useReactRenderer}
+                rendererCode={rendererCode}
+                rendererCss={rendererCss}
                 minHeight={24}
                 maxHeight={maxHeight ?? 2000}
                 onReady={handleFrameReady}
                 onLinkClick={onLinkClick}
                 onWidgetUpdate={onWidgetUpdate}
                 onMessage={handleIframeMessage}
-                onError={(err) => console.error("[OutputArea] iframe error:", err)}
+                onError={(err) =>
+                  console.error("[OutputArea] iframe error:", err)
+                }
               />
             </div>
           )}
@@ -481,12 +509,23 @@ export function OutputArea({
             outputs.map((output, index) => (
               <ErrorBoundary
                 key={`output-${index}`}
-                resetKeys={[output]}
-                fallback={(error) => (
-                  <OutputErrorFallback error={error} outputIndex={index} />
+                resetKeys={[JSON.stringify(output)]}
+                fallback={(error, reset) => (
+                  <OutputErrorFallback
+                    error={error}
+                    outputIndex={index}
+                    onRetry={reset}
+                  />
                 )}
+                onError={(error, errorInfo) => {
+                  console.error(
+                    `[OutputArea] Error rendering output ${index}:`,
+                    error,
+                    errorInfo.componentStack,
+                  );
+                }}
               >
-                {renderOutput(output, index, renderers, priority, unsafe)}
+                {renderOutput(output, index, renderers, priority)}
               </ErrorBoundary>
             ))}
         </div>

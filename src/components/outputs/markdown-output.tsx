@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Copy } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import {
@@ -12,8 +12,8 @@ import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { useDarkMode } from "@/lib/dark-mode";
 import { cn } from "@/lib/utils";
-import { isDarkMode } from "@/components/themes";
 
 import "katex/dist/katex.min.css";
 
@@ -30,11 +30,6 @@ interface MarkdownOutputProps {
    * Enable copy button on code blocks
    */
   enableCopyCode?: boolean;
-  /**
-   * Allow raw HTML in markdown (requires iframe for security).
-   * When true, throws an error if not running inside an iframe.
-   */
-  unsafe?: boolean;
 }
 
 /**
@@ -46,37 +41,6 @@ function isInIframe(): boolean {
   } catch {
     return true;
   }
-}
-
-/**
- * Hook to detect dark mode from document state or system preference.
- * Watches for theme changes via MutationObserver and media query.
- */
-function useDarkMode(): boolean {
-  const [isDark, setIsDark] = useState(() =>
-    typeof window !== "undefined" ? isDarkMode() : false,
-  );
-
-  useEffect(() => {
-    setIsDark(isDarkMode());
-
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const handleChange = () => setIsDark(isDarkMode());
-    mediaQuery.addEventListener("change", handleChange);
-
-    const observer = new MutationObserver(() => setIsDark(isDarkMode()));
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class", "style", "data-theme", "data-mode"],
-    });
-
-    return () => {
-      mediaQuery.removeEventListener("change", handleChange);
-      observer.disconnect();
-    };
-  }, []);
-
-  return isDark;
 }
 
 interface CodeBlockProps {
@@ -140,19 +104,22 @@ function CodeBlock({
 }
 
 /**
- * MarkdownOutput component for rendering Markdown content in notebook outputs
+ * MarkdownOutput component for rendering Markdown content in notebook outputs.
  *
  * Supports:
  * - GitHub Flavored Markdown (tables, strikethrough, task lists, autolinks)
  * - Math/LaTeX via KaTeX
  * - Syntax highlighted code blocks with copy button
- * - Raw HTML (when unsafe={true} and in iframe)
+ * - Raw HTML in markdown
+ *
+ * SECURITY: This component MUST be rendered inside a sandboxed iframe.
+ * Use OutputArea (with isolated="auto") or IsolatedFrame directly.
+ * Throws an error if rendered in the main DOM.
  */
 export function MarkdownOutput({
   content,
   className = "",
   enableCopyCode = true,
-  unsafe = false,
 }: MarkdownOutputProps) {
   const isDark = useDarkMode();
 
@@ -160,16 +127,16 @@ export function MarkdownOutput({
     return null;
   }
 
-  // Check iframe requirement for unsafe mode
-  if (unsafe && typeof window !== "undefined" && !isInIframe()) {
+  // Require iframe for security - markdown can contain raw HTML
+  if (typeof window !== "undefined" && !isInIframe()) {
     throw new Error(
-      "MarkdownOutput with unsafe={true} must be rendered inside an iframe for security. " +
-        "Use unsafe={false} to disable raw HTML rendering.",
+      "MarkdownOutput must be rendered inside an iframe. " +
+        "Use OutputArea or IsolatedFrame for markdown content.",
     );
   }
 
   const remarkPlugins = [remarkGfm, remarkMath];
-  const rehypePlugins = unsafe ? [rehypeKatex, rehypeRaw] : [rehypeKatex];
+  const rehypePlugins = [rehypeKatex, rehypeRaw];
 
   return (
     <div

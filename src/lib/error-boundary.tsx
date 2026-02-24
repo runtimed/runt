@@ -1,6 +1,8 @@
+"use client";
+
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
-interface ErrorBoundaryProps {
+export interface ErrorBoundaryProps {
   children: ReactNode;
   /** Render prop called when an error is caught. Return the fallback UI. */
   fallback: (error: Error, resetErrorBoundary: () => void) => ReactNode;
@@ -62,10 +64,16 @@ export class ErrorBoundary extends Component<
     props: ErrorBoundaryProps,
     state: ErrorBoundaryState,
   ): Partial<ErrorBoundaryState> | null {
-    if (state.error && state.prevResetKeys !== undefined && props.resetKeys !== undefined) {
+    if (
+      state.error &&
+      state.prevResetKeys !== undefined &&
+      props.resetKeys !== undefined
+    ) {
       const changed =
         props.resetKeys.length !== state.prevResetKeys.length ||
-        props.resetKeys.some((key, i) => !Object.is(key, state.prevResetKeys![i]));
+        props.resetKeys.some(
+          (key, i) => !Object.is(key, state.prevResetKeys![i]),
+        );
       if (changed) {
         return { error: null, prevResetKeys: props.resetKeys };
       }

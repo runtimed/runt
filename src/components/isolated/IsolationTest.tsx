@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+
 import { IsolatedFrame, type IsolatedFrameHandle } from "./isolated-frame";
 
 /**
@@ -218,7 +219,9 @@ interface CommTestState {
 export function IsolationTest() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<IsolationTestResult | null>(null);
+  const [testResult, setTestResult] = useState<IsolationTestResult | null>(
+    null,
+  );
   const [parentHasTauri, setParentHasTauri] = useState<boolean>(false);
   const [commState, setCommState] = useState<CommTestState>({
     iframeReady: false,
@@ -230,7 +233,10 @@ export function IsolationTest() {
 
   // Check if parent has Tauri (for comparison)
   useEffect(() => {
-    setParentHasTauri(typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== "undefined");
+    setParentHasTauri(
+      typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !==
+        "undefined",
+    );
   }, []);
 
   // Create blob URL on mount
@@ -300,7 +306,7 @@ export function IsolationTest() {
     setCommState((prev) => ({ ...prev, renderComplete: false }));
     sendToIframe("render", {
       mimeType: "text/html",
-      data: "<div style='color: #4ade80; padding: 8px;'>✓ HTML rendered via postMessage!</div>",
+      data: "<div style='color: #4ade80; padding: 8px;'>HTML rendered via postMessage!</div>",
     });
   };
 
@@ -312,15 +318,20 @@ export function IsolationTest() {
     !testResult.canAccessParentLocalStorage;
 
   return (
-    <div data-testid="isolation-test" className="p-4 space-y-4 bg-background text-foreground">
+    <div
+      data-testid="isolation-test"
+      className="bg-background text-foreground space-y-4 p-4"
+    >
       <h2 className="text-lg font-semibold">Blob URL Iframe Isolation Test</h2>
 
       {/* Parent context info */}
-      <div className="p-3 rounded bg-muted">
-        <h3 className="font-medium mb-2">Parent Window Context:</h3>
+      <div className="bg-muted rounded p-3">
+        <h3 className="mb-2 font-medium">Parent Window Context:</h3>
         <p className="text-sm">
           window.__TAURI__ exists:{" "}
-          <span className={parentHasTauri ? "text-yellow-500" : "text-green-500"}>
+          <span
+            className={parentHasTauri ? "text-yellow-500" : "text-green-500"}
+          >
             {parentHasTauri ? "Yes (expected in Tauri app)" : "No"}
           </span>
         </p>
@@ -332,53 +343,80 @@ export function IsolationTest() {
       {/* Test results */}
       {testResult && (
         <div
-          className={`p-3 rounded ${
-            isIsolated ? "bg-green-950 border border-green-700" : "bg-red-950 border border-red-700"
+          className={`rounded p-3 ${
+            isIsolated
+              ? "border border-green-700 bg-green-950"
+              : "border border-red-700 bg-red-950"
           }`}
         >
-          <h3 className="font-medium mb-2">
-            {isIsolated ? "✓ Iframe is properly isolated!" : "✗ Isolation FAILED"}
+          <h3 className="mb-2 font-medium">
+            {isIsolated ? "Iframe is properly isolated!" : "Isolation FAILED"}
           </h3>
-          <ul className="text-sm space-y-1">
+          <ul className="space-y-1 text-sm">
             <li>
               Tauri API blocked:{" "}
-              <span className={!testResult.hasTauri ? "text-green-500" : "text-red-500"}>
-                {!testResult.hasTauri ? "Yes ✓" : "No ✗"}
+              <span
+                className={
+                  !testResult.hasTauri ? "text-green-500" : "text-red-500"
+                }
+              >
+                {!testResult.hasTauri ? "Yes" : "No"}
               </span>
             </li>
             <li>
               invoke() blocked:{" "}
-              <span className={!testResult.hasInvoke ? "text-green-500" : "text-red-500"}>
-                {!testResult.hasInvoke ? "Yes ✓" : "No ✗"}
+              <span
+                className={
+                  !testResult.hasInvoke ? "text-green-500" : "text-red-500"
+                }
+              >
+                {!testResult.hasInvoke ? "Yes" : "No"}
               </span>
             </li>
             <li>
               Parent document blocked:{" "}
-              <span className={!testResult.canAccessParentDocument ? "text-green-500" : "text-red-500"}>
-                {!testResult.canAccessParentDocument ? "Yes ✓" : "No ✗"}
+              <span
+                className={
+                  !testResult.canAccessParentDocument
+                    ? "text-green-500"
+                    : "text-red-500"
+                }
+              >
+                {!testResult.canAccessParentDocument ? "Yes" : "No"}
               </span>
             </li>
             <li>
               Parent localStorage blocked:{" "}
-              <span className={!testResult.canAccessParentLocalStorage ? "text-green-500" : "text-red-500"}>
-                {!testResult.canAccessParentLocalStorage ? "Yes ✓" : "No ✗"}
+              <span
+                className={
+                  !testResult.canAccessParentLocalStorage
+                    ? "text-green-500"
+                    : "text-red-500"
+                }
+              >
+                {!testResult.canAccessParentLocalStorage ? "Yes" : "No"}
               </span>
             </li>
             <li>
-              Iframe origin: <code className="text-xs">{testResult.windowOrigin}</code>
+              Iframe origin:{" "}
+              <code className="text-xs">{testResult.windowOrigin}</code>
             </li>
           </ul>
         </div>
       )}
 
       {/* Communication Test Controls */}
-      <div className="p-3 rounded bg-muted space-y-3">
+      <div className="bg-muted space-y-3 rounded p-3">
         <h3 className="font-medium">Bidirectional Communication Test:</h3>
         <div className="flex items-center gap-2 text-sm">
           <span>
             Iframe ready:{" "}
-            <span className={commState.iframeReady ? "text-green-500" : "text-yellow-500"}>
-              {commState.iframeReady ? "Yes ✓" : "Waiting..."}
+            <span
+              className={
+                commState.iframeReady ? "text-green-500" : "text-yellow-500"
+              }
+            >
+              {commState.iframeReady ? "Yes" : "Waiting..."}
             </span>
           </span>
         </div>
@@ -386,55 +424,57 @@ export function IsolationTest() {
           <button
             onClick={handlePing}
             disabled={!commState.iframeReady}
-            className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded"
+            className="rounded bg-blue-600 px-3 py-1.5 text-sm hover:bg-blue-700 disabled:bg-gray-600"
           >
             Send Ping
           </button>
           <button
             onClick={handleEval}
             disabled={!commState.iframeReady}
-            className="px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 rounded"
+            className="rounded bg-purple-600 px-3 py-1.5 text-sm hover:bg-purple-700 disabled:bg-gray-600"
           >
             Test Eval (1+2+3)
           </button>
           <button
             onClick={handleRender}
             disabled={!commState.iframeReady}
-            className="px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded"
+            className="rounded bg-green-600 px-3 py-1.5 text-sm hover:bg-green-700 disabled:bg-gray-600"
           >
             Test Render HTML
           </button>
         </div>
-        <div className="text-sm space-y-1">
+        <div className="space-y-1 text-sm">
           <p>Pong responses received: {commState.pingCount}</p>
           {commState.evalResult && <p>Eval result: {commState.evalResult}</p>}
           {commState.renderComplete && (
-            <p className="text-green-500">✓ Render completed successfully</p>
+            <p className="text-green-500">Render completed successfully</p>
           )}
         </div>
       </div>
 
       {/* The actual isolated iframe */}
       {blobUrl && (
-        <div className="border rounded overflow-hidden">
+        <div className="overflow-hidden rounded border">
           <iframe
             ref={iframeRef}
             src={blobUrl}
             sandbox="allow-scripts"
-            className="w-full h-80 bg-neutral-900"
+            className="h-80 w-full bg-neutral-900"
             title="Isolation Test Frame"
           />
         </div>
       )}
 
       {/* Sandbox attribute explanation */}
-      <div className="text-xs text-muted-foreground">
+      <div className="text-muted-foreground text-xs">
         <p>
-          <strong>Sandbox attributes:</strong> allow-scripts (no allow-same-origin)
+          <strong>Sandbox attributes:</strong> allow-scripts (no
+          allow-same-origin)
         </p>
         <p>
-          This prevents the iframe from accessing the parent's origin, which should
-          block Tauri's IPC injection since Tauri only injects into content at the app's origin.
+          This prevents the iframe from accessing the parent&apos;s origin,
+          which should block Tauri&apos;s IPC injection since Tauri only injects
+          into content at the app&apos;s origin.
         </p>
       </div>
 
@@ -460,9 +500,9 @@ function ProductionFrameDemo() {
         <p>This content was rendered via the <code>IsolatedFrame</code> component.</p>
         <table>
           <tr><th>Feature</th><th>Status</th></tr>
-          <tr><td>Blob URL isolation</td><td style="color: #4ade80;">✓</td></tr>
-          <tr><td>postMessage communication</td><td style="color: #4ade80;">✓</td></tr>
-          <tr><td>Auto-resizing</td><td style="color: #4ade80;">✓</td></tr>
+          <tr><td>Blob URL isolation</td><td style="color: #4ade80;">Works</td></tr>
+          <tr><td>postMessage communication</td><td style="color: #4ade80;">Works</td></tr>
+          <tr><td>Auto-resizing</td><td style="color: #4ade80;">Works</td></tr>
         </table>
         <script>console.log('Script executed in isolated frame!');</script>
       `,
@@ -482,13 +522,13 @@ function ProductionFrameDemo() {
   };
 
   return (
-    <div className="p-3 rounded bg-muted space-y-3 border-t border-border mt-4">
+    <div className="bg-muted border-border mt-4 space-y-3 rounded border-t p-3">
       <h3 className="font-medium">Production IsolatedFrame Component:</h3>
       <div className="flex items-center gap-2 text-sm">
         <span>
           Ready:{" "}
           <span className={isReady ? "text-green-500" : "text-yellow-500"}>
-            {isReady ? "Yes ✓" : "Waiting..."}
+            {isReady ? "Yes" : "Waiting..."}
           </span>
         </span>
         <span className="text-muted-foreground">|</span>
@@ -498,26 +538,26 @@ function ProductionFrameDemo() {
         <button
           onClick={handleRenderHtml}
           disabled={!isReady}
-          className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded"
+          className="rounded bg-blue-600 px-3 py-1.5 text-sm hover:bg-blue-700 disabled:bg-gray-600"
         >
           Render HTML
         </button>
         <button
           onClick={handleRenderImage}
           disabled={!isReady}
-          className="px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 rounded"
+          className="rounded bg-purple-600 px-3 py-1.5 text-sm hover:bg-purple-700 disabled:bg-gray-600"
         >
           Render Image
         </button>
         <button
           onClick={handleClear}
           disabled={!isReady}
-          className="px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 disabled:bg-gray-600 rounded"
+          className="rounded bg-red-600 px-3 py-1.5 text-sm hover:bg-red-700 disabled:bg-gray-600"
         >
           Clear
         </button>
       </div>
-      <div className="border rounded overflow-hidden">
+      <div className="overflow-hidden rounded border">
         <IsolatedFrame
           ref={frameRef}
           darkMode={true}

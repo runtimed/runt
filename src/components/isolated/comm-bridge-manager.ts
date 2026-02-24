@@ -1,22 +1,8 @@
-/**
- * Comm Bridge Manager - Parent Side
- *
- * This module manages the communication bridge between the parent window's
- * widget system and an isolated iframe. It:
- * - Buffers comm messages until iframe sends `widget_ready`
- * - Syncs all existing widget models to iframe on ready
- * - Forwards comm messages from kernel to iframe
- * - Handles widget messages from iframe and updates parent store + kernel
- *
- * Security: The iframe cannot access Tauri APIs directly. All widget
- * communication must go through this controlled postMessage bridge.
- */
-
 import type { WidgetStore } from "@/components/widgets/widget-store";
 import type {
-  CommOpenMessage,
-  CommMsgMessage,
   CommCloseMessage,
+  CommMsgMessage,
+  CommOpenMessage,
   CommSyncMessage,
   IframeToParentMessage,
 } from "./frame-bridge";
@@ -26,13 +12,13 @@ import type { IsolatedFrameHandle } from "./isolated-frame";
 type SendUpdate = (
   commId: string,
   state: Record<string, unknown>,
-  buffers?: ArrayBuffer[]
+  buffers?: ArrayBuffer[],
 ) => void;
 
 type SendCustom = (
   commId: string,
   content: Record<string, unknown>,
-  buffers?: ArrayBuffer[]
+  buffers?: ArrayBuffer[],
 ) => void;
 
 type CloseComm = (commId: string) => void;
@@ -67,7 +53,9 @@ export class CommBridgeManager {
   private closeCommWithKernel: CloseComm;
 
   private isWidgetReady = false;
-  private messageBuffer: Array<CommOpenMessage | CommMsgMessage | CommCloseMessage> = [];
+  private messageBuffer: Array<
+    CommOpenMessage | CommMsgMessage | CommCloseMessage
+  > = [];
   private storeUnsubscribe: (() => void) | null = null;
 
   // Track which models have been sent to avoid duplicate sends
@@ -130,7 +118,7 @@ export class CommBridgeManager {
     commId: string,
     targetName: string,
     state: Record<string, unknown>,
-    buffers?: ArrayBuffer[]
+    buffers?: ArrayBuffer[],
   ): void {
     const msg: CommOpenMessage = {
       type: "comm_open",
@@ -158,7 +146,7 @@ export class CommBridgeManager {
     commId: string,
     method: "update" | "custom",
     data: Record<string, unknown>,
-    buffers?: ArrayBuffer[]
+    buffers?: ArrayBuffer[],
   ): void {
     const msg: CommMsgMessage = {
       type: "comm_msg",
@@ -280,7 +268,7 @@ export class CommBridgeManager {
         const current = this.previousState.get(commId) ?? {};
         this.previousState.set(
           commId,
-          this.cloneStateSnapshot({ ...current, ...data })
+          this.cloneStateSnapshot({ ...current, ...data }),
         );
         // Then forward to kernel
         this.sendUpdateToKernel(commId, data, buffers);
@@ -318,7 +306,7 @@ export class CommBridgeManager {
           commId,
           model.modelModule || "jupyter.widget",
           model.state,
-          model.buffers
+          model.buffers,
         );
         // Store initial state for change detection
         this.previousState.set(commId, this.cloneStateSnapshot(model.state));
@@ -338,7 +326,10 @@ export class CommBridgeManager {
             // Forward state update to iframe
             this.sendCommMsg(commId, "update", delta, model.buffers);
             // Update tracked state
-            this.previousState.set(commId, this.cloneStateSnapshot(model.state));
+            this.previousState.set(
+              commId,
+              this.cloneStateSnapshot(model.state),
+            );
           }
         }
       }
@@ -367,10 +358,10 @@ export class CommBridgeManager {
       commId,
       (content, buffers) => {
         // Convert DataView[] to ArrayBuffer[] for postMessage
-        const arrayBuffers = buffers?.map((dv) => dv.buffer);
+        const arrayBuffers = buffers?.map((dv) => dv.buffer as ArrayBuffer);
         // Forward custom message to iframe
         this.sendCommMsg(commId, "custom", content, arrayBuffers);
-      }
+      },
     );
 
     this.customMessageUnsubscribers.set(commId, unsubscribe);
@@ -393,10 +384,13 @@ export class CommBridgeManager {
    */
   private getChangedKeys(
     previous: Record<string, unknown>,
-    current: Record<string, unknown>
+    current: Record<string, unknown>,
   ): string[] {
     const changed: string[] = [];
-    const allKeys = new Set([...Object.keys(previous), ...Object.keys(current)]);
+    const allKeys = new Set([
+      ...Object.keys(previous),
+      ...Object.keys(current),
+    ]);
     for (const key of allKeys) {
       if (this.valuesAreDifferent(previous[key], current[key])) {
         changed.push(key);
@@ -409,7 +403,7 @@ export class CommBridgeManager {
    * Create a deep snapshot of model state so future in-place mutations are detectable.
    */
   private cloneStateSnapshot(
-    state: Record<string, unknown>
+    state: Record<string, unknown>,
   ): Record<string, unknown> {
     try {
       return structuredClone(state);
@@ -446,7 +440,7 @@ export class CommBridgeManager {
  * Create a comm bridge manager for an isolated frame.
  */
 export function createCommBridgeManager(
-  options: CommBridgeManagerOptions
+  options: CommBridgeManagerOptions,
 ): CommBridgeManager {
   return new CommBridgeManager(options);
 }

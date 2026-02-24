@@ -23,7 +23,7 @@ import type {
   CommSyncMessage,
   WidgetCommMsgMessage,
   WidgetCommCloseMessage,
-} from "@/components/outputs/isolated/frame-bridge";
+} from "@/components/isolated/frame-bridge";
 
 // Type for method parameter in comm messages
 type CommMethod = "update" | "custom";

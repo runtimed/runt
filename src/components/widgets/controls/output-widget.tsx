@@ -5,12 +5,19 @@
  *
  * Maps to ipywidgets OutputModel (@jupyter-widgets/output).
  * Renders an array of Jupyter outputs using the OutputArea component.
- * Media rendering configuration (custom renderers, priority, unsafe)
- * is inherited from MediaProvider context if present.
+ * Media rendering configuration (custom renderers, priority) is
+ * inherited from MediaProvider context if present.
+ *
+ * Note: The Output widget protocol is particularly complex. Rather than
+ * simply setting outputs on the model from Python, Jupyter sends outputs
+ * as custom messages that must be accumulated client-side. This includes
+ * handling clear_output(wait=True) which defers clearing until the next
+ * output arrives. We sync rendered state back to the model to keep
+ * Python's `out.outputs` in sync with what's displayed.
  */
 
-import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 import { type JupyterOutput, OutputArea } from "@/components/cell/OutputArea";
 import type { WidgetComponentProps } from "../widget-registry";
 import {
@@ -41,9 +48,8 @@ export function OutputWidget({ modelId, className }: WidgetComponentProps) {
     useWidgetModelValue<JupyterOutput[]>(modelId, "outputs") ?? [];
   const stateOutputsRef = useRef(stateOutputs);
   const shouldClearOnNextOutputRef = useRef(false);
-  const [renderedOutputs, setRenderedOutputs] = useState<JupyterOutput[]>(
-    stateOutputs
-  );
+  const [renderedOutputs, setRenderedOutputs] =
+    useState<JupyterOutput[]>(stateOutputs);
   const renderedOutputsRef = useRef(renderedOutputs);
 
   useEffect(() => {

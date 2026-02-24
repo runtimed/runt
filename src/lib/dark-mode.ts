@@ -1,14 +1,4 @@
-/**
- * Generic theme detection utilities
- *
- * These functions detect dark/light mode from document state or system preferences.
- * Used by various components (markdown output, code editor, etc.) for theme-aware rendering.
- */
-
-/**
- * Theme mode options
- */
-export type ThemeMode = "light" | "dark" | "system";
+import { useEffect, useState } from "react";
 
 /**
  * Check if the current environment prefers dark mode via system preference
@@ -26,6 +16,7 @@ export function prefersDarkMode(): boolean {
  * - class="dark" or class="... dark ..." on <html>
  * - color-scheme: dark on <html>
  * - data-theme="dark" attribute
+ * - data-mode="dark" attribute
  */
 export function documentHasDarkMode(): boolean {
   if (typeof document === "undefined") {
@@ -60,8 +51,8 @@ export function documentHasDarkMode(): boolean {
 }
 
 /**
- * Detect dark mode from either document state or system preference
- * Prioritizes document state (site-level toggle) over system preference
+ * Detect dark mode from either document state or system preference.
+ * Prioritizes document state (site-level toggle) over system preference.
  */
 export function isDarkMode(): boolean {
   // Check document state first (site-level dark mode toggle)
@@ -88,4 +79,43 @@ export function isDarkMode(): boolean {
 
   // Fall back to system preference
   return prefersDarkMode();
+}
+
+/**
+ * React hook to detect dark mode from document state or system preference.
+ * Watches for theme changes via MutationObserver and media query.
+ *
+ * @example
+ * ```tsx
+ * function MyComponent() {
+ *   const isDark = useDarkMode();
+ *   return <div className={isDark ? "bg-gray-900" : "bg-white"}>...</div>;
+ * }
+ * ```
+ */
+export function useDarkMode(): boolean {
+  const [isDark, setIsDark] = useState(() =>
+    typeof window !== "undefined" ? isDarkMode() : false,
+  );
+
+  useEffect(() => {
+    setIsDark(isDarkMode());
+
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = () => setIsDark(isDarkMode());
+    mediaQuery.addEventListener("change", handleChange);
+
+    const observer = new MutationObserver(() => setIsDark(isDarkMode()));
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style", "data-theme", "data-mode"],
+    });
+
+    return () => {
+      mediaQuery.removeEventListener("change", handleChange);
+      observer.disconnect();
+    };
+  }, []);
+
+  return isDark;
 }

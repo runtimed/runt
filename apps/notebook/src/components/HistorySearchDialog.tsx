@@ -12,7 +12,6 @@ import {
   oneDark,
   oneLight,
 } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { isDarkMode } from "@/components/themes";
 import {
   Command,
   CommandEmpty,
@@ -28,6 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { isDarkMode } from "@/lib/dark-mode";
 import { type HistoryEntry, useHistorySearch } from "../hooks/useHistorySearch";
 
 interface HistorySearchDialogProps {

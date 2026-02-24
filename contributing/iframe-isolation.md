@@ -33,7 +33,7 @@ Blob URLs have a unique **opaque origin** (displayed as `"null"`). Because the o
 The iframe uses restricted sandbox attributes:
 
 ```tsx
-// src/components/outputs/isolated/isolated-frame.tsx:137
+// src/components/isolated/isolated-frame.tsx:137
 const SANDBOX_ATTRS = [
   "allow-scripts",          // Required for widgets
   "allow-downloads",        // Allow file downloads
@@ -58,7 +58,7 @@ If `allow-same-origin` were present, the iframe would share the parent's origin 
 This is the single most important security invariant. It's tested in CI:
 
 ```typescript
-// src/components/outputs/isolated/__tests__/isolated-frame.test.ts
+// src/components/isolated/__tests__/isolated-frame.test.ts
 it("sandbox does NOT include allow-same-origin", () => {
   expect(EXPECTED_SANDBOX_ATTRS).not.toContain("allow-same-origin");
 });
@@ -69,7 +69,7 @@ it("sandbox does NOT include allow-same-origin", () => {
 The iframe's message handler validates that messages come from the parent window:
 
 ```javascript
-// src/components/outputs/isolated/frame-html.ts:161
+// src/components/isolated/frame-html.ts:161
 window.addEventListener('message', function(event) {
   if (event.source !== window.parent) {
     return;  // Reject messages from other windows
@@ -107,11 +107,15 @@ This prevents other windows/iframes from injecting messages.
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| `IsolatedFrame` | `src/components/outputs/isolated/isolated-frame.tsx` | React component that manages blob URL lifecycle |
-| `CommBridgeManager` | `src/components/outputs/isolated/comm-bridge-manager.ts` | Parent-side: syncs widget state to iframe |
+| `IsolatedFrame` | `src/components/isolated/isolated-frame.tsx` | React component that manages blob URL lifecycle |
+| `CommBridgeManager` | `src/components/isolated/comm-bridge-manager.ts` | Parent-side: syncs widget state to iframe |
 | `CommBridgeClient` | `src/isolated-renderer/widget-bridge-client.ts` | Iframe-side: receives comm messages |
-| `frame-html.ts` | `src/components/outputs/isolated/frame-html.ts` | Generates bootstrap HTML for iframe |
-| `frame-bridge.ts` | `src/components/outputs/isolated/frame-bridge.ts` | Message type definitions |
+| `frame-html.ts` | `src/components/isolated/frame-html.ts` | Generates bootstrap HTML for iframe |
+| `frame-bridge.ts` | `src/components/isolated/frame-bridge.ts` | Message type definitions |
+
+### Renderer Bundle
+
+The isolated renderer code is built inline during the notebook app build via the Vite plugin (`apps/notebook/vite-plugin-isolated-renderer.ts`). The bundle is embedded as a virtual module and passed to `IsolatedFrame` via `rendererCode` and `rendererCss` props—no separate build step or HTTP fetch required.
 
 ## Message Protocol
 
@@ -163,22 +167,22 @@ All communication uses structured `postMessage` calls.
 These are security-sensitive and should be reviewed carefully:
 
 ### 1. Sandbox Configuration
-**File:** `src/components/outputs/isolated/isolated-frame.tsx:137`
+**File:** `src/components/isolated/isolated-frame.tsx:137`
 
 The `SANDBOX_ATTRS` constant defines what the iframe can do. Changes here can compromise security.
 
 ### 2. Source Validation
-**File:** `src/components/outputs/isolated/frame-html.ts:161`
+**File:** `src/components/isolated/frame-html.ts:161`
 
 The `event.source !== window.parent` check prevents message spoofing. This must remain intact.
 
 ### 3. Custom Message Forwarding
-**File:** `src/components/outputs/isolated/comm-bridge-manager.ts`
+**File:** `src/components/isolated/comm-bridge-manager.ts`
 
 The `subscribeToModelCustomMessages` method was added to support anywidgets like quak that use custom messages. Without it, widgets would appear to load but not receive kernel data.
 
 ### 4. Type Guard Whitelist
-**File:** `src/components/outputs/isolated/frame-bridge.ts:368`
+**File:** `src/components/isolated/frame-bridge.ts:368`
 
 The `isIframeMessage` function whitelists valid message types. New message types must be added here.
 

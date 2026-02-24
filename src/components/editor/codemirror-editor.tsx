@@ -17,12 +17,9 @@ import {
   useState,
 } from "react";
 
+import { cn } from "@/lib/utils";
 import { defaultExtensions } from "./extensions";
-import {
-  getIndentationExtension,
-  getLanguageExtension,
-  type SupportedLanguage,
-} from "./languages";
+import { getLanguageExtension, type SupportedLanguage } from "./languages";
 import { darkTheme, isDarkMode, lightTheme, type ThemeMode } from "./themes";
 
 export interface CodeMirrorEditorRef {
@@ -148,11 +145,6 @@ export const CodeMirrorEditor = forwardRef<
       [language],
     );
 
-    const indentExtension = useMemo(
-      () => getIndentationExtension(language),
-      [language],
-    );
-
     // Determine which theme to use
     const themeExtension = useMemo(() => {
       if (theme === "light") return lightTheme;
@@ -165,7 +157,6 @@ export const CodeMirrorEditor = forwardRef<
       const exts: Extension[] = [
         ...baseExtensions,
         langExtension,
-        indentExtension,
         themeExtension,
       ];
 
@@ -193,7 +184,6 @@ export const CodeMirrorEditor = forwardRef<
     }, [
       baseExtensions,
       langExtension,
-      indentExtension,
       themeExtension,
       keyMap,
       placeholder,
@@ -216,7 +206,7 @@ export const CodeMirrorEditor = forwardRef<
     const { setContainer, view } = useCodeMirror({
       container: editorRef.current,
       basicSetup: false,
-      indentWithTab: true,
+      indentWithTab: false,
       extensions,
       maxHeight,
       value,
@@ -262,7 +252,7 @@ export const CodeMirrorEditor = forwardRef<
         ref={editorRef}
         onBlur={onBlur}
         onFocus={handleFocus}
-        className={className}
+        className={cn("text-sm", className)}
       />
     );
   },

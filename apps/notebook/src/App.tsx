@@ -2,8 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { IsolationTest } from "@/components/outputs/isolated";
+import { IsolationTest } from "@/components/isolated";
 import { MediaProvider } from "@/components/outputs/media-provider";
 import {
   useWidgetStoreRequired,
@@ -11,6 +10,7 @@ import {
 } from "@/components/widgets/widget-store-context";
 import { WidgetView } from "@/components/widgets/widget-view";
 import { useSyncedSettings, useSyncedTheme } from "@/hooks/useSyncedSettings";
+import { ErrorBoundary } from "@/lib/error-boundary";
 import { CondaDependencyHeader } from "./components/CondaDependencyHeader";
 import { DebugBanner } from "./components/DebugBanner";
 import { DenoDependencyHeader } from "./components/DenoDependencyHeader";

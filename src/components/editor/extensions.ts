@@ -34,14 +34,6 @@ export const notebookEditorTheme = EditorView.theme({
   "&.cm-focused": {
     outline: "none",
   },
-  // Override any theme padding so code aligns with outputs
-  ".cm-line": {
-    paddingLeft: "0",
-  },
-  // Font size to match gutter elements (text-sm = 14px)
-  ".cm-content": {
-    fontSize: "14px",
-  },
   // Mobile-friendly padding
   "@media (max-width: 640px)": {
     ".cm-content": {

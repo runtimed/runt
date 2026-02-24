@@ -60,11 +60,7 @@ const CONTAINER_GRID_PROPERTIES = new Set([
 /**
  * Child placement properties that apply to grid children.
  */
-const CHILD_GRID_PROPERTIES = new Set([
-  "grid_row",
-  "grid_column",
-  "grid_area",
-]);
+const CHILD_GRID_PROPERTIES = new Set(["grid_row", "grid_column", "grid_area"]);
 
 /**
  * General layout properties that can apply to any element.

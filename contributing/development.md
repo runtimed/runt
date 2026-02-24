@@ -60,7 +60,7 @@ The UI must be built before Rust because:
 The xtask commands handle this automatically. If building manually:
 
 ```bash
-pnpm build          # Build all UIs (isolated-renderer, sidecar, notebook)
+pnpm build          # Build all UIs (sidecar, notebook — isolated-renderer built inline)
 cargo build         # Build Rust
 ```
 

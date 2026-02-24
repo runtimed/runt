@@ -38,14 +38,16 @@ type DatetimeValue =
  * The returned Date stores the time internally as UTC, so local getters will
  * automatically convert to the user's timezone.
  */
-function utcComponentsToDate(value: Exclude<DatetimeValue, string | null>): Date {
+function utcComponentsToDate(
+  value: Exclude<DatetimeValue, string | null>,
+): Date {
   const date = new Date();
   date.setUTCFullYear(value.year, value.month, value.date);
   date.setUTCHours(
     value.hours,
     value.minutes,
     value.seconds,
-    value.milliseconds ?? 0
+    value.milliseconds ?? 0,
   );
   return date;
 }
@@ -53,14 +55,16 @@ function utcComponentsToDate(value: Exclude<DatetimeValue, string | null>): Date
 /**
  * Create a Date from local components (for NaiveDatetimeModel).
  */
-function localComponentsToDate(value: Exclude<DatetimeValue, string | null>): Date {
+function localComponentsToDate(
+  value: Exclude<DatetimeValue, string | null>,
+): Date {
   const date = new Date();
   date.setFullYear(value.year, value.month, value.date);
   date.setHours(
     value.hours,
     value.minutes,
     value.seconds,
-    value.milliseconds ?? 0
+    value.milliseconds ?? 0,
   );
   return date;
 }
@@ -93,7 +97,9 @@ function toDatetimeLocalString(value: DatetimeValue, isUtc: boolean): string {
   }
 
   // Convert components to Date, then format for display
-  const date = isUtc ? utcComponentsToDate(value) : localComponentsToDate(value);
+  const date = isUtc
+    ? utcComponentsToDate(value)
+    : localComponentsToDate(value);
   return formatDateForInput(date);
 }
 
@@ -156,7 +162,7 @@ export function DatetimeWidget({ modelId, className }: WidgetComponentProps) {
         sendUpdate(modelId, { value: null });
       }
     },
-    [modelId, sendUpdate, isUtc]
+    [modelId, sendUpdate, isUtc],
   );
 
   return (

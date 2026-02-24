@@ -1,8 +1,8 @@
 import { Plus, RotateCcw, X } from "lucide-react";
 import { useCallback, useMemo, useRef } from "react";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
 import type { Runtime } from "@/hooks/useSyncedSettings";
+import { ErrorBoundary } from "@/lib/error-boundary";
 import type { CellPagePayload } from "../App";
 import {
   EditorRegistryProvider,
@@ -164,8 +164,8 @@ function NotebookViewContent({
 
       if (cell.cell_type === "code") {
         const pagePayload = pagePayloads.get(cell.id) ?? null;
-        // Use TSX for Deno (TypeScript with JSX), Python otherwise
-        const language = runtime === "deno" ? "tsx" : "python";
+        // Use TypeScript for Deno, Python otherwise
+        const language = runtime === "deno" ? "typescript" : "python";
         return (
           <CodeCell
             key={cell.id}

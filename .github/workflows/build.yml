@@ -96,7 +96,6 @@ jobs:
 
       - name: Build UIs
         run: |
-          pnpm run isolated-renderer:build
           pnpm --dir apps/sidecar build
           pnpm --dir apps/notebook build
 
@@ -176,7 +175,6 @@ jobs:
 
       - name: Build frontend
         run: |
-          pnpm run isolated-renderer:build
           pnpm --dir apps/sidecar build
           pnpm --dir apps/notebook build
 

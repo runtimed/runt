@@ -12,18 +12,19 @@ import {
 import { CellContainer } from "@/components/cell/CellContainer";
 import { CompactExecutionButton } from "@/components/cell/CompactExecutionButton";
 import { OutputArea } from "@/components/cell/OutputArea";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
 import {
   CodeMirrorEditor,
   type CodeMirrorEditorRef,
 } from "@/components/editor/codemirror-editor";
 import type { SupportedLanguage } from "@/components/editor/languages";
 import { AnsiOutput } from "@/components/outputs/ansi-output";
+import { ErrorBoundary } from "@/lib/error-boundary";
 import type { CellPagePayload } from "../App";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
 import { useEditorRegistry } from "../hooks/useEditorRegistry";
 import type { MimeBundle } from "../hooks/useKernel";
 import { kernelCompletionExtension } from "../lib/kernel-completion";
+import { rendererCode, rendererCss } from "../renderer-bundle";
 import type { CodeCell as CodeCellType } from "../types";
 
 // Lazy load HistorySearchDialog - it pulls in react-syntax-highlighter (~800KB)
@@ -271,7 +272,14 @@ export function CodeCell({
             )}
           </>
         }
-        outputContent={<OutputArea outputs={cell.outputs} preloadIframe />}
+        outputContent={
+          <OutputArea
+            outputs={cell.outputs}
+            preloadIframe
+            rendererCode={rendererCode}
+            rendererCss={rendererCss}
+          />
+        }
         hideOutput={cell.outputs.length === 0}
       />
 
