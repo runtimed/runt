@@ -339,6 +339,24 @@ fn get_all_from_doc(doc: &AutoCommit) -> SyncedSettings {
             })
     };
 
+    let get_bool = |key: &str| -> Option<bool> {
+        doc.get(automerge::ROOT, key)
+            .ok()
+            .flatten()
+            .and_then(|(value, _)| match value {
+                automerge::Value::Scalar(s) => match s.as_ref() {
+                    automerge::ScalarValue::Boolean(b) => Some(*b),
+                    automerge::ScalarValue::Str(s) => match s.as_str() {
+                        "true" => Some(true),
+                        "false" => Some(false),
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                _ => None,
+            })
+    };
+
     // Read uv packages: try nested list, fall back to flat comma string
     let uv_packages = {
         let nested = read_nested_list(doc, "uv", "default_packages");
@@ -379,6 +397,7 @@ fn get_all_from_doc(doc: &AutoCommit) -> SyncedSettings {
         conda: CondaDefaults {
             default_packages: conda_packages,
         },
+        daemon_execution: get_bool("daemon_execution").unwrap_or(defaults.daemon_execution),
     }
 }
 

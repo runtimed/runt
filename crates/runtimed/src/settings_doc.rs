@@ -157,6 +157,12 @@ pub struct SyncedSettings {
     /// Conda environment defaults
     #[serde(default)]
     pub conda: CondaDefaults,
+
+    /// Enable daemon-owned kernel execution (experimental).
+    /// When enabled, the daemon manages kernel lifecycle and execution queue,
+    /// enabling multi-window kernel sharing.
+    #[serde(default)]
+    pub daemon_execution: bool,
 }
 
 /// Generate a JSON Schema string for the settings file.
@@ -211,6 +217,13 @@ impl SettingsDoc {
         if let Ok(conda_id) = doc.put_object(automerge::ROOT, "conda", ObjType::Map) {
             let _ = doc.put_object(&conda_id, "default_packages", ObjType::List);
         }
+
+        // Boolean settings
+        let _ = doc.put(
+            automerge::ROOT,
+            "daemon_execution",
+            defaults.daemon_execution,
+        );
 
         Self { doc }
     }
@@ -394,6 +407,32 @@ impl SettingsDoc {
         }
     }
 
+    /// Get a boolean setting value from the root.
+    pub fn get_bool(&self, key: &str) -> Option<bool> {
+        self.doc
+            .get(automerge::ROOT, key)
+            .ok()
+            .flatten()
+            .and_then(|(value, _)| match value {
+                automerge::Value::Scalar(s) => match s.as_ref() {
+                    automerge::ScalarValue::Boolean(b) => Some(*b),
+                    // Also support string "true"/"false" for migration
+                    automerge::ScalarValue::Str(s) => match s.as_str() {
+                        "true" => Some(true),
+                        "false" => Some(false),
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                _ => None,
+            })
+    }
+
+    /// Set a boolean setting value at the root.
+    pub fn put_bool(&mut self, key: &str, value: bool) {
+        let _ = self.doc.put(automerge::ROOT, key, value);
+    }
+
     /// Set a scalar setting value, supporting dotted paths for nested maps.
     pub fn put(&mut self, key: &str, value: &str) {
         if let Some((map_key, sub_key)) = key.split_once('.') {
@@ -459,8 +498,8 @@ impl SettingsDoc {
         }
     }
 
-    /// Set a value from a `serde_json::Value` — dispatches to `put` for strings
-    /// or `put_list` for arrays. Used by Tauri commands.
+    ///// Set a value from a `serde_json::Value` — dispatches to `put` for strings,
+    /// `put_list` for arrays, or `put_bool` for booleans. Used by Tauri commands.
     pub fn put_value(&mut self, key: &str, value: &serde_json::Value) {
         match value {
             serde_json::Value::String(s) => self.put(key, s),
@@ -471,6 +510,7 @@ impl SettingsDoc {
                     .collect();
                 self.put_list(key, &items);
             }
+            serde_json::Value::Bool(b) => self.put_bool(key, *b),
             _ => {}
         }
     }
@@ -551,6 +591,9 @@ impl SettingsDoc {
             conda: CondaDefaults {
                 default_packages: conda_packages,
             },
+            daemon_execution: self
+                .get_bool("daemon_execution")
+                .unwrap_or(defaults.daemon_execution),
         }
     }
 
