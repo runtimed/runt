@@ -82,6 +82,139 @@ pub enum BlobResponse {
     Error { error: String },
 }
 
+// =============================================================================
+// Notebook Sync Protocol (Phase 8: Daemon-owned kernel execution)
+// =============================================================================
+
+/// Requests sent from notebook app to daemon for notebook operations.
+///
+/// These are sent as JSON over the notebook sync connection alongside
+/// Automerge sync messages. The daemon handles kernel lifecycle and
+/// execution, becoming the single source of truth for outputs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum NotebookRequest {
+    /// Launch a kernel for this notebook room.
+    /// If a kernel is already running, returns info about the existing kernel.
+    LaunchKernel {
+        /// Kernel type: "python" or "deno"
+        kernel_type: String,
+        /// Environment source: "uv:inline", "conda:prewarmed", etc.
+        env_source: String,
+        /// Path to the notebook file (for working directory)
+        notebook_path: Option<String>,
+    },
+
+    /// Queue a cell for execution.
+    /// Daemon adds to queue and executes when previous cells complete.
+    QueueCell { cell_id: String, code: String },
+
+    /// Clear outputs for a cell (before re-execution).
+    ClearOutputs { cell_id: String },
+
+    /// Interrupt the currently executing cell.
+    InterruptExecution {},
+
+    /// Shutdown the kernel for this room.
+    ShutdownKernel {},
+
+    /// Get info about the current kernel (if any).
+    GetKernelInfo {},
+
+    /// Get the execution queue state.
+    GetQueueState {},
+}
+
+/// Responses from daemon to notebook app.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "result", rename_all = "snake_case")]
+pub enum NotebookResponse {
+    /// Kernel launched successfully.
+    KernelLaunched {
+        kernel_type: String,
+        env_source: String,
+    },
+
+    /// Kernel was already running (returned existing info).
+    KernelAlreadyRunning {
+        kernel_type: String,
+        env_source: String,
+    },
+
+    /// Cell queued for execution.
+    CellQueued { cell_id: String },
+
+    /// Outputs cleared.
+    OutputsCleared { cell_id: String },
+
+    /// Interrupt sent to kernel.
+    InterruptSent {},
+
+    /// Kernel shutdown initiated.
+    KernelShuttingDown {},
+
+    /// No kernel is running.
+    NoKernel {},
+
+    /// Kernel info response.
+    KernelInfo {
+        kernel_type: Option<String>,
+        env_source: Option<String>,
+        status: String, // "idle", "busy", "not_started"
+    },
+
+    /// Queue state response.
+    QueueState {
+        executing: Option<String>, // cell_id currently executing
+        queued: Vec<String>,       // cell_ids waiting
+    },
+
+    /// Generic success.
+    Ok {},
+
+    /// Error response.
+    Error { error: String },
+}
+
+/// Broadcast messages from daemon to all peers in a room.
+///
+/// These are sent proactively when kernel events occur, not as responses
+/// to specific requests. All connected windows receive these.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum NotebookBroadcast {
+    /// Kernel status changed.
+    KernelStatus {
+        status: String,          // "starting", "idle", "busy", "error", "shutdown"
+        cell_id: Option<String>, // which cell triggered status change
+    },
+
+    /// Execution started for a cell.
+    ExecutionStarted {
+        cell_id: String,
+        execution_count: i64,
+    },
+
+    /// Output produced by a cell.
+    Output {
+        cell_id: String,
+        output_type: String, // "stream", "display_data", "execute_result", "error"
+        output_json: String, // Serialized Jupyter output content
+    },
+
+    /// Execution completed for a cell.
+    ExecutionDone { cell_id: String },
+
+    /// Queue state changed.
+    QueueChanged {
+        executing: Option<String>,
+        queued: Vec<String>,
+    },
+
+    /// Kernel error (failed to launch, crashed, etc.)
+    KernelError { error: String },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,5 +423,91 @@ mod tests {
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("abc123"));
+    }
+
+    // Notebook protocol tests
+
+    #[test]
+    fn test_notebook_request_launch_kernel() {
+        let req = NotebookRequest::LaunchKernel {
+            kernel_type: "python".into(),
+            env_source: "uv:prewarmed".into(),
+            notebook_path: Some("/tmp/test.ipynb".into()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("launch_kernel"));
+        assert!(json.contains("python"));
+
+        let parsed: NotebookRequest = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, NotebookRequest::LaunchKernel { .. }));
+    }
+
+    #[test]
+    fn test_notebook_request_queue_cell() {
+        let req = NotebookRequest::QueueCell {
+            cell_id: "abc-123".into(),
+            code: "print('hello')".into(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("queue_cell"));
+        assert!(json.contains("abc-123"));
+
+        let parsed: NotebookRequest = serde_json::from_str(&json).unwrap();
+        match parsed {
+            NotebookRequest::QueueCell { cell_id, code } => {
+                assert_eq!(cell_id, "abc-123");
+                assert_eq!(code, "print('hello')");
+            }
+            _ => panic!("unexpected request type"),
+        }
+    }
+
+    #[test]
+    fn test_notebook_response_kernel_launched() {
+        let resp = NotebookResponse::KernelLaunched {
+            kernel_type: "python".into(),
+            env_source: "conda:inline".into(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("kernel_launched"));
+
+        let parsed: NotebookResponse = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, NotebookResponse::KernelLaunched { .. }));
+    }
+
+    #[test]
+    fn test_notebook_broadcast_output() {
+        let broadcast = NotebookBroadcast::Output {
+            cell_id: "cell-1".into(),
+            output_type: "stream".into(),
+            output_json: r#"{"name":"stdout","text":"hello\n"}"#.into(),
+        };
+        let json = serde_json::to_string(&broadcast).unwrap();
+        assert!(json.contains("output"));
+        assert!(json.contains("cell-1"));
+
+        let parsed: NotebookBroadcast = serde_json::from_str(&json).unwrap();
+        match parsed {
+            NotebookBroadcast::Output {
+                cell_id,
+                output_type,
+                ..
+            } => {
+                assert_eq!(cell_id, "cell-1");
+                assert_eq!(output_type, "stream");
+            }
+            _ => panic!("unexpected broadcast type"),
+        }
+    }
+
+    #[test]
+    fn test_notebook_broadcast_kernel_status() {
+        let broadcast = NotebookBroadcast::KernelStatus {
+            status: "busy".into(),
+            cell_id: Some("cell-1".into()),
+        };
+        let json = serde_json::to_string(&broadcast).unwrap();
+        assert!(json.contains("kernel_status"));
+        assert!(json.contains("busy"));
     }
 }
