@@ -127,3 +127,62 @@ export interface EnvironmentYmlInfo {
   python: string | null;
   channels: string[];
 }
+
+// =============================================================================
+// Daemon Broadcast Types (Phase 8: Daemon-owned kernel execution)
+// =============================================================================
+
+/** Broadcast events from daemon for kernel operations */
+export type DaemonBroadcast =
+  | {
+      event: "kernel_status";
+      status: string; // "starting" | "idle" | "busy" | "error" | "shutdown"
+      cell_id?: string;
+    }
+  | {
+      event: "execution_started";
+      cell_id: string;
+      execution_count: number;
+    }
+  | {
+      event: "output";
+      cell_id: string;
+      output_type: string; // "stream" | "display_data" | "execute_result" | "error"
+      output_json: string; // Serialized Jupyter output
+    }
+  | {
+      event: "execution_done";
+      cell_id: string;
+    }
+  | {
+      event: "queue_changed";
+      executing?: string;
+      queued: string[];
+    }
+  | {
+      event: "kernel_error";
+      error: string;
+    };
+
+/** Response types from daemon notebook requests */
+export type DaemonNotebookResponse =
+  | { result: "kernel_launched"; kernel_type: string; env_source: string }
+  | {
+      result: "kernel_already_running";
+      kernel_type: string;
+      env_source: string;
+    }
+  | { result: "cell_queued"; cell_id: string }
+  | { result: "outputs_cleared"; cell_id: string }
+  | { result: "interrupt_sent" }
+  | { result: "kernel_shutting_down" }
+  | { result: "no_kernel" }
+  | {
+      result: "kernel_info";
+      kernel_type?: string;
+      env_source?: string;
+      status: string;
+    }
+  | { result: "queue_state"; executing?: string; queued: string[] }
+  | { result: "ok" }
+  | { result: "error"; error: string };
