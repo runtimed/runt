@@ -62,7 +62,20 @@ Other:
 
 fn cmd_dev() {
     println!("Starting dev server with hot reload...");
-    run_cmd("cargo", &["tauri", "dev", "--", "-p", "notebook"]);
+
+    // Check if CONDUCTOR_PORT is set and override devUrl accordingly
+    let config_override = env::var("CONDUCTOR_PORT").ok().map(|port| {
+        println!("Using CONDUCTOR_PORT={port}");
+        format!(r#"{{"build":{{"devUrl":"http://localhost:{port}"}}}}"#)
+    });
+
+    let mut args = vec!["tauri", "dev"];
+    if let Some(ref config) = config_override {
+        args.extend(["--config", config]);
+    }
+    args.extend(["--", "-p", "notebook"]);
+
+    run_cmd("cargo", &args);
 }
 
 fn cmd_build() {
