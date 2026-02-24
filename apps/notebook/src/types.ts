@@ -147,8 +147,8 @@ export type DaemonBroadcast =
   | {
       event: "output";
       cell_id: string;
-      output_type: string; // "stream" | "display_data" | "execute_result" | "error"
-      output_json: string; // Serialized Jupyter output
+      output_type: string; // "stream" | "display_data" | "update_display_data" | "execute_result" | "error"
+      output_json: string; // Serialized JupyterMessageContent from daemon
     }
   | {
       event: "execution_done";

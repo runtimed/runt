@@ -3462,6 +3462,12 @@ fn save_setting_locally(key: &str, value: &serde_json::Value) -> Result<(), Stri
             s.conda.default_packages = packages;
             settings::save_settings(&s).map_err(|e| e.to_string())
         }
+        "daemon_execution" => {
+            let enabled = value.as_bool().ok_or("expected boolean")?;
+            let mut s = settings::load_settings();
+            s.daemon_execution = enabled;
+            settings::save_settings(&s).map_err(|e| e.to_string())
+        }
         _ => Ok(()),
     }
 }

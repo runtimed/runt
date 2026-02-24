@@ -306,6 +306,10 @@ impl SettingsDoc {
             settings.put_list("conda.default_packages", &conda_packages);
         }
 
+        if let Some(daemon_execution) = json.get("daemon_execution").and_then(|v| v.as_bool()) {
+            settings.put_bool("daemon_execution", daemon_execution);
+        }
+
         settings
     }
 
@@ -647,6 +651,18 @@ impl SettingsDoc {
             let conda_packages = Self::extract_packages_from_json(json, "conda");
             if self.get_list("conda.default_packages") != conda_packages {
                 self.put_list("conda.default_packages", &conda_packages);
+                changed = true;
+            }
+        }
+
+        // Boolean settings
+        if let Some(daemon_execution) = json.get("daemon_execution").and_then(|v| v.as_bool()) {
+            if self.get_bool("daemon_execution") != Some(daemon_execution) {
+                info!(
+                    "[settings] apply_json_changes: daemon_execution changed {:?} -> {daemon_execution:?}",
+                    self.get_bool("daemon_execution")
+                );
+                self.put_bool("daemon_execution", daemon_execution);
                 changed = true;
             }
         }

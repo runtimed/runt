@@ -18,6 +18,73 @@ import type {
   JupyterOutput,
 } from "../types";
 
+/**
+ * Normalize output from daemon format (JupyterMessageContent) to nbformat shape.
+ *
+ * The daemon serializes Rust JupyterMessageContent which wraps content in variant names
+ * like `StreamContent`, `DisplayData`, etc. We need to convert to nbformat shape with
+ * `output_type` field.
+ */
+function normalizeOutput(
+  rawContent: Record<string, unknown>,
+  outputType: string,
+): JupyterOutput | null {
+  switch (outputType) {
+    case "stream": {
+      // Daemon sends: { "StreamContent": { "name": "stdout", "text": "..." } }
+      // We want: { "output_type": "stream", "name": "stdout", "text": "..." }
+      const content =
+        (rawContent.StreamContent as Record<string, unknown>) ?? rawContent;
+      return {
+        output_type: "stream",
+        name: (content.name as "stdout" | "stderr") ?? "stdout",
+        text: (content.text as string) ?? "",
+      };
+    }
+
+    case "display_data": {
+      // Daemon sends: { "DisplayData": { "data": {...}, "metadata": {...}, "transient": {...} } }
+      const content =
+        (rawContent.DisplayData as Record<string, unknown>) ?? rawContent;
+      return {
+        output_type: "display_data",
+        data: (content.data as Record<string, unknown>) ?? {},
+        metadata: (content.metadata as Record<string, unknown>) ?? {},
+        display_id: (content.transient as Record<string, unknown>)
+          ?.display_id as string | undefined,
+      };
+    }
+
+    case "execute_result": {
+      // Daemon sends: { "ExecuteResult": { "data": {...}, "metadata": {...}, "execution_count": N } }
+      const content =
+        (rawContent.ExecuteResult as Record<string, unknown>) ?? rawContent;
+      return {
+        output_type: "execute_result",
+        data: (content.data as Record<string, unknown>) ?? {},
+        metadata: (content.metadata as Record<string, unknown>) ?? {},
+        execution_count: (content.execution_count as number) ?? null,
+      };
+    }
+
+    case "error": {
+      // Daemon sends: { "ErrorOutput": { "ename": "...", "evalue": "...", "traceback": [...] } }
+      const content =
+        (rawContent.ErrorOutput as Record<string, unknown>) ?? rawContent;
+      return {
+        output_type: "error",
+        ename: (content.ename as string) ?? "Error",
+        evalue: (content.evalue as string) ?? "",
+        traceback: (content.traceback as string[]) ?? [],
+      };
+    }
+
+    default:
+      console.warn(`[daemon-kernel] Unknown output type: ${outputType}`);
+      return null;
+  }
+}
+
 /** Kernel status from daemon */
 export type DaemonKernelStatus =
   | "not_started"
@@ -46,6 +113,12 @@ interface UseDaemonKernelOptions {
   onQueueChange?: (state: DaemonQueueState) => void;
   /** Called on kernel error */
   onKernelError?: (error: string) => void;
+  /** Called when a display_data output should be updated by display_id */
+  onUpdateDisplayData?: (
+    displayId: string,
+    data: Record<string, unknown>,
+    metadata: Record<string, unknown>,
+  ) => void;
 }
 
 export function useDaemonKernel({
@@ -55,6 +128,7 @@ export function useDaemonKernel({
   onStatusChange,
   onQueueChange,
   onKernelError,
+  onUpdateDisplayData,
 }: UseDaemonKernelOptions) {
   const [kernelStatus, setKernelStatus] =
     useState<DaemonKernelStatus>("not_started");
@@ -75,6 +149,7 @@ export function useDaemonKernel({
     onStatusChange,
     onQueueChange,
     onKernelError,
+    onUpdateDisplayData,
   });
   callbacksRef.current = {
     onOutput,
@@ -83,6 +158,7 @@ export function useDaemonKernel({
     onStatusChange,
     onQueueChange,
     onKernelError,
+    onUpdateDisplayData,
   };
 
   // Listen for daemon broadcasts
@@ -93,7 +169,6 @@ export function useDaemonKernel({
       if (cancelled) return;
 
       const broadcast = event.payload;
-      console.log("[daemon-kernel] broadcast:", broadcast);
 
       switch (broadcast.event) {
         case "kernel_status": {
@@ -113,8 +188,33 @@ export function useDaemonKernel({
 
         case "output": {
           try {
-            const output = JSON.parse(broadcast.output_json) as JupyterOutput;
-            callbacksRef.current.onOutput(broadcast.cell_id, output);
+            // Parse the raw content from daemon (JupyterMessageContent format)
+            const rawContent = JSON.parse(broadcast.output_json);
+            const outputType = broadcast.output_type;
+
+            // Handle update_display_data separately - updates existing output by display_id
+            if (outputType === "update_display_data") {
+              const { onUpdateDisplayData } = callbacksRef.current;
+              if (onUpdateDisplayData) {
+                // The daemon sends UpdateDisplayData content wrapped in its variant
+                const content = rawContent.UpdateDisplayData ?? rawContent;
+                const displayId = content.transient?.display_id;
+                if (displayId) {
+                  onUpdateDisplayData(
+                    displayId,
+                    content.data ?? {},
+                    content.metadata ?? {},
+                  );
+                }
+              }
+              break;
+            }
+
+            // Normalize other output types from daemon format to nbformat shape
+            const output = normalizeOutput(rawContent, outputType);
+            if (output) {
+              callbacksRef.current.onOutput(broadcast.cell_id, output);
+            }
           } catch (e) {
             console.error("[daemon-kernel] Failed to parse output:", e);
           }
