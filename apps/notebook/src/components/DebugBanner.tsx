@@ -1,4 +1,4 @@
-import { GitBranch, Zap } from "lucide-react";
+import { GitBranch, Server, Zap } from "lucide-react";
 import type { PoolStatus } from "../hooks/usePrewarmStatus";
 
 interface DebugBannerProps {
@@ -7,6 +7,7 @@ interface DebugBannerProps {
   description?: string | null;
   uvPoolStatus?: PoolStatus | null;
   condaPoolStatus?: PoolStatus | null;
+  daemonVersion?: string | null;
 }
 
 export function DebugBanner({
@@ -15,6 +16,7 @@ export function DebugBanner({
   description,
   uvPoolStatus,
   condaPoolStatus,
+  daemonVersion,
 }: DebugBannerProps) {
   const hasPoolStatus = uvPoolStatus || condaPoolStatus;
 
@@ -58,6 +60,20 @@ export function DebugBanner({
                 )}
               </>
             )}
+          </span>
+        </>
+      )}
+      {daemonVersion && (
+        <>
+          <span className="text-violet-300">|</span>
+          <Server className="h-3 w-3 text-emerald-300" />
+          <span className="text-violet-100">
+            Daemon:{" "}
+            <span className="font-mono">
+              {daemonVersion.includes("+")
+                ? daemonVersion.split("+")[1]
+                : daemonVersion}
+            </span>
           </span>
         </>
       )}

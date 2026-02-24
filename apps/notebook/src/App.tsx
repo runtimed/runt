@@ -23,7 +23,7 @@ import { useDenoDependencies } from "./hooks/useDenoDependencies";
 import { useDependencies } from "./hooks/useDependencies";
 import { useEnvProgress } from "./hooks/useEnvProgress";
 import { useExecutionQueue } from "./hooks/useExecutionQueue";
-import { useGitInfo } from "./hooks/useGitInfo";
+import { useDaemonInfo, useGitInfo } from "./hooks/useGitInfo";
 import { type MimeBundle, useKernel } from "./hooks/useKernel";
 import { useNotebook } from "./hooks/useNotebook";
 import { usePrewarmStatus } from "./hooks/usePrewarmStatus";
@@ -50,6 +50,7 @@ async function sendMessage(message: unknown): Promise<void> {
 
 function AppContent() {
   const gitInfo = useGitInfo();
+  const daemonInfo = useDaemonInfo();
   const prewarmStatus = usePrewarmStatus();
 
   const {
@@ -529,6 +530,7 @@ function AppContent() {
           description={gitInfo.description}
           uvPoolStatus={prewarmStatus.uv}
           condaPoolStatus={prewarmStatus.conda}
+          daemonVersion={daemonInfo?.version}
         />
       )}
       <NotebookToolbar

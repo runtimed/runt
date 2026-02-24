@@ -441,6 +441,30 @@ async fn get_conda_pool_status(
     }
 }
 
+/// Daemon info for debug banner display.
+#[derive(Clone, serde::Serialize)]
+pub struct DaemonInfoForBanner {
+    pub version: String,
+}
+
+/// Get daemon info for the debug banner.
+/// Returns None in release builds or if daemon.json doesn't exist.
+#[tauri::command]
+async fn get_daemon_info() -> Option<DaemonInfoForBanner> {
+    #[cfg(debug_assertions)]
+    {
+        let info_path = dirs::cache_dir()?.join("runt").join("daemon.json");
+        let contents = std::fs::read_to_string(info_path).ok()?;
+        let json: serde_json::Value = serde_json::from_str(&contents).ok()?;
+        let version = json.get("version")?.as_str()?.to_string();
+        Some(DaemonInfoForBanner { version })
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
+    }
+}
+
 #[tauri::command]
 async fn load_notebook(
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
@@ -3689,6 +3713,7 @@ pub fn run(
             get_git_info,
             get_prewarm_status,
             get_conda_pool_status,
+            get_daemon_info,
         ])
         .setup(move |app| {
             let setup_start = std::time::Instant::now();

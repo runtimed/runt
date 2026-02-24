@@ -62,6 +62,23 @@ cargo xtask install-daemon
 
 See `docs/runtimed.md` for service management and troubleshooting.
 
+### Daemon Logs
+
+The daemon logs to:
+```
+~/Library/Caches/runt/runtimed.log
+```
+
+To check daemon logs:
+```bash
+tail -100 ~/Library/Caches/runt/runtimed.log
+```
+
+To check which daemon version is running:
+```bash
+cat ~/Library/Caches/runt/daemon.json
+```
+
 ## Environment Management
 
 Runt supports multiple environment backends (UV, Conda) and project file formats (pyproject.toml, environment.yml, pixi.toml). See `contributing/environments.md` for the full architecture and `docs/environments.md` for the user-facing guide.
