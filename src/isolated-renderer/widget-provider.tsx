@@ -20,13 +20,13 @@ import {
   useRef,
   useSyncExternalStore,
 } from "react";
+import { createCanvasManagerRouter } from "@/components/widgets/canvas-manager-subscriptions";
+import { createLinkManager } from "@/components/widgets/link-subscriptions";
 import {
   resolveModelRef,
   type WidgetModel,
   type WidgetStore,
 } from "@/components/widgets/widget-store";
-import { createLinkManager } from "@/components/widgets/link-subscriptions";
-import { createCanvasManagerRouter } from "@/components/widgets/canvas-manager-subscriptions";
 import { WidgetStoreContext } from "@/components/widgets/widget-store-context";
 import {
   createWidgetBridgeClient,
@@ -41,13 +41,13 @@ interface IframeWidgetStoreContextValue {
   sendUpdate: (
     commId: string,
     state: Record<string, unknown>,
-    buffers?: ArrayBuffer[]
+    buffers?: ArrayBuffer[],
   ) => void;
   /** Send a custom message to the parent (which forwards to kernel) */
   sendCustom: (
     commId: string,
     content: Record<string, unknown>,
-    buffers?: ArrayBuffer[]
+    buffers?: ArrayBuffer[],
   ) => void;
   /** Close a comm channel via parent */
   closeComm: (commId: string) => void;
@@ -105,7 +105,7 @@ export function IframeWidgetStoreProvider({
       sendCustom: client.sendCustom,
       closeComm: client.closeComm,
     }),
-    [client]
+    [client],
   );
 
   // Value for main WidgetStoreContext (so existing widget components work)
@@ -144,7 +144,7 @@ export function IframeWidgetStoreProvider({
       sendCustom: client.sendCustom,
       closeComm: client.closeComm,
     }),
-    [client]
+    [client],
   );
 
   return (
@@ -173,7 +173,7 @@ export function useIframeWidgetStoreRequired(): IframeWidgetStoreContextValue {
   const ctx = useContext(IframeWidgetStoreContext);
   if (!ctx) {
     throw new Error(
-      "useIframeWidgetStoreRequired must be used within IframeWidgetStoreProvider"
+      "useIframeWidgetStoreRequired must be used within IframeWidgetStoreProvider",
     );
   }
   return ctx;
@@ -188,26 +188,24 @@ export function useIframeWidgetModels(): Map<string, WidgetModel> {
   return useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
-    store.getSnapshot
+    store.getSnapshot,
   );
 }
 
 /**
  * Subscribe to a specific widget model.
  */
-export function useIframeWidgetModel(
-  modelId: string
-): WidgetModel | undefined {
+export function useIframeWidgetModel(modelId: string): WidgetModel | undefined {
   const { store } = useIframeWidgetStoreRequired();
 
   const subscribe = useCallback(
     (callback: () => void) => store.subscribe(callback),
-    [store]
+    [store],
   );
 
   const getSnapshot = useCallback(
     () => store.getModel(modelId),
-    [store, modelId]
+    [store, modelId],
   );
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
@@ -218,18 +216,18 @@ export function useIframeWidgetModel(
  */
 export function useIframeWidgetModelValue<T = unknown>(
   modelId: string,
-  key: string
+  key: string,
 ): T | undefined {
   const { store } = useIframeWidgetStoreRequired();
 
   const subscribe = useCallback(
     (callback: () => void) => store.subscribeToKey(modelId, key, callback),
-    [store, modelId, key]
+    [store, modelId, key],
   );
 
   const getSnapshot = useCallback(
     () => store.getModel(modelId)?.state[key] as T | undefined,
-    [store, modelId, key]
+    [store, modelId, key],
   );
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
@@ -240,7 +238,7 @@ export function useIframeWidgetModelValue<T = unknown>(
  */
 export function useIframeResolvedModelValue<T = unknown>(
   modelId: string,
-  key: string
+  key: string,
 ): T | WidgetModel | undefined {
   const { store } = useIframeWidgetStoreRequired();
   const value = useIframeWidgetModelValue(modelId, key);

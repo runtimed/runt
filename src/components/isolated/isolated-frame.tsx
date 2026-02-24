@@ -15,6 +15,7 @@ import type {
 } from "./frame-bridge";
 import { isIframeMessage } from "./frame-bridge";
 import { createFrameBlobUrl } from "./frame-html";
+import { useIsolatedRenderer } from "./isolated-renderer-context";
 
 export interface IsolatedFrameProps {
   /**
@@ -31,29 +32,6 @@ export interface IsolatedFrameProps {
    * Whether to use dark mode styling.
    */
   darkMode?: boolean;
-
-  /**
-   * Whether to bootstrap the React renderer bundle.
-   * When true, fetches and evals the isolated-renderer bundle after the iframe is ready.
-   * The bundle provides full React-based output rendering with MediaRouter support.
-   * Falls back to inline renderer if bundle fetch fails.
-   * @default true
-   */
-  useReactRenderer?: boolean;
-
-  /**
-   * Inline React renderer JavaScript bundle.
-   * When provided with rendererCss, skips fetching from URLs and uses this code directly.
-   * Use with Vite's `?raw` import: `import code from "./renderer.js?raw"`
-   */
-  rendererCode?: string;
-
-  /**
-   * Inline React renderer CSS.
-   * When provided with rendererCode, skips fetching from URLs and uses this CSS directly.
-   * Use with Vite's `?raw` import: `import css from "./renderer.css?raw"`
-   */
-  rendererCss?: string;
 
   /**
    * Minimum height of the iframe in pixels.
@@ -136,14 +114,13 @@ export interface IsolatedFrameHandle {
 
   /**
    * Whether the iframe is ready to receive messages.
-   * When useReactRenderer is true, this is true after the React bundle is initialized.
-   * When useReactRenderer is false, this is true after the inline renderer is ready.
+   * True after the React renderer bundle is initialized.
    */
   isReady: boolean;
 
   /**
    * Whether the iframe bootstrap HTML is loaded.
-   * This is true before the React renderer bundle is loaded (if useReactRenderer is true).
+   * True before the React renderer bundle is loaded.
    */
   isIframeReady: boolean;
 }
@@ -171,8 +148,16 @@ const SANDBOX_ATTRS = [
  * cannot access Tauri APIs or the parent DOM. Communication happens via
  * postMessage.
  *
+ * **Requires** `IsolatedRendererProvider` to be present in the component tree.
+ *
  * @example
  * ```tsx
+ * // In your app root or layout:
+ * <IsolatedRendererProvider basePath="/isolated">
+ *   <App />
+ * </IsolatedRendererProvider>
+ *
+ * // Then use IsolatedFrame anywhere:
  * const frameRef = useRef<IsolatedFrameHandle>(null);
  *
  * <IsolatedFrame
@@ -188,40 +173,6 @@ const SANDBOX_ATTRS = [
  * />
  * ```
  */
-/**
- * Cache for the renderer bundle to avoid re-fetching.
- */
-let rendererBundleCache: string | null = null;
-let rendererCssCache: string | null = null;
-
-/**
- * Fetch the React renderer bundle and CSS.
- */
-async function fetchRendererBundle(): Promise<{ js: string; css: string }> {
-  if (rendererBundleCache && rendererCssCache) {
-    return { js: rendererBundleCache, css: rendererCssCache };
-  }
-
-  const [jsResponse, cssResponse] = await Promise.all([
-    fetch("/isolated/isolated-renderer.js"),
-    fetch("/isolated/isolated-renderer.css"),
-  ]);
-
-  if (!jsResponse.ok) {
-    throw new Error(`Failed to fetch renderer bundle: ${jsResponse.status}`);
-  }
-  if (!cssResponse.ok) {
-    throw new Error(`Failed to fetch renderer CSS: ${cssResponse.status}`);
-  }
-
-  const [js, css] = await Promise.all([jsResponse.text(), cssResponse.text()]);
-
-  rendererBundleCache = js;
-  rendererCssCache = css;
-
-  return { js, css };
-}
-
 export const IsolatedFrame = forwardRef<
   IsolatedFrameHandle,
   IsolatedFrameProps
@@ -230,9 +181,6 @@ export const IsolatedFrame = forwardRef<
     id,
     initialContent,
     darkMode = true,
-    useReactRenderer = true,
-    rendererCode,
-    rendererCss,
     minHeight = 24,
     maxHeight = 2000,
     className = "",
@@ -246,11 +194,13 @@ export const IsolatedFrame = forwardRef<
   },
   ref,
 ) {
+  // Get renderer bundle from context (provided by IsolatedRendererProvider)
+  const { rendererCode, rendererCss } = useIsolatedRenderer();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   // Track iframe ready (bootstrap HTML loaded)
   const [isIframeReady, setIsIframeReady] = useState(false);
-  // Track renderer ready (React bundle initialized, or inline renderer if not using React)
+  // Track renderer ready (React bundle initialized)
   const [isReady, setIsReady] = useState(false);
   // Use ref to track ready state for send callback (avoids stale closure)
   const isReadyRef = useRef(false);
@@ -339,64 +289,8 @@ export const IsolatedFrame = forwardRef<
       switch (data.type) {
         case "ready":
           // Iframe bootstrap HTML is loaded
+          // Renderer injection is handled by a separate useEffect
           setIsIframeReady(true);
-
-          if (useReactRenderer) {
-            // Bootstrap the React renderer if not already doing so
-            if (!bootstrappingRef.current) {
-              bootstrappingRef.current = true;
-
-              // Helper to inject the renderer bundle
-              const injectRenderer = (js: string, css: string) => {
-                // Inject CSS first
-                const cssCode = `
-                    (function() {
-                      var style = document.createElement('style');
-                      style.textContent = ${JSON.stringify(css)};
-                      document.head.appendChild(style);
-                    })();
-                  `;
-                iframeRef.current?.contentWindow?.postMessage(
-                  { type: "eval", payload: { code: cssCode } },
-                  "*",
-                );
-                // Then inject JS bundle
-                iframeRef.current?.contentWindow?.postMessage(
-                  { type: "eval", payload: { code: js } },
-                  "*",
-                );
-              };
-
-              // Use inline code if provided, otherwise fetch from URLs
-              if (rendererCode && rendererCss) {
-                injectRenderer(rendererCode, rendererCss);
-              } else {
-                fetchRendererBundle()
-                  .then(({ js, css }) => injectRenderer(js, css))
-                  .catch((err) => {
-                    console.error(
-                      "[IsolatedFrame] Failed to load renderer:",
-                      err,
-                    );
-                    onError?.({ message: err.message });
-                    // Fall back to inline renderer
-                    setIsReady(true);
-                    onReady?.();
-                  });
-              }
-            }
-          } else {
-            // Using inline renderer, mark as ready immediately
-            setIsReady(true);
-            onReady?.();
-            // Render initial content if provided
-            if (initialContent) {
-              iframeRef.current?.contentWindow?.postMessage(
-                { type: "render", payload: initialContent },
-                "*",
-              );
-            }
-          }
           break;
 
         case "renderer_ready":
@@ -453,9 +347,6 @@ export const IsolatedFrame = forwardRef<
     initialContent,
     minHeight,
     maxHeight,
-    useReactRenderer,
-    rendererCode,
-    rendererCss,
     onReady,
     onResize,
     onLinkClick,
@@ -464,6 +355,48 @@ export const IsolatedFrame = forwardRef<
     onError,
     onMessage,
   ]);
+
+  // Inject renderer when iframe is ready AND bundle props are available
+  useEffect(() => {
+    if (
+      isIframeReady &&
+      !isReady &&
+      !bootstrappingRef.current &&
+      rendererCode &&
+      rendererCss &&
+      iframeRef.current?.contentWindow
+    ) {
+      bootstrappingRef.current = true;
+
+      // Inject CSS first (idempotent - checks if already loaded)
+      const cssCode = `
+        (function() {
+          if (window.__ISOLATED_CSS_LOADED__) return;
+          window.__ISOLATED_CSS_LOADED__ = true;
+          var style = document.createElement('style');
+          style.textContent = ${JSON.stringify(rendererCss)};
+          document.head.appendChild(style);
+        })();
+      `;
+      iframeRef.current.contentWindow.postMessage(
+        { type: "eval", payload: { code: cssCode } },
+        "*",
+      );
+      // Then inject JS bundle (idempotent - checks if already loaded)
+      // Use string concatenation instead of template literal to avoid issues
+      // with backticks or ${} in the bundled code
+      const jsWrapper =
+        "(function() {" +
+        "if (window.__ISOLATED_RENDERER_LOADED__) return;" +
+        "window.__ISOLATED_RENDERER_LOADED__ = true;" +
+        rendererCode +
+        "})();";
+      iframeRef.current.contentWindow.postMessage(
+        { type: "eval", payload: { code: jsWrapper } },
+        "*",
+      );
+    }
+  }, [isIframeReady, isReady, rendererCode, rendererCss]);
 
   // Expose imperative API
   useImperativeHandle(
@@ -492,6 +425,7 @@ export const IsolatedFrame = forwardRef<
       src={blobUrl}
       sandbox={SANDBOX_ATTRS}
       className={className}
+      data-slot="isolated-frame"
       style={{
         width: "100%",
         height: `${height}px`,

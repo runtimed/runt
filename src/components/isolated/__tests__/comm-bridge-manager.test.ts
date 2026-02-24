@@ -6,12 +6,15 @@
  * and echo prevention.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  WidgetModel,
+  WidgetStore,
+} from "@/components/widgets/widget-store";
 import {
   CommBridgeManager,
   createCommBridgeManager,
 } from "../comm-bridge-manager";
-import type { WidgetStore, WidgetModel } from "@/components/widgets/widget-store";
 import type { IsolatedFrameHandle } from "../isolated-frame";
 
 // Helper to create a mock WidgetStore
@@ -19,11 +22,17 @@ function createMockStore(initialModels: Map<string, WidgetModel> = new Map()): {
   store: WidgetStore;
   triggerChange: () => void;
   listeners: Set<() => void>;
-  customMessageListeners: Map<string, Set<(content: Record<string, unknown>, buffers?: DataView[]) => void>>;
+  customMessageListeners: Map<
+    string,
+    Set<(content: Record<string, unknown>, buffers?: DataView[]) => void>
+  >;
 } {
-  let models = initialModels;
+  const models = initialModels;
   const listeners = new Set<() => void>();
-  const customMessageListeners = new Map<string, Set<(content: Record<string, unknown>, buffers?: DataView[]) => void>>();
+  const customMessageListeners = new Map<
+    string,
+    Set<(content: Record<string, unknown>, buffers?: DataView[]) => void>
+  >();
 
   const store: WidgetStore = {
     subscribe: vi.fn((listener) => {
@@ -56,7 +65,10 @@ function createMockStore(initialModels: Map<string, WidgetModel> = new Map()): {
 }
 
 // Helper to create a mock IsolatedFrameHandle
-function createMockFrame(): { frame: IsolatedFrameHandle; sendCalls: unknown[] } {
+function createMockFrame(): {
+  frame: IsolatedFrameHandle;
+  sendCalls: unknown[];
+} {
   const sendCalls: unknown[] = [];
   const frame: IsolatedFrameHandle = {
     send: vi.fn((msg) => sendCalls.push(msg)),
@@ -65,6 +77,7 @@ function createMockFrame(): { frame: IsolatedFrameHandle; sendCalls: unknown[] }
     setTheme: vi.fn(),
     clear: vi.fn(),
     isReady: true,
+    isIframeReady: true,
   };
   return { frame, sendCalls };
 }
@@ -73,7 +86,7 @@ function createMockFrame(): { frame: IsolatedFrameHandle; sendCalls: unknown[] }
 function createModel(
   id: string,
   state: Record<string, unknown> = {},
-  modelModule = "@jupyter-widgets/controls"
+  modelModule = "@jupyter-widgets/controls",
 ): WidgetModel {
   return {
     id,
@@ -114,7 +127,9 @@ describe("CommBridgeManager", () => {
     it("sends bridge_ready on construction", () => {
       createManager();
 
-      expect(mockFrame.frame.send).toHaveBeenCalledWith({ type: "bridge_ready" });
+      expect(mockFrame.frame.send).toHaveBeenCalledWith({
+        type: "bridge_ready",
+      });
     });
 
     it("subscribes to store changes", () => {
@@ -169,13 +184,13 @@ describe("CommBridgeManager", () => {
 
       // Find the buffered messages (after comm_sync)
       const commOpenIdx = mockFrame.sendCalls.findIndex(
-        (msg: unknown) => (msg as { type: string }).type === "comm_open"
+        (msg: unknown) => (msg as { type: string }).type === "comm_open",
       );
       const commMsgIdx = mockFrame.sendCalls.findIndex(
-        (msg: unknown) => (msg as { type: string }).type === "comm_msg"
+        (msg: unknown) => (msg as { type: string }).type === "comm_msg",
       );
       const commCloseIdx = mockFrame.sendCalls.findIndex(
-        (msg: unknown) => (msg as { type: string }).type === "comm_close"
+        (msg: unknown) => (msg as { type: string }).type === "comm_close",
       );
 
       // All should exist and be in order
@@ -226,7 +241,7 @@ describe("CommBridgeManager", () => {
       manager.handleIframeMessage({ type: "widget_ready" });
 
       const commSync = mockFrame.sendCalls.find(
-        (msg: unknown) => (msg as { type: string }).type === "comm_sync"
+        (msg: unknown) => (msg as { type: string }).type === "comm_sync",
       ) as { type: string; payload: { models: unknown[] } };
 
       expect(commSync).toBeDefined();
@@ -256,7 +271,9 @@ describe("CommBridgeManager", () => {
       // Should not send comm_open again (model already tracked as sent)
       const newCommOpens = mockFrame.sendCalls
         .slice(callsAfterReady)
-        .filter((msg: unknown) => (msg as { type: string }).type === "comm_open");
+        .filter(
+          (msg: unknown) => (msg as { type: string }).type === "comm_open",
+        );
       expect(newCommOpens).toHaveLength(0);
     });
 
@@ -276,14 +293,12 @@ describe("CommBridgeManager", () => {
 
       manager.handleIframeMessage({ type: "widget_ready" });
 
-      expect(storeWithModels.store.subscribeToCustomMessage).toHaveBeenCalledWith(
-        "comm-1",
-        expect.any(Function)
-      );
-      expect(storeWithModels.store.subscribeToCustomMessage).toHaveBeenCalledWith(
-        "comm-2",
-        expect.any(Function)
-      );
+      expect(
+        storeWithModels.store.subscribeToCustomMessage,
+      ).toHaveBeenCalledWith("comm-1", expect.any(Function));
+      expect(
+        storeWithModels.store.subscribeToCustomMessage,
+      ).toHaveBeenCalledWith("comm-2", expect.any(Function));
     });
   });
 
@@ -305,7 +320,7 @@ describe("CommBridgeManager", () => {
 
       // Should have sent comm_sync with the model
       const commSync = mockFrame.sendCalls.find(
-        (msg: unknown) => (msg as { type: string }).type === "comm_sync"
+        (msg: unknown) => (msg as { type: string }).type === "comm_sync",
       );
       expect(commSync).toBeDefined();
     });
@@ -326,9 +341,13 @@ describe("CommBridgeManager", () => {
       expect(mockStore.store.updateModel).toHaveBeenCalledWith(
         "comm-1",
         { value: 42 },
-        undefined
+        undefined,
       );
-      expect(sendUpdate).toHaveBeenCalledWith("comm-1", { value: 42 }, undefined);
+      expect(sendUpdate).toHaveBeenCalledWith(
+        "comm-1",
+        { value: 42 },
+        undefined,
+      );
     });
 
     it("processes widget_comm_msg with custom method", () => {
@@ -346,7 +365,11 @@ describe("CommBridgeManager", () => {
 
       // Custom messages don't update store, they go directly to kernel
       expect(mockStore.store.updateModel).not.toHaveBeenCalled();
-      expect(sendCustom).toHaveBeenCalledWith("comm-1", { action: "reset" }, undefined);
+      expect(sendCustom).toHaveBeenCalledWith(
+        "comm-1",
+        { action: "reset" },
+        undefined,
+      );
     });
 
     it("processes widget_comm_close message", () => {
@@ -382,7 +405,7 @@ describe("CommBridgeManager", () => {
       // Simulate adding a new model to the store
       const newModel = createModel("new-comm", { value: 100 });
       (mockStore.store.getSnapshot as ReturnType<typeof vi.fn>).mockReturnValue(
-        new Map([["new-comm", newModel]])
+        new Map([["new-comm", newModel]]),
       );
 
       // Trigger store change
@@ -391,8 +414,10 @@ describe("CommBridgeManager", () => {
       // Should have sent comm_open for the new model
       const commOpen = mockFrame.sendCalls.find(
         (msg: unknown) =>
-          (msg as { type: string; payload?: { commId: string } }).type === "comm_open" &&
-          (msg as { payload: { commId: string } }).payload.commId === "new-comm"
+          (msg as { type: string; payload?: { commId: string } }).type ===
+            "comm_open" &&
+          (msg as { payload: { commId: string } }).payload.commId ===
+            "new-comm",
       );
       expect(commOpen).toBeDefined();
     });
@@ -414,16 +439,18 @@ describe("CommBridgeManager", () => {
       manager.handleIframeMessage({ type: "widget_ready" });
 
       // Now remove the model
-      (storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>).mockReturnValue(
-        new Map()
-      );
+      (
+        storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>
+      ).mockReturnValue(new Map());
       storeWithModels.triggerChange();
 
       // Should have sent comm_close
       const commClose = mockFrame.sendCalls.find(
         (msg: unknown) =>
-          (msg as { type: string; payload?: { commId: string } }).type === "comm_close" &&
-          (msg as { payload: { commId: string } }).payload.commId === "comm-to-delete"
+          (msg as { type: string; payload?: { commId: string } }).type ===
+            "comm_close" &&
+          (msg as { payload: { commId: string } }).payload.commId ===
+            "comm-to-delete",
       );
       expect(commClose).toBeDefined();
     });
@@ -446,16 +473,21 @@ describe("CommBridgeManager", () => {
 
       // Update the model's state
       const updatedModel = createModel("comm-1", { value: 99 });
-      (storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>).mockReturnValue(
-        new Map([["comm-1", updatedModel]])
-      );
+      (
+        storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>
+      ).mockReturnValue(new Map([["comm-1", updatedModel]]));
       storeWithModels.triggerChange();
 
       // Should have sent comm_msg with update
       const commMsg = mockFrame.sendCalls.find(
         (msg: unknown) =>
-          (msg as { type: string; payload?: { commId: string; method: string } }).type === "comm_msg" &&
-          (msg as { payload: { commId: string } }).payload.commId === "comm-1"
+          (
+            msg as {
+              type: string;
+              payload?: { commId: string; method: string };
+            }
+          ).type === "comm_msg" &&
+          (msg as { payload: { commId: string } }).payload.commId === "comm-1",
       );
       expect(commMsg).toBeDefined();
     });
@@ -463,7 +495,14 @@ describe("CommBridgeManager", () => {
     it("only sends delta for changed keys", () => {
       // Start with a model with multiple keys
       const models = new Map<string, WidgetModel>([
-        ["comm-1", createModel("comm-1", { value: 1, label: "test", other: "unchanged" })],
+        [
+          "comm-1",
+          createModel("comm-1", {
+            value: 1,
+            label: "test",
+            other: "unchanged",
+          }),
+        ],
       ]);
       const storeWithModels = createMockStore(models);
       const manager = new CommBridgeManager({
@@ -478,16 +517,22 @@ describe("CommBridgeManager", () => {
       const callsAfterReady = mockFrame.sendCalls.length;
 
       // Update only the value key
-      const updatedModel = createModel("comm-1", { value: 2, label: "test", other: "unchanged" });
-      (storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>).mockReturnValue(
-        new Map([["comm-1", updatedModel]])
-      );
+      const updatedModel = createModel("comm-1", {
+        value: 2,
+        label: "test",
+        other: "unchanged",
+      });
+      (
+        storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>
+      ).mockReturnValue(new Map([["comm-1", updatedModel]]));
       storeWithModels.triggerChange();
 
       // Find the comm_msg that was sent
       const commMsg = mockFrame.sendCalls
         .slice(callsAfterReady)
-        .find((msg: unknown) => (msg as { type: string }).type === "comm_msg") as {
+        .find(
+          (msg: unknown) => (msg as { type: string }).type === "comm_msg",
+        ) as {
         type: string;
         payload: { data: Record<string, unknown> };
       };
@@ -522,7 +567,9 @@ describe("CommBridgeManager", () => {
       // Should not have sent any new comm_msg
       const newCommMsgs = mockFrame.sendCalls
         .slice(callsAfterReady)
-        .filter((msg: unknown) => (msg as { type: string }).type === "comm_msg");
+        .filter(
+          (msg: unknown) => (msg as { type: string }).type === "comm_msg",
+        );
       expect(newCommMsgs).toHaveLength(0);
     });
   });
@@ -558,7 +605,9 @@ describe("CommBridgeManager", () => {
       // so no comm_msg should be sent back to iframe
       const newCommMsgs = mockFrame.sendCalls
         .slice(callsAfterReady)
-        .filter((msg: unknown) => (msg as { type: string }).type === "comm_msg");
+        .filter(
+          (msg: unknown) => (msg as { type: string }).type === "comm_msg",
+        );
       expect(newCommMsgs).toHaveLength(0);
     });
 
@@ -567,7 +616,9 @@ describe("CommBridgeManager", () => {
       manager.handleIframeMessage({ type: "widget_ready" });
 
       // Make updateModel throw
-      (mockStore.store.updateModel as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      (
+        mockStore.store.updateModel as ReturnType<typeof vi.fn>
+      ).mockImplementation(() => {
         throw new Error("Test error");
       });
 
@@ -589,7 +640,7 @@ describe("CommBridgeManager", () => {
       // Add a new model
       const newModel = createModel("new-comm", { value: 100 });
       (mockStore.store.getSnapshot as ReturnType<typeof vi.fn>).mockReturnValue(
-        new Map([["new-comm", newModel]])
+        new Map([["new-comm", newModel]]),
       );
       mockStore.triggerChange();
 
@@ -615,8 +666,15 @@ describe("CommBridgeManager", () => {
       manager.handleIframeMessage({ type: "widget_ready" });
 
       // Get the callback that was registered
-      const subscribeCall = (storeWithModels.store.subscribeToCustomMessage as ReturnType<typeof vi.fn>).mock.calls[0];
-      const callback = subscribeCall[1] as (content: Record<string, unknown>, buffers?: DataView[]) => void;
+      const subscribeCall = (
+        storeWithModels.store.subscribeToCustomMessage as ReturnType<
+          typeof vi.fn
+        >
+      ).mock.calls[0];
+      const callback = subscribeCall[1] as (
+        content: Record<string, unknown>,
+        buffers?: DataView[],
+      ) => void;
 
       // Simulate receiving a custom message with DataView buffers
       const buffer = new ArrayBuffer(8);
@@ -626,8 +684,9 @@ describe("CommBridgeManager", () => {
       // Find the comm_msg sent with custom
       const commMsg = mockFrame.sendCalls.find(
         (msg: unknown) =>
-          (msg as { type: string; payload?: { method: string } }).type === "comm_msg" &&
-          (msg as { payload: { method: string } }).payload.method === "custom"
+          (msg as { type: string; payload?: { method: string } }).type ===
+            "comm_msg" &&
+          (msg as { payload: { method: string } }).payload.method === "custom",
       ) as { payload: { buffers: ArrayBuffer[] } };
 
       expect(commMsg).toBeDefined();
@@ -651,8 +710,15 @@ describe("CommBridgeManager", () => {
       manager.handleIframeMessage({ type: "widget_ready" });
 
       // Get the callback
-      const subscribeCall = (storeWithModels.store.subscribeToCustomMessage as ReturnType<typeof vi.fn>).mock.calls[0];
-      const callback = subscribeCall[1] as (content: Record<string, unknown>, buffers?: DataView[]) => void;
+      const subscribeCall = (
+        storeWithModels.store.subscribeToCustomMessage as ReturnType<
+          typeof vi.fn
+        >
+      ).mock.calls[0];
+      const callback = subscribeCall[1] as (
+        content: Record<string, unknown>,
+        buffers?: DataView[],
+      ) => void;
 
       // Call with undefined buffers - should not throw
       expect(() => callback({ action: "draw" }, undefined)).not.toThrow();
@@ -676,8 +742,11 @@ describe("CommBridgeManager", () => {
       manager.handleIframeMessage({ type: "widget_ready" });
 
       // Should only have subscribed once per model
-      const subscribeCalls = (storeWithModels.store.subscribeToCustomMessage as ReturnType<typeof vi.fn>).mock.calls
-        .filter((call: unknown[]) => call[0] === "comm-1");
+      const subscribeCalls = (
+        storeWithModels.store.subscribeToCustomMessage as ReturnType<
+          typeof vi.fn
+        >
+      ).mock.calls.filter((call: unknown[]) => call[0] === "comm-1");
 
       expect(subscribeCalls).toHaveLength(1);
     });
@@ -690,7 +759,11 @@ describe("CommBridgeManager", () => {
 
       // Track unsubscribe calls
       const unsubscribeFn = vi.fn();
-      (storeWithModels.store.subscribeToCustomMessage as ReturnType<typeof vi.fn>).mockReturnValue(unsubscribeFn);
+      (
+        storeWithModels.store.subscribeToCustomMessage as ReturnType<
+          typeof vi.fn
+        >
+      ).mockReturnValue(unsubscribeFn);
 
       const manager = new CommBridgeManager({
         frame: mockFrame.frame,
@@ -703,7 +776,9 @@ describe("CommBridgeManager", () => {
       manager.handleIframeMessage({ type: "widget_ready" });
 
       // Now delete the model
-      (storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>).mockReturnValue(new Map());
+      (
+        storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>
+      ).mockReturnValue(new Map());
       storeWithModels.triggerChange();
 
       // Unsubscribe should have been called
@@ -714,9 +789,6 @@ describe("CommBridgeManager", () => {
   describe("dispose", () => {
     it("unsubscribes from store", () => {
       const manager = createManager();
-
-      // Subscribe returns an unsubscribe function
-      const unsubscribe = (mockStore.store.subscribe as ReturnType<typeof vi.fn>).mock.results[0].value;
 
       manager.dispose();
 
@@ -733,7 +805,11 @@ describe("CommBridgeManager", () => {
 
       const unsubscribeFns = [vi.fn(), vi.fn()];
       let callCount = 0;
-      (storeWithModels.store.subscribeToCustomMessage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      (
+        storeWithModels.store.subscribeToCustomMessage as ReturnType<
+          typeof vi.fn
+        >
+      ).mockImplementation(() => {
         return unsubscribeFns[callCount++];
       });
 
@@ -768,8 +844,9 @@ describe("CommBridgeManager", () => {
       // Should not have sent the buffered messages
       const commOpen = mockFrame.sendCalls.find(
         (msg: unknown) =>
-          (msg as { type: string; payload?: { commId: string } }).type === "comm_open" &&
-          (msg as { payload: { commId: string } }).payload?.commId === "comm-1"
+          (msg as { type: string; payload?: { commId: string } }).type ===
+            "comm_open" &&
+          (msg as { payload: { commId: string } }).payload?.commId === "comm-1",
       );
       expect(commOpen).toBeUndefined();
     });
@@ -794,7 +871,7 @@ describe("CommBridgeManager", () => {
       manager.handleIframeMessage({ type: "widget_ready" });
 
       const commSyncs = mockFrame.sendCalls.filter(
-        (msg: unknown) => (msg as { type: string }).type === "comm_sync"
+        (msg: unknown) => (msg as { type: string }).type === "comm_sync",
       );
 
       // Should have two comm_sync messages (before and after dispose)
@@ -813,8 +890,9 @@ describe("CommBridgeManager", () => {
       // Find if comm_open was sent directly
       const directCommOpen = mockFrame.sendCalls.find(
         (msg: unknown) =>
-          (msg as { type: string; payload?: { commId: string } }).type === "comm_open" &&
-          (msg as { payload: { commId: string } }).payload?.commId === "comm-1"
+          (msg as { type: string; payload?: { commId: string } }).type ===
+            "comm_open" &&
+          (msg as { payload: { commId: string } }).payload?.commId === "comm-1",
       );
 
       // Should not have been sent (should be buffered)
@@ -842,15 +920,20 @@ describe("CommBridgeManager", () => {
       const callsAfterReady = mockFrame.sendCalls.length;
 
       // Add a new key
-      const updatedModel = createModel("comm-1", { existing: 1, newKey: "added" });
-      (storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>).mockReturnValue(
-        new Map([["comm-1", updatedModel]])
-      );
+      const updatedModel = createModel("comm-1", {
+        existing: 1,
+        newKey: "added",
+      });
+      (
+        storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>
+      ).mockReturnValue(new Map([["comm-1", updatedModel]]));
       storeWithModels.triggerChange();
 
       const commMsg = mockFrame.sendCalls
         .slice(callsAfterReady)
-        .find((msg: unknown) => (msg as { type: string }).type === "comm_msg") as {
+        .find(
+          (msg: unknown) => (msg as { type: string }).type === "comm_msg",
+        ) as {
         payload: { data: Record<string, unknown> };
       };
 
@@ -876,14 +959,16 @@ describe("CommBridgeManager", () => {
 
       // Remove a key (by not including it in new state)
       const updatedModel = createModel("comm-1", { keep: 2 });
-      (storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>).mockReturnValue(
-        new Map([["comm-1", updatedModel]])
-      );
+      (
+        storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>
+      ).mockReturnValue(new Map([["comm-1", updatedModel]]));
       storeWithModels.triggerChange();
 
       const commMsg = mockFrame.sendCalls
         .slice(callsAfterReady)
-        .find((msg: unknown) => (msg as { type: string }).type === "comm_msg") as {
+        .find(
+          (msg: unknown) => (msg as { type: string }).type === "comm_msg",
+        ) as {
         payload: { data: Record<string, unknown> };
       };
 
@@ -910,14 +995,16 @@ describe("CommBridgeManager", () => {
 
       // Change value
       const updatedModel = createModel("comm-1", { value: 999 });
-      (storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>).mockReturnValue(
-        new Map([["comm-1", updatedModel]])
-      );
+      (
+        storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>
+      ).mockReturnValue(new Map([["comm-1", updatedModel]]));
       storeWithModels.triggerChange();
 
       const commMsg = mockFrame.sendCalls
         .slice(callsAfterReady)
-        .find((msg: unknown) => (msg as { type: string }).type === "comm_msg") as {
+        .find(
+          (msg: unknown) => (msg as { type: string }).type === "comm_msg",
+        ) as {
         payload: { data: Record<string, unknown> };
       };
 
@@ -945,14 +1032,16 @@ describe("CommBridgeManager", () => {
       // New object reference (even with same content)
       const obj2 = { nested: 1 };
       const updatedModel = createModel("comm-1", { obj: obj2 });
-      (storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>).mockReturnValue(
-        new Map([["comm-1", updatedModel]])
-      );
+      (
+        storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>
+      ).mockReturnValue(new Map([["comm-1", updatedModel]]));
       storeWithModels.triggerChange();
 
       const commMsg = mockFrame.sendCalls
         .slice(callsAfterReady)
-        .find((msg: unknown) => (msg as { type: string }).type === "comm_msg") as {
+        .find(
+          (msg: unknown) => (msg as { type: string }).type === "comm_msg",
+        ) as {
         payload: { data: Record<string, unknown> };
       };
 
@@ -978,15 +1067,17 @@ describe("CommBridgeManager", () => {
 
       // Same object reference
       const updatedModel = createModel("comm-1", { obj });
-      (storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>).mockReturnValue(
-        new Map([["comm-1", updatedModel]])
-      );
+      (
+        storeWithModels.store.getSnapshot as ReturnType<typeof vi.fn>
+      ).mockReturnValue(new Map([["comm-1", updatedModel]]));
       storeWithModels.triggerChange();
 
       // Should not have sent any comm_msg
       const commMsgs = mockFrame.sendCalls
         .slice(callsAfterReady)
-        .filter((msg: unknown) => (msg as { type: string }).type === "comm_msg");
+        .filter(
+          (msg: unknown) => (msg as { type: string }).type === "comm_msg",
+        );
 
       expect(commMsgs).toHaveLength(0);
     });
@@ -1017,15 +1108,23 @@ describe("CommBridgeManager", () => {
 
       const commMsg = mockFrame.sendCalls
         .slice(callsAfterReady)
-        .find((msg: unknown) => (msg as { type: string }).type === "comm_msg") as {
-        type: string;
-        payload: { commId: string; method: string; data: Record<string, unknown> };
-      } | undefined;
+        .find(
+          (msg: unknown) => (msg as { type: string }).type === "comm_msg",
+        ) as
+        | {
+            type: string;
+            payload: {
+              commId: string;
+              method: string;
+              data: Record<string, unknown>;
+            };
+          }
+        | undefined;
 
       expect(commMsg).toBeDefined();
-      expect(commMsg.payload.commId).toBe("comm-1");
-      expect(commMsg.payload.method).toBe("update");
-      expect(commMsg.payload.data.outputs).toBeDefined();
+      expect(commMsg!.payload.commId).toBe("comm-1");
+      expect(commMsg!.payload.method).toBe("update");
+      expect(commMsg!.payload.data.outputs).toBeDefined();
     });
   });
 

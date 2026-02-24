@@ -1,10 +1,8 @@
 import { act, render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
 import { OutputWidget } from "@/components/widgets/controls/output-widget";
-import {
-  WidgetStoreContext,
-} from "@/components/widgets/widget-store-context";
 import { createWidgetStore } from "@/components/widgets/widget-store";
+import { WidgetStoreContext } from "@/components/widgets/widget-store-context";
 
 describe("OutputWidget", () => {
   beforeAll(() => {
@@ -45,7 +43,7 @@ describe("OutputWidget", () => {
         }}
       >
         <OutputWidget modelId="output-1" />
-      </WidgetStoreContext.Provider>
+      </WidgetStoreContext.Provider>,
     );
 
     await act(async () => {});
@@ -84,7 +82,7 @@ describe("OutputWidget", () => {
         }}
       >
         <OutputWidget modelId="output-1" />
-      </WidgetStoreContext.Provider>
+      </WidgetStoreContext.Provider>,
     );
 
     await act(async () => {});
