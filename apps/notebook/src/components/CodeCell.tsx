@@ -12,13 +12,13 @@ import {
 import { CellContainer } from "@/components/cell/CellContainer";
 import { CompactExecutionButton } from "@/components/cell/CompactExecutionButton";
 import { OutputArea } from "@/components/cell/OutputArea";
-import { ErrorBoundary } from "@/lib/error-boundary";
 import {
   CodeMirrorEditor,
   type CodeMirrorEditorRef,
 } from "@/components/editor/codemirror-editor";
 import type { SupportedLanguage } from "@/components/editor/languages";
 import { AnsiOutput } from "@/components/outputs/ansi-output";
+import { ErrorBoundary } from "@/lib/error-boundary";
 import type { CellPagePayload } from "../App";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
 import { useEditorRegistry } from "../hooks/useEditorRegistry";

@@ -1,8 +1,8 @@
 import { Plus, RotateCcw, X } from "lucide-react";
 import { useCallback, useMemo, useRef } from "react";
-import { ErrorBoundary } from "@/lib/error-boundary";
 import { Button } from "@/components/ui/button";
 import type { Runtime } from "@/hooks/useSyncedSettings";
+import { ErrorBoundary } from "@/lib/error-boundary";
 import type { CellPagePayload } from "../App";
 import {
   EditorRegistryProvider,
