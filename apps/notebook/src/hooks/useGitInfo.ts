@@ -7,6 +7,10 @@ interface GitInfo {
   description: string | null;
 }
 
+interface DaemonInfo {
+  version: string;
+}
+
 export function useGitInfo() {
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
 
@@ -19,4 +23,18 @@ export function useGitInfo() {
   }, []);
 
   return gitInfo;
+}
+
+export function useDaemonInfo() {
+  const [daemonInfo, setDaemonInfo] = useState<DaemonInfo | null>(null);
+
+  useEffect(() => {
+    invoke<DaemonInfo | null>("get_daemon_info")
+      .then(setDaemonInfo)
+      .catch((e) => {
+        console.error("Failed to get daemon info:", e);
+      });
+  }, []);
+
+  return daemonInfo;
 }
