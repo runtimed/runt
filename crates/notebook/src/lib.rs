@@ -829,6 +829,41 @@ async fn execute_cell(
     result
 }
 
+/// Sync an output to Automerge for cross-window sync.
+/// Called from frontend after receiving iopub output.
+#[tauri::command]
+async fn sync_append_output(
+    cell_id: String,
+    output_json: String,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<(), String> {
+    if let Some(handle) = notebook_sync.lock().await.as_ref() {
+        if let Err(e) = handle.append_output(&cell_id, &output_json).await {
+            warn!("[notebook-sync] append_output failed: {}", e);
+        }
+    }
+    Ok(())
+}
+
+/// Sync execution count to Automerge for cross-window sync.
+/// Called from frontend after receiving execute_input or execute_result.
+#[tauri::command]
+async fn sync_execution_count(
+    cell_id: String,
+    count: i32,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<(), String> {
+    if let Some(handle) = notebook_sync.lock().await.as_ref() {
+        if let Err(e) = handle
+            .set_execution_count(&cell_id, &count.to_string())
+            .await
+        {
+            warn!("[notebook-sync] set_execution_count failed: {}", e);
+        }
+    }
+    Ok(())
+}
+
 /// Queue a cell for execution. The queue processor will execute cells in FIFO order.
 #[tauri::command]
 async fn queue_execute_cell(
@@ -3574,6 +3609,8 @@ pub fn run(
             add_cell,
             delete_cell,
             execute_cell,
+            sync_append_output,
+            sync_execution_count,
             queue_execute_cell,
             clear_execution_queue,
             get_execution_queue_state,

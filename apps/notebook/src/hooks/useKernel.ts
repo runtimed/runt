@@ -221,6 +221,11 @@ export function useKernel({
       if (msgType === "execute_input") {
         const content = msg.content as { execution_count: number };
         onExecutionCount(cellId, content.execution_count);
+        // Sync execution count to Automerge for cross-window sync
+        invoke("sync_execution_count", {
+          cellId,
+          count: content.execution_count,
+        }).catch(() => {}); // Fire-and-forget
         return;
       }
 
@@ -268,6 +273,11 @@ export function useKernel({
           { parentMsgId: msg.parent_header?.msg_id },
         );
         onExecutionCount(cellId, content.execution_count);
+        // Sync execution count to Automerge for cross-window sync
+        invoke("sync_execution_count", {
+          cellId,
+          count: content.execution_count,
+        }).catch(() => {}); // Fire-and-forget
       } else if (msgType === "error") {
         const content = msg.content as {
           ename: string;
