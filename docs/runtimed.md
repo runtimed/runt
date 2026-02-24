@@ -389,7 +389,14 @@ pub enum BlobResponse {
 
 ## Phase 5: Tauri <-> daemon notebook sync
 
+> **Implemented** (PR #238 for cell/source sync, PR #241 for output/execution_count sync)
+
 Wire the Tauri app and React frontend to use the daemon's automerge doc as the source of truth for notebook state. This gives us multi-window sync immediately. Outputs still flow as inline JSON strings through the CRDT for now — Phase 6 makes them efficient.
+
+**Known limitations** (tracked in issues):
+- Output clearing on re-execution uses frontend-driven approach; atomic clearing would be cleaner (#244)
+- Stream outputs sync individually without merging consecutive outputs (#243)
+- Widget-captured outputs are correctly excluded from sync (handled in App.tsx after widget routing)
 
 ### Current state (what changes)
 
@@ -479,6 +486,8 @@ The frontend doesn't know about automerge. It still calls Tauri commands and rec
 ---
 
 ## Phase 6: Output store
+
+> **Foundation implemented** (PR #237 adds ContentRef, manifest types, inlining threshold)
 
 Move outputs from inline JSON in the CRDT to the blob store. This solves the CRDT bloat problem from Phase 5 and introduces two-level serving.
 
@@ -831,7 +840,7 @@ For output manifests, the `output_type` field provides structural versioning. Ne
 | **2** | CRDT sync (settings + notebooks) | Implemented (PR #220, #223) |
 | **3** | Blob store (on-disk CAS + HTTP server) | Implemented (PR #220) |
 | **4** | Protocol consolidation (single socket) | Implemented (PR #220, #223) |
-| **5** | Tauri <-> daemon notebook sync (multi-window) | Next |
-| **6** | Output store (manifests, ContentRef, inlining) | After 5 |
+| **5** | Tauri <-> daemon notebook sync (multi-window) | Implemented (PR #238, #241) |
+| **6** | Output store (manifests, ContentRef, inlining) | Next (foundation in PR #237) |
 | **7** | ipynb round-tripping | After 6 |
 | **8** | Daemon-owned kernels | After 7 |
