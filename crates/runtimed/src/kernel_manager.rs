@@ -103,6 +103,7 @@ pub struct RoomKernel {
 
 /// Commands for the queue processor
 #[derive(Debug)]
+#[allow(dead_code)] // ProcessNext will be used when queue processing is fully wired
 enum QueueCommand {
     /// Process the next cell in queue
     ProcessNext,
@@ -237,7 +238,7 @@ impl RoomKernel {
         let cwd = if let Some(path) = notebook_path {
             path.parent()
                 .map(|p| p.to_path_buf())
-                .unwrap_or_else(|| std::env::temp_dir())
+                .unwrap_or_else(std::env::temp_dir)
         } else {
             dirs::home_dir()
                 .map(|h| h.join("notebooks"))

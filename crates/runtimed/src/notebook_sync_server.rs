@@ -77,7 +77,7 @@ impl NotebookRoom {
     /// Check if this room has an active kernel.
     pub async fn has_kernel(&self) -> bool {
         let kernel = self.kernel.lock().await;
-        kernel.as_ref().map_or(false, |k| k.is_running())
+        kernel.as_ref().is_some_and(|k| k.is_running())
     }
 
     /// Get kernel info if a kernel is running.
