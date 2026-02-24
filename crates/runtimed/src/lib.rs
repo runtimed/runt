@@ -19,6 +19,7 @@ pub mod daemon;
 pub mod notebook_doc;
 pub mod notebook_sync_client;
 pub mod notebook_sync_server;
+pub mod output_store;
 pub mod protocol;
 pub mod runtime;
 pub mod service;
