@@ -103,6 +103,23 @@ pub enum NotebookSyncRequest {
     MarkCellRunning { cell_id: String },
     /// Mark a cell as no longer executing.
     MarkCellNotRunning { cell_id: String },
+
+    /// Register a kernel with the daemon.
+    ///
+    /// The daemon will connect to the kernel's iopub socket and become
+    /// the authoritative source for outputs across all windows.
+    RegisterKernel {
+        /// Path to the Jupyter connection file.
+        connection_file: String,
+        /// Kernel type (e.g., "python", "deno").
+        kernel_type: String,
+        /// Environment source label (e.g., "uv:inline", "conda:prewarmed").
+        env_source: String,
+    },
+    /// Unregister the kernel from this room.
+    UnregisterKernel {},
+    /// Query the currently registered kernel info.
+    GetKernelInfo {},
 }
 
 /// JSON response from notebook sync server.
@@ -118,6 +135,27 @@ pub enum NotebookSyncResponse {
     Ok {},
     /// Operation failed.
     Error { error: String },
+
+    /// Kernel registered successfully. Daemon is now watching iopub.
+    KernelRegistered {},
+    /// A kernel is already registered for this notebook.
+    KernelAlreadyRegistered {
+        /// Path to the existing connection file.
+        connection_file: String,
+        /// Environment source label.
+        env_source: String,
+        /// Kernel type.
+        kernel_type: String,
+    },
+    /// Kernel info response.
+    KernelInfo {
+        /// Path to connection file (None if no kernel registered).
+        connection_file: Option<String>,
+        /// Environment source label.
+        env_source: Option<String>,
+        /// Kernel type.
+        kernel_type: Option<String>,
+    },
 }
 
 #[cfg(test)]
@@ -422,5 +460,100 @@ mod tests {
 
         let parsed: NotebookSyncResponse = serde_json::from_str(&json).unwrap();
         assert!(matches!(parsed, NotebookSyncResponse::Error { .. }));
+    }
+
+    #[test]
+    fn test_notebook_sync_request_register_kernel() {
+        let req = NotebookSyncRequest::RegisterKernel {
+            connection_file: "/tmp/kernel-12345.json".into(),
+            kernel_type: "python".into(),
+            env_source: "uv:inline".into(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("register_kernel"));
+        assert!(json.contains("kernel-12345"));
+        assert!(json.contains("python"));
+        assert!(json.contains("uv:inline"));
+
+        let parsed: NotebookSyncRequest = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, NotebookSyncRequest::RegisterKernel { .. }));
+    }
+
+    #[test]
+    fn test_notebook_sync_request_unregister_kernel() {
+        let req = NotebookSyncRequest::UnregisterKernel {};
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("unregister_kernel"));
+
+        let parsed: NotebookSyncRequest = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, NotebookSyncRequest::UnregisterKernel {}));
+    }
+
+    #[test]
+    fn test_notebook_sync_request_get_kernel_info() {
+        let req = NotebookSyncRequest::GetKernelInfo {};
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("get_kernel_info"));
+
+        let parsed: NotebookSyncRequest = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, NotebookSyncRequest::GetKernelInfo {}));
+    }
+
+    #[test]
+    fn test_notebook_sync_response_kernel_registered() {
+        let resp = NotebookSyncResponse::KernelRegistered {};
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("kernel_registered"));
+
+        let parsed: NotebookSyncResponse = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, NotebookSyncResponse::KernelRegistered {}));
+    }
+
+    #[test]
+    fn test_notebook_sync_response_kernel_already_registered() {
+        let resp = NotebookSyncResponse::KernelAlreadyRegistered {
+            connection_file: "/tmp/kernel-99.json".into(),
+            env_source: "conda:prewarmed".into(),
+            kernel_type: "python".into(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("kernel_already_registered"));
+        assert!(json.contains("kernel-99"));
+
+        let parsed: NotebookSyncResponse = serde_json::from_str(&json).unwrap();
+        assert!(matches!(
+            parsed,
+            NotebookSyncResponse::KernelAlreadyRegistered { .. }
+        ));
+    }
+
+    #[test]
+    fn test_notebook_sync_response_kernel_info_some() {
+        let resp = NotebookSyncResponse::KernelInfo {
+            connection_file: Some("/tmp/kernel-55.json".into()),
+            env_source: Some("uv:pyproject".into()),
+            kernel_type: Some("python".into()),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("kernel_info"));
+        assert!(json.contains("kernel-55"));
+
+        let parsed: NotebookSyncResponse = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, NotebookSyncResponse::KernelInfo { .. }));
+    }
+
+    #[test]
+    fn test_notebook_sync_response_kernel_info_none() {
+        let resp = NotebookSyncResponse::KernelInfo {
+            connection_file: None,
+            env_source: None,
+            kernel_type: None,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("kernel_info"));
+        assert!(json.contains("null"));
+
+        let parsed: NotebookSyncResponse = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, NotebookSyncResponse::KernelInfo { .. }));
     }
 }

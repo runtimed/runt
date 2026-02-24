@@ -21,22 +21,50 @@
 //! Clients can send JSON requests (via `FrameKind::JsonRequest`) to append
 //! outputs. The server creates output manifests with blob store access,
 //! stores the manifest hash in the CRDT, and returns the hash to the client.
+//!
+//! ## Phase 7: Daemon-owned kernel iopub
+//!
+//! When a kernel is registered with `RegisterKernel`, the daemon connects to
+//! the kernel's iopub socket and becomes the authoritative source for outputs.
+//! All outputs flow: Kernel → Daemon iopub → CRDT → All Windows.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
+
+use jupyter_protocol::{ConnectionInfo, ExecutionState, JupyterMessageContent};
 
 use automerge::sync;
-use log::{info, warn};
+use log::{debug, error, info, warn};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{broadcast, Mutex, RwLock};
+use uuid::Uuid;
 
 use crate::blob_store::BlobStore;
 use crate::connection::{self, FrameKind};
 use crate::notebook_doc::{notebook_doc_filename, NotebookDoc};
 use crate::output_store::{create_manifest, store_manifest, DEFAULT_INLINE_THRESHOLD};
 use crate::protocol::{NotebookSyncRequest, NotebookSyncResponse};
+
+/// Kernel connection registered with a notebook room.
+///
+/// When a window launches a kernel, it registers the connection with the daemon.
+/// The daemon then subscribes to the kernel's iopub to become the single
+/// authoritative source for outputs across all windows.
+pub struct RegisteredKernel {
+    /// Jupyter kernel connection info (transport, ports, key, etc.)
+    pub connection_info: ConnectionInfo,
+    /// Path to the connection file on disk.
+    pub connection_file: PathBuf,
+    /// Environment source label (e.g., "uv:inline", "conda:prewarmed").
+    pub env_source: String,
+    /// Kernel type (e.g., "python", "deno").
+    pub kernel_type: String,
+    /// Handle to the iopub watcher task (for cleanup on disconnect).
+    pub iopub_task: Option<tokio::task::JoinHandle<()>>,
+}
 
 /// A notebook sync room — holds the canonical document and a broadcast
 /// channel for notifying peers of changes.
@@ -49,6 +77,10 @@ pub struct NotebookRoom {
     pub persist_path: PathBuf,
     /// Number of active peer connections in this room.
     pub active_peers: AtomicUsize,
+    /// Registered kernel connection (daemon watches iopub for outputs).
+    pub kernel: RwLock<Option<RegisteredKernel>>,
+    /// Timestamp when the last peer disconnected (for idle timeout cleanup).
+    pub last_peer_disconnect: RwLock<Option<Instant>>,
 }
 
 impl NotebookRoom {
@@ -63,6 +95,8 @@ impl NotebookRoom {
             changed_tx,
             persist_path,
             active_peers: AtomicUsize::new(0),
+            kernel: RwLock::new(None),
+            last_peer_disconnect: RwLock::new(None),
         }
     }
 }
@@ -115,6 +149,9 @@ where
     W: AsyncWrite + Unpin,
 {
     room.active_peers.fetch_add(1, Ordering::Relaxed);
+    // Clear idle timestamp — a peer just connected
+    *room.last_peer_disconnect.write().await = None;
+
     let peers = room.active_peers.load(Ordering::Relaxed);
     info!(
         "[notebook-sync] Client connected to room {} ({} peer{})",
@@ -123,15 +160,26 @@ where
         if peers == 1 { "" } else { "s" }
     );
 
-    let result = run_sync_loop(&mut reader, &mut writer, &room, &blob_store).await;
+    let result = run_sync_loop(&mut reader, &mut writer, &room, blob_store.clone()).await;
 
     // Peer disconnected — decrement and possibly evict the room
     let remaining = room.active_peers.fetch_sub(1, Ordering::Relaxed) - 1;
     if remaining == 0 {
+        // Record disconnect timestamp for idle timeout tracking
+        *room.last_peer_disconnect.write().await = Some(Instant::now());
+
         let mut rooms_guard = rooms.lock().await;
         // Re-check under the lock — another peer may have joined between
         // our decrement and acquiring the lock.
         if room.active_peers.load(Ordering::Relaxed) == 0 {
+            // Clean up kernel iopub task if registered
+            if let Some(kernel) = room.kernel.write().await.take() {
+                if let Some(task) = kernel.iopub_task {
+                    task.abort();
+                }
+                info!("[notebook-sync] Released kernel for room {}", notebook_id);
+            }
+
             rooms_guard.remove(&notebook_id);
             info!(
                 "[notebook-sync] Evicted room {} (no remaining peers)",
@@ -160,7 +208,7 @@ async fn run_sync_loop<R, W>(
     reader: &mut R,
     writer: &mut W,
     room: &NotebookRoom,
-    blob_store: &BlobStore,
+    blob_store: Arc<BlobStore>,
 ) -> anyhow::Result<()>
 where
     R: AsyncRead + Unpin,
@@ -214,7 +262,7 @@ where
                     }
                     Some((FrameKind::JsonRequest, data)) => {
                         // Handle JSON request (append_output, clear_outputs, etc.)
-                        let response = handle_json_request(&data, room, blob_store).await;
+                        let response = handle_json_request(&data, room, blob_store.clone()).await;
                         let response_bytes = serde_json::to_vec(&response)?;
                         connection::send_typed_frame(
                             writer,
@@ -251,7 +299,7 @@ where
 async fn handle_json_request(
     data: &[u8],
     room: &NotebookRoom,
-    blob_store: &BlobStore,
+    blob_store: Arc<BlobStore>,
 ) -> NotebookSyncResponse {
     // Parse the request
     let request: NotebookSyncRequest = match serde_json::from_slice(data) {
@@ -280,7 +328,7 @@ async fn handle_json_request(
 
             // Create manifest (handles inlining and blob storage)
             let manifest_json =
-                match create_manifest(&output, blob_store, DEFAULT_INLINE_THRESHOLD).await {
+                match create_manifest(&output, &blob_store, DEFAULT_INLINE_THRESHOLD).await {
                     Ok(m) => m,
                     Err(e) => {
                         return NotebookSyncResponse::Error {
@@ -290,7 +338,7 @@ async fn handle_json_request(
                 };
 
             // Store manifest in blob store
-            let hash = match store_manifest(&manifest_json, blob_store).await {
+            let hash = match store_manifest(&manifest_json, &blob_store).await {
                 Ok(h) => h,
                 Err(e) => {
                     return NotebookSyncResponse::Error {
@@ -385,6 +433,56 @@ async fn handle_json_request(
             persist_notebook_bytes(&persist_bytes, &room.persist_path);
             NotebookSyncResponse::Ok {}
         }
+
+        NotebookSyncRequest::RegisterKernel {
+            connection_file,
+            kernel_type,
+            env_source,
+        } => {
+            handle_register_kernel(
+                room,
+                &connection_file,
+                &kernel_type,
+                &env_source,
+                blob_store,
+            )
+            .await
+        }
+
+        NotebookSyncRequest::UnregisterKernel {} => {
+            // Clean up kernel registration and iopub task
+            if let Some(kernel) = room.kernel.write().await.take() {
+                if let Some(task) = kernel.iopub_task {
+                    task.abort();
+                }
+                info!(
+                    "[notebook-sync] Kernel unregistered: {}",
+                    kernel.connection_file.display()
+                );
+                NotebookSyncResponse::Ok {}
+            } else {
+                NotebookSyncResponse::Error {
+                    error: "no kernel registered".to_string(),
+                }
+            }
+        }
+
+        NotebookSyncRequest::GetKernelInfo {} => {
+            // Return current kernel info (or None if not registered)
+            let kernel = room.kernel.read().await;
+            match &*kernel {
+                Some(k) => NotebookSyncResponse::KernelInfo {
+                    connection_file: Some(k.connection_file.to_string_lossy().to_string()),
+                    env_source: Some(k.env_source.clone()),
+                    kernel_type: Some(k.kernel_type.clone()),
+                },
+                None => NotebookSyncResponse::KernelInfo {
+                    connection_file: None,
+                    env_source: None,
+                    kernel_type: None,
+                },
+            }
+        }
     }
 }
 
@@ -402,6 +500,252 @@ fn persist_notebook_bytes(data: &[u8], path: &Path) {
     if let Err(e) = std::fs::write(path, data) {
         warn!("[notebook-sync] Failed to save notebook doc: {}", e);
     }
+}
+
+/// Read and parse a Jupyter connection file.
+async fn read_connection_file(path: &str) -> anyhow::Result<ConnectionInfo> {
+    let content = tokio::fs::read_to_string(path).await?;
+    let info: ConnectionInfo = serde_json::from_str(&content)?;
+    Ok(info)
+}
+
+/// Handle RegisterKernel request.
+///
+/// Parses the connection file, connects to the kernel's iopub socket,
+/// and spawns a task to watch for outputs.
+async fn handle_register_kernel(
+    room: &NotebookRoom,
+    connection_file: &str,
+    kernel_type: &str,
+    env_source: &str,
+    blob_store: Arc<BlobStore>,
+) -> NotebookSyncResponse {
+    // Check if kernel already registered
+    {
+        let kernel_guard = room.kernel.read().await;
+        if let Some(ref kernel) = *kernel_guard {
+            return NotebookSyncResponse::KernelAlreadyRegistered {
+                connection_file: kernel.connection_file.to_string_lossy().to_string(),
+                env_source: kernel.env_source.clone(),
+                kernel_type: kernel.kernel_type.clone(),
+            };
+        }
+    }
+
+    // Parse connection info
+    let connection_info = match read_connection_file(connection_file).await {
+        Ok(info) => info,
+        Err(e) => {
+            return NotebookSyncResponse::Error {
+                error: format!("failed to read connection file: {}", e),
+            }
+        }
+    };
+
+    // Generate a session ID for the iopub subscription
+    let session_id = Uuid::new_v4().to_string();
+
+    // Connect to iopub
+    let iopub =
+        match runtimelib::create_client_iopub_connection(&connection_info, "", &session_id).await {
+            Ok(conn) => conn,
+            Err(e) => {
+                return NotebookSyncResponse::Error {
+                    error: format!("failed to connect to iopub: {}", e),
+                }
+            }
+        };
+
+    // Spawn iopub watcher task
+    let doc = room.doc.clone();
+    let changed_tx = room.changed_tx.clone();
+    let persist_path = room.persist_path.clone();
+
+    let iopub_task = tokio::spawn(async move {
+        watch_iopub(iopub, doc, changed_tx, persist_path, blob_store).await;
+    });
+
+    // Store kernel info
+    *room.kernel.write().await = Some(RegisteredKernel {
+        connection_info,
+        connection_file: PathBuf::from(connection_file),
+        env_source: env_source.to_string(),
+        kernel_type: kernel_type.to_string(),
+        iopub_task: Some(iopub_task),
+    });
+
+    info!(
+        "[notebook-sync] Kernel registered: {} ({})",
+        connection_file, env_source
+    );
+
+    NotebookSyncResponse::KernelRegistered {}
+}
+
+/// Watch kernel iopub and route outputs to CRDT.
+///
+/// This task runs in the background, reading iopub messages and:
+/// - Tracking cell_id from execute_input messages (via metadata)
+/// - Creating manifests for output messages (stream, display_data, execute_result, error)
+/// - Updating execution state in CRDT (mark_cell_not_running when idle)
+async fn watch_iopub(
+    mut iopub: runtimelib::ClientIoPubConnection,
+    doc: Arc<RwLock<NotebookDoc>>,
+    changed_tx: broadcast::Sender<()>,
+    persist_path: PathBuf,
+    blob_store: Arc<BlobStore>,
+) {
+    // Map msg_id → cell_id (populated from execute_input messages)
+    let mut cell_id_map: HashMap<String, String> = HashMap::new();
+
+    loop {
+        match iopub.read().await {
+            Ok(message) => {
+                let msg_type = &message.header.msg_type;
+                let parent_msg_id: Option<String> =
+                    message.parent_header.as_ref().map(|h| h.msg_id.clone());
+
+                debug!(
+                    "[iopub-watcher] msg_type={} parent_msg_id={:?}",
+                    msg_type, parent_msg_id
+                );
+
+                match &message.content {
+                    JupyterMessageContent::ExecuteInput(input) => {
+                        // Extract cell_id from metadata (set by frontend when sending execute_request)
+                        if let Some(cell_id) =
+                            message.metadata.get("cell_id").and_then(|v| v.as_str())
+                        {
+                            if let Some(ref parent_id) = parent_msg_id {
+                                cell_id_map.insert(parent_id.clone(), cell_id.to_string());
+                                debug!(
+                                    "[iopub-watcher] Mapped msg_id {} → cell_id {} (exec_count={})",
+                                    parent_id, cell_id, input.execution_count
+                                );
+                            }
+                        }
+                    }
+
+                    JupyterMessageContent::Status(status) => {
+                        // When execution completes, mark cell as not running
+                        if status.execution_state == ExecutionState::Idle {
+                            if let Some(ref parent_id) = parent_msg_id {
+                                if let Some(cell_id) = cell_id_map.get(parent_id) {
+                                    let persist_bytes = {
+                                        let mut doc = doc.write().await;
+                                        if let Err(e) = doc.mark_cell_not_running(cell_id) {
+                                            warn!(
+                                                "[iopub-watcher] Failed to mark cell not running: {}",
+                                                e
+                                            );
+                                            continue;
+                                        }
+                                        let bytes = doc.save();
+                                        let _ = changed_tx.send(());
+                                        bytes
+                                    };
+                                    persist_notebook_bytes(&persist_bytes, &persist_path);
+                                    debug!(
+                                        "[iopub-watcher] Marked cell {} as not running",
+                                        cell_id
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    // Output types that should be stored in CRDT
+                    JupyterMessageContent::StreamContent(_)
+                    | JupyterMessageContent::DisplayData(_)
+                    | JupyterMessageContent::ExecuteResult(_)
+                    | JupyterMessageContent::ErrorOutput(_)
+                    | JupyterMessageContent::UpdateDisplayData(_) => {
+                        if let Some(ref parent_id) = parent_msg_id {
+                            if let Some(cell_id) = cell_id_map.get(parent_id) {
+                                // Serialize the output content to JSON
+                                let output_json = match serde_json::to_string(&message.content) {
+                                    Ok(json) => json,
+                                    Err(e) => {
+                                        warn!("[iopub-watcher] Failed to serialize output: {}", e);
+                                        continue;
+                                    }
+                                };
+
+                                // Parse as Value for manifest creation
+                                let output: serde_json::Value =
+                                    match serde_json::from_str(&output_json) {
+                                        Ok(v) => v,
+                                        Err(e) => {
+                                            warn!(
+                                                "[iopub-watcher] Failed to parse output JSON: {}",
+                                                e
+                                            );
+                                            continue;
+                                        }
+                                    };
+
+                                // Create manifest (handles inlining and blob storage)
+                                let manifest_json = match create_manifest(
+                                    &output,
+                                    &blob_store,
+                                    DEFAULT_INLINE_THRESHOLD,
+                                )
+                                .await
+                                {
+                                    Ok(m) => m,
+                                    Err(e) => {
+                                        warn!("[iopub-watcher] Failed to create manifest: {}", e);
+                                        continue;
+                                    }
+                                };
+
+                                // Store manifest in blob store
+                                let hash = match store_manifest(&manifest_json, &blob_store).await {
+                                    Ok(h) => h,
+                                    Err(e) => {
+                                        warn!("[iopub-watcher] Failed to store manifest: {}", e);
+                                        continue;
+                                    }
+                                };
+
+                                // Append hash to cell outputs in CRDT
+                                let persist_bytes = {
+                                    let mut doc = doc.write().await;
+                                    if let Err(e) = doc.append_output(cell_id, &hash) {
+                                        warn!("[iopub-watcher] Failed to append output: {}", e);
+                                        continue;
+                                    }
+                                    let bytes = doc.save();
+                                    let _ = changed_tx.send(());
+                                    bytes
+                                };
+                                persist_notebook_bytes(&persist_bytes, &persist_path);
+
+                                debug!(
+                                    "[iopub-watcher] Stored output for cell {}: hash={}",
+                                    cell_id, hash
+                                );
+                            } else {
+                                debug!(
+                                    "[iopub-watcher] No cell_id mapping for parent_msg_id {:?}",
+                                    parent_id
+                                );
+                            }
+                        }
+                    }
+
+                    // Ignore other message types
+                    _ => {}
+                }
+            }
+            Err(e) => {
+                error!("[iopub-watcher] Read error: {}", e);
+                break;
+            }
+        }
+    }
+
+    info!("[iopub-watcher] Task ended");
 }
 
 #[cfg(test)]

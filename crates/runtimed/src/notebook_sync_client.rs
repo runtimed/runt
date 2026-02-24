@@ -18,6 +18,8 @@ use automerge::sync::{self, SyncDoc};
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjType, ReadDoc};
 use log::{info, warn};
+
+use crate::protocol::NotebookSyncResponse;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
 
@@ -88,6 +90,15 @@ enum SyncCommand {
     },
     GetCells {
         reply: oneshot::Sender<Vec<CellSnapshot>>,
+    },
+    RegisterKernel {
+        connection_file: String,
+        kernel_type: String,
+        env_source: String,
+        reply: oneshot::Sender<Result<NotebookSyncResponse, NotebookSyncError>>,
+    },
+    GetKernelInfo {
+        reply: oneshot::Sender<Result<NotebookSyncResponse, NotebookSyncError>>,
     },
 }
 
@@ -252,6 +263,43 @@ impl NotebookSyncHandle {
                 cell_id: cell_id.to_string(),
                 reply: reply_tx,
             })
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?;
+        reply_rx
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?
+    }
+
+    /// Register a kernel with the daemon.
+    ///
+    /// The daemon will connect to the kernel's iopub socket and become
+    /// the authoritative source for outputs across all windows.
+    pub async fn register_kernel(
+        &self,
+        connection_file: &str,
+        kernel_type: &str,
+        env_source: &str,
+    ) -> Result<NotebookSyncResponse, NotebookSyncError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(SyncCommand::RegisterKernel {
+                connection_file: connection_file.to_string(),
+                kernel_type: kernel_type.to_string(),
+                env_source: env_source.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?;
+        reply_rx
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?
+    }
+
+    /// Query the currently registered kernel info.
+    pub async fn get_kernel_info(&self) -> Result<NotebookSyncResponse, NotebookSyncError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(SyncCommand::GetKernelInfo { reply: reply_tx })
             .await
             .map_err(|_| NotebookSyncError::ChannelClosed)?;
         reply_rx
@@ -630,6 +678,10 @@ where
                         NotebookSyncResponse::Error { error } => {
                             Err(NotebookSyncError::SyncError(error))
                         }
+                        // Kernel responses are unexpected for cell operations
+                        _ => Err(NotebookSyncError::SyncError(
+                            "unexpected response type".to_string(),
+                        )),
                     };
                 }
                 Some((FrameKind::AutomergeSync, data)) => {
@@ -845,6 +897,88 @@ where
                         .receive_sync_message(&mut self.peer_state, message)
                         .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
                     // Continue loop to get JSON response
+                }
+                None => return Err(NotebookSyncError::Disconnected),
+            }
+        }
+    }
+
+    // ── Kernel registration ──────────────────────────────────────────
+
+    /// Register a kernel with the daemon for this notebook.
+    ///
+    /// The daemon will connect to the kernel's iopub socket and become
+    /// the authoritative source for outputs across all windows.
+    pub async fn register_kernel(
+        &mut self,
+        connection_file: &str,
+        kernel_type: &str,
+        env_source: &str,
+    ) -> Result<NotebookSyncResponse, NotebookSyncError> {
+        use crate::protocol::NotebookSyncRequest;
+
+        let request = NotebookSyncRequest::RegisterKernel {
+            connection_file: connection_file.to_string(),
+            kernel_type: kernel_type.to_string(),
+            env_source: env_source.to_string(),
+        };
+        let request_bytes = serde_json::to_vec(&request)
+            .map_err(|e| NotebookSyncError::SyncError(format!("serialize: {}", e)))?;
+
+        connection::send_typed_frame(&mut self.stream, FrameKind::JsonRequest, &request_bytes)
+            .await?;
+
+        // Wait for response, processing any Automerge sync messages that arrive first
+        loop {
+            match connection::recv_typed_frame(&mut self.stream).await? {
+                Some((FrameKind::JsonRequest, data)) => {
+                    let response: NotebookSyncResponse =
+                        serde_json::from_slice(&data).map_err(|e| {
+                            NotebookSyncError::SyncError(format!("parse response: {}", e))
+                        })?;
+                    return Ok(response);
+                }
+                Some((FrameKind::AutomergeSync, data)) => {
+                    let message = sync::Message::decode(&data)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                    self.doc
+                        .sync()
+                        .receive_sync_message(&mut self.peer_state, message)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+                }
+                None => return Err(NotebookSyncError::Disconnected),
+            }
+        }
+    }
+
+    /// Query the currently registered kernel info for this notebook.
+    pub async fn get_kernel_info(&mut self) -> Result<NotebookSyncResponse, NotebookSyncError> {
+        use crate::protocol::NotebookSyncRequest;
+
+        let request = NotebookSyncRequest::GetKernelInfo {};
+        let request_bytes = serde_json::to_vec(&request)
+            .map_err(|e| NotebookSyncError::SyncError(format!("serialize: {}", e)))?;
+
+        connection::send_typed_frame(&mut self.stream, FrameKind::JsonRequest, &request_bytes)
+            .await?;
+
+        // Wait for response, processing any Automerge sync messages that arrive first
+        loop {
+            match connection::recv_typed_frame(&mut self.stream).await? {
+                Some((FrameKind::JsonRequest, data)) => {
+                    let response: NotebookSyncResponse =
+                        serde_json::from_slice(&data).map_err(|e| {
+                            NotebookSyncError::SyncError(format!("parse response: {}", e))
+                        })?;
+                    return Ok(response);
+                }
+                Some((FrameKind::AutomergeSync, data)) => {
+                    let message = sync::Message::decode(&data)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                    self.doc
+                        .sync()
+                        .receive_sync_message(&mut self.peer_state, message)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
                 }
                 None => return Err(NotebookSyncError::Disconnected),
             }
@@ -1100,6 +1234,21 @@ async fn run_sync_task<S>(
                     SyncCommand::GetCells { reply } => {
                         let cells = client.get_cells();
                         let _ = reply.send(cells);
+                    }
+                    SyncCommand::RegisterKernel {
+                        connection_file,
+                        kernel_type,
+                        env_source,
+                        reply,
+                    } => {
+                        let result = client
+                            .register_kernel(&connection_file, &kernel_type, &env_source)
+                            .await;
+                        let _ = reply.send(result);
+                    }
+                    SyncCommand::GetKernelInfo { reply } => {
+                        let result = client.get_kernel_info().await;
+                        let _ = reply.send(result);
                     }
                 }
             }

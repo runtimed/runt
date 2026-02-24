@@ -2521,6 +2521,9 @@ impl NotebookKernel {
 
     /// Execute code and return the msg_id. Registers the cell_id mapping
     /// before sending so the iopub listener can tag responses.
+    ///
+    /// The cell_id is also included in the message metadata so the daemon's
+    /// iopub watcher can extract it from execute_input messages.
     pub async fn execute(&mut self, code: &str, cell_id: &str) -> Result<String> {
         let shell = self
             .shell_writer
@@ -2528,8 +2531,20 @@ impl NotebookKernel {
             .ok_or_else(|| anyhow::anyhow!("No kernel running"))?;
 
         let request = ExecuteRequest::new(code.to_string());
-        let message: JupyterMessage = request.into();
+        let mut message: JupyterMessage = request.into();
         let msg_id = message.header.msg_id.clone();
+
+        // Add cell_id to metadata so daemon iopub watcher can extract it
+        // from execute_input messages to map outputs to cells
+        if let Some(obj) = message.metadata.as_object_mut() {
+            obj.insert(
+                "cell_id".to_string(),
+                serde_json::Value::String(cell_id.to_string()),
+            );
+        } else {
+            // If metadata is not an object (unlikely), create one
+            message.metadata = serde_json::json!({ "cell_id": cell_id });
+        }
 
         // Register msg_id → cell_id BEFORE sending so iopub listener can resolve it
         self.cell_id_map
@@ -2705,6 +2720,11 @@ impl NotebookKernel {
 
     pub fn is_running(&self) -> bool {
         self.connection_info.is_some()
+    }
+
+    /// Get the path to the kernel connection file, if running.
+    pub fn connection_file_path(&self) -> Option<&PathBuf> {
+        self.connection_file.as_ref()
     }
 
     /// Check if this kernel is running with a uv-managed environment.

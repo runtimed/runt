@@ -53,6 +53,10 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 # Automerge CRDT for settings sync
 automerge = "0.7"
 
+# Jupyter kernel connections (for daemon iopub watching)
+jupyter-protocol = { workspace = true }
+runtimelib = { workspace = true, features = ["tokio-runtime", "ring"] }
+
 # JSON Schema generation
 schemars = { workspace = true }
 

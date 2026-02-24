@@ -896,6 +896,102 @@ async fn sync_mark_cell_not_running(
     Ok(())
 }
 
+/// Register a kernel with the daemon for iopub watching.
+///
+/// After kernel launch, the frontend calls this to register the kernel
+/// with the daemon. The daemon then subscribes to iopub and becomes
+/// the authoritative source for outputs across all windows.
+#[tauri::command]
+async fn sync_register_kernel(
+    connection_file: String,
+    kernel_type: String,
+    env_source: String,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<String, String> {
+    if let Some(handle) = notebook_sync.lock().await.as_ref() {
+        match handle
+            .register_kernel(&connection_file, &kernel_type, &env_source)
+            .await
+        {
+            Ok(response) => {
+                use runtimed::protocol::NotebookSyncResponse;
+                match response {
+                    NotebookSyncResponse::KernelRegistered {} => {
+                        info!(
+                            "[notebook-sync] Kernel registered: {} ({})",
+                            connection_file, env_source
+                        );
+                        Ok("registered".to_string())
+                    }
+                    NotebookSyncResponse::KernelAlreadyRegistered {
+                        connection_file,
+                        env_source,
+                        kernel_type,
+                    } => {
+                        info!(
+                            "[notebook-sync] Kernel already registered: {} ({}, {})",
+                            connection_file, env_source, kernel_type
+                        );
+                        Ok("already_registered".to_string())
+                    }
+                    NotebookSyncResponse::Error { error } => Err(error),
+                    _ => Err("unexpected response".to_string()),
+                }
+            }
+            Err(e) => {
+                warn!("[notebook-sync] register_kernel failed: {}", e);
+                Err(e.to_string())
+            }
+        }
+    } else {
+        Err("notebook sync not connected".to_string())
+    }
+}
+
+/// Get the currently registered kernel info from the daemon.
+///
+/// Used by secondary windows to check if a kernel is already registered
+/// so they can reuse it instead of launching a new one.
+#[tauri::command]
+async fn sync_get_kernel_info(
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<Option<KernelInfo>, String> {
+    if let Some(handle) = notebook_sync.lock().await.as_ref() {
+        match handle.get_kernel_info().await {
+            Ok(response) => {
+                use runtimed::protocol::NotebookSyncResponse;
+                match response {
+                    NotebookSyncResponse::KernelInfo {
+                        connection_file,
+                        env_source,
+                        kernel_type,
+                    } => Ok(connection_file.map(|cf| KernelInfo {
+                        connection_file: cf,
+                        env_source: env_source.unwrap_or_default(),
+                        kernel_type: kernel_type.unwrap_or_default(),
+                    })),
+                    NotebookSyncResponse::Error { error } => Err(error),
+                    _ => Err("unexpected response".to_string()),
+                }
+            }
+            Err(e) => {
+                warn!("[notebook-sync] get_kernel_info failed: {}", e);
+                Err(e.to_string())
+            }
+        }
+    } else {
+        Err("notebook sync not connected".to_string())
+    }
+}
+
+/// Kernel info returned from daemon.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct KernelInfo {
+    pub connection_file: String,
+    pub env_source: String,
+    pub kernel_type: String,
+}
+
 /// Get the blob HTTP server port from the daemon.
 /// Used by frontend to construct URLs for fetching output manifests and blobs.
 #[tauri::command]
@@ -1085,6 +1181,19 @@ async fn start_kernel(
         .start(app, &kernelspec_name, notebook_path.as_deref())
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Get the kernel connection file path.
+///
+/// Used by frontend to register the kernel with the daemon after launch.
+#[tauri::command]
+async fn get_kernel_connection_file(
+    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
+) -> Result<Option<String>, String> {
+    let kernel = kernel_state.lock().await;
+    Ok(kernel
+        .connection_file_path()
+        .map(|p| p.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
@@ -3689,6 +3798,8 @@ pub fn run(
             sync_execution_count,
             sync_mark_cell_running,
             sync_mark_cell_not_running,
+            sync_register_kernel,
+            sync_get_kernel_info,
             get_blob_port,
             queue_execute_cell,
             clear_execution_queue,
@@ -3696,6 +3807,7 @@ pub fn run(
             run_all_cells,
             restart_and_run_all,
             start_kernel,
+            get_kernel_connection_file,
             interrupt_kernel,
             shutdown_kernel,
             send_shell_message,
