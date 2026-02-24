@@ -138,8 +138,10 @@ export function useNotebook() {
         // Convert Automerge snapshots to NotebookCells
         const newCells = event.payload.map(cellSnapshotToNotebookCell);
 
-        // Reconcile: preserve local outputs if they exist (dual-delivery pattern)
-        // The kernel:iopub events provide low-latency updates; Automerge provides sync
+        // Reconcile: dual-delivery pattern for outputs
+        // - iopub delivers outputs locally for low-latency (<10ms)
+        // - Automerge syncs outputs for cross-window (<100ms)
+        // Take Automerge state when it has outputs, preserve local when Automerge is empty
         return newCells.map((newCell) => {
           const localCell = prev.find((c) => c.id === newCell.id);
           if (
@@ -147,9 +149,17 @@ export function useNotebook() {
             localCell.cell_type === "code" &&
             newCell.cell_type === "code"
           ) {
-            // Keep local outputs if they're non-empty (fresher from iopub)
-            if (localCell.outputs.length > 0 && newCell.outputs.length === 0) {
-              return { ...newCell, outputs: localCell.outputs };
+            // If Automerge has outputs, use Automerge state (cross-window sync)
+            if (newCell.outputs.length > 0) {
+              return newCell;
+            }
+            // If Automerge is empty but local has outputs, preserve local (iopub delivered faster)
+            if (localCell.outputs.length > 0) {
+              return {
+                ...newCell,
+                outputs: localCell.outputs,
+                execution_count: localCell.execution_count,
+              };
             }
           }
           return newCell;
