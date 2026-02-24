@@ -21,7 +21,7 @@ use log::{info, warn};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::connection::{self, Handshake};
+use crate::connection::{self, Handshake, NotebookFrameType};
 use crate::notebook_doc::{get_cells_from_doc, CellSnapshot};
 
 /// Error type for notebook sync client operations.
@@ -338,10 +338,16 @@ where
         let mut doc = AutoCommit::new();
         let mut peer_state = sync::State::new();
 
-        // The server sends first — receive and apply
-        match connection::recv_frame(&mut stream).await? {
-            Some(data) => {
-                let message = sync::Message::decode(&data)
+        // The server sends first — receive and apply (using typed frames)
+        match connection::recv_typed_frame(&mut stream).await? {
+            Some(frame) => {
+                if frame.frame_type != NotebookFrameType::AutomergeSync {
+                    return Err(NotebookSyncError::SyncError(format!(
+                        "expected AutomergeSync frame, got {:?}",
+                        frame.frame_type
+                    )));
+                }
+                let message = sync::Message::decode(&frame.payload)
                     .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
                 doc.sync()
                     .receive_sync_message(&mut peer_state, message)
@@ -350,28 +356,42 @@ where
             None => return Err(NotebookSyncError::Disconnected),
         }
 
-        // Send our sync message back
+        // Send our sync message back (as typed frame)
         if let Some(msg) = doc.sync().generate_sync_message(&mut peer_state) {
-            connection::send_frame(&mut stream, &msg.encode()).await?;
+            connection::send_typed_frame(
+                &mut stream,
+                NotebookFrameType::AutomergeSync,
+                &msg.encode(),
+            )
+            .await?;
         }
 
         // Continue sync rounds until no more messages (short timeout)
         loop {
             match tokio::time::timeout(
                 Duration::from_millis(100),
-                connection::recv_frame(&mut stream),
+                connection::recv_typed_frame(&mut stream),
             )
             .await
             {
-                Ok(Ok(Some(data))) => {
-                    let message = sync::Message::decode(&data)
+                Ok(Ok(Some(frame))) => {
+                    // Only process AutomergeSync frames during initial sync
+                    if frame.frame_type != NotebookFrameType::AutomergeSync {
+                        continue; // Ignore non-sync frames during initial sync
+                    }
+                    let message = sync::Message::decode(&frame.payload)
                         .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
                     doc.sync()
                         .receive_sync_message(&mut peer_state, message)
                         .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
 
                     if let Some(msg) = doc.sync().generate_sync_message(&mut peer_state) {
-                        connection::send_frame(&mut stream, &msg.encode()).await?;
+                        connection::send_typed_frame(
+                            &mut stream,
+                            NotebookFrameType::AutomergeSync,
+                            &msg.encode(),
+                        )
+                        .await?;
                     }
                 }
                 Ok(Ok(None)) => return Err(NotebookSyncError::Disconnected),
@@ -628,24 +648,44 @@ where
     /// Wait for the next change from the daemon.
     ///
     /// Blocks until a sync message arrives, applies it, and returns
-    /// the updated cells.
+    /// the updated cells. This also handles Broadcast frames (kernel events).
     pub async fn recv_changes(&mut self) -> Result<Vec<CellSnapshot>, NotebookSyncError> {
-        match connection::recv_frame(&mut self.stream).await? {
-            Some(data) => {
-                let message = sync::Message::decode(&data)
-                    .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
-                self.doc
-                    .sync()
-                    .receive_sync_message(&mut self.peer_state, message)
-                    .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+        match connection::recv_typed_frame(&mut self.stream).await? {
+            Some(frame) => match frame.frame_type {
+                NotebookFrameType::AutomergeSync => {
+                    let message = sync::Message::decode(&frame.payload)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                    self.doc
+                        .sync()
+                        .receive_sync_message(&mut self.peer_state, message)
+                        .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
 
-                // Send ack if needed
-                if let Some(msg) = self.doc.sync().generate_sync_message(&mut self.peer_state) {
-                    connection::send_frame(&mut self.stream, &msg.encode()).await?;
+                    // Send ack if needed
+                    if let Some(msg) = self.doc.sync().generate_sync_message(&mut self.peer_state) {
+                        connection::send_typed_frame(
+                            &mut self.stream,
+                            NotebookFrameType::AutomergeSync,
+                            &msg.encode(),
+                        )
+                        .await?;
+                    }
+
+                    Ok(self.get_cells())
                 }
-
-                Ok(self.get_cells())
-            }
+                NotebookFrameType::Broadcast => {
+                    // For now, ignore broadcast frames - caller can handle separately
+                    // In the future, we could return them or emit events
+                    Ok(self.get_cells())
+                }
+                _ => {
+                    // Unexpected frame type
+                    warn!(
+                        "[notebook-sync-client] Unexpected frame type in recv_changes: {:?}",
+                        frame.frame_type
+                    );
+                    Ok(self.get_cells())
+                }
+            },
             None => Err(NotebookSyncError::Disconnected),
         }
     }
@@ -669,7 +709,8 @@ where
         };
 
         if let Some(data) = encoded {
-            connection::send_frame(&mut self.stream, &data).await?;
+            connection::send_typed_frame(&mut self.stream, NotebookFrameType::AutomergeSync, &data)
+                .await?;
 
             // Wait for the daemon's ack. The server always sends a reply
             // after processing a client's sync message (to advance the
@@ -677,17 +718,20 @@ where
             // the server has nothing to send back (already converged).
             match tokio::time::timeout(
                 Duration::from_millis(500),
-                connection::recv_frame(&mut self.stream),
+                connection::recv_typed_frame(&mut self.stream),
             )
             .await
             {
-                Ok(Ok(Some(reply))) => {
-                    let message = sync::Message::decode(&reply)
-                        .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
-                    self.doc
-                        .sync()
-                        .receive_sync_message(&mut self.peer_state, message)
-                        .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+                Ok(Ok(Some(frame))) => {
+                    // Only handle AutomergeSync frames; ignore broadcasts
+                    if frame.frame_type == NotebookFrameType::AutomergeSync {
+                        let message = sync::Message::decode(&frame.payload)
+                            .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                        self.doc
+                            .sync()
+                            .receive_sync_message(&mut self.peer_state, message)
+                            .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
+                    }
                 }
                 Ok(Ok(None)) => return Err(NotebookSyncError::Disconnected),
                 Ok(Err(e)) => return Err(NotebookSyncError::ConnectionFailed(e)),

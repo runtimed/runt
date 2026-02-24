@@ -34,10 +34,10 @@ use log::{info, warn};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{broadcast, Mutex, RwLock};
 
-use crate::connection;
+use crate::connection::{self, NotebookFrameType};
 use crate::kernel_manager::RoomKernel;
 use crate::notebook_doc::{notebook_doc_filename, NotebookDoc};
-use crate::protocol::NotebookBroadcast;
+use crate::protocol::{NotebookBroadcast, NotebookRequest, NotebookResponse};
 
 /// A notebook sync room — holds the canonical document and a broadcast
 /// channel for notifying peers of changes.
@@ -178,6 +178,9 @@ where
 
 /// Inner sync protocol loop, factored out so the caller can handle
 /// peer-count bookkeeping around it.
+///
+/// Handles both Automerge sync messages and NotebookRequest messages
+/// using the typed frame protocol.
 async fn run_sync_loop<R, W>(
     reader: &mut R,
     writer: &mut W,
@@ -189,12 +192,15 @@ where
 {
     let mut peer_state = sync::State::new();
     let mut changed_rx = room.changed_tx.subscribe();
+    let mut kernel_broadcast_rx = room.kernel_broadcast_tx.subscribe();
 
     // Phase 1: Initial sync — server sends first
     {
         let mut doc = room.doc.write().await;
         if let Some(msg) = doc.generate_sync_message(&mut peer_state) {
-            connection::send_frame(writer, &msg.encode()).await?;
+            // Send as typed frame (AutomergeSync)
+            connection::send_typed_frame(writer, NotebookFrameType::AutomergeSync, &msg.encode())
+                .await?;
         }
     }
 
@@ -202,32 +208,62 @@ where
     loop {
         tokio::select! {
             // Incoming message from this client
-            result = connection::recv_frame(reader) => {
+            result = connection::recv_typed_frame(reader) => {
                 match result? {
-                    Some(data) => {
-                        let message = sync::Message::decode(&data)
-                            .map_err(|e| anyhow::anyhow!("decode error: {}", e))?;
+                    Some(frame) => {
+                        match frame.frame_type {
+                            NotebookFrameType::AutomergeSync => {
+                                // Handle Automerge sync message
+                                let message = sync::Message::decode(&frame.payload)
+                                    .map_err(|e| anyhow::anyhow!("decode error: {}", e))?;
 
-                        // Serialize bytes inside the lock, then persist outside it
-                        let persist_bytes = {
-                            let mut doc = room.doc.write().await;
-                            doc.receive_sync_message(&mut peer_state, message)?;
+                                // Serialize bytes inside the lock, then persist outside it
+                                let persist_bytes = {
+                                    let mut doc = room.doc.write().await;
+                                    doc.receive_sync_message(&mut peer_state, message)?;
 
-                            let bytes = doc.save();
+                                    let bytes = doc.save();
 
-                            // Notify other peers in this room
-                            let _ = room.changed_tx.send(());
+                                    // Notify other peers in this room
+                                    let _ = room.changed_tx.send(());
 
-                            // Send our response while still holding the lock
-                            if let Some(reply) = doc.generate_sync_message(&mut peer_state) {
-                                connection::send_frame(writer, &reply.encode()).await?;
+                                    // Send our response while still holding the lock
+                                    if let Some(reply) = doc.generate_sync_message(&mut peer_state) {
+                                        connection::send_typed_frame(
+                                            writer,
+                                            NotebookFrameType::AutomergeSync,
+                                            &reply.encode(),
+                                        )
+                                        .await?;
+                                    }
+
+                                    bytes
+                                };
+
+                                // Persist outside the write lock
+                                persist_notebook_bytes(&persist_bytes, &room.persist_path);
                             }
 
-                            bytes
-                        };
+                            NotebookFrameType::Request => {
+                                // Handle NotebookRequest
+                                let request: NotebookRequest = serde_json::from_slice(&frame.payload)?;
+                                let response = handle_notebook_request(room, request).await;
+                                connection::send_typed_json_frame(
+                                    writer,
+                                    NotebookFrameType::Response,
+                                    &response,
+                                )
+                                .await?;
+                            }
 
-                        // Persist outside the write lock
-                        persist_notebook_bytes(&persist_bytes, &room.persist_path);
+                            NotebookFrameType::Response | NotebookFrameType::Broadcast => {
+                                // Clients shouldn't send these
+                                warn!(
+                                    "[notebook-sync] Unexpected frame type from client: {:?}",
+                                    frame.frame_type
+                                );
+                            }
+                        }
                     }
                     None => {
                         // Client disconnected
@@ -240,7 +276,167 @@ where
             _ = changed_rx.recv() => {
                 let mut doc = room.doc.write().await;
                 if let Some(msg) = doc.generate_sync_message(&mut peer_state) {
-                    connection::send_frame(writer, &msg.encode()).await?;
+                    connection::send_typed_frame(
+                        writer,
+                        NotebookFrameType::AutomergeSync,
+                        &msg.encode(),
+                    )
+                    .await?;
+                }
+            }
+
+            // Kernel broadcast event — forward to this client
+            Ok(broadcast) = kernel_broadcast_rx.recv() => {
+                connection::send_typed_json_frame(
+                    writer,
+                    NotebookFrameType::Broadcast,
+                    &broadcast,
+                )
+                .await?;
+            }
+        }
+    }
+}
+
+/// Handle a NotebookRequest and return a NotebookResponse.
+async fn handle_notebook_request(
+    room: &NotebookRoom,
+    request: NotebookRequest,
+) -> NotebookResponse {
+    info!("[notebook-sync] Handling request: {:?}", request);
+
+    match request {
+        NotebookRequest::LaunchKernel {
+            kernel_type,
+            env_source,
+            notebook_path,
+        } => {
+            let mut kernel_guard = room.kernel.lock().await;
+
+            // Check if kernel already running
+            if let Some(ref kernel) = *kernel_guard {
+                if kernel.is_running() {
+                    return NotebookResponse::KernelAlreadyRunning {
+                        kernel_type: kernel.kernel_type().to_string(),
+                        env_source: kernel.env_source().to_string(),
+                    };
+                }
+            }
+
+            // Create new kernel
+            let mut kernel = RoomKernel::new(room.kernel_broadcast_tx.clone());
+            let notebook_path = notebook_path.map(std::path::PathBuf::from);
+
+            match kernel
+                .launch(&kernel_type, &env_source, notebook_path.as_deref())
+                .await
+            {
+                Ok(()) => {
+                    let kt = kernel.kernel_type().to_string();
+                    let es = kernel.env_source().to_string();
+                    *kernel_guard = Some(kernel);
+                    NotebookResponse::KernelLaunched {
+                        kernel_type: kt,
+                        env_source: es,
+                    }
+                }
+                Err(e) => NotebookResponse::Error {
+                    error: format!("Failed to launch kernel: {}", e),
+                },
+            }
+        }
+
+        NotebookRequest::QueueCell { cell_id, code } => {
+            let mut kernel_guard = room.kernel.lock().await;
+            if let Some(ref mut kernel) = *kernel_guard {
+                match kernel.queue_cell(cell_id.clone(), code).await {
+                    Ok(()) => NotebookResponse::CellQueued { cell_id },
+                    Err(e) => NotebookResponse::Error {
+                        error: format!("Failed to queue cell: {}", e),
+                    },
+                }
+            } else {
+                NotebookResponse::NoKernel {}
+            }
+        }
+
+        NotebookRequest::ClearOutputs { cell_id } => {
+            let kernel_guard = room.kernel.lock().await;
+            if let Some(ref kernel) = *kernel_guard {
+                kernel.clear_outputs(&cell_id);
+                NotebookResponse::OutputsCleared { cell_id }
+            } else {
+                NotebookResponse::NoKernel {}
+            }
+        }
+
+        NotebookRequest::InterruptExecution {} => {
+            let kernel_guard = room.kernel.lock().await;
+            if let Some(ref kernel) = *kernel_guard {
+                match kernel.interrupt().await {
+                    Ok(()) => NotebookResponse::InterruptSent {},
+                    Err(e) => NotebookResponse::Error {
+                        error: format!("Failed to interrupt: {}", e),
+                    },
+                }
+            } else {
+                NotebookResponse::NoKernel {}
+            }
+        }
+
+        NotebookRequest::ShutdownKernel {} => {
+            let mut kernel_guard = room.kernel.lock().await;
+            if let Some(ref mut kernel) = *kernel_guard {
+                match kernel.shutdown().await {
+                    Ok(()) => {
+                        *kernel_guard = None;
+                        NotebookResponse::KernelShuttingDown {}
+                    }
+                    Err(e) => NotebookResponse::Error {
+                        error: format!("Failed to shutdown kernel: {}", e),
+                    },
+                }
+            } else {
+                NotebookResponse::NoKernel {}
+            }
+        }
+
+        NotebookRequest::GetKernelInfo {} => {
+            let kernel_guard = room.kernel.lock().await;
+            if let Some(ref kernel) = *kernel_guard {
+                if kernel.is_running() {
+                    NotebookResponse::KernelInfo {
+                        kernel_type: Some(kernel.kernel_type().to_string()),
+                        env_source: Some(kernel.env_source().to_string()),
+                        status: kernel.status().to_string(),
+                    }
+                } else {
+                    NotebookResponse::KernelInfo {
+                        kernel_type: None,
+                        env_source: None,
+                        status: "not_started".to_string(),
+                    }
+                }
+            } else {
+                NotebookResponse::KernelInfo {
+                    kernel_type: None,
+                    env_source: None,
+                    status: "not_started".to_string(),
+                }
+            }
+        }
+
+        NotebookRequest::GetQueueState {} => {
+            let kernel_guard = room.kernel.lock().await;
+            if let Some(ref kernel) = *kernel_guard {
+                NotebookResponse::QueueState {
+                    executing: kernel.executing_cell().cloned(),
+                    queued: kernel.queued_cells(),
+                }
+            } else {
+                NotebookResponse::QueueState {
+                    executing: None,
+                    queued: vec![],
                 }
             }
         }
