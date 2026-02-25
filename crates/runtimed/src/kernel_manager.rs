@@ -15,6 +15,7 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use anyhow::Result;
+use bytes::Bytes;
 use jupyter_protocol::{
     ConnectionInfo, ExecuteRequest, InterruptRequest, JupyterMessage, JupyterMessageContent,
     KernelInfoRequest, ShutdownRequest,
@@ -546,6 +547,30 @@ impl RoomKernel {
                                 }
                             }
 
+                            // Comm messages for widgets (ipywidgets protocol)
+                            JupyterMessageContent::CommOpen(_)
+                            | JupyterMessageContent::CommMsg(_)
+                            | JupyterMessageContent::CommClose(_) => {
+                                debug!(
+                                    "[kernel-manager] Broadcasting comm message: type={}",
+                                    message.header.msg_type
+                                );
+
+                                // Serialize the content to JSON
+                                let content =
+                                    serde_json::to_value(&message.content).unwrap_or_default();
+
+                                // Extract buffers (Vec<Bytes> -> Vec<Vec<u8>>)
+                                let buffers: Vec<Vec<u8>> =
+                                    message.buffers.iter().map(|b| b.to_vec()).collect();
+
+                                let _ = broadcast_tx.send(NotebookBroadcast::Comm {
+                                    msg_type: message.header.msg_type.clone(),
+                                    content,
+                                    buffers,
+                                });
+                            }
+
                             _ => {
                                 debug!(
                                     "[kernel-manager] Unhandled iopub message: {}",
@@ -795,6 +820,90 @@ impl RoomKernel {
         control.send(request).await?;
 
         info!("[kernel-manager] Sent interrupt_request");
+        Ok(())
+    }
+
+    /// Send a comm message to the kernel (for widget interactions).
+    ///
+    /// Accepts the full Jupyter message envelope from the frontend to preserve
+    /// header/session for proper widget protocol compliance.
+    pub async fn send_comm_message(&mut self, raw_message: serde_json::Value) -> Result<()> {
+        let shell = self
+            .shell_writer
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("No kernel running"))?;
+
+        // Parse header from the raw message
+        let header: jupyter_protocol::Header = serde_json::from_value(
+            raw_message
+                .get("header")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("Missing header in comm message"))?,
+        )?;
+
+        let msg_type = header.msg_type.clone();
+
+        // Parse parent_header (may be null or missing)
+        let parent_header: Option<jupyter_protocol::Header> =
+            raw_message.get("parent_header").and_then(|v| {
+                if v.is_null() {
+                    None
+                } else {
+                    serde_json::from_value(v.clone()).ok()
+                }
+            });
+
+        // Parse metadata (defaults to empty object)
+        let metadata: serde_json::Value = raw_message
+            .get("metadata")
+            .cloned()
+            .unwrap_or(serde_json::json!({}));
+
+        // Parse content and convert to JupyterMessageContent
+        let content_value = raw_message
+            .get("content")
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Missing content in comm message"))?;
+
+        let message_content =
+            JupyterMessageContent::from_type_and_content(&msg_type, content_value)?;
+
+        // Parse buffers from Vec<Vec<u8>> (JSON number arrays)
+        let buffers: Vec<Bytes> = raw_message
+            .get("buffers")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|buf| {
+                        buf.as_array().map(|bytes| {
+                            let bytes: Vec<u8> = bytes
+                                .iter()
+                                .filter_map(|b| b.as_u64().map(|n| n as u8))
+                                .collect();
+                            Bytes::from(bytes)
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Construct the JupyterMessage with the frontend's original header
+        let message = JupyterMessage {
+            zmq_identities: Vec::new(),
+            header,
+            parent_header,
+            metadata,
+            content: message_content,
+            buffers,
+            channel: Some(jupyter_protocol::Channel::Shell),
+        };
+
+        debug!(
+            "[kernel-manager] Sending comm message: type={} msg_id={}",
+            msg_type, message.header.msg_id
+        );
+
+        shell.send(message).await?;
         Ok(())
     }
 

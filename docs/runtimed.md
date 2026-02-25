@@ -744,26 +744,23 @@ Detection priority:
 
 Walk-up stops at `.git` boundary or home directory.
 
-### Widget challenge (not yet implemented)
+### Widget support (partial)
 
-**Why widgets don't work in daemon mode:**
+> **Implemented** (PR #275) — single-window widgets work, multi-window sync is a known limitation
 
-Non-daemon mode:
-```
-Frontend ←──comm_msg──→ Local Kernel (direct ZMQ)
-```
+Widgets require bidirectional comm message routing through the daemon:
 
-Daemon mode:
 ```
-Frontend ←──???──→ Daemon ←──ZMQ──→ Kernel
+Frontend ←──comm_msg──→ Daemon ←──ZMQ──→ Kernel
 ```
 
-The comm messages (`comm_open`, `comm_msg`, `comm_close`) for ipywidgets need bidirectional routing through the daemon. Options:
-1. **Proxy comms** — daemon forwards all comm traffic
-2. **Direct kernel comms** — frontend talks to kernel for comms only
-3. **Widget state in Automerge** — daemon interprets widget protocol
+The implementation:
+1. **Kernel → Frontend**: Daemon broadcasts `comm_open`, `comm_msg`, `comm_close` from iopub to all connected windows
+2. **Frontend → Kernel**: Frontend sends full Jupyter message envelope via `SendComm` request, daemon preserves original headers and forwards to kernel shell channel
 
-Until this is solved, `daemon_execution` remains opt-in. Widgets work in non-daemon mode.
+**Known limitation**: Widgets only render in the window that was active when the widget was created. Secondary windows show "Loading widget" because they miss the initial `comm_open` message. See issue #276.
+
+**Future work**: Sync widget/comm state via Automerge so late-joining windows can reconstruct widget models.
 
 ### Benefits
 
@@ -846,6 +843,19 @@ When a cell executes, there's a brief window where daemon sync updates may confl
 
 **Proper fix (future)**: Store `parent_header.msg_id` in cell metadata to correlate execution requests with outputs. Only accept daemon outputs that match the expected `msg_id`.
 
+### Multi-Window Widget Sync (#276)
+
+Widgets only render in the window that was active when the widget was created. Secondary windows show "Loading widget" because they miss the initial `comm_open` message that established the widget model.
+
+**Root cause**: The Jupyter comm protocol establishes widget models via messages. When a second window connects to the same notebook via the daemon, it doesn't receive the historical `comm_open` messages.
+
+**Workaround**: Single-window mode works correctly, which covers the majority of use cases.
+
+**Proposed fix**: Sync widget/comm state via Automerge:
+1. Store comm channel state (target_name, comm_id, initial data) in Automerge document
+2. When a new client connects, reconstruct widget models from Automerge state
+3. Keep widget model updates in sync across clients
+
 ---
 
 ## Summary
@@ -859,10 +869,10 @@ When a cell executes, there's a brief window where daemon sync updates may confl
 | **5** | Tauri <-> daemon notebook sync (multi-window) | Implemented (PR #238, #241) |
 | **6** | Output store (manifests, ContentRef, inlining) | Implemented (PR #237) |
 | **7** | ipynb round-tripping | Future (outputs already persist in nbformat) |
-| **8** | Daemon-owned kernels | Implemented (PRs #258, #259, #267, #271) — behind `daemon_execution` flag |
+| **8** | Daemon-owned kernels | Implemented (PRs #258, #259, #267, #271, #275) — behind `daemon_execution` flag, widgets work single-window |
 
 ### Remaining for daemon_execution default-on
 
-1. **Widget comm routing** — ipywidgets require comm message forwarding through daemon
+1. **Widget multi-window sync (#276)** — widgets work in single window, but secondary windows show "Loading widget" due to missing `comm_open` history
 2. **Inline deps detection** — daemon should check notebook metadata for `uv.dependencies`/`conda.dependencies`
 3. **Testing** — verify project file detection works across fixture notebooks

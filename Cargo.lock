@@ -5349,10 +5349,11 @@ dependencies = [
 
 [[package]]
 name = "runtimed"
-version = "0.1.0-dev.7"
+version = "0.1.0-dev.10"
 dependencies = [
  "anyhow",
  "automerge",
+ "bytes",
  "chrono",
  "clap",
  "dirs 5.0.1",

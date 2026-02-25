@@ -38,14 +38,37 @@ export interface CellPagePayload {
 }
 
 /**
+ * Module-level reference for daemon comm sending.
+ * Set by AppContent when daemon execution is enabled.
+ */
+let daemonCommSender: ((message: unknown) => Promise<void>) | null = null;
+
+/**
+ * Update the daemon comm sender reference.
+ * Called by AppContent when daemon execution mode changes.
+ */
+export function setDaemonCommSender(
+  sender: ((message: unknown) => Promise<void>) | null,
+): void {
+  daemonCommSender = sender;
+}
+
+/**
  * Send a message to the kernel's shell channel via Tauri.
  * Used by the widget store for comm_msg/comm_open/comm_close.
+ *
+ * When daemon execution is enabled, this routes through the daemon.
+ * Otherwise, it sends directly to the local kernel.
  */
 async function sendMessage(message: unknown): Promise<void> {
   try {
-    await invoke("send_shell_message", { message });
+    if (daemonCommSender) {
+      await daemonCommSender(message);
+    } else {
+      await invoke("send_shell_message", { message });
+    }
   } catch (e) {
-    console.error("[widget] send_shell_message failed:", e);
+    console.error("[widget] send_shell/comm_message failed:", e);
   }
 }
 
@@ -312,6 +335,7 @@ function AppContent() {
     interruptKernel: daemonInterruptKernel,
     shutdownKernel: daemonShutdownKernel,
     runAllCells: daemonRunAllCells,
+    sendCommMessage: daemonSendCommMessage,
   } = useDaemonKernel({
     // Daemon execution: Automerge is the source of truth for outputs.
     // The daemon writes outputs to Automerge, then broadcasts for immediate UI.
@@ -323,7 +347,31 @@ function AppContent() {
     onExecutionDone: handleExecutionDone,
     onUpdateDisplayData: updateOutputByDisplayId,
     onClearOutputs: clearCellOutputs, // Handle broadcast from other windows
+    onCommMessage: handleCommMessage, // Route comm messages to widget store
   });
+
+  // Update the daemon comm sender when daemon execution mode changes
+  useEffect(() => {
+    if (daemonExecution) {
+      // Set the daemon comm sender so widget messages route through daemon
+      setDaemonCommSender(async (message: unknown) => {
+        const msg = message as {
+          header: { msg_type: string };
+          content: Record<string, unknown>;
+          buffers?: ArrayBuffer[];
+        };
+        await daemonSendCommMessage(msg);
+      });
+    } else {
+      // Clear daemon sender - messages go directly to local kernel
+      setDaemonCommSender(null);
+    }
+
+    return () => {
+      // Cleanup on unmount
+      setDaemonCommSender(null);
+    };
+  }, [daemonExecution, daemonSendCommMessage]);
 
   // Choose kernel status/operations based on daemon execution mode
   const kernelStatus = daemonExecution ? daemonKernelStatus : localKernelStatus;

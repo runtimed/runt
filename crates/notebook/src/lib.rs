@@ -1071,6 +1071,34 @@ async fn run_all_cells_via_daemon(
         .map_err(|e| format!("daemon request failed: {}", e))
 }
 
+/// Send a comm message to the kernel via the daemon (for widget interactions).
+///
+/// Accepts the full Jupyter message envelope to preserve header/session for
+/// proper widget protocol compliance.
+#[tauri::command]
+async fn send_comm_via_daemon(
+    message: serde_json::Value,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<NotebookResponse, String> {
+    let msg_type = message
+        .get("header")
+        .and_then(|h| h.get("msg_type"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("unknown");
+    info!(
+        "[daemon-kernel] send_comm_via_daemon: msg_type={}",
+        msg_type
+    );
+
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    handle
+        .send_request(NotebookRequest::SendComm { message })
+        .await
+        .map_err(|e| format!("daemon request failed: {}", e))
+}
+
 /// Reconnect to the daemon after a disconnection.
 ///
 /// Called by the frontend after receiving daemon:disconnected event.
@@ -3940,6 +3968,7 @@ pub fn run(
             get_daemon_kernel_info,
             get_daemon_queue_state,
             run_all_cells_via_daemon,
+            send_comm_via_daemon,
             reconnect_to_daemon,
             debug_get_automerge_state,
             debug_get_local_state,
