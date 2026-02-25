@@ -313,9 +313,12 @@ function AppContent() {
     shutdownKernel: daemonShutdownKernel,
     runAllCells: daemonRunAllCells,
   } = useDaemonKernel({
-    onOutput: (cellId, output) => {
-      appendOutput(cellId, output);
-    },
+    // Daemon execution: Automerge is the source of truth for outputs.
+    // The daemon writes outputs to Automerge, then broadcasts for immediate UI.
+    // We skip broadcast handling to avoid race conditions - Automerge sync
+    // arrives shortly after and provides the canonical state.
+    // This prevents duplicate outputs when Automerge sync and broadcast race.
+    onOutput: () => {},
     onExecutionCount: handleExecutionCount,
     onExecutionDone: handleExecutionDone,
     onUpdateDisplayData: updateOutputByDisplayId,

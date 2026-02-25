@@ -383,6 +383,11 @@ async fn test_notebook_sync_cross_window_propagation() {
     let _ = tokio::time::timeout(Duration::from_secs(2), daemon_handle).await;
 }
 
+/// Test that room eviction creates a fresh room on reconnection.
+///
+/// Design: The .ipynb file is the source of truth, not persisted Automerge docs.
+/// When all clients disconnect and the room is evicted, a new connection should
+/// get a fresh empty room. The client will populate it from their local .ipynb.
 #[tokio::test]
 async fn test_notebook_room_eviction_and_persistence() {
     let temp_dir = TempDir::new().unwrap();
@@ -416,14 +421,13 @@ async fn test_notebook_room_eviction_and_persistence() {
         client1.update_source("c2", "# Hello World").await.unwrap();
 
         // Both clients drop here — the room should be evicted
-        // (sync_to_daemon waits for the server ack, so all changes
-        // are persisted by the time the last write returns)
     }
 
     // Give the daemon time to process disconnects and evict the room
     sleep(Duration::from_millis(200)).await;
 
-    // Phase 2: Reconnect — the room should be recreated from persisted state
+    // Phase 2: Reconnect — the room should be fresh (not loaded from persisted state)
+    // This matches the design: .ipynb is source of truth, Automerge is just sync layer
     let client3 = NotebookSyncClient::connect(socket_path.clone(), "evict-test".to_string())
         .await
         .expect("should reconnect after room eviction");
@@ -431,18 +435,10 @@ async fn test_notebook_room_eviction_and_persistence() {
     let cells = client3.get_cells();
     assert_eq!(
         cells.len(),
-        2,
-        "reconnected client should see persisted cells, got: {:?}",
+        0,
+        "reconnected client should get fresh empty room (client populates from .ipynb), got: {:?}",
         cells
     );
-
-    let c1 = cells.iter().find(|c| c.id == "c1").expect("should have c1");
-    assert_eq!(c1.source, "persisted = True");
-    assert_eq!(c1.cell_type, "code");
-
-    let c2 = cells.iter().find(|c| c.id == "c2").expect("should have c2");
-    assert_eq!(c2.source, "# Hello World");
-    assert_eq!(c2.cell_type, "markdown");
 
     // Shutdown
     pool_client.shutdown().await.ok();
