@@ -28,9 +28,9 @@ runtimelib = { workspace = true, features = [
 ] }
 futures = { workspace = true }
 querystring = "1.1.0"
-tao = "0.31.0"
-wry = "0.47.0"
-muda = "0.15"
+tao = "0.34"
+wry = "0.54"
+muda = "0.16"
 crossbeam-channel = "0.5"
 image = { version = "0.25", default-features = false, features = ["png"] }
 tokio = { version = "1", features = ["full"] }

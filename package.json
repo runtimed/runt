@@ -45,7 +45,7 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-toggle": "^1.1.10",
     "@radix-ui/react-toggle-group": "^1.1.11",
-    "@tauri-apps/api": "~2.5.0",
+    "@tauri-apps/api": "^2.10.0",
     "@uiw/codemirror-theme-github": "^4.25.4",
     "@uiw/react-codemirror": "^4.25.4",
     "@uiw/react-json-view": "^2.0.0-alpha.41",
