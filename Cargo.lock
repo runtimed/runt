@@ -5349,7 +5349,7 @@ dependencies = [
 
 [[package]]
 name = "runtimed"
-version = "0.1.0-dev.6"
+version = "0.1.0-dev.7"
 dependencies = [
  "anyhow",
  "automerge",
