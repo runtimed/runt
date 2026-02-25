@@ -230,12 +230,15 @@ function AppContent() {
 
       appendOutput(cellId, output);
       // Sync output to Automerge for cross-window sync (only if not captured by widget)
-      invoke("sync_append_output", {
-        cellId,
-        outputJson: JSON.stringify(output),
-      }).catch(() => {}); // Fire-and-forget
+      // Skip when daemon execution is enabled - daemon broadcasts outputs to all windows
+      if (!daemonExecution) {
+        invoke("sync_append_output", {
+          cellId,
+          outputJson: JSON.stringify(output),
+        }).catch(() => {}); // Fire-and-forget
+      }
     },
-    [appendOutput, sendWidgetUpdate, widgetStore],
+    [appendOutput, sendWidgetUpdate, widgetStore, daemonExecution],
   );
 
   const handleExecutionCount = useCallback(
@@ -305,6 +308,7 @@ function AppContent() {
     kernelInfo: daemonKernelInfo,
     launchKernel: daemonLaunchKernel,
     queueCell: daemonQueueCell,
+    clearOutputs: daemonClearOutputs,
     interruptKernel: daemonInterruptKernel,
     shutdownKernel: daemonShutdownKernel,
   } = useDaemonKernel({
@@ -314,6 +318,7 @@ function AppContent() {
     onExecutionCount: handleExecutionCount,
     onExecutionDone: handleExecutionDone,
     onUpdateDisplayData: updateOutputByDisplayId,
+    onClearOutputs: clearCellOutputs, // Handle broadcast from other windows
   });
 
   // Choose kernel status/operations based on daemon execution mode
@@ -425,21 +430,22 @@ function AppContent() {
   }, []);
 
   const handleExecuteCell = useCallback(
-    (cellId: string) => {
+    async (cellId: string) => {
       // Clear outputs immediately so user sees feedback
       clearCellOutputs(cellId);
 
       if (daemonExecution) {
-        // Daemon execution mode: launch kernel first, then queue
+        // Daemon execution mode: broadcast clear to other windows, then queue
+        // Await clear to ensure ordering (clear completes before queue)
+        await daemonClearOutputs(cellId);
         const cell = cells.find((c) => c.id === cellId);
         if (!cell || cell.cell_type !== "code") return;
 
         // Start kernel via daemon if not running, then queue cell
         if (kernelStatus === "not_started" || kernelStatus === "not started") {
           // Launch kernel first, then queue after it's ready
-          tryStartKernel().then(() => {
-            daemonQueueCell(cellId, cell.source);
-          });
+          await tryStartKernel();
+          daemonQueueCell(cellId, cell.source);
         } else {
           // Kernel already running, queue immediately
           daemonQueueCell(cellId, cell.source);
@@ -461,6 +467,7 @@ function AppContent() {
       daemonExecution,
       cells,
       daemonQueueCell,
+      daemonClearOutputs,
     ],
   );
 
@@ -485,10 +492,13 @@ function AppContent() {
       const codeCells = cells.filter((c) => c.cell_type === "code");
       if (codeCells.length === 0) return;
 
-      // Clear all outputs first
+      // Clear all outputs first (local for immediate feedback)
       for (const cell of codeCells) {
         clearCellOutputs(cell.id);
       }
+
+      // Await all daemon clears to ensure ordering before queueing
+      await Promise.all(codeCells.map((cell) => daemonClearOutputs(cell.id)));
 
       const queueAllCells = () => {
         for (const cell of codeCells) {
@@ -519,6 +529,7 @@ function AppContent() {
     cells,
     clearCellOutputs,
     daemonQueueCell,
+    daemonClearOutputs,
   ]);
 
   const handleRestartAndRunAll = useCallback(async () => {
