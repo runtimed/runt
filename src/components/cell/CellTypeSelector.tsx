@@ -1,5 +1,3 @@
-"use client";
-
 import { Bot, ChevronDown, Code, Database, FileText } from "lucide-react";
 import {
   type CellType,

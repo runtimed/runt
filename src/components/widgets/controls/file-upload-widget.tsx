@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * FileUpload widget - file upload button.
  *

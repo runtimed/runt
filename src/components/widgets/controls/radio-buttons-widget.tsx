@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * RadioButtons widget - renders a group of radio buttons.
  *

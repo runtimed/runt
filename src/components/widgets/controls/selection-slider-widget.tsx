@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * SelectionSlider widget - slider that selects from discrete options.
  *

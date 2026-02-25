@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * TagsInput widget - multi-value string tag input.
  *

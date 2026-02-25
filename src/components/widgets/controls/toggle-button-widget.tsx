@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * ToggleButton widget - renders a single toggle button.
  *

@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * FloatSlider widget - renders a floating point slider.
  *

@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * anywidget ESM loader and AFM (AnyWidget Frontend Module) interface.
  *
@@ -89,15 +87,15 @@ interface AnyWidgetModule {
 export async function loadESM(esm: string): Promise<AnyWidgetModule> {
   // Handle remote URLs directly
   if (esm.startsWith("http://") || esm.startsWith("https://")) {
-    // Dynamic import with webpackIgnore comment for bundler compatibility
-    return import(/* webpackIgnore: true */ esm);
+    // Dynamic import - vite-ignore suppresses "cannot analyze" warning
+    return import(/* @vite-ignore */ esm);
   }
 
   // Inline ESM - create a blob URL for dynamic import
   const blob = new Blob([esm], { type: "text/javascript" });
   const url = URL.createObjectURL(blob);
   try {
-    return await import(/* webpackIgnore: true */ url);
+    return await import(/* @vite-ignore */ url);
   } finally {
     // Clean up the blob URL after import completes
     URL.revokeObjectURL(url);

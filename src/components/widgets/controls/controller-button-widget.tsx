@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * ControllerButton widget - displays a gamepad button state.
  *

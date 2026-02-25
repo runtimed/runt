@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * FloatProgress widget - renders a floating point progress bar.
  *

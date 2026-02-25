@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * IntRangeSlider widget - renders a dual-handle range slider for integers.
  *

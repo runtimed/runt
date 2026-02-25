@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Dropdown widget - renders a native select dropdown.
  *

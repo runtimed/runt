@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Universal widget view component.
  *

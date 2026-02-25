@@ -10,7 +10,6 @@
 
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react";
 import { build, type Plugin } from "vite";
 
 const VIRTUAL_MODULE_ID = "virtual:isolated-renderer";
@@ -59,7 +58,23 @@ export function isolatedRendererPlugin(
 
     const result = await build({
       configFile: false,
-      plugins: [react(), tailwindcss()],
+      // Force production mode to ensure esbuild uses jsx-runtime (not jsx-dev-runtime)
+      mode: "production",
+      plugins: [
+        // Don't use React plugin - use esbuild's native JSX handling instead
+        // The React plugin uses Babel which doesn't respect mode for JSX transform
+        tailwindcss(),
+      ],
+      esbuild: {
+        // Use esbuild's native JSX handling with automatic runtime
+        // This properly bundles jsx-runtime into the IIFE
+        jsx: "automatic",
+        jsxImportSource: "react",
+        // CRITICAL: Explicitly disable jsxDev to use production runtime
+        // Without this, Vite's dev server passes jsxDev: true to esbuild,
+        // which generates jsxDEV calls that fail in the sandboxed iframe
+        jsxDev: false,
+      },
       resolve: {
         alias: {
           "@/": `${srcDir}/`,

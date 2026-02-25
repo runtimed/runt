@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Image widget - displays images from the kernel.
  *

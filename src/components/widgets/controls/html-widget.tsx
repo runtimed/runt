@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * HTML widget - renders arbitrary HTML content.
  *

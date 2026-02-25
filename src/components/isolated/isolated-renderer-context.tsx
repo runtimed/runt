@@ -1,5 +1,3 @@
-"use client";
-
 import {
   createContext,
   type ReactNode,
@@ -121,6 +119,7 @@ export function IsolatedRendererProvider({
         }
       })
       .catch((error) => {
+        console.error("[IsolatedRendererProvider] Bundle load failed:", error);
         if (!cancelled) {
           setState((s) => ({ ...s, isLoading: false, error }));
         }

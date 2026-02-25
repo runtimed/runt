@@ -1,5 +1,3 @@
-"use client";
-
 import {
   forwardRef,
   useCallback,
@@ -330,6 +328,17 @@ export const IsolatedFrame = forwardRef<
         case "widget_update":
           if (data.payload?.commId && data.payload?.state) {
             onWidgetUpdate?.(data.payload.commId, data.payload.state);
+          }
+          break;
+
+        case "eval_result":
+          // Report eval failures to help diagnose bundle injection issues
+          if (data.payload?.success === false) {
+            console.error(
+              "[IsolatedFrame] Bundle eval failed:",
+              data.payload.error,
+            );
+            onError?.({ message: `Bundle eval failed: ${data.payload.error}` });
           }
           break;
 

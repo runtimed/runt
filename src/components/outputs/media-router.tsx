@@ -1,5 +1,3 @@
-"use client";
-
 import { lazy, type ReactNode, Suspense } from "react";
 import { useMediaContext } from "./media-provider";
 

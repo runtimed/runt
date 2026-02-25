@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * HTMLMath widget - renders HTML content with LaTeX math support.
  *

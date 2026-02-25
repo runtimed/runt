@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Audio widget - plays audio from the kernel.
  *

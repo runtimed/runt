@@ -351,7 +351,21 @@ export function init() {
 // Auto-init if this is the main module being eval'd
 // The parent will send us via eval, so we auto-start
 if (typeof window !== "undefined") {
-  // Check if we're being eval'd (window.currentMessage exists from bootstrap)
-  // If so, init immediately. Otherwise, export for manual init.
-  init();
+  try {
+    init();
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    console.error("[IsolatedRenderer] init() failed:", error);
+    // Report error back to parent
+    window.parent.postMessage(
+      {
+        type: "error",
+        payload: {
+          message: `Renderer init failed: ${error.message}`,
+          stack: error.stack,
+        },
+      },
+      "*",
+    );
+  }
 }

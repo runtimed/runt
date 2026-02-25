@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * ControllerAxis widget - displays a gamepad axis value.
  *

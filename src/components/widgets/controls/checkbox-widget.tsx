@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Checkbox widget - renders a checkbox input.
  *

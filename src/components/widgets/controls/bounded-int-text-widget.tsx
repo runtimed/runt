@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * BoundedIntText widget - renders a bounded numeric text input for integers.
  *
