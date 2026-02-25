@@ -147,8 +147,14 @@ export type DaemonBroadcast =
   | {
       event: "output";
       cell_id: string;
-      output_type: string; // "stream" | "display_data" | "update_display_data" | "execute_result" | "error"
-      output_json: string; // Serialized JupyterMessageContent from daemon
+      output_type: string; // "stream" | "display_data" | "execute_result" | "error"
+      output_json: string; // Serialized output in nbformat shape
+    }
+  | {
+      event: "display_update";
+      display_id: string;
+      data: Record<string, unknown>;
+      metadata: Record<string, unknown>;
     }
   | {
       event: "execution_done";

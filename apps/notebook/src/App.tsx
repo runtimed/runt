@@ -83,7 +83,7 @@ function AppContent() {
     setExecutionCount,
     clearCellOutputs,
     formatCell,
-  } = useNotebook({ daemonExecution });
+  } = useNotebook();
 
   // Execution queue - cells are queued and executed in FIFO order by the backend
   const {

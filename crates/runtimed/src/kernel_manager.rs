@@ -19,12 +19,63 @@ use jupyter_protocol::{
     ConnectionInfo, ExecuteRequest, InterruptRequest, JupyterMessage, JupyterMessageContent,
     KernelInfoRequest, ShutdownRequest,
 };
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use serde::Serialize;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, RwLock};
 use uuid::Uuid;
 
+use crate::notebook_doc::NotebookDoc;
+use crate::notebook_sync_server::persist_notebook_bytes;
 use crate::protocol::NotebookBroadcast;
+
+/// Convert a JupyterMessageContent to nbformat-style JSON for storage in Automerge.
+///
+/// jupyter_protocol serializes as: `{"ExecuteResult": {"data": {...}, ...}}`
+/// nbformat expects: `{"output_type": "execute_result", "data": {...}, ...}`
+fn message_content_to_nbformat(content: &JupyterMessageContent) -> Option<serde_json::Value> {
+    use serde_json::json;
+
+    match content {
+        JupyterMessageContent::StreamContent(stream) => {
+            let name = match stream.name {
+                jupyter_protocol::Stdio::Stdout => "stdout",
+                jupyter_protocol::Stdio::Stderr => "stderr",
+            };
+            Some(json!({
+                "output_type": "stream",
+                "name": name,
+                "text": stream.text
+            }))
+        }
+        JupyterMessageContent::DisplayData(data) => {
+            let mut output = json!({
+                "output_type": "display_data",
+                "data": data.data,
+                "metadata": data.metadata
+            });
+            // Preserve display_id for update_display_data targeting
+            if let Some(ref transient) = data.transient {
+                if let Some(ref display_id) = transient.display_id {
+                    output["transient"] = json!({ "display_id": display_id });
+                }
+            }
+            Some(output)
+        }
+        JupyterMessageContent::ExecuteResult(result) => Some(json!({
+            "output_type": "execute_result",
+            "data": result.data,
+            "metadata": result.metadata,
+            "execution_count": result.execution_count.0
+        })),
+        JupyterMessageContent::ErrorOutput(error) => Some(json!({
+            "output_type": "error",
+            "ename": error.ename,
+            "evalue": error.evalue,
+            "traceback": error.traceback
+        })),
+        _ => None,
+    }
+}
 
 /// A cell queued for execution.
 #[derive(Debug, Clone)]
@@ -101,6 +152,12 @@ pub struct RoomKernel {
     cmd_tx: Option<mpsc::Sender<QueueCommand>>,
     /// Command receiver for queue state updates (polled by sync server)
     cmd_rx: Option<mpsc::Receiver<QueueCommand>>,
+    /// Automerge document for persisting outputs
+    doc: Arc<RwLock<NotebookDoc>>,
+    /// Path for persisting the document
+    persist_path: PathBuf,
+    /// Channel to notify peers of document changes
+    changed_tx: broadcast::Sender<()>,
 }
 
 /// Commands from iopub/shell handlers for queue state management.
@@ -117,7 +174,12 @@ pub enum QueueCommand {
 
 impl RoomKernel {
     /// Create a new room kernel with a broadcast channel for outputs.
-    pub fn new(broadcast_tx: broadcast::Sender<NotebookBroadcast>) -> Self {
+    pub fn new(
+        broadcast_tx: broadcast::Sender<NotebookBroadcast>,
+        doc: Arc<RwLock<NotebookDoc>>,
+        persist_path: PathBuf,
+        changed_tx: broadcast::Sender<()>,
+    ) -> Self {
         Self {
             kernel_type: String::new(),
             env_source: String::new(),
@@ -137,6 +199,9 @@ impl RoomKernel {
             broadcast_tx,
             cmd_tx: None,
             cmd_rx: None,
+            doc,
+            persist_path,
+            changed_tx,
         }
     }
 
@@ -294,6 +359,9 @@ impl RoomKernel {
         let broadcast_tx = self.broadcast_tx.clone();
         let cell_id_map = self.cell_id_map.clone();
         let iopub_cmd_tx = cmd_tx.clone();
+        let doc = self.doc.clone();
+        let persist_path = self.persist_path.clone();
+        let changed_tx = self.changed_tx.clone();
 
         let iopub_task = tokio::spawn(async move {
             loop {
@@ -351,22 +419,38 @@ impl RoomKernel {
 
                             JupyterMessageContent::StreamContent(_)
                             | JupyterMessageContent::DisplayData(_)
-                            | JupyterMessageContent::UpdateDisplayData(_)
                             | JupyterMessageContent::ExecuteResult(_) => {
                                 if let Some(ref cid) = cell_id {
                                     let output_type = match &message.content {
                                         JupyterMessageContent::StreamContent(_) => "stream",
                                         JupyterMessageContent::DisplayData(_) => "display_data",
-                                        JupyterMessageContent::UpdateDisplayData(_) => {
-                                            "update_display_data"
-                                        }
                                         JupyterMessageContent::ExecuteResult(_) => "execute_result",
                                         _ => "unknown",
                                     };
 
-                                    // Serialize the content as JSON
-                                    if let Ok(output_json) = serde_json::to_string(&message.content)
+                                    // Convert to nbformat JSON for storage and broadcast
+                                    if let Some(nbformat_value) =
+                                        message_content_to_nbformat(&message.content)
                                     {
+                                        let output_json = nbformat_value.to_string();
+
+                                        // Write output to Automerge doc before broadcasting
+                                        let persist_bytes = {
+                                            let mut doc_guard = doc.write().await;
+                                            if let Err(e) =
+                                                doc_guard.append_output(cid, &output_json)
+                                            {
+                                                warn!(
+                                                    "[kernel-manager] Failed to append output to doc: {}",
+                                                    e
+                                                );
+                                            }
+                                            let bytes = doc_guard.save();
+                                            let _ = changed_tx.send(());
+                                            bytes
+                                        };
+                                        persist_notebook_bytes(&persist_bytes, &persist_path);
+
                                         let _ = broadcast_tx.send(NotebookBroadcast::Output {
                                             cell_id: cid.clone(),
                                             output_type: output_type.to_string(),
@@ -376,11 +460,78 @@ impl RoomKernel {
                                 }
                             }
 
+                            // UpdateDisplayData mutates an existing output in place (e.g., progress bars).
+                            // Find the output by display_id and update it, rather than appending.
+                            JupyterMessageContent::UpdateDisplayData(update) => {
+                                if let Some(ref display_id) = update.transient.display_id {
+                                    let persist_bytes = {
+                                        let mut doc_guard = doc.write().await;
+                                        match doc_guard.update_output_by_display_id(
+                                            display_id,
+                                            &serde_json::to_value(&update.data).unwrap_or_default(),
+                                            &update.metadata,
+                                        ) {
+                                            Ok(true) => {
+                                                debug!(
+                                                    "[kernel-manager] Updated display_id={}",
+                                                    display_id
+                                                );
+                                            }
+                                            Ok(false) => {
+                                                warn!(
+                                                    "[kernel-manager] No output found for display_id={}",
+                                                    display_id
+                                                );
+                                            }
+                                            Err(e) => {
+                                                warn!(
+                                                    "[kernel-manager] Failed to update display: {}",
+                                                    e
+                                                );
+                                            }
+                                        }
+                                        let bytes = doc_guard.save();
+                                        let _ = changed_tx.send(());
+                                        bytes
+                                    };
+                                    persist_notebook_bytes(&persist_bytes, &persist_path);
+
+                                    // Broadcast for immediate UI update
+                                    // Frontend will receive via Automerge sync, but broadcast for speed
+                                    let _ = broadcast_tx.send(NotebookBroadcast::DisplayUpdate {
+                                        display_id: display_id.clone(),
+                                        data: serde_json::to_value(&update.data)
+                                            .unwrap_or_default(),
+                                        metadata: update.metadata.clone(),
+                                    });
+                                }
+                            }
+
                             JupyterMessageContent::ErrorOutput(_) => {
                                 if let Some(ref cid) = cell_id {
-                                    // Send error output
-                                    if let Ok(output_json) = serde_json::to_string(&message.content)
+                                    // Convert error to nbformat JSON
+                                    if let Some(nbformat_value) =
+                                        message_content_to_nbformat(&message.content)
                                     {
+                                        let output_json = nbformat_value.to_string();
+
+                                        // Write error output to Automerge doc before broadcasting
+                                        let persist_bytes = {
+                                            let mut doc_guard = doc.write().await;
+                                            if let Err(e) =
+                                                doc_guard.append_output(cid, &output_json)
+                                            {
+                                                warn!(
+                                                    "[kernel-manager] Failed to append error output to doc: {}",
+                                                    e
+                                                );
+                                            }
+                                            let bytes = doc_guard.save();
+                                            let _ = changed_tx.send(());
+                                            bytes
+                                        };
+                                        persist_notebook_bytes(&persist_bytes, &persist_path);
+
                                         let _ = broadcast_tx.send(NotebookBroadcast::Output {
                                             cell_id: cid.clone(),
                                             output_type: "error".to_string(),
@@ -771,7 +922,10 @@ mod tests {
     #[test]
     fn test_room_kernel_new() {
         let (tx, _rx) = broadcast::channel(16);
-        let kernel = RoomKernel::new(tx);
+        let (changed_tx, _changed_rx) = broadcast::channel(16);
+        let doc = Arc::new(RwLock::new(NotebookDoc::new("test-notebook")));
+        let persist_path = PathBuf::from("/tmp/test.automerge");
+        let kernel = RoomKernel::new(tx, doc, persist_path, changed_tx);
 
         assert!(!kernel.is_running());
         assert!(kernel.executing_cell().is_none());
