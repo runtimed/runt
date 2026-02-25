@@ -100,9 +100,44 @@ async fn main() -> anyhow::Result<()> {
         std::env::set_var("RUNTIMED_DEV", "1");
     }
 
-    // Initialize logging
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(&cli.log_level))
-        .init();
+    // Initialize logging - write to both stderr and log file
+    let log_path = runtimed::default_log_path();
+    if let Some(parent) = log_path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path);
+
+    let mut builder =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(&cli.log_level));
+
+    // If we can open the log file, write to it; otherwise just use stderr
+    if let Ok(file) = log_file {
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+
+        let file = Arc::new(Mutex::new(file));
+        builder.format(move |_buf, record| {
+            let formatted = format!(
+                "{} [{}] {}: {}\n",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                record.level(),
+                record.target(),
+                record.args()
+            );
+            // Write to stderr (terminal)
+            eprint!("{}", formatted);
+            // Write to file
+            if let Ok(mut f) = file.lock() {
+                let _ = f.write_all(formatted.as_bytes());
+                let _ = f.flush();
+            }
+            Ok(())
+        });
+    }
+    builder.init();
 
     // Log dev mode status
     if runtimed::is_dev_mode() {
@@ -111,6 +146,7 @@ async fn main() -> anyhow::Result<()> {
                 "Development mode enabled for worktree: {}",
                 worktree.display()
             );
+            info!("Logs: {}", log_path.display());
             if let Some(name) = runtimed::get_workspace_name() {
                 info!("Workspace description: {}", name);
             }

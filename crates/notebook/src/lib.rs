@@ -477,7 +477,8 @@ pub struct DaemonInfoForBanner {
 async fn get_daemon_info() -> Option<DaemonInfoForBanner> {
     #[cfg(debug_assertions)]
     {
-        let info_path = dirs::cache_dir()?.join("runt").join("daemon.json");
+        // Use runtimed's path resolution which handles dev mode (per-worktree) paths
+        let info_path = runtimed::singleton::daemon_info_path();
         let contents = std::fs::read_to_string(info_path).ok()?;
         let json: serde_json::Value = serde_json::from_str(&contents).ok()?;
         let version = json.get("version")?.as_str()?.to_string();
