@@ -87,15 +87,15 @@ interface AnyWidgetModule {
 export async function loadESM(esm: string): Promise<AnyWidgetModule> {
   // Handle remote URLs directly
   if (esm.startsWith("http://") || esm.startsWith("https://")) {
-    // Dynamic import - vite-ignore suppresses "cannot analyze" warning
-    return import(/* @vite-ignore */ esm);
+    // Dynamic import with webpackIgnore comment for bundler compatibility
+    return import(/* webpackIgnore: true */ /* @vite-ignore */ esm);
   }
 
   // Inline ESM - create a blob URL for dynamic import
   const blob = new Blob([esm], { type: "text/javascript" });
   const url = URL.createObjectURL(blob);
   try {
-    return await import(/* @vite-ignore */ url);
+    return await import(/* webpackIgnore: true */ /* @vite-ignore */ url);
   } finally {
     // Clean up the blob URL after import completes
     URL.revokeObjectURL(url);
