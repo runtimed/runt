@@ -489,19 +489,22 @@ async fn handle_notebook_request(
         }
 
         NotebookRequest::ClearOutputs { cell_id } => {
+            // Always broadcast OutputsCleared for cross-window UI sync,
+            // even before kernel is launched. The kernel.clear_outputs() is
+            // just internal state tracking - the broadcast is what matters.
+            let _ = room
+                .kernel_broadcast_tx
+                .send(NotebookBroadcast::OutputsCleared {
+                    cell_id: cell_id.clone(),
+                });
+
+            // Also update kernel's internal tracking if kernel exists
             let kernel_guard = room.kernel.lock().await;
             if let Some(ref kernel) = *kernel_guard {
                 kernel.clear_outputs(&cell_id);
-                // Broadcast to all windows so they clear outputs too
-                let _ = room
-                    .kernel_broadcast_tx
-                    .send(NotebookBroadcast::OutputsCleared {
-                        cell_id: cell_id.clone(),
-                    });
-                NotebookResponse::OutputsCleared { cell_id }
-            } else {
-                NotebookResponse::NoKernel {}
             }
+
+            NotebookResponse::OutputsCleared { cell_id }
         }
 
         NotebookRequest::InterruptExecution {} => {
