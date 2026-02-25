@@ -255,14 +255,16 @@ export function useNotebook() {
   const [cells, setCells] = useState<NotebookCell[]>([]);
   const [focusedCellId, setFocusedCellId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
-  const [blobPort, setBlobPort] = useState<number | null>(null);
   const outputCacheRef = useRef<Map<string, JupyterOutput>>(new Map());
+  // Store blob port promise so event handlers can await it
+  const blobPortPromiseRef = useRef<Promise<number | null> | null>(null);
 
   // Fetch blob port on mount for manifest resolution
   useEffect(() => {
-    invoke<number>("get_blob_port")
-      .then(setBlobPort)
-      .catch((e) => console.warn("[notebook] Failed to get blob port:", e));
+    blobPortPromiseRef.current = invoke<number>("get_blob_port").catch((e) => {
+      console.warn("[notebook] Failed to get blob port:", e);
+      return null;
+    });
   }, []);
 
   const loadCells = useCallback(() => {
@@ -338,6 +340,11 @@ export function useNotebook() {
           "cells",
         );
 
+        // Wait for blob port to be available (needed for manifest resolution)
+        const blobPort = blobPortPromiseRef.current
+          ? await blobPortPromiseRef.current
+          : null;
+
         // Resolve manifest hashes to full outputs
         const newCells = await cellSnapshotsToNotebookCells(
           event.payload,
@@ -354,7 +361,7 @@ export function useNotebook() {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [blobPort]);
+  }, []);
 
   const updateCellSource = useCallback((cellId: string, source: string) => {
     setCells((prev) =>
