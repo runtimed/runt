@@ -659,6 +659,7 @@ impl Daemon {
                         &mut rooms,
                         &notebook_id,
                         &docs_dir,
+                        self.blob_store.clone(),
                     )
                 };
                 let (reader, writer) = tokio::io::split(stream);

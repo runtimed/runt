@@ -387,6 +387,97 @@ impl NotebookDoc {
         self.set_outputs(cell_id, &[])
     }
 
+    /// Get all outputs from all cells.
+    ///
+    /// Returns a list of (cell_id, output_index, output_string).
+    /// Used by manifest-aware UpdateDisplayData handling.
+    pub fn get_all_outputs(&self) -> Vec<(String, usize, String)> {
+        let mut results = Vec::new();
+        let cells_id = match self.cells_list_id() {
+            Some(id) => id,
+            None => return results,
+        };
+
+        let cell_count = self.doc.length(&cells_id);
+        for cell_idx in 0..cell_count {
+            let cell_obj = match self.cell_at_index(&cells_id, cell_idx) {
+                Some(o) => o,
+                None => continue,
+            };
+
+            // Get cell_id
+            let cell_id: Option<String> = self
+                .doc
+                .get(&cell_obj, "id")
+                .ok()
+                .flatten()
+                .and_then(|(v, _)| v.into_string().ok());
+            let cell_id = match cell_id {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let outputs_id = match self.list_id(&cell_obj, "outputs") {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let output_count = self.doc.length(&outputs_id);
+            for output_idx in 0..output_count {
+                let output_str: Option<String> = self
+                    .doc
+                    .get(&outputs_id, output_idx)
+                    .ok()
+                    .flatten()
+                    .and_then(|(v, _)| v.into_string().ok());
+
+                if let Some(s) = output_str {
+                    results.push((cell_id.clone(), output_idx, s));
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Replace an output by cell_id and index.
+    ///
+    /// Used by manifest-aware UpdateDisplayData handling.
+    pub fn replace_output(
+        &mut self,
+        cell_id: &str,
+        output_idx: usize,
+        new_output: &str,
+    ) -> Result<bool, AutomergeError> {
+        let cells_id = match self.cells_list_id() {
+            Some(id) => id,
+            None => return Ok(false),
+        };
+
+        let idx = match self.find_cell_index(&cells_id, cell_id) {
+            Some(i) => i,
+            None => return Ok(false),
+        };
+
+        let cell_obj = match self.cell_at_index(&cells_id, idx) {
+            Some(o) => o,
+            None => return Ok(false),
+        };
+
+        let outputs_id = match self.list_id(&cell_obj, "outputs") {
+            Some(id) => id,
+            None => return Ok(false),
+        };
+
+        // Check that output_idx is valid
+        if output_idx >= self.doc.length(&outputs_id) {
+            return Ok(false);
+        }
+
+        self.doc.put(&outputs_id, output_idx, new_output)?;
+        Ok(true)
+    }
+
     // ── Execution count ─────────────────────────────────────────────
 
     /// Set the execution count for a cell. Pass "null" or a number string like "5".
