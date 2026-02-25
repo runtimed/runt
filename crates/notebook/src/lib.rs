@@ -1067,6 +1067,35 @@ async fn run_all_cells_via_daemon(
         .map_err(|e| format!("daemon request failed: {}", e))
 }
 
+/// Reconnect to the daemon after a disconnection.
+///
+/// Called by the frontend after receiving daemon:disconnected event.
+#[tauri::command]
+async fn reconnect_to_daemon(
+    app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<(), String> {
+    info!("[daemon-kernel] reconnect_to_daemon");
+
+    // Check if already connected
+    {
+        let guard = notebook_sync.lock().await;
+        if guard.is_some() {
+            info!("[daemon-kernel] Already connected to daemon");
+            return Ok(());
+        }
+    }
+
+    // Re-initialize notebook sync
+    initialize_notebook_sync(
+        app,
+        notebook_state.inner().clone(),
+        notebook_sync.inner().clone(),
+    )
+    .await
+}
+
 /// Queue a cell for execution. The queue processor will execute cells in FIFO order.
 #[tauri::command]
 async fn queue_execute_cell(
@@ -3829,6 +3858,7 @@ pub fn run(
             get_daemon_kernel_info,
             get_daemon_queue_state,
             run_all_cells_via_daemon,
+            reconnect_to_daemon,
             queue_execute_cell,
             clear_execution_queue,
             get_execution_queue_state,

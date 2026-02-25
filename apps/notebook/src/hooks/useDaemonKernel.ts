@@ -258,7 +258,7 @@ export function useDaemonKernel({
     );
 
     // Listen for daemon disconnection (e.g., daemon restarted)
-    const unlistenDisconnect = listen("daemon:disconnected", () => {
+    const unlistenDisconnect = listen("daemon:disconnected", async () => {
       if (cancelled) return;
       console.warn(
         "[daemon-kernel] Daemon disconnected, resetting kernel state",
@@ -266,6 +266,15 @@ export function useDaemonKernel({
       setKernelStatus("not_started");
       setKernelInfo({});
       setQueueState({ executing: null, queued: [] });
+
+      // Attempt to reconnect to the daemon
+      console.log("[daemon-kernel] Attempting to reconnect to daemon...");
+      try {
+        await invoke("reconnect_to_daemon");
+        console.log("[daemon-kernel] Reconnected to daemon");
+      } catch (e) {
+        console.error("[daemon-kernel] Failed to reconnect:", e);
+      }
     });
 
     // Get initial kernel info from daemon
