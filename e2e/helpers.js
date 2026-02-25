@@ -32,6 +32,27 @@ export async function waitForAppReady() {
 }
 
 /**
+ * Wait for a specific number of code cells to be loaded.
+ * Use this in fixture tests where the notebook has pre-populated cells.
+ */
+export async function waitForCodeCells(expectedCount, timeout = 15000) {
+  await waitForAppReady();
+  await browser.waitUntil(
+    async () => {
+      return await browser.execute((count) => {
+        const cells = document.querySelectorAll('[data-cell-type="code"]');
+        return cells.length >= count;
+      }, expectedCount);
+    },
+    {
+      timeout,
+      interval: 300,
+      timeoutMsg: `Expected ${expectedCount} code cells but they did not load within ${timeout / 1000}s`,
+    },
+  );
+}
+
+/**
  * Wait for the kernel to reach idle or busy state.
  * Use this in specs that execute code — replaces both the 5000ms before()
  * pause AND the first kernel startup wait.
