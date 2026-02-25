@@ -11,11 +11,12 @@
  */
 
 import { browser, expect } from "@wdio/globals";
-import { waitForAppReady } from "../helpers.js";
+import { waitForCodeCells } from "../helpers.js";
 
 describe("Rich Output Types", () => {
   before(async () => {
-    await waitForAppReady();
+    // Wait for the 6 pre-populated code cells to load
+    await waitForCodeCells(6);
     console.log("Page title:", await browser.getTitle());
   });
 

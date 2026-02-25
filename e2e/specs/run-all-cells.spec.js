@@ -9,7 +9,7 @@
  */
 
 import { browser, expect } from "@wdio/globals";
-import { waitForAppReady } from "../helpers.js";
+import { waitForCodeCells } from "../helpers.js";
 
 /**
  * Wait for a specific cell (by index) to have stream output containing the expected text.
@@ -42,7 +42,8 @@ async function waitForCellStreamOutput(
 
 describe("Run All Cells", () => {
   before(async () => {
-    await waitForAppReady();
+    // Wait for the 3 pre-populated code cells to load
+    await waitForCodeCells(3);
     console.log("Page title:", await browser.getTitle());
   });
 
