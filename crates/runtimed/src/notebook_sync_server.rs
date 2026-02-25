@@ -58,7 +58,46 @@ pub struct NotebookRoom {
 }
 
 impl NotebookRoom {
+    /// Create a fresh room, ignoring any persisted state.
+    ///
+    /// The .ipynb file is the source of truth. When a room is created, we start
+    /// with an empty Automerge doc and let the first client populate it from
+    /// their local .ipynb file. This prevents stale outputs from previous
+    /// sessions from accumulating.
+    ///
+    /// Any existing persisted doc is deleted to avoid clutter.
+    pub fn new_fresh(notebook_id: &str, docs_dir: &Path) -> Self {
+        let filename = notebook_doc_filename(notebook_id);
+        let persist_path = docs_dir.join(&filename);
+
+        // Delete any stale persisted doc - .ipynb is the source of truth
+        if persist_path.exists() {
+            info!(
+                "[notebook-sync] Deleting stale persisted doc: {:?}",
+                persist_path
+            );
+            let _ = std::fs::remove_file(&persist_path);
+        }
+
+        let doc = NotebookDoc::new(notebook_id);
+        let (changed_tx, _) = broadcast::channel(16);
+        let (kernel_broadcast_tx, _) = broadcast::channel(64);
+        Self {
+            doc: Arc::new(RwLock::new(doc)),
+            changed_tx,
+            kernel_broadcast_tx,
+            persist_path,
+            active_peers: AtomicUsize::new(0),
+            kernel: Arc::new(Mutex::new(None)),
+        }
+    }
+
     /// Create a new room by loading a persisted document or creating a fresh one.
+    ///
+    /// Note: This method is kept for tests that verify persistence behavior.
+    /// For normal operation, `new_fresh` is used to ensure the .ipynb file
+    /// is the source of truth.
+    #[cfg(test)]
     pub fn load_or_create(notebook_id: &str, docs_dir: &Path) -> Self {
         let filename = notebook_doc_filename(notebook_id);
         let persist_path = docs_dir.join(filename);
@@ -104,7 +143,9 @@ pub type NotebookRooms = Arc<Mutex<HashMap<String, Arc<NotebookRoom>>>>;
 /// Get or create a room for a notebook.
 ///
 /// The caller must hold the rooms mutex. This function will create a new
-/// room (loading from disk if available) if one doesn't exist.
+/// fresh room if one doesn't exist. The .ipynb file is the source of truth -
+/// the first client to connect will populate the Automerge doc from their
+/// local file.
 pub fn get_or_create_room(
     rooms: &mut HashMap<String, Arc<NotebookRoom>>,
     notebook_id: &str,
@@ -114,7 +155,7 @@ pub fn get_or_create_room(
         .entry(notebook_id.to_string())
         .or_insert_with(|| {
             info!("[notebook-sync] Creating room for {}", notebook_id);
-            Arc::new(NotebookRoom::load_or_create(notebook_id, docs_dir))
+            Arc::new(NotebookRoom::new_fresh(notebook_id, docs_dir))
         })
         .clone()
 }
@@ -761,5 +802,48 @@ mod tests {
 
         room.active_peers.fetch_sub(1, Ordering::Relaxed);
         assert_eq!(room.active_peers.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_new_fresh_creates_empty_doc() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let room = NotebookRoom::new_fresh("fresh-test", tmp.path());
+
+        let doc = room.doc.try_read().unwrap();
+        assert_eq!(doc.notebook_id(), Some("fresh-test".to_string()));
+        assert_eq!(doc.cell_count(), 0);
+    }
+
+    #[test]
+    fn test_new_fresh_deletes_stale_persisted_doc() {
+        let tmp = tempfile::TempDir::new().unwrap();
+
+        // Create and persist a room with content using load_or_create
+        {
+            let room = NotebookRoom::load_or_create("stale-test", tmp.path());
+            let mut doc = room.doc.try_write().unwrap();
+            doc.add_cell(0, "c1", "code").unwrap();
+            doc.update_source("c1", "old content").unwrap();
+            let bytes = doc.save();
+            persist_notebook_bytes(&bytes, &room.persist_path);
+        }
+
+        // Verify persisted file exists
+        let filename = notebook_doc_filename("stale-test");
+        let persist_path = tmp.path().join(&filename);
+        assert!(persist_path.exists(), "Persisted file should exist");
+
+        // Create fresh room - should delete persisted doc and start empty
+        let room = NotebookRoom::new_fresh("stale-test", tmp.path());
+
+        // Persisted file should be deleted
+        assert!(
+            !persist_path.exists(),
+            "Persisted file should be deleted by new_fresh"
+        );
+
+        // Room should be empty (no cells from persisted doc)
+        let doc = room.doc.try_read().unwrap();
+        assert_eq!(doc.cell_count(), 0, "new_fresh should start with empty doc");
     }
 }
