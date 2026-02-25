@@ -56,23 +56,30 @@ enum Commands {
         binary: Option<PathBuf>,
     },
 
-    /// Uninstall daemon system service
+    // =========================================================================
+    // Deprecated commands - use 'runt daemon' instead
+    // =========================================================================
+    /// [DEPRECATED] Use 'runt daemon uninstall' instead
+    #[command(hide = true)]
     Uninstall,
 
-    /// Check daemon status
+    /// [DEPRECATED] Use 'runt daemon status' instead
+    #[command(hide = true)]
     Status {
-        /// Output in JSON format
         #[arg(long)]
         json: bool,
     },
 
-    /// Start the installed service
+    /// [DEPRECATED] Use 'runt daemon start' instead
+    #[command(hide = true)]
     Start,
 
-    /// Stop the installed service
+    /// [DEPRECATED] Use 'runt daemon stop' instead
+    #[command(hide = true)]
     Stop,
 
-    /// Flush all pooled environments and rebuild with current settings
+    /// [DEPRECATED] Use 'runt daemon flush' instead
+    #[command(hide = true)]
     FlushPool,
 }
 
@@ -115,11 +122,33 @@ async fn main() -> anyhow::Result<()> {
             .await
         }
         Some(Commands::Install { binary }) => install_service(binary),
-        Some(Commands::Uninstall) => uninstall_service(),
-        Some(Commands::Status { json }) => status(json).await,
-        Some(Commands::Start) => start_service(),
-        Some(Commands::Stop) => stop_service(),
-        Some(Commands::FlushPool) => flush_pool().await,
+        // Deprecated commands - still work but print warnings
+        Some(Commands::Uninstall) => {
+            eprintln!(
+                "Warning: 'runtimed uninstall' is deprecated. Use 'runt daemon uninstall' instead."
+            );
+            uninstall_service()
+        }
+        Some(Commands::Status { json }) => {
+            eprintln!(
+                "Warning: 'runtimed status' is deprecated. Use 'runt daemon status' instead."
+            );
+            status(json).await
+        }
+        Some(Commands::Start) => {
+            eprintln!("Warning: 'runtimed start' is deprecated. Use 'runt daemon start' instead.");
+            start_service()
+        }
+        Some(Commands::Stop) => {
+            eprintln!("Warning: 'runtimed stop' is deprecated. Use 'runt daemon stop' instead.");
+            stop_service()
+        }
+        Some(Commands::FlushPool) => {
+            eprintln!(
+                "Warning: 'runtimed flush-pool' is deprecated. Use 'runt daemon flush' instead."
+            );
+            flush_pool().await
+        }
     }
 }
 
@@ -182,9 +211,9 @@ fn install_service(binary: Option<PathBuf>) -> anyhow::Result<()> {
     println!("Service installed successfully!");
     println!("The daemon will start automatically at login.");
     println!();
-    println!("To start now: runtimed start");
-    println!("To check status: runtimed status");
-    println!("To uninstall: runtimed uninstall");
+    println!("To start now:    runt daemon start");
+    println!("To check status: runt daemon status");
+    println!("To uninstall:    runt daemon uninstall");
 
     Ok(())
 }

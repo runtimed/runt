@@ -918,10 +918,20 @@ impl Daemon {
                 let rooms = self.notebook_rooms.lock().await;
                 let mut room_infos = Vec::new();
                 for (notebook_id, room) in rooms.iter() {
+                    // Get kernel info if available
+                    let (kernel_type, env_source, kernel_status) = room
+                        .kernel_info()
+                        .await
+                        .map(|(kt, es, st)| (Some(kt), Some(es), Some(st)))
+                        .unwrap_or((None, None, None));
+
                     room_infos.push(crate::protocol::RoomInfo {
                         notebook_id: notebook_id.clone(),
                         active_peers: room.active_peers.load(std::sync::atomic::Ordering::Relaxed),
                         has_kernel: room.has_kernel().await,
+                        kernel_type,
+                        env_source,
+                        kernel_status,
                     });
                 }
                 Response::RoomsList { rooms: room_infos }
