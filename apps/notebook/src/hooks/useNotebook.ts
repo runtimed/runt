@@ -5,6 +5,7 @@ import {
   save as saveDialog,
 } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useState } from "react";
+import { safeUnlisten } from "../lib/tauri-event";
 import type { JupyterOutput, NotebookCell } from "../types";
 
 /**
@@ -85,7 +86,7 @@ export function useNotebook() {
       loadCells();
     });
     return () => {
-      unlisten.then((fn) => fn());
+      safeUnlisten(unlisten);
     };
   }, [loadCells]);
 
@@ -105,7 +106,7 @@ export function useNotebook() {
       },
     );
     return () => {
-      unlisten.then((fn) => fn());
+      safeUnlisten(unlisten);
     };
   }, []);
 
@@ -122,7 +123,7 @@ export function useNotebook() {
       );
     });
     return () => {
-      unlisten.then((fn) => fn());
+      safeUnlisten(unlisten);
     };
   }, []);
 
@@ -143,7 +144,7 @@ export function useNotebook() {
       setCells(newCells);
     });
     return () => {
-      unlisten.then((fn) => fn());
+      safeUnlisten(unlisten);
     };
   }, []);
 

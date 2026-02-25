@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { safeUnlisten } from "../lib/tauri-event";
 import type { JupyterMessage, JupyterOutput, KernelspecInfo } from "../types";
 
 /** MIME bundle type for page payloads */
@@ -299,9 +300,9 @@ export function useKernel({
 
     return () => {
       cancelled = true;
-      unlisten.then((fn) => fn());
-      pageUnlisten.then((fn) => fn());
-      lifecycleUnlisten.then((fn) => fn());
+      safeUnlisten(unlisten);
+      safeUnlisten(pageUnlisten);
+      safeUnlisten(lifecycleUnlisten);
     };
   }, []); // Empty deps - callbacks accessed via ref
 

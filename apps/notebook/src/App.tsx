@@ -29,6 +29,7 @@ import { type MimeBundle, useKernel } from "./hooks/useKernel";
 import { useNotebook } from "./hooks/useNotebook";
 import { usePrewarmStatus } from "./hooks/usePrewarmStatus";
 import { useTrust } from "./hooks/useTrust";
+import { safeUnlisten } from "./lib/tauri-event";
 import type { JupyterMessage, JupyterOutput } from "./types";
 
 /** Page payload data for a cell */
@@ -646,7 +647,7 @@ function AppContent() {
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      unlistenPromise.then((unlisten) => unlisten());
+      safeUnlisten(unlistenPromise);
     };
   }, [save]);
 
@@ -668,7 +669,7 @@ function AppContent() {
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      unlistenPromise.then((unlisten) => unlisten());
+      safeUnlisten(unlistenPromise);
     };
   }, [openNotebook]);
 
@@ -679,7 +680,7 @@ function AppContent() {
     });
 
     return () => {
-      unlistenPromise.then((unlisten) => unlisten());
+      safeUnlisten(unlistenPromise);
     };
   }, [cloneNotebook]);
 
@@ -689,7 +690,7 @@ function AppContent() {
       handleRunAllCells();
     });
     return () => {
-      unlistenPromise.then((unlisten) => unlisten());
+      safeUnlisten(unlistenPromise);
     };
   }, [handleRunAllCells]);
 
@@ -699,7 +700,7 @@ function AppContent() {
       handleRestartAndRunAll();
     });
     return () => {
-      unlistenPromise.then((unlisten) => unlisten());
+      safeUnlisten(unlistenPromise);
     };
   }, [handleRestartAndRunAll]);
 
@@ -728,9 +729,9 @@ function AppContent() {
     const unlistenReset = listen("menu:zoom-reset", handleZoomReset);
 
     return () => {
-      unlistenIn.then((u) => u());
-      unlistenOut.then((u) => u());
-      unlistenReset.then((u) => u());
+      safeUnlisten(unlistenIn);
+      safeUnlisten(unlistenOut);
+      safeUnlisten(unlistenReset);
     };
   }, []);
 

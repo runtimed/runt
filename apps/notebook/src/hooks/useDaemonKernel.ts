@@ -12,6 +12,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { safeUnlisten } from "../lib/tauri-event";
 import type {
   DaemonBroadcast,
   DaemonNotebookResponse,
@@ -249,8 +250,8 @@ export function useDaemonKernel({
 
     return () => {
       cancelled = true;
-      unlistenBroadcast.then((fn) => fn());
-      unlistenDisconnect.then((fn) => fn());
+      safeUnlisten(unlistenBroadcast);
+      safeUnlisten(unlistenDisconnect);
     };
   }, []);
 

@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
+import { safeUnlisten } from "../lib/tauri-event";
 import type { EnvProgressEvent, EnvProgressPhase } from "../types";
 
 export interface EnvProgressState {
@@ -197,7 +198,7 @@ export function useEnvProgress() {
 
     return () => {
       cancelled = true;
-      unlisten.then((fn) => fn());
+      safeUnlisten(unlisten);
     };
   }, []);
 

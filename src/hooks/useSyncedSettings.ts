@@ -9,6 +9,7 @@ import type {
   SyncedSettings,
   ThemeMode,
 } from "@/bindings";
+import { safeUnlisten } from "../../apps/notebook/src/lib/tauri-event";
 
 // Re-export generated types so consumers can import from this module.
 export type { ThemeMode, Runtime, PythonEnvType };
@@ -164,7 +165,7 @@ export function useSyncedSettings() {
       }
     });
     return () => {
-      unlisten.then((u) => u());
+      safeUnlisten(unlisten);
     };
   }, []);
 

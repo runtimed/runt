@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { safeUnlisten } from "../lib/tauri-event";
 
 /** Status of a cell in the queue */
 export type CellQueueStatus = "pending" | "executing";
@@ -77,8 +78,8 @@ export function useExecutionQueue(options: UseExecutionQueueOptions = {}) {
 
     return () => {
       cancelled = true;
-      stateUnlisten.then((fn) => fn());
-      cancelUnlisten.then((fn) => fn());
+      safeUnlisten(stateUnlisten);
+      safeUnlisten(cancelUnlisten);
     };
   }, [options.onCellsCancelled]);
 
