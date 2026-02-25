@@ -39,6 +39,40 @@ use crate::kernel_manager::RoomKernel;
 use crate::notebook_doc::{notebook_doc_filename, NotebookDoc};
 use crate::protocol::{NotebookBroadcast, NotebookRequest, NotebookResponse};
 
+/// Check if a notebook file has inline dependencies in its metadata.
+/// Returns the appropriate env_source if found ("uv:inline" or "conda:inline").
+///
+/// Priority: UV deps are checked first, then conda deps.
+fn check_inline_deps(notebook_path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(notebook_path).ok()?;
+    let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let metadata = nb.get("metadata")?;
+
+    // Check UV dependencies first
+    if let Some(deps) = metadata
+        .get("uv")
+        .and_then(|u| u.get("dependencies"))
+        .and_then(|d| d.as_array())
+    {
+        if !deps.is_empty() {
+            return Some("uv:inline".to_string());
+        }
+    }
+
+    // Check conda dependencies
+    if let Some(deps) = metadata
+        .get("conda")
+        .and_then(|c| c.get("dependencies"))
+        .and_then(|d| d.as_array())
+    {
+        if !deps.is_empty() {
+            return Some("conda:inline".to_string());
+        }
+    }
+
+    None
+}
+
 /// A notebook sync room — holds the canonical document and a broadcast
 /// channel for notifying peers of changes.
 pub struct NotebookRoom {
@@ -466,22 +500,33 @@ async fn handle_notebook_request(
             // Auto-detect environment if env_source is "auto" or empty
             let resolved_env_source =
                 if env_source == "auto" || env_source.is_empty() || env_source == "prewarmed" {
-                    // Detect project files near notebook path
-                    notebook_path
+                    // Priority 1: Check inline deps in notebook metadata
+                    if let Some(inline_source) =
+                        notebook_path.as_ref().and_then(|p| check_inline_deps(p))
+                    {
+                        info!(
+                            "[notebook-sync] Found inline deps in notebook metadata -> {}",
+                            inline_source
+                        );
+                        inline_source
+                    }
+                    // Priority 2: Detect project files near notebook path
+                    else if let Some(detected) = notebook_path
                         .as_ref()
                         .and_then(|path| crate::project_file::detect_project_file(path))
-                        .map(|detected| {
-                            info!(
-                                "[notebook-sync] Auto-detected project file: {:?} -> {}",
-                                detected.path,
-                                detected.to_env_source()
-                            );
-                            detected.to_env_source().to_string()
-                        })
-                        .unwrap_or_else(|| {
-                            info!("[notebook-sync] No project file detected, using prewarmed");
-                            "uv:prewarmed".to_string()
-                        })
+                    {
+                        info!(
+                            "[notebook-sync] Auto-detected project file: {:?} -> {}",
+                            detected.path,
+                            detected.to_env_source()
+                        );
+                        detected.to_env_source().to_string()
+                    }
+                    // Priority 3: Fall back to prewarmed
+                    else {
+                        info!("[notebook-sync] No project file detected, using prewarmed");
+                        "uv:prewarmed".to_string()
+                    }
                 } else {
                     // Use explicit env_source (e.g., "uv:inline", "conda:inline")
                     env_source.clone()
@@ -859,5 +904,90 @@ mod tests {
         // Room should be empty (no cells from persisted doc)
         let doc = room.doc.try_read().unwrap();
         assert_eq!(doc.cell_count(), 0, "new_fresh should start with empty doc");
+    }
+
+    #[test]
+    fn test_check_inline_deps_uv() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+
+        // Notebook with UV deps
+        let uv_path = dir.path().join("uv.ipynb");
+        let mut f = std::fs::File::create(&uv_path).unwrap();
+        writeln!(
+            f,
+            r#"{{"metadata": {{"uv": {{"dependencies": ["numpy"]}}}}, "cells": []}}"#
+        )
+        .unwrap();
+        assert_eq!(check_inline_deps(&uv_path), Some("uv:inline".to_string()));
+    }
+
+    #[test]
+    fn test_check_inline_deps_conda() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+
+        // Notebook with conda deps
+        let conda_path = dir.path().join("conda.ipynb");
+        let mut f = std::fs::File::create(&conda_path).unwrap();
+        writeln!(
+            f,
+            r#"{{"metadata": {{"conda": {{"dependencies": ["pandas"]}}}}, "cells": []}}"#
+        )
+        .unwrap();
+        assert_eq!(
+            check_inline_deps(&conda_path),
+            Some("conda:inline".to_string())
+        );
+    }
+
+    #[test]
+    fn test_check_inline_deps_empty() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+
+        // Notebook with no deps
+        let empty_path = dir.path().join("empty.ipynb");
+        let mut f = std::fs::File::create(&empty_path).unwrap();
+        writeln!(f, r#"{{"metadata": {{}}, "cells": []}}"#).unwrap();
+        assert_eq!(check_inline_deps(&empty_path), None);
+    }
+
+    #[test]
+    fn test_check_inline_deps_empty_array() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+
+        // Notebook with empty deps array - should return None
+        let path = dir.path().join("empty-array.ipynb");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(
+            f,
+            r#"{{"metadata": {{"uv": {{"dependencies": []}}}}, "cells": []}}"#
+        )
+        .unwrap();
+        assert_eq!(check_inline_deps(&path), None);
+    }
+
+    #[test]
+    fn test_check_inline_deps_uv_priority() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+
+        // Notebook with both UV and conda deps - UV takes priority
+        let path = dir.path().join("both.ipynb");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(
+            f,
+            r#"{{"metadata": {{"uv": {{"dependencies": ["numpy"]}}, "conda": {{"dependencies": ["pandas"]}}}}, "cells": []}}"#
+        )
+        .unwrap();
+        assert_eq!(check_inline_deps(&path), Some("uv:inline".to_string()));
+    }
+
+    #[test]
+    fn test_check_inline_deps_nonexistent_file() {
+        let path = std::path::PathBuf::from("/nonexistent/path/to/notebook.ipynb");
+        assert_eq!(check_inline_deps(&path), None);
     }
 }
