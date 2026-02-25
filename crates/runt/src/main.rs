@@ -1117,8 +1117,8 @@ async fn inspect_notebook(path: &PathBuf, full_outputs: bool, json_output: bool)
                         serde_json::json!({
                             "id": c.id,
                             "cell_type": c.cell_type,
-                            "source_preview": if c.source.len() > 80 {
-                                format!("{}...", &c.source[..80])
+                            "source_preview": if c.source.chars().count() > 80 {
+                                format!("{}...", c.source.chars().take(80).collect::<String>())
                             } else {
                                 c.source.clone()
                             },
