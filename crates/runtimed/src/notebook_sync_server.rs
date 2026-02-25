@@ -452,7 +452,17 @@ async fn handle_notebook_request(
                                             "[notebook-sync] Cell error (stop-on-error): {}",
                                             cell_id
                                         );
-                                        // TODO: implement stop-on-error behavior
+                                        // Clear the queue to stop execution on error
+                                        let mut guard = room_kernel.lock().await;
+                                        if let Some(ref mut k) = *guard {
+                                            let cleared = k.clear_queue();
+                                            if !cleared.is_empty() {
+                                                info!(
+                                                    "[notebook-sync] Cleared {} queued cells due to error",
+                                                    cleared.len()
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -575,6 +585,35 @@ async fn handle_notebook_request(
                     executing: None,
                     queued: vec![],
                 }
+            }
+        }
+
+        NotebookRequest::RunAllCells {} => {
+            let mut kernel_guard = room.kernel.lock().await;
+            if let Some(ref mut kernel) = *kernel_guard {
+                // Read all cells from the synced Automerge document
+                let doc = room.doc.read().await;
+                let cells = doc.get_cells();
+
+                // Queue all code cells in document order
+                let mut count = 0;
+                for cell in cells {
+                    if cell.cell_type == "code" {
+                        if let Err(e) = kernel
+                            .queue_cell(cell.id.clone(), cell.source.clone())
+                            .await
+                        {
+                            return NotebookResponse::Error {
+                                error: format!("Failed to queue cell {}: {}", cell.id, e),
+                            };
+                        }
+                        count += 1;
+                    }
+                }
+
+                NotebookResponse::AllCellsQueued { count }
+            } else {
+                NotebookResponse::NoKernel {}
             }
         }
     }

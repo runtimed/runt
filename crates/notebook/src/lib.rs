@@ -284,6 +284,7 @@ async fn initialize_notebook_sync(
     });
 
     // Spawn broadcast receiver task for daemon kernel events
+    let notebook_sync_for_disconnect = notebook_sync.clone();
     tokio::spawn(async move {
         info!("[notebook-sync] Starting broadcast receiver loop");
         while let Some(broadcast) = broadcast_receiver.recv().await {
@@ -293,7 +294,15 @@ async fn initialize_notebook_sync(
                 warn!("[notebook-sync] Failed to emit daemon:broadcast: {}", e);
             }
         }
-        info!("[notebook-sync] Broadcast receiver loop ended");
+        info!("[notebook-sync] Broadcast receiver loop ended - daemon disconnected");
+
+        // Clear the handle so operations fail gracefully
+        *notebook_sync_for_disconnect.lock().await = None;
+
+        // Emit disconnection event so frontend can reset kernel state
+        if let Err(e) = app.emit("daemon:disconnected", ()) {
+            warn!("[notebook-sync] Failed to emit daemon:disconnected: {}", e);
+        }
     });
 
     info!(
@@ -1037,6 +1046,23 @@ async fn get_daemon_queue_state(
 
     handle
         .send_request(NotebookRequest::GetQueueState {})
+        .await
+        .map_err(|e| format!("daemon request failed: {}", e))
+}
+
+/// Run all code cells via the daemon.
+/// Daemon reads cell sources from the synced Automerge document.
+#[tauri::command]
+async fn run_all_cells_via_daemon(
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<NotebookResponse, String> {
+    info!("[daemon-kernel] run_all_cells_via_daemon");
+
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    handle
+        .send_request(NotebookRequest::RunAllCells {})
         .await
         .map_err(|e| format!("daemon request failed: {}", e))
 }
@@ -3802,6 +3828,7 @@ pub fn run(
             shutdown_kernel_via_daemon,
             get_daemon_kernel_info,
             get_daemon_queue_state,
+            run_all_cells_via_daemon,
             queue_execute_cell,
             clear_execution_queue,
             get_execution_queue_state,

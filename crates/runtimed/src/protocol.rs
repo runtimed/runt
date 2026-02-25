@@ -123,6 +123,10 @@ pub enum NotebookRequest {
 
     /// Get the execution queue state.
     GetQueueState {},
+
+    /// Run all code cells from the synced document.
+    /// Daemon reads cell sources from the Automerge doc and queues them.
+    RunAllCells {},
 }
 
 /// Responses from daemon to notebook app.
@@ -167,6 +171,11 @@ pub enum NotebookResponse {
     QueueState {
         executing: Option<String>, // cell_id currently executing
         queued: Vec<String>,       // cell_ids waiting
+    },
+
+    /// All cells queued for execution.
+    AllCellsQueued {
+        count: usize, // number of code cells queued
     },
 
     /// Generic success.

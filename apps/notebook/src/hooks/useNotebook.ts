@@ -59,7 +59,17 @@ function cellSnapshotToNotebookCell(snap: CellSnapshot): NotebookCell {
   };
 }
 
-export function useNotebook() {
+interface UseNotebookOptions {
+  /**
+   * When daemon execution is enabled, outputs are managed by daemon broadcasts.
+   * The notebook:updated handler will preserve current outputs instead of
+   * overwriting them with Automerge doc state (which may have stale outputs).
+   */
+  daemonExecution?: boolean;
+}
+
+export function useNotebook(options: UseNotebookOptions = {}) {
+  const { daemonExecution = false } = options;
   const [cells, setCells] = useState<NotebookCell[]>([]);
   const [focusedCellId, setFocusedCellId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -134,17 +144,45 @@ export function useNotebook() {
         event.payload.length,
         "cells",
       );
-      // Trust Automerge as source of truth for cross-window sync.
-      // Note: This may cause brief output flicker on the executing window
-      // while waiting for iopub → Automerge round-trip. A cleaner solution
-      // would be daemon-managed kernel execution (future phase).
+
       const newCells = event.payload.map(cellSnapshotToNotebookCell);
-      setCells(newCells);
+
+      if (daemonExecution) {
+        // In daemon execution mode, outputs are managed by daemon broadcasts.
+        // Preserve current outputs instead of overwriting with Automerge state
+        // (which may have stale outputs from the saved file).
+        setCells((prev) => {
+          const outputsByCell = new Map<string, JupyterOutput[]>();
+          const execCountsByCell = new Map<string, number | null>();
+          for (const cell of prev) {
+            if (cell.cell_type === "code") {
+              outputsByCell.set(cell.id, cell.outputs);
+              execCountsByCell.set(cell.id, cell.execution_count);
+            }
+          }
+          return newCells.map((cell) => {
+            if (cell.cell_type === "code") {
+              return {
+                ...cell,
+                outputs: outputsByCell.get(cell.id) ?? cell.outputs,
+                execution_count:
+                  execCountsByCell.get(cell.id) ?? cell.execution_count,
+              };
+            }
+            return cell;
+          });
+        });
+      } else {
+        // Trust Automerge as source of truth for cross-window sync.
+        // Note: This may cause brief output flicker on the executing window
+        // while waiting for iopub → Automerge round-trip.
+        setCells(newCells);
+      }
     });
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [daemonExecution]);
 
   const updateCellSource = useCallback((cellId: string, source: string) => {
     setCells((prev) =>

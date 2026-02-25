@@ -54,6 +54,19 @@ function AppContent() {
   const daemonInfo = useDaemonInfo();
   const prewarmStatus = usePrewarmStatus();
 
+  const { theme, setTheme } = useSyncedTheme();
+  const {
+    defaultRuntime,
+    setDefaultRuntime,
+    defaultPythonEnv,
+    setDefaultPythonEnv,
+    defaultUvPackages,
+    setDefaultUvPackages,
+    defaultCondaPackages,
+    setDefaultCondaPackages,
+    daemonExecution,
+  } = useSyncedSettings();
+
   const {
     cells,
     focusedCellId,
@@ -70,20 +83,7 @@ function AppContent() {
     setExecutionCount,
     clearCellOutputs,
     formatCell,
-  } = useNotebook();
-
-  const { theme, setTheme } = useSyncedTheme();
-  const {
-    defaultRuntime,
-    setDefaultRuntime,
-    defaultPythonEnv,
-    setDefaultPythonEnv,
-    defaultUvPackages,
-    setDefaultUvPackages,
-    defaultCondaPackages,
-    setDefaultCondaPackages,
-    daemonExecution,
-  } = useSyncedSettings();
+  } = useNotebook({ daemonExecution });
 
   // Execution queue - cells are queued and executed in FIFO order by the backend
   const {
@@ -311,6 +311,7 @@ function AppContent() {
     clearOutputs: daemonClearOutputs,
     interruptKernel: daemonInterruptKernel,
     shutdownKernel: daemonShutdownKernel,
+    runAllCells: daemonRunAllCells,
   } = useDaemonKernel({
     onOutput: (cellId, output) => {
       appendOutput(cellId, output);
@@ -335,8 +336,13 @@ function AppContent() {
     : localRestartKernel;
   const restartAndRunAll = daemonExecution
     ? async () => {
+        // Clear all outputs first
+        for (const cell of cells.filter((c) => c.cell_type === "code")) {
+          clearCellOutputs(cell.id);
+        }
         await daemonShutdownKernel();
-        // TODO: relaunch and run all via daemon
+        await tryStartKernel();
+        await daemonRunAllCells();
       }
     : localRestartAndRunAll;
 
@@ -488,7 +494,7 @@ function AppContent() {
 
   const handleRunAllCells = useCallback(async () => {
     if (daemonExecution) {
-      // Daemon execution mode: launch kernel first, then queue all cells
+      // Daemon execution mode: daemon reads cells from synced Automerge doc
       const codeCells = cells.filter((c) => c.cell_type === "code");
       if (codeCells.length === 0) return;
 
@@ -500,19 +506,13 @@ function AppContent() {
       // Await all daemon clears to ensure ordering before queueing
       await Promise.all(codeCells.map((cell) => daemonClearOutputs(cell.id)));
 
-      const queueAllCells = () => {
-        for (const cell of codeCells) {
-          daemonQueueCell(cell.id, cell.source);
-        }
-      };
-
-      // Start kernel via daemon if not running, then queue cells
+      // Start kernel via daemon if not running
       if (kernelStatus === "not_started" || kernelStatus === "not started") {
         await tryStartKernel();
-        queueAllCells();
-      } else {
-        queueAllCells();
       }
+
+      // Daemon reads cell sources from Automerge doc and queues them
+      await daemonRunAllCells();
     } else {
       // Backend clears outputs and emits cells:outputs_cleared before queuing
       await runAllCells();
@@ -528,8 +528,8 @@ function AppContent() {
     daemonExecution,
     cells,
     clearCellOutputs,
-    daemonQueueCell,
     daemonClearOutputs,
+    daemonRunAllCells,
   ]);
 
   const handleRestartAndRunAll = useCallback(async () => {

@@ -188,5 +188,6 @@ export type DaemonNotebookResponse =
       status: string;
     }
   | { result: "queue_state"; executing?: string; queued: string[] }
+  | { result: "all_cells_queued"; count: number }
   | { result: "ok" }
   | { result: "error"; error: string };

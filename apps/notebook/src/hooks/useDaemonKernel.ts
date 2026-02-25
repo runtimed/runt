@@ -170,88 +170,102 @@ export function useDaemonKernel({
   useEffect(() => {
     let cancelled = false;
 
-    const unlisten = listen<DaemonBroadcast>("daemon:broadcast", (event) => {
-      if (cancelled) return;
+    const unlistenBroadcast = listen<DaemonBroadcast>(
+      "daemon:broadcast",
+      (event) => {
+        if (cancelled) return;
 
-      const broadcast = event.payload;
+        const broadcast = event.payload;
 
-      switch (broadcast.event) {
-        case "kernel_status": {
-          const status = broadcast.status as DaemonKernelStatus;
-          setKernelStatus(status);
-          callbacksRef.current.onStatusChange?.(status, broadcast.cell_id);
-          break;
-        }
-
-        case "execution_started": {
-          callbacksRef.current.onExecutionCount(
-            broadcast.cell_id,
-            broadcast.execution_count,
-          );
-          break;
-        }
-
-        case "output": {
-          try {
-            // Parse the raw content from daemon (JupyterMessageContent format)
-            const rawContent = JSON.parse(broadcast.output_json);
-            const outputType = broadcast.output_type;
-
-            // Handle update_display_data separately - updates existing output by display_id
-            if (outputType === "update_display_data") {
-              const { onUpdateDisplayData } = callbacksRef.current;
-              if (onUpdateDisplayData) {
-                // The daemon sends UpdateDisplayData content wrapped in its variant
-                const content = rawContent.UpdateDisplayData ?? rawContent;
-                const displayId = content.transient?.display_id;
-                if (displayId) {
-                  onUpdateDisplayData(
-                    displayId,
-                    content.data ?? {},
-                    content.metadata ?? {},
-                  );
-                }
-              }
-              break;
-            }
-
-            // Normalize other output types from daemon format to nbformat shape
-            const output = normalizeOutput(rawContent, outputType);
-            if (output) {
-              callbacksRef.current.onOutput(broadcast.cell_id, output);
-            }
-          } catch (e) {
-            console.error("[daemon-kernel] Failed to parse output:", e);
+        switch (broadcast.event) {
+          case "kernel_status": {
+            const status = broadcast.status as DaemonKernelStatus;
+            setKernelStatus(status);
+            callbacksRef.current.onStatusChange?.(status, broadcast.cell_id);
+            break;
           }
-          break;
-        }
 
-        case "execution_done": {
-          callbacksRef.current.onExecutionDone(broadcast.cell_id);
-          break;
-        }
+          case "execution_started": {
+            callbacksRef.current.onExecutionCount(
+              broadcast.cell_id,
+              broadcast.execution_count,
+            );
+            break;
+          }
 
-        case "queue_changed": {
-          const newState: DaemonQueueState = {
-            executing: broadcast.executing ?? null,
-            queued: broadcast.queued,
-          };
-          setQueueState(newState);
-          callbacksRef.current.onQueueChange?.(newState);
-          break;
-        }
+          case "output": {
+            try {
+              // Parse the raw content from daemon (JupyterMessageContent format)
+              const rawContent = JSON.parse(broadcast.output_json);
+              const outputType = broadcast.output_type;
 
-        case "kernel_error": {
-          setKernelStatus("error");
-          callbacksRef.current.onKernelError?.(broadcast.error);
-          break;
-        }
+              // Handle update_display_data separately - updates existing output by display_id
+              if (outputType === "update_display_data") {
+                const { onUpdateDisplayData } = callbacksRef.current;
+                if (onUpdateDisplayData) {
+                  // The daemon sends UpdateDisplayData content wrapped in its variant
+                  const content = rawContent.UpdateDisplayData ?? rawContent;
+                  const displayId = content.transient?.display_id;
+                  if (displayId) {
+                    onUpdateDisplayData(
+                      displayId,
+                      content.data ?? {},
+                      content.metadata ?? {},
+                    );
+                  }
+                }
+                break;
+              }
 
-        case "outputs_cleared": {
-          callbacksRef.current.onClearOutputs?.(broadcast.cell_id);
-          break;
+              // Normalize other output types from daemon format to nbformat shape
+              const output = normalizeOutput(rawContent, outputType);
+              if (output) {
+                callbacksRef.current.onOutput(broadcast.cell_id, output);
+              }
+            } catch (e) {
+              console.error("[daemon-kernel] Failed to parse output:", e);
+            }
+            break;
+          }
+
+          case "execution_done": {
+            callbacksRef.current.onExecutionDone(broadcast.cell_id);
+            break;
+          }
+
+          case "queue_changed": {
+            const newState: DaemonQueueState = {
+              executing: broadcast.executing ?? null,
+              queued: broadcast.queued,
+            };
+            setQueueState(newState);
+            callbacksRef.current.onQueueChange?.(newState);
+            break;
+          }
+
+          case "kernel_error": {
+            setKernelStatus("error");
+            callbacksRef.current.onKernelError?.(broadcast.error);
+            break;
+          }
+
+          case "outputs_cleared": {
+            callbacksRef.current.onClearOutputs?.(broadcast.cell_id);
+            break;
+          }
         }
-      }
+      },
+    );
+
+    // Listen for daemon disconnection (e.g., daemon restarted)
+    const unlistenDisconnect = listen("daemon:disconnected", () => {
+      if (cancelled) return;
+      console.warn(
+        "[daemon-kernel] Daemon disconnected, resetting kernel state",
+      );
+      setKernelStatus("not_started");
+      setKernelInfo({});
+      setQueueState({ executing: null, queued: [] });
     });
 
     // Get initial kernel info from daemon
@@ -272,7 +286,8 @@ export function useDaemonKernel({
 
     return () => {
       cancelled = true;
-      unlisten.then((fn) => fn());
+      unlistenBroadcast.then((fn) => fn());
+      unlistenDisconnect.then((fn) => fn());
     };
   }, []);
 
@@ -402,6 +417,17 @@ export function useDaemonKernel({
     }
   }, []);
 
+  /** Run all code cells via the daemon (reads from synced doc) */
+  const runAllCells = useCallback(async (): Promise<DaemonNotebookResponse> => {
+    console.log("[daemon-kernel] running all cells");
+    try {
+      return await invoke<DaemonNotebookResponse>("run_all_cells_via_daemon");
+    } catch (e) {
+      console.error("[daemon-kernel] run all cells failed:", e);
+      throw e;
+    }
+  }, []);
+
   return {
     /** Current kernel status */
     kernelStatus,
@@ -421,6 +447,8 @@ export function useDaemonKernel({
     shutdownKernel,
     /** Refresh queue state from daemon */
     refreshQueueState,
+    /** Run all code cells (daemon reads from synced doc) */
+    runAllCells,
     /** Check if a cell is currently executing */
     isCellExecuting: (cellId: string) => queueState.executing === cellId,
     /** Check if a cell is in the queue */
