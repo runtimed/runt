@@ -29,4 +29,10 @@ export type SyncedSettings = {
    * Conda environment defaults
    */
   conda: CondaDefaults;
+  /**
+   * Enable daemon-owned kernel execution (experimental).
+   * When enabled, the daemon manages kernel lifecycle and execution queue,
+   * enabling multi-window kernel sharing.
+   */
+  daemon_execution: boolean;
 };

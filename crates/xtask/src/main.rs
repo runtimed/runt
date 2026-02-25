@@ -79,8 +79,8 @@ fn cmd_dev() {
 }
 
 fn cmd_build() {
-    // Build runtimed daemon binary for bundling
-    build_runtimed_daemon();
+    // Build runtimed daemon binary for bundling (debug mode for faster builds)
+    build_runtimed_daemon(false);
 
     // pnpm build runs: isolated-renderer + sidecar + notebook
     println!("Building frontend (isolated-renderer, sidecar, notebook)...");
@@ -113,8 +113,8 @@ fn cmd_run(notebook: Option<&str>) {
 }
 
 fn cmd_build_e2e() {
-    // Build runtimed daemon binary for bundling
-    build_runtimed_daemon();
+    // Build runtimed daemon binary for bundling (debug mode for faster builds)
+    build_runtimed_daemon(false);
 
     // pnpm build runs: isolated-renderer + sidecar + notebook
     println!("Building frontend (isolated-renderer, sidecar, notebook)...");
@@ -176,8 +176,8 @@ fn build_with_bundle(bundle: &str) {
         println!("Skipping icon generation (no source.png found)");
     }
 
-    // Build runtimed daemon binary for bundling
-    build_runtimed_daemon();
+    // Build runtimed daemon binary for bundling (release mode for distribution)
+    build_runtimed_daemon(true);
 
     // Build frontend
     println!("Building frontend...");
@@ -348,26 +348,39 @@ fn cmd_install_daemon() {
 }
 
 /// Build external binaries (runtimed daemon and runt CLI) for Tauri bundling.
-fn build_runtimed_daemon() {
-    build_external_binary("runtimed", "runtimed");
-    build_external_binary("runt-cli", "runt");
+/// If `release` is true, builds in release mode (for distribution).
+/// If `release` is false, builds in debug mode (faster for development).
+fn build_runtimed_daemon(release: bool) {
+    build_external_binary("runtimed", "runtimed", release);
+    build_external_binary("runt-cli", "runt", release);
 }
 
 /// Build a binary and copy to binaries/ with target triple suffix for Tauri bundling.
-fn build_external_binary(package: &str, binary_name: &str) {
-    println!("Building {binary_name}...");
+/// If `release` is true, builds in release mode. Otherwise builds in debug mode.
+fn build_external_binary(package: &str, binary_name: &str, release: bool) {
+    let mode = if release { "release" } else { "debug" };
+    println!("Building {binary_name} ({mode})...");
 
     // Get the host target triple
     let target = get_host_target();
 
-    // Build in release mode for smaller binary
-    run_cmd("cargo", &["build", "--release", "-p", package]);
+    // Build with appropriate profile
+    if release {
+        run_cmd("cargo", &["build", "--release", "-p", package]);
+    } else {
+        run_cmd("cargo", &["build", "-p", package]);
+    }
 
     // Determine source and destination paths
-    let source = if cfg!(windows) {
-        format!("target/release/{binary_name}.exe")
+    let target_dir = if release {
+        "target/release"
     } else {
-        format!("target/release/{binary_name}")
+        "target/debug"
+    };
+    let source = if cfg!(windows) {
+        format!("{target_dir}/{binary_name}.exe")
+    } else {
+        format!("{target_dir}/{binary_name}")
     };
 
     let dest_name = if cfg!(windows) {
