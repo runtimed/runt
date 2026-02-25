@@ -88,7 +88,7 @@ impl From<&UnifiedKernelInfo> for KernelTableRow {
 }
 
 /// Shorten a path for display by replacing home directory with ~
-fn shorten_path(path: &PathBuf) -> String {
+fn shorten_path(path: &std::path::Path) -> String {
     if let Some(home) = dirs::home_dir() {
         if let Ok(relative) = path.strip_prefix(&home) {
             return format!("~/{}", relative.display());
@@ -565,7 +565,6 @@ async fn list_kernels(json_output: bool, verbose: bool) -> Result<()> {
         }
 
         let kernel_futures = connection_files.into_iter().map(|path| {
-            let timeout = timeout;
             async move { gather_kernel_info(path, timeout).await }
         });
 
@@ -1589,30 +1588,28 @@ async fn list_notebooks(json_output: bool) -> Result<()> {
         Ok(rooms) => {
             if json_output {
                 println!("{}", serde_json::to_string_pretty(&rooms)?);
+            } else if rooms.is_empty() {
+                println!("No open notebooks.");
             } else {
-                if rooms.is_empty() {
-                    println!("No open notebooks.");
-                } else {
-                    let rows: Vec<NotebookTableRow> = rooms
-                        .iter()
-                        .map(|r| NotebookTableRow {
-                            notebook: shorten_path(&PathBuf::from(&r.notebook_id)),
-                            kernel: r.kernel_type.clone().unwrap_or_else(|| "-".to_string()),
-                            env: r.env_source.clone().unwrap_or_else(|| "-".to_string()),
-                            status: r.kernel_status.clone().unwrap_or_else(|| "-".to_string()),
-                            peers: r.active_peers.to_string(),
-                        })
-                        .collect();
+                let rows: Vec<NotebookTableRow> = rooms
+                    .iter()
+                    .map(|r| NotebookTableRow {
+                        notebook: shorten_path(&PathBuf::from(&r.notebook_id)),
+                        kernel: r.kernel_type.clone().unwrap_or_else(|| "-".to_string()),
+                        env: r.env_source.clone().unwrap_or_else(|| "-".to_string()),
+                        status: r.kernel_status.clone().unwrap_or_else(|| "-".to_string()),
+                        peers: r.active_peers.to_string(),
+                    })
+                    .collect();
 
-                    let table = Table::new(rows).with(Style::rounded()).to_string();
-                    println!("{}", table);
-                }
+                let table = Table::new(rows).with(Style::rounded()).to_string();
+                println!("{}", table);
             }
         }
         Err(e) => {
             eprintln!("Failed to list notebooks: {}", e);
             eprintln!("Is the daemon running? Try 'runt daemon status'");
-            std::process::exit(1);
+            std::process::exit(1)
         }
     }
 
