@@ -100,6 +100,18 @@ describe("Cell Operations", () => {
 
   describe("Adding cells", () => {
     it("should add a new code cell", async () => {
+      // Wait for fixture cells to render (1-vanilla.ipynb has 2 code cells)
+      await browser.waitUntil(
+        async () => {
+          const count = await countCodeCells();
+          return count >= 1;
+        },
+        {
+          timeout: 10000,
+          timeoutMsg: "Expected at least 1 code cell to render from fixture",
+        },
+      );
+
       const initialCount = await countCodeCells();
       console.log("Initial code cell count:", initialCount);
 
