@@ -47,6 +47,7 @@ const FIXTURE_SPECS = [
   "save-dirty-state.spec.js",
   "rich-outputs.spec.js",
   "error-handling.spec.js",
+  "cell-operations.spec.js",
 ];
 
 export const config = {

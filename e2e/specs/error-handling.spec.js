@@ -16,6 +16,18 @@ describe("Error Handling", () => {
   before(async () => {
     await waitForAppReady();
     console.log("Page title:", await browser.getTitle());
+
+    // Wait for all 5 error cells to render before running tests
+    await browser.waitUntil(
+      async () => {
+        const cells = await $$('[data-cell-type="code"]');
+        return cells.length >= 5;
+      },
+      {
+        timeout: 10000,
+        timeoutMsg: "Expected 5 code cells to render",
+      },
+    );
   });
 
   async function getCodeCells() {
