@@ -3866,6 +3866,7 @@ pub fn run(
             let nb_v4 = match nb {
                 nbformat::Notebook::V4(nb) => nb,
                 nbformat::Notebook::Legacy(legacy) => nbformat::upgrade_legacy_notebook(legacy)?,
+                nbformat::Notebook::V3(v3) => nbformat::upgrade_v3_notebook(v3)?,
             };
             NotebookState::from_notebook(nb_v4, path.clone())
         }
@@ -4452,6 +4453,15 @@ pub fn run(
                                     nbformat::Notebook::V4(nb) => nb,
                                     nbformat::Notebook::Legacy(legacy) => {
                                         match nbformat::upgrade_legacy_notebook(legacy) {
+                                            Ok(nb) => nb,
+                                            Err(e) => {
+                                                log::error!("Failed to upgrade notebook: {}", e);
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    nbformat::Notebook::V3(v3) => {
+                                        match nbformat::upgrade_v3_notebook(v3) {
                                             Ok(nb) => nb,
                                             Err(e) => {
                                                 log::error!("Failed to upgrade notebook: {}", e);
