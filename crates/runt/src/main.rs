@@ -328,6 +328,12 @@ enum DaemonCommands {
     Shutdown,
     /// Check if the daemon is running (returns exit code)
     Ping,
+    /// List all running dev worktree daemons
+    ListWorktrees {
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// [DEPRECATED] Pool commands - use 'runt daemon' instead
@@ -1348,11 +1354,13 @@ async fn daemon_command(command: DaemonCommands) -> Result<()> {
             } else {
                 None
             };
+            let is_dev = runtimed::is_dev_mode();
 
             if json {
                 let output = serde_json::json!({
                     "installed": installed,
                     "running": running,
+                    "dev_mode": is_dev,
                     "daemon_info": daemon_info,
                     "pool_stats": stats,
                 });
@@ -1365,6 +1373,22 @@ async fn daemon_command(command: DaemonCommands) -> Result<()> {
                     if installed { "yes" } else { "no" }
                 );
                 println!("Daemon running:    {}", if running { "yes" } else { "no" });
+
+                // Show dev mode info
+                if is_dev {
+                    println!("Mode:              development");
+                }
+                if let Some(info) = &daemon_info {
+                    if let Some(worktree) = &info.worktree_path {
+                        println!(
+                            "Worktree:          {}",
+                            shorten_path(&PathBuf::from(worktree))
+                        );
+                    }
+                    if let Some(desc) = &info.workspace_description {
+                        println!("Description:       {}", desc);
+                    }
+                }
 
                 if let Some(info) = &daemon_info {
                     println!("PID:               {}", info.pid);
@@ -1471,10 +1495,7 @@ async fn daemon_command(command: DaemonCommands) -> Result<()> {
             println!("Service uninstalled.");
         }
         DaemonCommands::Logs { follow, lines } => {
-            let log_path = dirs::cache_dir()
-                .unwrap_or_else(|| PathBuf::from("/tmp"))
-                .join("runt")
-                .join("runtimed.log");
+            let log_path = runtimed::default_log_path();
 
             if !log_path.exists() {
                 eprintln!("Log file not found: {}", log_path.display());
@@ -1511,6 +1532,9 @@ async fn daemon_command(command: DaemonCommands) -> Result<()> {
                 std::process::exit(1);
             }
         },
+        DaemonCommands::ListWorktrees { json } => {
+            list_worktree_daemons(json).await?;
+        }
     }
 
     Ok(())
@@ -1573,6 +1597,118 @@ async fn tail_log_file(path: &PathBuf, lines: usize, follow: bool) -> Result<()>
                 }
             }
         }
+    }
+
+    Ok(())
+}
+
+/// List all running dev worktree daemons
+async fn list_worktree_daemons(json_output: bool) -> Result<()> {
+    use runtimed::client::PoolClient;
+    use runtimed::singleton::read_daemon_info;
+    use serde::Serialize;
+
+    let worktrees_dir = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("runt")
+        .join("worktrees");
+
+    #[derive(Serialize)]
+    struct WorktreeDaemon {
+        hash: String,
+        status: String,
+        worktree: Option<String>,
+        description: Option<String>,
+        pid: Option<u32>,
+        version: Option<String>,
+    }
+
+    let mut daemons: Vec<WorktreeDaemon> = Vec::new();
+
+    if worktrees_dir.exists() {
+        let mut entries = fs::read_dir(&worktrees_dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+
+            let hash = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let info_path = path.join("daemon.json");
+
+            if let Some(info) = read_daemon_info(&info_path) {
+                // Check if daemon is actually running
+                let client = PoolClient::new(PathBuf::from(&info.endpoint));
+                let alive = client.ping().await.is_ok();
+
+                daemons.push(WorktreeDaemon {
+                    hash,
+                    status: if alive {
+                        "running".to_string()
+                    } else {
+                        "stopped".to_string()
+                    },
+                    worktree: info.worktree_path,
+                    description: info.workspace_description,
+                    pid: if alive { Some(info.pid) } else { None },
+                    version: if alive { Some(info.version) } else { None },
+                });
+            } else {
+                // Directory exists but no daemon.json
+                daemons.push(WorktreeDaemon {
+                    hash,
+                    status: "stopped".to_string(),
+                    worktree: None,
+                    description: None,
+                    pid: None,
+                    version: None,
+                });
+            }
+        }
+    }
+
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&daemons)?);
+    } else if daemons.is_empty() {
+        println!("No dev worktree daemons found.");
+        println!();
+        println!("To start a dev daemon in the current worktree:");
+        println!("  RUNTIMED_DEV=1 cargo run -p runtimed");
+        println!();
+        println!("Or if using Conductor, dev mode is enabled automatically.");
+    } else {
+        #[derive(Tabled)]
+        struct WorktreeRow {
+            #[tabled(rename = "HASH")]
+            hash: String,
+            #[tabled(rename = "STATUS")]
+            status: String,
+            #[tabled(rename = "WORKTREE")]
+            worktree: String,
+            #[tabled(rename = "DESCRIPTION")]
+            description: String,
+        }
+
+        let rows: Vec<WorktreeRow> = daemons
+            .iter()
+            .map(|d| WorktreeRow {
+                hash: d.hash.clone(),
+                status: d.status.clone(),
+                worktree: d
+                    .worktree
+                    .as_ref()
+                    .map(|p| shorten_path(&PathBuf::from(p)))
+                    .unwrap_or_else(|| "-".to_string()),
+                description: d.description.clone().unwrap_or_else(|| "-".to_string()),
+            })
+            .collect();
+
+        let table = Table::new(rows).with(Style::rounded()).to_string();
+        println!("{}", table);
     }
 
     Ok(())

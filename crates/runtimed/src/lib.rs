@@ -8,8 +8,10 @@
 //! using length-prefixed binary framing with a channel-based handshake.
 
 use std::path::PathBuf;
+use std::process::Command;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 pub mod blob_server;
 pub mod blob_store;
@@ -29,6 +31,108 @@ pub mod settings_doc;
 pub mod singleton;
 pub mod sync_client;
 pub mod sync_server;
+
+// ============================================================================
+// Development Mode and Worktree Isolation
+// ============================================================================
+
+/// Check if development mode is enabled.
+///
+/// Dev mode enables per-worktree daemon isolation, allowing each git worktree
+/// to run its own daemon instance with separate state directories.
+///
+/// Returns true if:
+/// - `RUNTIMED_DEV=1` is set (explicit opt-in), OR
+/// - `CONDUCTOR_WORKSPACE_PATH` is set (automatic for Conductor users)
+pub fn is_dev_mode() -> bool {
+    // Explicit opt-in
+    if std::env::var("RUNTIMED_DEV")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    // Auto-detect Conductor workspace
+    std::env::var("CONDUCTOR_WORKSPACE_PATH").is_ok()
+}
+
+/// Get the workspace path for dev mode.
+///
+/// Uses `CONDUCTOR_WORKSPACE_PATH` if available, otherwise detects via git.
+pub fn get_workspace_path() -> Option<PathBuf> {
+    // Prefer Conductor's workspace path
+    if let Ok(path) = std::env::var("CONDUCTOR_WORKSPACE_PATH") {
+        return Some(PathBuf::from(path));
+    }
+    // Fallback to git detection
+    detect_worktree_root()
+}
+
+/// Get the workspace name for display.
+///
+/// Uses `CONDUCTOR_WORKSPACE_NAME` if available, otherwise reads from
+/// `.context/workspace-description` file in the worktree.
+pub fn get_workspace_name() -> Option<String> {
+    // Prefer Conductor's workspace name
+    if let Ok(name) = std::env::var("CONDUCTOR_WORKSPACE_NAME") {
+        return Some(name);
+    }
+    // Fallback: read .context/workspace-description
+    get_workspace_path()
+        .and_then(|p| std::fs::read_to_string(p.join(".context/workspace-description")).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Detect the current git worktree root.
+///
+/// Runs `git rev-parse --show-toplevel` to find the root directory.
+fn detect_worktree_root() -> Option<PathBuf> {
+    Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| PathBuf::from(s.trim()))
+        .filter(|p| p.exists())
+}
+
+/// Compute a short hash of a worktree path for directory naming.
+///
+/// Returns the first 12 hex characters of the SHA-256 hash.
+pub fn worktree_hash(path: &std::path::Path) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(path.to_string_lossy().as_bytes());
+    hex::encode(&hasher.finalize()[..6]) // 6 bytes = 12 hex chars
+}
+
+/// Get the base directory for the current daemon context.
+///
+/// In dev mode: `~/.cache/runt/worktrees/{hash}/`
+/// Otherwise: `~/.cache/runt/`
+pub fn daemon_base_dir() -> PathBuf {
+    let base = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("runt");
+
+    if is_dev_mode() {
+        if let Some(worktree) = get_workspace_path() {
+            let hash = worktree_hash(&worktree);
+            return base.join("worktrees").join(hash);
+        }
+    }
+    base
+}
+
+/// Get the default log path for the daemon.
+pub fn default_log_path() -> PathBuf {
+    daemon_base_dir().join("runtimed.log")
+}
+
+// ============================================================================
+// Types
+// ============================================================================
 
 /// Environment types supported by the pool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,47 +171,43 @@ pub struct PoolStats {
 /// Get the default endpoint path for runtimed.
 ///
 /// On Unix, this returns a Unix socket path (e.g., ~/.cache/runt/runtimed.sock).
+/// In dev mode, returns the per-worktree socket path.
 /// On Windows, this returns a named pipe path (e.g., \\.\pipe\runtimed).
 #[cfg(unix)]
 pub fn default_socket_path() -> PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("runt")
-        .join("runtimed.sock")
+    daemon_base_dir().join("runtimed.sock")
 }
 
 /// Get the default endpoint path for runtimed.
 ///
 /// On Unix, this returns a Unix socket path (e.g., ~/.cache/runt/runtimed.sock).
 /// On Windows, this returns a named pipe path (e.g., \\.\pipe\runtimed).
+/// In dev mode on Windows, appends the worktree hash to the pipe name.
 #[cfg(windows)]
 pub fn default_socket_path() -> PathBuf {
     // Windows named pipes use the \\.\pipe\name format
+    if is_dev_mode() {
+        if let Some(worktree) = get_workspace_path() {
+            let hash = worktree_hash(&worktree);
+            return PathBuf::from(format!(r"\\.\pipe\runtimed-{}", hash));
+        }
+    }
     PathBuf::from(r"\\.\pipe\runtimed")
 }
 
 /// Get the default cache directory for environments.
 pub fn default_cache_dir() -> PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("runt")
-        .join("envs")
+    daemon_base_dir().join("envs")
 }
 
 /// Get the default directory for the content-addressed blob store.
 pub fn default_blob_store_dir() -> PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("runt")
-        .join("blobs")
+    daemon_base_dir().join("blobs")
 }
 
 /// Get the default path for the persisted Automerge settings document.
 pub fn default_settings_doc_path() -> PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("runt")
-        .join("settings.automerge")
+    daemon_base_dir().join("settings.automerge")
 }
 
 /// Get the path to the JSON settings file (for migration and fallback).
@@ -128,8 +228,5 @@ pub fn settings_schema_path() -> PathBuf {
 
 /// Get the default directory for persisted notebook Automerge documents.
 pub fn default_notebook_docs_dir() -> PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("runt")
-        .join("notebook-docs")
+    daemon_base_dir().join("notebook-docs")
 }

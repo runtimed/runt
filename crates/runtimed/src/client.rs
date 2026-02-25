@@ -311,6 +311,11 @@ pub async fn try_get_pooled_env(env_type: EnvType) -> Option<PooledEnv> {
 /// 5. Starts the service if not running
 /// 6. Waits for the daemon to be ready
 ///
+/// In development mode (RUNTIMED_DEV=1 or CONDUCTOR_WORKSPACE_PATH set):
+/// - Skips service installation/upgrade
+/// - Only checks if the per-worktree daemon is running
+/// - Returns an error with guidance if not running
+///
 /// Returns Ok(endpoint) if daemon is running, Err if it couldn't be started.
 pub async fn ensure_daemon_running(
     daemon_binary: Option<std::path::PathBuf>,
@@ -319,6 +324,27 @@ pub async fn ensure_daemon_running(
     use crate::singleton::get_running_daemon_info;
 
     let client = PoolClient::default();
+
+    // In dev mode, skip service management - just check if daemon is running
+    if crate::is_dev_mode() {
+        info!("[pool-client] Development mode: checking for worktree daemon...");
+
+        if client.ping().await.is_ok() {
+            if let Some(info) = get_running_daemon_info() {
+                info!(
+                    "[pool-client] Dev daemon running at {} (worktree: {:?})",
+                    info.endpoint, info.worktree_path
+                );
+                return Ok(info.endpoint);
+            }
+        }
+
+        // Dev daemon not running - provide helpful error
+        let socket_path = crate::default_socket_path();
+        return Err(EnsureDaemonError::DevDaemonNotRunning(socket_path));
+    }
+
+    // Production mode: full service management
     let manager = ServiceManager::default();
 
     // Version of the bundled/calling binary (includes git commit for dev builds)
@@ -427,6 +453,9 @@ pub enum EnsureDaemonError {
 
     #[error("Daemon did not become ready within timeout")]
     Timeout,
+
+    #[error("Dev daemon not running at {0}. Start it with: cargo xtask dev-daemon")]
+    DevDaemonNotRunning(std::path::PathBuf),
 }
 
 #[cfg(test)]

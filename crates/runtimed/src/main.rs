@@ -22,6 +22,14 @@ struct Cli {
     /// Log level
     #[arg(long, global = true, default_value = "info")]
     log_level: String,
+
+    /// Run in development mode (per-worktree isolation)
+    ///
+    /// When enabled, the daemon stores all state in ~/.cache/runt/worktrees/{hash}/
+    /// instead of ~/.cache/runt/, allowing multiple worktrees to run their own
+    /// isolated daemon instances.
+    #[arg(long, global = true)]
+    dev: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -87,9 +95,29 @@ enum Commands {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
+    // Set dev mode environment variable if flag is used
+    if cli.dev {
+        std::env::set_var("RUNTIMED_DEV", "1");
+    }
+
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(&cli.log_level))
         .init();
+
+    // Log dev mode status
+    if runtimed::is_dev_mode() {
+        if let Some(worktree) = runtimed::get_workspace_path() {
+            info!(
+                "Development mode enabled for worktree: {}",
+                worktree.display()
+            );
+            if let Some(name) = runtimed::get_workspace_name() {
+                info!("Workspace description: {}", name);
+            }
+        } else {
+            info!("Development mode enabled (no worktree detected)");
+        }
+    }
 
     match cli.command {
         None | Some(Commands::Run { .. }) => {

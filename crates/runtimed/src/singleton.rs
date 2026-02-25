@@ -23,6 +23,12 @@ pub struct DaemonInfo {
     /// HTTP port for the blob server (if running).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blob_port: Option<u16>,
+    /// Path to the git worktree (dev mode only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_path: Option<String>,
+    /// Human-readable workspace description (dev mode only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_description: Option<String>,
 }
 
 /// A lock that ensures only one daemon instance runs.
@@ -73,6 +79,8 @@ impl DaemonLock {
                     version: "unknown".to_string(),
                     started_at: Utc::now(),
                     blob_port: None,
+                    worktree_path: None,
+                    workspace_description: None,
                 });
             }
         };
@@ -95,6 +103,8 @@ impl DaemonLock {
                     version: "unknown".to_string(),
                     started_at: Utc::now(),
                     blob_port: None,
+                    worktree_path: None,
+                    workspace_description: None,
                 });
             }
         }
@@ -131,6 +141,8 @@ impl DaemonLock {
                     version: "unknown".to_string(),
                     started_at: Utc::now(),
                     blob_port: None,
+                    worktree_path: None,
+                    workspace_description: None,
                 });
             }
         }
@@ -146,12 +158,24 @@ impl DaemonLock {
 
     /// Write daemon info after successful startup.
     pub fn write_info(&self, endpoint: &str, blob_port: Option<u16>) -> std::io::Result<()> {
+        // Populate worktree info when in dev mode
+        let (worktree_path, workspace_description) = if crate::is_dev_mode() {
+            (
+                crate::get_workspace_path().map(|p| p.to_string_lossy().to_string()),
+                crate::get_workspace_name(),
+            )
+        } else {
+            (None, None)
+        };
+
         let info = DaemonInfo {
             endpoint: endpoint.to_string(),
             pid: std::process::id(),
             version: format!("{}+{}", env!("CARGO_PKG_VERSION"), env!("GIT_COMMIT")),
             started_at: Utc::now(),
             blob_port,
+            worktree_path,
+            workspace_description,
         };
 
         let json = serde_json::to_string_pretty(&info).map_err(std::io::Error::other)?;
@@ -180,18 +204,12 @@ impl Drop for DaemonLock {
 
 /// Get the path to the daemon lock file.
 pub fn daemon_lock_path() -> PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("runt")
-        .join("daemon.lock")
+    crate::daemon_base_dir().join("daemon.lock")
 }
 
 /// Get the path to the daemon info file.
 pub fn daemon_info_path() -> PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("runt")
-        .join("daemon.json")
+    crate::daemon_base_dir().join("daemon.json")
 }
 
 /// Read daemon info from the info file.

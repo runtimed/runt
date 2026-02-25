@@ -26,6 +26,7 @@ fn main() {
         "build-dmg" => cmd_build_dmg(),
         "build-app" => cmd_build_app(),
         "install-daemon" => cmd_install_daemon(),
+        "dev-daemon" => cmd_dev_daemon(),
         "--help" | "-h" | "help" => print_help(),
         cmd => {
             eprintln!("Unknown command: {cmd}");
@@ -52,6 +53,7 @@ Release:
 
 Daemon:
   install-daemon        Build and install runtimed into the running service
+  dev-daemon            Build and run runtimed in per-worktree dev mode
 
 Other:
   icons [source.png]    Generate icon variants
@@ -345,6 +347,46 @@ fn cmd_install_daemon() {
     }
 
     println!("Daemon restarted (could not verify version from daemon.json)");
+}
+
+/// Build and run runtimed in per-worktree development mode.
+///
+/// This enables isolated daemon instances per git worktree, useful when
+/// developing/testing daemon code across multiple worktrees simultaneously.
+fn cmd_dev_daemon() {
+    println!("Building runtimed (debug)...");
+    run_cmd("cargo", &["build", "-p", "runtimed"]);
+
+    let binary = if cfg!(windows) {
+        "target/debug/runtimed.exe"
+    } else {
+        "target/debug/runtimed"
+    };
+
+    if !Path::new(binary).exists() {
+        eprintln!("Build succeeded but binary not found at {binary}");
+        exit(1);
+    }
+
+    println!();
+    println!("Starting development daemon for this worktree...");
+    println!("State will be stored in ~/.cache/runt/worktrees/<hash>/");
+    println!("Press Ctrl+C to stop.");
+    println!();
+
+    // Run the daemon with --dev flag
+    let status = Command::new(binary)
+        .args(["--dev", "run"])
+        .env("RUNTIMED_DEV", "1") // Also set env var for consistency
+        .status()
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to run runtimed: {e}");
+            exit(1);
+        });
+
+    if !status.success() {
+        exit(status.code().unwrap_or(1));
+    }
 }
 
 /// Build external binaries (runtimed daemon and runt CLI) for Tauri bundling.
