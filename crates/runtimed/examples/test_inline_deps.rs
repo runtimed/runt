@@ -81,8 +81,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Connect to notebook room
     let notebook_id = format!("test-{}", uuid::Uuid::new_v4());
-    let mut client = NotebookSyncClient::connect(socket_path.clone(), notebook_id.clone())
-        .await?;
+    let mut client = NotebookSyncClient::connect(socket_path.clone(), notebook_id.clone()).await?;
     println!("Connected to notebook room: {}", notebook_id);
 
     // Send LaunchKernel request with env_source: "auto"
@@ -98,19 +97,28 @@ async fn main() -> anyhow::Result<()> {
     let response = client.send_request(&request).await;
     println!("\n=== Response ===");
     match response {
-        Ok(NotebookResponse::KernelLaunched { kernel_type, env_source }) => {
+        Ok(NotebookResponse::KernelLaunched {
+            kernel_type,
+            env_source,
+        }) => {
             println!("✅ Kernel launched!");
             println!("   kernel_type: {}", kernel_type);
             println!("   env_source: {}", env_source);
             if env_source == "uv:inline" {
                 println!("\n🎉 SUCCESS: Inline deps detected correctly!");
             } else {
-                println!("\n⚠️  UNEXPECTED: Expected env_source 'uv:inline', got '{}'", env_source);
+                println!(
+                    "\n⚠️  UNEXPECTED: Expected env_source 'uv:inline', got '{}'",
+                    env_source
+                );
             }
         }
         Ok(NotebookResponse::Error { error }) => {
             // This is expected if Python/uv isn't available
-            println!("⚠️  Kernel launch error (expected without Python): {}", error);
+            println!(
+                "⚠️  Kernel launch error (expected without Python): {}",
+                error
+            );
             println!("\nCheck daemon logs above for '[notebook-sync] Found inline deps' message");
         }
         Ok(other) => {
