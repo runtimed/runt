@@ -43,37 +43,52 @@ struct KernelInfo {
     connection_info: ConnectionInfo,
 }
 
+/// Unified kernel entry (from connection file OR daemon)
+#[derive(Serialize, Clone)]
+struct UnifiedKernelInfo {
+    name: String,
+    language: Option<String>,
+    status: String,
+    source: String, // "jupyter" or "runtimed"
+    notebook: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    connection_file: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    env_source: Option<String>,
+}
+
 #[derive(Tabled)]
 struct KernelTableRow {
     #[tabled(rename = "NAME")]
     name: String,
     #[tabled(rename = "LANGUAGE")]
     language: String,
-    #[tabled(rename = "VERSION")]
-    version: String,
     #[tabled(rename = "STATUS")]
     status: String,
-    #[tabled(rename = "CONNECTION FILE")]
-    connection_file: String,
+    #[tabled(rename = "SOURCE")]
+    source: String,
+    #[tabled(rename = "NOTEBOOK")]
+    notebook: String,
 }
 
-impl From<&KernelInfo> for KernelTableRow {
-    fn from(info: &KernelInfo) -> Self {
+impl From<&UnifiedKernelInfo> for KernelTableRow {
+    fn from(info: &UnifiedKernelInfo) -> Self {
         KernelTableRow {
             name: info.name.clone(),
             language: info.language.clone().unwrap_or_else(|| "-".to_string()),
-            version: info
-                .language_version
-                .clone()
+            status: info.status.clone(),
+            source: info.source.clone(),
+            notebook: info
+                .notebook
+                .as_ref()
+                .map(|p| shorten_path(&PathBuf::from(p)))
                 .unwrap_or_else(|| "-".to_string()),
-            status: info.status.to_string(),
-            connection_file: shorten_path(&info.connection_file),
         }
     }
 }
 
 /// Shorten a path for display by replacing home directory with ~
-fn shorten_path(path: &PathBuf) -> String {
+fn shorten_path(path: &std::path::Path) -> String {
     if let Some(home) = dirs::home_dir() {
         if let Ok(relative) = path.strip_prefix(&home) {
             return format!("~/{}", relative.display());
@@ -91,7 +106,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// List currently running kernels
+    /// List all running kernels (connection-file and daemon-managed)
     Ps {
         /// Output in JSON format
         #[arg(long)]
@@ -100,6 +115,123 @@ enum Commands {
         #[arg(short, long)]
         verbose: bool,
     },
+    /// Open the notebook application
+    Notebook {
+        /// Path to notebook file or directory to open
+        path: Option<PathBuf>,
+        /// Runtime for new notebooks (python, deno)
+        #[arg(long, short)]
+        runtime: Option<String>,
+    },
+    /// Jupyter kernel utilities
+    Jupyter {
+        #[command(subcommand)]
+        command: JupyterCommands,
+    },
+    /// Daemon management (service, pool, logs)
+    Daemon {
+        #[command(subcommand)]
+        command: DaemonCommands,
+    },
+    /// List open notebooks with kernel and peer info
+    Notebooks {
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect the Automerge state for a notebook (debug command)
+    #[command(hide = true)]
+    Inspect {
+        /// Path to the notebook file
+        path: PathBuf,
+        /// Show full output JSON (otherwise just shows count)
+        #[arg(long)]
+        full_outputs: bool,
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
+    /// Debug message passing between sidecar and kernel
+    #[command(hide = true)]
+    Debug {
+        /// The kernel to launch (e.g., python3, julia)
+        kernel: Option<String>,
+        /// Custom command to launch the kernel (use {connection_file} as placeholder)
+        #[arg(long)]
+        cmd: Option<String>,
+        /// Code to execute after kernel starts
+        #[arg(long)]
+        exec: Option<String>,
+        /// Path to dump all messages (defaults to temp file)
+        #[arg(long)]
+        dump: Option<PathBuf>,
+        /// Keep running after execution for manual interaction (Ctrl+C to exit)
+        #[arg(long, short)]
+        wait: bool,
+    },
+
+    // =========================================================================
+    // Hidden aliases for backwards compatibility (deprecated)
+    // =========================================================================
+    /// [DEPRECATED] Use 'runt jupyter start' instead
+    #[command(hide = true)]
+    Start { name: String },
+    /// [DEPRECATED] Use 'runt jupyter stop' instead
+    #[command(hide = true)]
+    Stop {
+        id: Option<String>,
+        #[arg(long)]
+        all: bool,
+    },
+    /// [DEPRECATED] Use 'runt jupyter interrupt' instead
+    #[command(hide = true)]
+    Interrupt { id: String },
+    /// [DEPRECATED] Use 'runt jupyter exec' instead
+    #[command(hide = true)]
+    Exec { id: String, code: Option<String> },
+    /// [DEPRECATED] Use 'runt jupyter sidecar' instead
+    #[command(hide = true)]
+    Sidecar {
+        file: PathBuf,
+        #[arg(short, long)]
+        quiet: bool,
+        #[arg(long)]
+        dump: Option<PathBuf>,
+    },
+    /// [DEPRECATED] Use 'runt jupyter console' instead
+    #[command(hide = true)]
+    Console {
+        kernel: Option<String>,
+        #[arg(long)]
+        cmd: Option<String>,
+        #[arg(short, long)]
+        verbose: bool,
+    },
+    /// [DEPRECATED] Use 'runt jupyter clean' instead
+    #[command(hide = true)]
+    Clean {
+        #[arg(long, default_value = "2")]
+        timeout: u64,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// [DEPRECATED] Use 'runt daemon' instead
+    #[command(hide = true)]
+    Pool {
+        #[command(subcommand)]
+        command: PoolCommands,
+    },
+    /// [DEPRECATED] Use 'runt notebooks' instead
+    #[command(hide = true)]
+    Rooms {
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// Jupyter kernel management commands
+#[derive(Subcommand)]
+enum JupyterCommands {
     /// Start a kernel given a name
     Start {
         /// The name of the kernel to launch (e.g., python3, julia)
@@ -125,17 +257,6 @@ enum Commands {
         /// The code to execute (reads from stdin if not provided)
         code: Option<String>,
     },
-    /// Launch the sidecar viewer for a kernel
-    Sidecar {
-        /// Path to a kernel connection file
-        file: PathBuf,
-        /// Suppress output
-        #[arg(short, long)]
-        quiet: bool,
-        /// Dump all messages to a JSON file
-        #[arg(long)]
-        dump: Option<PathBuf>,
-    },
     /// Launch a kernel and open an interactive console
     Console {
         /// The kernel to launch (e.g., python3, julia)
@@ -156,55 +277,60 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Debug message passing between sidecar and kernel
-    Debug {
-        /// The kernel to launch (e.g., python3, julia)
-        kernel: Option<String>,
-        /// Custom command to launch the kernel (use {connection_file} as placeholder)
-        #[arg(long)]
-        cmd: Option<String>,
-        /// Code to execute after kernel starts
-        #[arg(long)]
-        exec: Option<String>,
-        /// Path to dump all messages (defaults to temp file)
+    /// Launch the sidecar viewer for a kernel
+    Sidecar {
+        /// Path to a kernel connection file
+        file: PathBuf,
+        /// Suppress output
+        #[arg(short, long)]
+        quiet: bool,
+        /// Dump all messages to a JSON file
         #[arg(long)]
         dump: Option<PathBuf>,
-        /// Keep running after execution for manual interaction (Ctrl+C to exit)
-        #[arg(long, short)]
-        wait: bool,
-    },
-    /// Interact with the pool daemon (prewarmed Python environments)
-    Pool {
-        #[command(subcommand)]
-        command: PoolCommands,
-    },
-    /// Open the notebook application
-    Notebook {
-        /// Path to notebook file or directory to open
-        path: Option<PathBuf>,
-        /// Runtime for new notebooks (python, deno)
-        #[arg(long, short)]
-        runtime: Option<String>,
-    },
-    /// Inspect the Automerge state for a notebook (debug command)
-    Inspect {
-        /// Path to the notebook file
-        path: PathBuf,
-        /// Show full output JSON (otherwise just shows count)
-        #[arg(long)]
-        full_outputs: bool,
-        /// Output in JSON format
-        #[arg(long)]
-        json: bool,
-    },
-    /// List active notebook rooms in the daemon (debug command)
-    Rooms {
-        /// Output in JSON format
-        #[arg(long)]
-        json: bool,
     },
 }
 
+/// Daemon management commands (replaces Pool + runtimed service commands)
+#[derive(Subcommand)]
+enum DaemonCommands {
+    /// Show daemon status (service, pool, version, uptime)
+    Status {
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start the daemon service
+    Start,
+    /// Stop the daemon service
+    Stop,
+    /// Restart the daemon service (stop + start)
+    Restart,
+    /// Install daemon as a system service
+    Install {
+        /// Path to the daemon binary to install
+        #[arg(long)]
+        binary: Option<PathBuf>,
+    },
+    /// Uninstall daemon system service
+    Uninstall,
+    /// Tail daemon log file
+    Logs {
+        /// Follow the log (like tail -f)
+        #[arg(short, long)]
+        follow: bool,
+        /// Number of lines to show
+        #[arg(short = 'n', long, default_value = "50")]
+        lines: usize,
+    },
+    /// Flush all pooled environments and rebuild
+    Flush,
+    /// Request daemon shutdown (stops the daemon process)
+    Shutdown,
+    /// Check if the daemon is running (returns exit code)
+    Ping,
+}
+
+/// [DEPRECATED] Pool commands - use 'runt daemon' instead
 #[derive(Subcommand)]
 enum PoolCommands {
     /// Check if the pool daemon is running
@@ -237,16 +363,19 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        // Sidecar runs a tao event loop on the main thread (no tokio needed)
+        Some(Commands::Jupyter {
+            command: JupyterCommands::Sidecar { file, quiet, dump },
+        }) => sidecar::launch(&file, quiet, dump.as_deref()),
+        // Deprecated alias
         Some(Commands::Sidecar { file, quiet, dump }) => {
-            // Sidecar runs a tao event loop on the main thread (no tokio needed)
+            eprintln!("Warning: 'runt sidecar' is deprecated. Use 'runt jupyter sidecar' instead.");
             sidecar::launch(&file, quiet, dump.as_deref())
         }
-        Some(Commands::Notebook { path, runtime }) => {
-            // Notebook launches the desktop app (no tokio needed)
-            open_notebook(path, runtime)
-        }
+        // Notebook launches the desktop app (no tokio needed)
+        Some(Commands::Notebook { path, runtime }) => open_notebook(path, runtime),
+        // All other subcommands use tokio
         other => {
-            // All other subcommands use tokio
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async_main(other))
         }
@@ -322,19 +451,17 @@ fn open_notebook(path: Option<PathBuf>, runtime: Option<String>) -> Result<()> {
 
 async fn async_main(command: Option<Commands>) -> Result<()> {
     match command {
+        // Primary commands
         Some(Commands::Ps { json, verbose }) => list_kernels(json, verbose).await?,
-        Some(Commands::Start { name }) => start_kernel(&name).await?,
-        Some(Commands::Stop { id, all }) => stop_kernels(id.as_deref(), all).await?,
-        Some(Commands::Interrupt { id }) => interrupt_kernel(&id).await?,
-        Some(Commands::Exec { id, code }) => execute_code(&id, code.as_deref()).await?,
-        Some(Commands::Console {
-            kernel,
-            cmd,
-            verbose,
-        }) => console(kernel.as_deref(), cmd.as_deref(), verbose).await?,
-        Some(Commands::Sidecar { .. }) => unreachable!(),
-        Some(Commands::Notebook { .. }) => unreachable!(),
-        Some(Commands::Clean { timeout, dry_run }) => clean_kernels(timeout, dry_run).await?,
+        Some(Commands::Notebook { .. }) => unreachable!(), // handled in main()
+        Some(Commands::Jupyter { command }) => jupyter_command(command).await?,
+        Some(Commands::Daemon { command }) => daemon_command(command).await?,
+        Some(Commands::Notebooks { json }) => list_notebooks(json).await?,
+        Some(Commands::Inspect {
+            path,
+            full_outputs,
+            json,
+        }) => inspect_notebook(&path, full_outputs, json).await?,
         Some(Commands::Debug {
             kernel,
             cmd,
@@ -351,62 +478,196 @@ async fn async_main(command: Option<Commands>) -> Result<()> {
             )
             .await?
         }
-        Some(Commands::Pool { command }) => pool_command(command).await?,
-        Some(Commands::Inspect {
-            path,
-            full_outputs,
-            json,
-        }) => inspect_notebook(&path, full_outputs, json).await?,
-        Some(Commands::Rooms { json }) => list_rooms(json).await?,
+
+        // Deprecated aliases (with warnings)
+        Some(Commands::Start { name }) => {
+            eprintln!("Warning: 'runt start' is deprecated. Use 'runt jupyter start' instead.");
+            start_kernel(&name).await?
+        }
+        Some(Commands::Stop { id, all }) => {
+            eprintln!("Warning: 'runt stop' is deprecated. Use 'runt jupyter stop' instead.");
+            stop_kernels(id.as_deref(), all).await?
+        }
+        Some(Commands::Interrupt { id }) => {
+            eprintln!(
+                "Warning: 'runt interrupt' is deprecated. Use 'runt jupyter interrupt' instead."
+            );
+            interrupt_kernel(&id).await?
+        }
+        Some(Commands::Exec { id, code }) => {
+            eprintln!("Warning: 'runt exec' is deprecated. Use 'runt jupyter exec' instead.");
+            execute_code(&id, code.as_deref()).await?
+        }
+        Some(Commands::Console {
+            kernel,
+            cmd,
+            verbose,
+        }) => {
+            eprintln!("Warning: 'runt console' is deprecated. Use 'runt jupyter console' instead.");
+            console(kernel.as_deref(), cmd.as_deref(), verbose).await?
+        }
+        Some(Commands::Sidecar { .. }) => unreachable!(), // handled in main()
+        Some(Commands::Clean { timeout, dry_run }) => {
+            eprintln!("Warning: 'runt clean' is deprecated. Use 'runt jupyter clean' instead.");
+            clean_kernels(timeout, dry_run).await?
+        }
+        Some(Commands::Pool { command }) => {
+            eprintln!("Warning: 'runt pool' is deprecated. Use 'runt daemon' instead.");
+            pool_command(command).await?
+        }
+        Some(Commands::Rooms { json }) => {
+            eprintln!("Warning: 'runt rooms' is deprecated. Use 'runt notebooks' instead.");
+            list_notebooks(json).await?
+        }
+
         None => println!("No command specified. Use --help for usage information."),
     }
 
     Ok(())
 }
 
+async fn jupyter_command(command: JupyterCommands) -> Result<()> {
+    match command {
+        JupyterCommands::Start { name } => start_kernel(&name).await,
+        JupyterCommands::Stop { id, all } => stop_kernels(id.as_deref(), all).await,
+        JupyterCommands::Interrupt { id } => interrupt_kernel(&id).await,
+        JupyterCommands::Exec { id, code } => execute_code(&id, code.as_deref()).await,
+        JupyterCommands::Console {
+            kernel,
+            cmd,
+            verbose,
+        } => console(kernel.as_deref(), cmd.as_deref(), verbose).await,
+        JupyterCommands::Clean { timeout, dry_run } => clean_kernels(timeout, dry_run).await,
+        JupyterCommands::Sidecar { .. } => unreachable!(), // handled in main()
+    }
+}
+
 async fn list_kernels(json_output: bool, verbose: bool) -> Result<()> {
+    use runtimed::client::PoolClient;
+
     let runtime_dir = runtime_dir();
-    let mut entries = fs::read_dir(&runtime_dir).await?;
     let timeout = Duration::from_secs(2);
 
-    // Collect all connection file paths first
-    let mut connection_files: Vec<PathBuf> = Vec::new();
-    while let Some(entry) = entries.next_entry().await? {
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("json") {
-            continue;
+    // 1. Gather connection-file kernels (standalone Jupyter kernels)
+    let mut connection_file_kernels = Vec::new();
+    if let Ok(mut entries) = fs::read_dir(&runtime_dir).await {
+        let mut connection_files: Vec<PathBuf> = Vec::new();
+        while let Some(entry) = entries.next_entry().await.ok().flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
+            let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            if !file_name.starts_with("runt-kernel-") {
+                continue;
+            }
+            connection_files.push(path);
         }
-        let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-        if !file_name.starts_with("runt-kernel-") {
-            continue;
-        }
-        connection_files.push(path);
+
+        let kernel_futures = connection_files
+            .into_iter()
+            .map(|path| async move { gather_kernel_info(path, timeout).await });
+
+        connection_file_kernels = join_all(kernel_futures)
+            .await
+            .into_iter()
+            .flatten()
+            .collect();
     }
 
-    // Query all kernels in parallel
-    let kernel_futures = connection_files.into_iter().map(|path| {
-        let timeout = timeout;
-        async move { gather_kernel_info(path, timeout).await }
-    });
+    // 2. Gather daemon-managed kernels
+    let mut daemon_kernels: Vec<UnifiedKernelInfo> = Vec::new();
+    let client = PoolClient::default();
+    if let Ok(rooms) = client.list_rooms().await {
+        for room in rooms {
+            if room.has_kernel {
+                daemon_kernels.push(UnifiedKernelInfo {
+                    name: room
+                        .kernel_type
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    language: room.kernel_type.clone(),
+                    status: room.kernel_status.unwrap_or_else(|| "unknown".to_string()),
+                    source: "runtimed".to_string(),
+                    notebook: Some(room.notebook_id.clone()),
+                    connection_file: None,
+                    env_source: room.env_source,
+                });
+            }
+        }
+    }
 
-    let mut kernels: Vec<KernelInfo> = join_all(kernel_futures)
-        .await
-        .into_iter()
-        .flatten()
+    // 3. Convert connection-file kernels to unified format
+    let mut unified_kernels: Vec<UnifiedKernelInfo> = connection_file_kernels
+        .iter()
+        .map(|k| UnifiedKernelInfo {
+            name: k.name.clone(),
+            language: k.language.clone(),
+            status: k.status.to_string(),
+            source: "jupyter".to_string(),
+            notebook: None,
+            connection_file: Some(k.connection_file.clone()),
+            env_source: None,
+        })
         .collect();
 
-    // Sort kernels by name for consistent display
-    kernels.sort_by(|a, b| a.name.cmp(&b.name));
+    // 4. Add daemon kernels (they take precedence for display)
+    unified_kernels.extend(daemon_kernels);
+
+    // Sort by source (runtimed first), then by name
+    unified_kernels.sort_by(|a, b| {
+        // runtimed comes before jupyter
+        let source_cmp = b.source.cmp(&a.source); // reverse to put runtimed first
+        if source_cmp != std::cmp::Ordering::Equal {
+            source_cmp
+        } else {
+            a.name.cmp(&b.name)
+        }
+    });
 
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&kernels)?);
+        println!("{}", serde_json::to_string_pretty(&unified_kernels)?);
     } else if verbose {
-        print_verbose_kernel_table(&kernels);
+        // Verbose mode shows connection-file kernels with full details
+        if !connection_file_kernels.is_empty() {
+            println!("Connection-file kernels:");
+            print_verbose_kernel_table(&connection_file_kernels);
+        }
+        // Also show daemon-managed kernels
+        let daemon_rows: Vec<KernelTableRow> = unified_kernels
+            .iter()
+            .filter(|k| k.source == "runtimed")
+            .map(KernelTableRow::from)
+            .collect();
+        if !daemon_rows.is_empty() {
+            if !connection_file_kernels.is_empty() {
+                println!();
+            }
+            println!("Daemon-managed kernels:");
+            let table = Table::new(daemon_rows).with(Style::rounded()).to_string();
+            println!("{}", table);
+        }
+        if connection_file_kernels.is_empty()
+            && unified_kernels.iter().all(|k| k.source != "runtimed")
+        {
+            println!("No running kernels found.");
+        }
     } else {
-        print_kernel_table(&kernels);
+        print_unified_kernel_table(&unified_kernels);
     }
 
     Ok(())
+}
+
+fn print_unified_kernel_table(kernels: &[UnifiedKernelInfo]) {
+    if kernels.is_empty() {
+        println!("No running kernels found.");
+        return;
+    }
+
+    let rows: Vec<KernelTableRow> = kernels.iter().map(KernelTableRow::from).collect();
+    let table = Table::new(rows).with(Style::rounded()).to_string();
+    println!("{}", table);
 }
 
 async fn gather_kernel_info(path: PathBuf, timeout: Duration) -> Option<KernelInfo> {
@@ -484,17 +745,6 @@ async fn read_connection_info(path: &PathBuf) -> Result<ConnectionInfo> {
     let content = fs::read_to_string(path).await?;
     let info: ConnectionInfo = serde_json::from_str(&content)?;
     Ok(info)
-}
-
-fn print_kernel_table(kernels: &[KernelInfo]) {
-    if kernels.is_empty() {
-        println!("No running kernels found.");
-        return;
-    }
-
-    let rows: Vec<KernelTableRow> = kernels.iter().map(KernelTableRow::from).collect();
-    let table = Table::new(rows).with(Style::rounded()).to_string();
-    println!("{}", table);
 }
 
 fn print_verbose_kernel_table(kernels: &[KernelInfo]) {
@@ -1066,6 +1316,329 @@ async fn pool_command(command: PoolCommands) -> Result<()> {
 }
 
 // =============================================================================
+// Daemon management commands
+// =============================================================================
+
+async fn daemon_command(command: DaemonCommands) -> Result<()> {
+    use runtimed::client::PoolClient;
+    use runtimed::service::ServiceManager;
+    use runtimed::singleton::get_running_daemon_info;
+
+    let manager = ServiceManager::default();
+
+    // Get daemon info first so we can use its endpoint for the client
+    let daemon_info = get_running_daemon_info();
+
+    // Create client using daemon's actual endpoint if available, otherwise default
+    let client = match &daemon_info {
+        Some(info) => PoolClient::new(PathBuf::from(&info.endpoint)),
+        None => PoolClient::default(),
+    };
+
+    match command {
+        DaemonCommands::Status { json } => {
+            let installed = manager.is_installed();
+            let running = if daemon_info.is_some() {
+                client.ping().await.is_ok()
+            } else {
+                false
+            };
+            let stats = if running {
+                client.status().await.ok()
+            } else {
+                None
+            };
+
+            if json {
+                let output = serde_json::json!({
+                    "installed": installed,
+                    "running": running,
+                    "daemon_info": daemon_info,
+                    "pool_stats": stats,
+                });
+                println!("{}", serde_json::to_string_pretty(&output)?);
+            } else {
+                println!("runtimed Daemon Status");
+                println!("======================");
+                println!(
+                    "Service installed: {}",
+                    if installed { "yes" } else { "no" }
+                );
+                println!("Daemon running:    {}", if running { "yes" } else { "no" });
+
+                if let Some(info) = &daemon_info {
+                    println!("PID:               {}", info.pid);
+                    println!("Version:           {}", info.version);
+                    if let Some(port) = info.blob_port {
+                        println!("Blob server:       http://127.0.0.1:{}", port);
+                    }
+                    let uptime = chrono::Utc::now() - info.started_at;
+                    let hours = uptime.num_hours();
+                    let mins = uptime.num_minutes() % 60;
+                    println!("Uptime:            {}h {}m", hours, mins);
+                }
+
+                if let Some(stats) = &stats {
+                    println!();
+                    println!("Pool:");
+                    println!(
+                        "  UV:    {}/{} ready{}",
+                        stats.uv_available,
+                        stats.uv_available + stats.uv_warming,
+                        if stats.uv_warming > 0 {
+                            format!(" ({} warming)", stats.uv_warming)
+                        } else {
+                            String::new()
+                        }
+                    );
+                    println!(
+                        "  Conda: {}/{} ready{}",
+                        stats.conda_available,
+                        stats.conda_available + stats.conda_warming,
+                        if stats.conda_warming > 0 {
+                            format!(" ({} warming)", stats.conda_warming)
+                        } else {
+                            String::new()
+                        }
+                    );
+                }
+            }
+        }
+        DaemonCommands::Start => {
+            if !manager.is_installed() {
+                eprintln!("Service not installed. Run 'runt daemon install' first.");
+                std::process::exit(1);
+            }
+            println!("Starting runtimed service...");
+            manager.start()?;
+            println!("Service started.");
+        }
+        DaemonCommands::Stop => {
+            if !manager.is_installed() {
+                eprintln!("Service not installed.");
+                std::process::exit(1);
+            }
+            println!("Stopping runtimed service...");
+            manager.stop()?;
+            println!("Service stopped.");
+        }
+        DaemonCommands::Restart => {
+            if !manager.is_installed() {
+                eprintln!("Service not installed. Run 'runt daemon install' first.");
+                std::process::exit(1);
+            }
+            println!("Restarting runtimed service...");
+            let _ = manager.stop(); // Ignore if not running
+            manager.start()?;
+            println!("Service restarted.");
+        }
+        DaemonCommands::Install { binary } => {
+            // Find runtimed binary: use provided path, or look for sibling binary
+            let source = binary.unwrap_or_else(|| {
+                let current_exe =
+                    std::env::current_exe().expect("Failed to get current executable path");
+                let exe_dir = current_exe.parent().unwrap();
+                exe_dir.join(if cfg!(windows) {
+                    "runtimed.exe"
+                } else {
+                    "runtimed"
+                })
+            });
+
+            if !source.exists() {
+                eprintln!("Daemon binary not found at: {}", source.display());
+                eprintln!("Build it with: cargo build -p runtimed");
+                std::process::exit(1);
+            }
+
+            if manager.is_installed() {
+                eprintln!("Service already installed. Use 'runt daemon uninstall' first.");
+                std::process::exit(1);
+            }
+
+            println!("Installing runtimed service...");
+            println!("Source binary: {}", source.display());
+            manager.install(&source)?;
+            println!("Service installed. Run 'runt daemon start' to start it.");
+        }
+        DaemonCommands::Uninstall => {
+            if !manager.is_installed() {
+                println!("Service not installed.");
+                return Ok(());
+            }
+            println!("Uninstalling runtimed service...");
+            manager.uninstall()?;
+            println!("Service uninstalled.");
+        }
+        DaemonCommands::Logs { follow, lines } => {
+            let log_path = dirs::cache_dir()
+                .unwrap_or_else(|| PathBuf::from("/tmp"))
+                .join("runt")
+                .join("runtimed.log");
+
+            if !log_path.exists() {
+                eprintln!("Log file not found: {}", log_path.display());
+                std::process::exit(1);
+            }
+
+            // Native Rust implementation for cross-platform support
+            tail_log_file(&log_path, lines, follow).await?;
+        }
+        DaemonCommands::Flush => match client.flush_pool().await {
+            Ok(()) => {
+                println!("Pool flushed — environments will be rebuilt");
+            }
+            Err(e) => {
+                eprintln!("Failed to flush pool: {}", e);
+                std::process::exit(1);
+            }
+        },
+        DaemonCommands::Shutdown => match client.shutdown().await {
+            Ok(()) => {
+                println!("Shutdown request sent");
+            }
+            Err(e) => {
+                eprintln!("Failed to shutdown daemon: {}", e);
+                std::process::exit(1);
+            }
+        },
+        DaemonCommands::Ping => match client.ping().await {
+            Ok(()) => {
+                println!("pong");
+            }
+            Err(e) => {
+                eprintln!("Daemon not running: {}", e);
+                std::process::exit(1);
+            }
+        },
+    }
+
+    Ok(())
+}
+
+/// Native log file tailing implementation
+async fn tail_log_file(path: &PathBuf, lines: usize, follow: bool) -> Result<()> {
+    use std::collections::VecDeque;
+    use std::io::{BufRead, BufReader, Seek, SeekFrom};
+
+    // Read last N lines efficiently using a fixed-size buffer
+    let file = std::fs::File::open(path)?;
+    let reader = BufReader::new(&file);
+    let mut last_lines: VecDeque<String> = VecDeque::with_capacity(lines);
+
+    for line in reader.lines() {
+        let line = line?;
+        if last_lines.len() >= lines {
+            last_lines.pop_front();
+        }
+        last_lines.push_back(line);
+    }
+
+    for line in &last_lines {
+        println!("{}", line);
+    }
+
+    if follow {
+        // Watch for new lines using notify
+        use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
+
+        // Use tokio channel to bridge sync notify with async code
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let mut watcher = RecommendedWatcher::new(
+            move |res| {
+                let _ = tx.blocking_send(res);
+            },
+            Config::default(),
+        )?;
+        watcher.watch(path.as_ref(), RecursiveMode::NonRecursive)?;
+
+        let mut file = std::fs::File::open(path)?;
+        file.seek(SeekFrom::End(0))?;
+        let mut reader = BufReader::new(file);
+        let mut line = String::new();
+
+        loop {
+            tokio::select! {
+                // Check for Ctrl+C
+                _ = tokio::signal::ctrl_c() => {
+                    break;
+                }
+                // Check for file changes
+                _ = rx.recv() => {
+                    // Read any new lines
+                    while reader.read_line(&mut line)? > 0 {
+                        print!("{}", line);
+                        line.clear();
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// =============================================================================
+// Notebook listing command
+// =============================================================================
+
+#[derive(Tabled)]
+struct NotebookTableRow {
+    #[tabled(rename = "NOTEBOOK")]
+    notebook: String,
+    #[tabled(rename = "KERNEL")]
+    kernel: String,
+    #[tabled(rename = "ENV")]
+    env: String,
+    #[tabled(rename = "STATUS")]
+    status: String,
+    #[tabled(rename = "PEERS")]
+    peers: String,
+}
+
+async fn list_notebooks(json_output: bool) -> Result<()> {
+    use runtimed::client::PoolClient;
+    use runtimed::singleton::get_running_daemon_info;
+
+    // Use daemon's actual endpoint if available
+    let client = match get_running_daemon_info() {
+        Some(info) => PoolClient::new(PathBuf::from(&info.endpoint)),
+        None => PoolClient::default(),
+    };
+
+    match client.list_rooms().await {
+        Ok(rooms) => {
+            if json_output {
+                println!("{}", serde_json::to_string_pretty(&rooms)?);
+            } else if rooms.is_empty() {
+                println!("No open notebooks.");
+            } else {
+                let rows: Vec<NotebookTableRow> = rooms
+                    .iter()
+                    .map(|r| NotebookTableRow {
+                        notebook: shorten_path(&PathBuf::from(&r.notebook_id)),
+                        kernel: r.kernel_type.clone().unwrap_or_else(|| "-".to_string()),
+                        env: r.env_source.clone().unwrap_or_else(|| "-".to_string()),
+                        status: r.kernel_status.clone().unwrap_or_else(|| "-".to_string()),
+                        peers: r.active_peers.to_string(),
+                    })
+                    .collect();
+
+                let table = Table::new(rows).with(Style::rounded()).to_string();
+                println!("{}", table);
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to list notebooks: {}", e);
+            eprintln!("Is the daemon running? Try 'runt daemon status'");
+            std::process::exit(1)
+        }
+    }
+
+    Ok(())
+}
+
+// =============================================================================
 // Notebook inspection commands (debug tools)
 // =============================================================================
 
@@ -1186,42 +1759,6 @@ async fn inspect_notebook(path: &PathBuf, full_outputs: bool, json_output: bool)
         }
         Err(e) => {
             eprintln!("Failed to inspect notebook: {}", e);
-            std::process::exit(1);
-        }
-    }
-
-    Ok(())
-}
-
-async fn list_rooms(json_output: bool) -> Result<()> {
-    use runtimed::client::PoolClient;
-
-    let client = PoolClient::default();
-
-    match client.list_rooms().await {
-        Ok(rooms) => {
-            if json_output {
-                println!("{}", serde_json::to_string_pretty(&rooms)?);
-            } else {
-                if rooms.is_empty() {
-                    println!("No active notebook rooms.");
-                } else {
-                    println!("Active Notebook Rooms ({}):", rooms.len());
-                    println!("{}", "-".repeat(60));
-                    for room in rooms {
-                        println!(
-                            "  {} ({} peer{}, kernel: {})",
-                            shorten_path(&PathBuf::from(&room.notebook_id)),
-                            room.active_peers,
-                            if room.active_peers == 1 { "" } else { "s" },
-                            if room.has_kernel { "yes" } else { "no" }
-                        );
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("Failed to list rooms: {}", e);
             std::process::exit(1);
         }
     }

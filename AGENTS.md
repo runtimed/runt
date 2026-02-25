@@ -55,7 +55,7 @@ The notebook app connects to a background daemon (`runtimed`) that manages prewa
 cargo xtask install-daemon
 
 # Or manually:
-./target/debug/runtimed stop && ./target/debug/runtimed uninstall && ./target/debug/runtimed install
+runt daemon stop && runt daemon uninstall && runt daemon install
 ```
 
 `cargo xtask dev` and `cargo xtask build` do **not** reinstall the daemon. If you're changing daemon code (settings, sync, environments), you must run `cargo xtask install-daemon` separately to test your changes.
@@ -66,16 +66,20 @@ See `docs/runtimed.md` for service management and troubleshooting.
 
 The daemon logs to:
 ```
-~/Library/Caches/runt/runtimed.log
+~/Library/Caches/runt/runtimed.log  (macOS)
+~/.cache/runt/runtimed.log          (Linux)
 ```
 
 To check daemon logs:
 ```bash
-tail -100 ~/Library/Caches/runt/runtimed.log
+runt daemon logs -n 100    # Last 100 lines
+runt daemon logs -f        # Follow/tail logs
 ```
 
 To check which daemon version is running:
 ```bash
+runt daemon status
+# or directly:
 cat ~/Library/Caches/runt/daemon.json
 ```
 

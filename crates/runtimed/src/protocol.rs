@@ -98,6 +98,15 @@ pub struct RoomInfo {
     pub notebook_id: String,
     pub active_peers: usize,
     pub has_kernel: bool,
+    /// Kernel type if running (e.g., "python", "deno")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kernel_type: Option<String>,
+    /// Environment source if kernel is running (e.g., "uv:inline", "conda:prewarmed")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_source: Option<String>,
+    /// Kernel status if running (e.g., "idle", "busy", "starting")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kernel_status: Option<String>,
 }
 
 /// Blob channel request.

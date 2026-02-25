@@ -123,6 +123,17 @@ The daemon watches `~/.config/runt-notebook/settings.json` for external edits. C
 | Linux | systemd user service (`~/.config/systemd/user/runtimed.service`) |
 | Windows | VBS script in Startup folder |
 
+**CLI commands** (cross-platform):
+```bash
+runt daemon status     # Check service and pool status
+runt daemon start      # Start the daemon service
+runt daemon stop       # Stop the daemon service
+runt daemon restart    # Restart the daemon
+runt daemon logs -f    # Tail daemon logs
+runt daemon install    # Install as system service
+runt daemon uninstall  # Uninstall system service
+```
+
 Auto-upgrade: the client detects version mismatches and replaces the binary.
 
 ### Key files
