@@ -1177,6 +1177,34 @@ async fn reconnect_to_daemon(
     .await
 }
 
+/// Refresh cells from Automerge and emit notebook:updated event.
+///
+/// Used by the frontend to request the current Automerge state after
+/// setting up listeners (handles race condition where initial state
+/// was emitted before listeners were ready).
+#[tauri::command]
+async fn refresh_from_automerge(
+    app: tauri::AppHandle,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<(), String> {
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    let cells = handle
+        .get_cells()
+        .await
+        .map_err(|e| format!("Failed to get cells: {}", e))?;
+
+    info!(
+        "[notebook-sync] Refreshing frontend with {} cells from Automerge",
+        cells.len()
+    );
+
+    // Emit to frontend (which will resolve manifest hashes)
+    app.emit("notebook:updated", &cells)
+        .map_err(|e| format!("Failed to emit notebook:updated: {}", e))
+}
+
 /// Debug: Get Automerge document state from the daemon.
 ///
 /// Returns the cells as the daemon sees them, useful for debugging sync issues.
@@ -4020,6 +4048,7 @@ pub fn run(
             run_all_cells_via_daemon,
             send_comm_via_daemon,
             reconnect_to_daemon,
+            refresh_from_automerge,
             debug_get_automerge_state,
             debug_get_local_state,
             queue_execute_cell,

@@ -358,6 +358,14 @@ export function useNotebook() {
         setCells(newCells);
       },
     );
+
+    // Request current state from Automerge after listener is set up.
+    // This handles the race condition where initial state was emitted
+    // before the listener was ready.
+    invoke("refresh_from_automerge").catch((e) =>
+      console.warn("[notebook-sync] refresh_from_automerge failed:", e),
+    );
+
     return () => {
       unlisten.then((fn) => fn());
     };
