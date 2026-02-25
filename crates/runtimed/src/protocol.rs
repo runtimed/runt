@@ -251,6 +251,13 @@ pub enum NotebookBroadcast {
         output_json: String, // Serialized Jupyter output content
     },
 
+    /// Display output updated in place (update_display_data).
+    DisplayUpdate {
+        display_id: String,
+        data: serde_json::Value,
+        metadata: serde_json::Map<String, serde_json::Value>,
+    },
+
     /// Execution completed for a cell.
     ExecutionDone { cell_id: String },
 

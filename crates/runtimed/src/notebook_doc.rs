@@ -310,6 +310,78 @@ impl NotebookDoc {
         Ok(true)
     }
 
+    /// Update an output by display_id across all cells.
+    ///
+    /// This is used for `update_display_data` messages which mutate an existing
+    /// output in place (e.g., progress bars). The display_id may appear in any
+    /// cell's outputs.
+    ///
+    /// Returns true if an output was found and updated.
+    pub fn update_output_by_display_id(
+        &mut self,
+        display_id: &str,
+        new_data: &serde_json::Value,
+        new_metadata: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<bool, AutomergeError> {
+        let cells_id = match self.cells_list_id() {
+            Some(id) => id,
+            None => return Ok(false),
+        };
+
+        let cell_count = self.doc.length(&cells_id);
+        for cell_idx in 0..cell_count {
+            let cell_obj = match self.cell_at_index(&cells_id, cell_idx) {
+                Some(o) => o,
+                None => continue,
+            };
+            let outputs_id = match self.list_id(&cell_obj, "outputs") {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let output_count = self.doc.length(&outputs_id);
+            for output_idx in 0..output_count {
+                // Get output string and parse as JSON
+                let output_str: Option<String> = self
+                    .doc
+                    .get(&outputs_id, output_idx)
+                    .ok()
+                    .flatten()
+                    .and_then(|(v, _)| v.into_string().ok());
+
+                let output_str = match output_str {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                // Parse and check display_id
+                let mut output_json: serde_json::Value = match serde_json::from_str(&output_str) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+
+                let matches = output_json
+                    .get("transient")
+                    .and_then(|t| t.get("display_id"))
+                    .and_then(|d| d.as_str())
+                    == Some(display_id);
+
+                if matches {
+                    // Update data and metadata in place
+                    output_json["data"] = new_data.clone();
+                    output_json["metadata"] = serde_json::Value::Object(new_metadata.clone());
+
+                    // Write back
+                    let updated_str = output_json.to_string();
+                    self.doc.put(&outputs_id, output_idx, updated_str)?;
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
     /// Clear all outputs from a cell.
     pub fn clear_outputs(&mut self, cell_id: &str) -> Result<bool, AutomergeError> {
         self.set_outputs(cell_id, &[])

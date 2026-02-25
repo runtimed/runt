@@ -47,11 +47,20 @@ fn message_content_to_nbformat(content: &JupyterMessageContent) -> Option<serde_
                 "text": stream.text
             }))
         }
-        JupyterMessageContent::DisplayData(data) => Some(json!({
-            "output_type": "display_data",
-            "data": data.data,
-            "metadata": data.metadata
-        })),
+        JupyterMessageContent::DisplayData(data) => {
+            let mut output = json!({
+                "output_type": "display_data",
+                "data": data.data,
+                "metadata": data.metadata
+            });
+            // Preserve display_id for update_display_data targeting
+            if let Some(ref transient) = data.transient {
+                if let Some(ref display_id) = transient.display_id {
+                    output["transient"] = json!({ "display_id": display_id });
+                }
+            }
+            Some(output)
+        }
         JupyterMessageContent::ExecuteResult(result) => Some(json!({
             "output_type": "execute_result",
             "data": result.data,
@@ -410,15 +419,11 @@ impl RoomKernel {
 
                             JupyterMessageContent::StreamContent(_)
                             | JupyterMessageContent::DisplayData(_)
-                            | JupyterMessageContent::UpdateDisplayData(_)
                             | JupyterMessageContent::ExecuteResult(_) => {
                                 if let Some(ref cid) = cell_id {
                                     let output_type = match &message.content {
                                         JupyterMessageContent::StreamContent(_) => "stream",
                                         JupyterMessageContent::DisplayData(_) => "display_data",
-                                        JupyterMessageContent::UpdateDisplayData(_) => {
-                                            "update_display_data"
-                                        }
                                         JupyterMessageContent::ExecuteResult(_) => "execute_result",
                                         _ => "unknown",
                                     };
@@ -452,6 +457,53 @@ impl RoomKernel {
                                             output_json,
                                         });
                                     }
+                                }
+                            }
+
+                            // UpdateDisplayData mutates an existing output in place (e.g., progress bars).
+                            // Find the output by display_id and update it, rather than appending.
+                            JupyterMessageContent::UpdateDisplayData(update) => {
+                                if let Some(ref display_id) = update.transient.display_id {
+                                    let persist_bytes = {
+                                        let mut doc_guard = doc.write().await;
+                                        match doc_guard.update_output_by_display_id(
+                                            display_id,
+                                            &serde_json::to_value(&update.data).unwrap_or_default(),
+                                            &update.metadata,
+                                        ) {
+                                            Ok(true) => {
+                                                debug!(
+                                                    "[kernel-manager] Updated display_id={}",
+                                                    display_id
+                                                );
+                                            }
+                                            Ok(false) => {
+                                                warn!(
+                                                    "[kernel-manager] No output found for display_id={}",
+                                                    display_id
+                                                );
+                                            }
+                                            Err(e) => {
+                                                warn!(
+                                                    "[kernel-manager] Failed to update display: {}",
+                                                    e
+                                                );
+                                            }
+                                        }
+                                        let bytes = doc_guard.save();
+                                        let _ = changed_tx.send(());
+                                        bytes
+                                    };
+                                    persist_notebook_bytes(&persist_bytes, &persist_path);
+
+                                    // Broadcast for immediate UI update
+                                    // Frontend will receive via Automerge sync, but broadcast for speed
+                                    let _ = broadcast_tx.send(NotebookBroadcast::DisplayUpdate {
+                                        display_id: display_id.clone(),
+                                        data: serde_json::to_value(&update.data)
+                                            .unwrap_or_default(),
+                                        metadata: update.metadata.clone(),
+                                    });
                                 }
                             }
 
