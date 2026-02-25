@@ -388,7 +388,7 @@ export function NotebookToolbar({
           <div className="h-4 w-px bg-border" />
 
           {/* Kernel controls */}
-          {!isKernelRunning ? (
+          {!isKernelRunning && (
             <button
               type="button"
               onClick={handleStartKernel}
@@ -400,57 +400,56 @@ export function NotebookToolbar({
               <Play className="h-3 w-3" fill="currentColor" />
               Start Kernel
             </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={onRunAllCells}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
-                title="Run all cells"
-                data-testid="run-all-button"
-              >
-                <ChevronsRight className="h-3.5 w-3.5" />
-                Run All
-              </button>
-              <button
-                type="button"
-                onClick={onRestartKernel}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
-                title="Restart kernel"
-                data-testid="restart-kernel-button"
-              >
-                <RotateCcw className="h-3 w-3" />
-                Restart
-              </button>
-              <button
-                type="button"
-                onClick={onRestartAndRunAll}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
-                title="Restart kernel and run all cells"
-                data-testid="restart-run-all-button"
-              >
-                <RotateCcw className="h-3 w-3" />
-                <ChevronsRight className="h-3 w-3 -ml-1" />
-              </button>
-              <button
-                type="button"
-                onClick={onInterruptKernel}
-                className={cn(
-                  "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors",
-                  kernelStatus === "busy"
-                    ? "text-destructive hover:bg-destructive/10"
-                    : "text-foreground hover:bg-muted",
-                )}
-                title="Interrupt kernel"
-                data-testid="interrupt-kernel-button"
-              >
-                <Square
-                  className="h-3 w-3"
-                  fill={kernelStatus === "busy" ? "currentColor" : "none"}
-                />
-                Interrupt
-              </button>
-            </>
+          )}
+          <button
+            type="button"
+            onClick={onRunAllCells}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
+            title="Run all cells"
+            data-testid="run-all-button"
+          >
+            <ChevronsRight className="h-3.5 w-3.5" />
+            Run All
+          </button>
+          <button
+            type="button"
+            onClick={onRestartKernel}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
+            title="Restart kernel"
+            data-testid="restart-kernel-button"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Restart
+          </button>
+          <button
+            type="button"
+            onClick={onRestartAndRunAll}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
+            title="Restart kernel and run all cells"
+            data-testid="restart-run-all-button"
+          >
+            <RotateCcw className="h-3 w-3" />
+            <ChevronsRight className="h-3 w-3 -ml-1" />
+          </button>
+          {isKernelRunning && (
+            <button
+              type="button"
+              onClick={onInterruptKernel}
+              className={cn(
+                "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors",
+                kernelStatus === "busy"
+                  ? "text-destructive hover:bg-destructive/10"
+                  : "text-foreground hover:bg-muted",
+              )}
+              title="Interrupt kernel"
+              data-testid="interrupt-kernel-button"
+            >
+              <Square
+                className="h-3 w-3"
+                fill={kernelStatus === "busy" ? "currentColor" : "none"}
+              />
+              Interrupt
+            </button>
           )}
 
           <div className="flex-1" />
