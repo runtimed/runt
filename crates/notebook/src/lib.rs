@@ -518,6 +518,16 @@ async fn get_daemon_info() -> Option<DaemonInfoForBanner> {
     }
 }
 
+/// Get the blob server port from the running daemon.
+/// Used by the frontend to resolve manifest hashes to outputs.
+#[tauri::command]
+async fn get_blob_port() -> Result<u16, String> {
+    let info = runtimed::singleton::get_running_daemon_info()
+        .ok_or_else(|| "Daemon not running".to_string())?;
+    info.blob_port
+        .ok_or_else(|| "Blob server not available".to_string())
+}
+
 #[tauri::command]
 async fn load_notebook(
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
@@ -4081,6 +4091,7 @@ pub fn run(
             get_prewarm_status,
             get_conda_pool_status,
             get_daemon_info,
+            get_blob_port,
         ])
         .setup(move |app| {
             let setup_start = std::time::Instant::now();
