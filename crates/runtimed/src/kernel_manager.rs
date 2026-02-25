@@ -15,6 +15,7 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use anyhow::Result;
+use bytes::Bytes;
 use jupyter_protocol::{
     ConnectionInfo, ExecuteRequest, InterruptRequest, JupyterMessage, JupyterMessageContent,
     KernelInfoRequest, ShutdownRequest,
@@ -546,6 +547,30 @@ impl RoomKernel {
                                 }
                             }
 
+                            // Comm messages for widgets (ipywidgets protocol)
+                            JupyterMessageContent::CommOpen(_)
+                            | JupyterMessageContent::CommMsg(_)
+                            | JupyterMessageContent::CommClose(_) => {
+                                debug!(
+                                    "[kernel-manager] Broadcasting comm message: type={}",
+                                    message.header.msg_type
+                                );
+
+                                // Serialize the content to JSON
+                                let content =
+                                    serde_json::to_value(&message.content).unwrap_or_default();
+
+                                // Extract buffers (Vec<Bytes> -> Vec<Vec<u8>>)
+                                let buffers: Vec<Vec<u8>> =
+                                    message.buffers.iter().map(|b| b.to_vec()).collect();
+
+                                let _ = broadcast_tx.send(NotebookBroadcast::Comm {
+                                    msg_type: message.header.msg_type.clone(),
+                                    content,
+                                    buffers,
+                                });
+                            }
+
                             _ => {
                                 debug!(
                                     "[kernel-manager] Unhandled iopub message: {}",
@@ -795,6 +820,54 @@ impl RoomKernel {
         control.send(request).await?;
 
         info!("[kernel-manager] Sent interrupt_request");
+        Ok(())
+    }
+
+    /// Send a comm message to the kernel (for widget interactions).
+    ///
+    /// This handles frontend→kernel comm_msg and comm_close messages.
+    pub async fn send_comm_message(
+        &mut self,
+        msg_type: &str,
+        content: serde_json::Value,
+        buffers: Vec<Vec<u8>>,
+    ) -> Result<()> {
+        let shell = self
+            .shell_writer
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("No kernel running"))?;
+
+        // Convert buffers from Vec<Vec<u8>> to Vec<Bytes>
+        let buffers: Vec<Bytes> = buffers.into_iter().map(Bytes::from).collect();
+
+        // Parse content to the appropriate comm message type
+        let message_content = match msg_type {
+            "comm_msg" => {
+                let comm_msg: jupyter_protocol::CommMsg = serde_json::from_value(content)?;
+                JupyterMessageContent::CommMsg(comm_msg)
+            }
+            "comm_close" => {
+                let comm_close: jupyter_protocol::CommClose = serde_json::from_value(content)?;
+                JupyterMessageContent::CommClose(comm_close)
+            }
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unsupported comm message type: {}",
+                    msg_type
+                ));
+            }
+        };
+
+        // Create the Jupyter message
+        let mut message: JupyterMessage = message_content.into();
+        message.buffers = buffers;
+
+        debug!(
+            "[kernel-manager] Sending comm message: type={} msg_id={}",
+            msg_type, message.header.msg_id
+        );
+
+        shell.send(message).await?;
         Ok(())
     }
 

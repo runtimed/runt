@@ -1,6 +1,6 @@
 [package]
 name = "runtimed"
-version = "0.1.0-dev.7"
+version = "0.1.0-dev.9"
 edition = "2021"
 description = "Central daemon for managing Jupyter runtimes and prewarmed environments"
 repository = "https://github.com/runtimed/runt"
@@ -22,6 +22,7 @@ tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
+bytes = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 futures = { workspace = true }

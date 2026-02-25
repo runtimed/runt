@@ -172,6 +172,12 @@ export type DaemonBroadcast =
   | {
       event: "outputs_cleared";
       cell_id: string;
+    }
+  | {
+      event: "comm";
+      msg_type: string; // "comm_open" | "comm_msg" | "comm_close"
+      content: Record<string, unknown>;
+      buffers: number[][]; // Binary buffers as byte arrays
     };
 
 /** Response types from daemon notebook requests */

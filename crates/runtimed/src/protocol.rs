@@ -167,6 +167,18 @@ pub enum NotebookRequest {
     /// Run all code cells from the synced document.
     /// Daemon reads cell sources from the Automerge doc and queues them.
     RunAllCells {},
+
+    /// Send a comm message to the kernel (widget interactions).
+    /// Used for frontend→kernel comm_msg and comm_close messages.
+    SendComm {
+        /// Message type: "comm_msg" or "comm_close"
+        msg_type: String,
+        /// Message content (comm_id, data, etc.)
+        content: serde_json::Value,
+        /// Binary buffers
+        #[serde(default)]
+        buffers: Vec<Vec<u8>>,
+    },
 }
 
 /// Responses from daemon to notebook app.
@@ -272,6 +284,18 @@ pub enum NotebookBroadcast {
 
     /// Outputs cleared for a cell.
     OutputsCleared { cell_id: String },
+
+    /// Comm message from kernel (ipywidgets protocol).
+    /// Broadcast to all connected peers so all windows can display widgets.
+    Comm {
+        /// Message type: "comm_open", "comm_msg", "comm_close"
+        msg_type: String,
+        /// Message content (comm_id, data, target_name, etc.)
+        content: serde_json::Value,
+        /// Binary buffers (base64-encoded when serialized to JSON)
+        #[serde(default)]
+        buffers: Vec<Vec<u8>>,
+    },
 }
 
 #[cfg(test)]

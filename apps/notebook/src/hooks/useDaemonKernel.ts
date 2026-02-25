@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   DaemonBroadcast,
   DaemonNotebookResponse,
+  JupyterMessage,
   JupyterOutput,
 } from "../types";
 
@@ -54,6 +55,8 @@ interface UseDaemonKernelOptions {
   ) => void;
   /** Called when outputs are cleared for a cell (broadcast from another window) */
   onClearOutputs?: (cellId: string) => void;
+  /** Called when a comm message is received (for widgets) */
+  onCommMessage?: (msg: JupyterMessage) => void;
 }
 
 export function useDaemonKernel({
@@ -65,6 +68,7 @@ export function useDaemonKernel({
   onKernelError,
   onUpdateDisplayData,
   onClearOutputs,
+  onCommMessage,
 }: UseDaemonKernelOptions) {
   const [kernelStatus, setKernelStatus] =
     useState<DaemonKernelStatus>("not_started");
@@ -87,6 +91,7 @@ export function useDaemonKernel({
     onKernelError,
     onUpdateDisplayData,
     onClearOutputs,
+    onCommMessage,
   });
   callbacksRef.current = {
     onOutput,
@@ -97,6 +102,7 @@ export function useDaemonKernel({
     onKernelError,
     onUpdateDisplayData,
     onClearOutputs,
+    onCommMessage,
   };
 
   // Listen for daemon broadcasts
@@ -173,6 +179,32 @@ export function useDaemonKernel({
 
           case "outputs_cleared": {
             callbacksRef.current.onClearOutputs?.(broadcast.cell_id);
+            break;
+          }
+
+          case "comm": {
+            // Comm message from kernel (for widgets)
+            const { onCommMessage } = callbacksRef.current;
+            if (onCommMessage) {
+              // Convert daemon broadcast to JupyterMessage format expected by widget store
+              const msg: JupyterMessage = {
+                header: {
+                  msg_id: crypto.randomUUID(),
+                  msg_type: broadcast.msg_type,
+                  session: "",
+                  username: "kernel",
+                  date: new Date().toISOString(),
+                  version: "5.3",
+                },
+                metadata: {},
+                content: broadcast.content,
+                // Convert number[][] back to ArrayBuffer[] for widgets
+                buffers: broadcast.buffers.map(
+                  (arr) => new Uint8Array(arr).buffer,
+                ),
+              };
+              onCommMessage(msg);
+            }
             break;
           }
         }
@@ -359,6 +391,43 @@ export function useDaemonKernel({
     }
   }, []);
 
+  /** Send a comm message to the kernel via the daemon (for widget interactions) */
+  const sendCommMessage = useCallback(
+    async (message: {
+      header: { msg_type: string };
+      content: Record<string, unknown>;
+      buffers?: ArrayBuffer[];
+    }): Promise<void> => {
+      console.log(
+        "[daemon-kernel] sending comm message:",
+        message.header.msg_type,
+      );
+      try {
+        // Convert ArrayBuffer[] to number[][] for serialization
+        const buffers: number[][] = (message.buffers ?? []).map((buf) =>
+          Array.from(new Uint8Array(buf)),
+        );
+
+        const response = await invoke<DaemonNotebookResponse>(
+          "send_comm_via_daemon",
+          {
+            msgType: message.header.msg_type,
+            content: message.content,
+            buffers,
+          },
+        );
+
+        if (response.result === "error") {
+          console.error("[daemon-kernel] send comm failed:", response.error);
+        }
+      } catch (e) {
+        console.error("[daemon-kernel] send comm failed:", e);
+        throw e;
+      }
+    },
+    [],
+  );
+
   return {
     /** Current kernel status */
     kernelStatus,
@@ -380,6 +449,8 @@ export function useDaemonKernel({
     refreshQueueState,
     /** Run all code cells (daemon reads from synced doc) */
     runAllCells,
+    /** Send a comm message to the kernel (for widget interactions) */
+    sendCommMessage,
     /** Check if a cell is currently executing */
     isCellExecuting: (cellId: string) => queueState.executing === cellId,
     /** Check if a cell is in the queue */
