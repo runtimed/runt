@@ -59,7 +59,7 @@ describe("Run All Cells", () => {
       await startButton.click();
       console.log("Clicked Start Kernel");
     }
-    await waitForKernelReady();
+    await waitForKernelReady(60000); // Allow 60s for CI kernel startup
     console.log("Kernel ready");
 
     const runAllButton = await $('[data-testid="run-all-button"]');
