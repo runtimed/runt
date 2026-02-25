@@ -136,7 +136,10 @@ async function resolveManifest(
       };
     }
     case "error": {
-      const tracebackJson = await resolveContentRef(manifest.traceback, blobPort);
+      const tracebackJson = await resolveContentRef(
+        manifest.traceback,
+        blobPort,
+      );
       const traceback = JSON.parse(tracebackJson) as string[];
       return {
         output_type: "error",
@@ -168,7 +171,10 @@ async function resolveOutput(
       cache.set(outputStr, output);
       return output;
     } catch {
-      console.warn("[notebook-sync] Failed to parse output JSON:", outputStr.substring(0, 100));
+      console.warn(
+        "[notebook-sync] Failed to parse output JSON:",
+        outputStr.substring(0, 100),
+      );
       return null;
     }
   }
@@ -181,9 +187,13 @@ async function resolveOutput(
 
   try {
     // Fetch manifest from blob store
-    const response = await fetch(`http://127.0.0.1:${blobPort}/blob/${outputStr}`);
+    const response = await fetch(
+      `http://127.0.0.1:${blobPort}/blob/${outputStr}`,
+    );
     if (!response.ok) {
-      console.warn(`[notebook-sync] Failed to fetch manifest ${outputStr}: ${response.status}`);
+      console.warn(
+        `[notebook-sync] Failed to fetch manifest ${outputStr}: ${response.status}`,
+      );
       return null;
     }
 
@@ -319,25 +329,28 @@ export function useNotebook() {
 
   // Listen for cross-window sync updates from the Automerge daemon
   useEffect(() => {
-    const unlisten = listen<CellSnapshot[]>("notebook:updated", async (event) => {
-      console.log(
-        "[notebook-sync] Received notebook:updated with",
-        event.payload.length,
-        "cells",
-      );
+    const unlisten = listen<CellSnapshot[]>(
+      "notebook:updated",
+      async (event) => {
+        console.log(
+          "[notebook-sync] Received notebook:updated with",
+          event.payload.length,
+          "cells",
+        );
 
-      // Resolve manifest hashes to full outputs
-      const newCells = await cellSnapshotsToNotebookCells(
-        event.payload,
-        blobPort,
-        outputCacheRef.current,
-      );
+        // Resolve manifest hashes to full outputs
+        const newCells = await cellSnapshotsToNotebookCells(
+          event.payload,
+          blobPort,
+          outputCacheRef.current,
+        );
 
-      // Trust Automerge as source of truth for outputs.
-      // The daemon writes outputs to Automerge before broadcasting,
-      // so Automerge always has the canonical output state.
-      setCells(newCells);
-    });
+        // Trust Automerge as source of truth for outputs.
+        // The daemon writes outputs to Automerge before broadcasting,
+        // so Automerge always has the canonical output state.
+        setCells(newCells);
+      },
+    );
     return () => {
       unlisten.then((fn) => fn());
     };
