@@ -687,106 +687,102 @@ The .ipynb is always the durable format. If blobs are missing (cache cleared, ne
 
 ## Phase 8: Daemon-owned kernels
 
-The endgame. The daemon takes ownership of kernel processes and the full output pipeline. Notebook windows become pure views.
+> **Implemented** (PRs #258, #259, #265, #267, #271)
 
-### Current model (Tauri-managed, through Phase 6)
+The daemon owns kernel processes and the output pipeline. Notebook windows are views. This is behind the `daemon_execution` feature flag in settings.
 
-```
-Notebook window (Tauri)
-  +-- spawns kernel process
-  +-- subscribes to ZMQ iopub
-  +-- writes outputs to blob store + automerge
-  +-- renders from blob HTTP URLs
-```
-
-Closing the window still kills the kernel.
-
-### Target model
+### Architecture (implemented)
 
 ```
 Notebook window (thin view)
-  +-- sends "execute cell" request to daemon
-  +-- subscribes to automerge doc for output hashes
-  +-- fetches output manifests + blobs via HTTP
-  +-- renders
+  +-- sends LaunchKernel/QueueCell/RunAll to daemon
+  +-- receives broadcasts (KernelStatus, Output, ExecutionStarted)
+  +-- syncs cell source via Automerge
+  +-- renders outputs from Automerge doc
 
 runtimed (daemon)
-  +-- owns kernel process
+  +-- owns kernel process per notebook room
   +-- subscribes to ZMQ iopub
-  +-- writes blobs to store
-  +-- constructs output manifests
-  +-- updates automerge doc with manifest hashes
+  +-- writes outputs to Automerge doc (nbformat JSON)
+  +-- broadcasts real-time events to all windows
+  +-- auto-detects project files for environment selection
 ```
 
-### Output pipeline
+### Dual-channel design
 
+| Channel | Purpose | Persisted? |
+|---------|---------|------------|
+| **Automerge Sync** | Document state (cells, source, outputs) | Yes |
+| **Broadcasts** | Real-time events | No |
+
+**Why both?** Automerge provides persistence and late-joiner sync. Broadcasts provide sub-50ms UI updates during execution.
+
+Broadcast types:
+- `KernelStatus { status }` — idle/busy/starting
+- `Output { cell_id, output }` — stream/display_data/execute_result/error
+- `ExecutionStarted { cell_id, execution_count }` — clear outputs, show spinner
+- `ClearOutputs { cell_id }` — explicit clear request
+- `DisplayUpdate { cell_id, output }` — update_display_data (widget progress bars)
+
+### Project file auto-detection
+
+When daemon receives `LaunchKernel { env_source: "auto" }`:
+
+1. Check notebook metadata for inline deps (`uv.dependencies` / `conda.dependencies`)
+2. Walk up from notebook directory looking for project files
+3. First match wins (closest-wins semantics)
+
+Detection priority:
+| File | env_source |
+|------|------------|
+| `metadata.uv.dependencies` | `uv:inline` |
+| `metadata.conda.dependencies` | `conda:inline` |
+| `pyproject.toml` | `uv:pyproject` |
+| `pixi.toml` | `conda:pixi` |
+| `environment.yml` | `conda:env_yml` |
+| No match | `uv:prewarmed` (or `conda:prewarmed` per user pref) |
+
+Walk-up stops at `.git` boundary or home directory.
+
+### Widget challenge (not yet implemented)
+
+**Why widgets don't work in daemon mode:**
+
+Non-daemon mode:
 ```
-kernel process
-    | ZMQ iopub
-    v
-daemon iopub listener
-    | parse Jupyter message
-    v
-output processor
-    | for each MIME type / stream text / traceback:
-    |   size < 8KB? -> inline
-    |   size >= 8KB? -> blob store -> hash
-    v
-manifest builder
-    | construct output manifest JSON
-    | store manifest -> blob store -> manifest hash
-    v
-automerge doc
-    | append manifest hash to cell outputs
-    v
-sync broadcast
-    | all subscribed windows receive the new hash
-    v
-frontend (per window)
-    | fetch GET /output/{hash} -> manifest
-    | fetch GET /blob/{hash} for large data
-    v
-render
+Frontend ←──comm_msg──→ Local Kernel (direct ZMQ)
 ```
+
+Daemon mode:
+```
+Frontend ←──???──→ Daemon ←──ZMQ──→ Kernel
+```
+
+The comm messages (`comm_open`, `comm_msg`, `comm_close`) for ipywidgets need bidirectional routing through the daemon. Options:
+1. **Proxy comms** — daemon forwards all comm traffic
+2. **Direct kernel comms** — frontend talks to kernel for comms only
+3. **Widget state in Automerge** — daemon interprets widget protocol
+
+Until this is solved, `daemon_execution` remains opt-in. Widgets work in non-daemon mode.
 
 ### Benefits
 
-- **Kernel survives window close**: Close the laptop, reopen — kernel still running, outputs preserved
-- **Multi-window**: Both windows see live output in real-time
+- **Kernel survives window close**: Close notebook, reopen — kernel still running, outputs preserved
+- **Multi-window sync**: Both windows see live outputs in real-time
 - **Clean separation**: Frontend is a pure rendering layer
-- **Output dedup**: Same image from two cells stored once
-
-### Execution protocol
-
-New channel on the unified socket:
-
-```json
-{"channel": "kernel", "notebook_id": "abc123"}
-```
-
-```json
-// Client -> Daemon
-{"action": "execute", "cell_id": "cell-uuid", "code": "print('hello')"}
-{"action": "interrupt"}
-{"action": "restart"}
-{"action": "shutdown"}
-
-// Daemon -> Client
-{"event": "status", "state": "busy"}
-{"event": "status", "state": "idle"}
-{"event": "execute_input", "cell_id": "cell-uuid", "execution_count": 5}
-```
-
-Output content doesn't flow over this channel. The daemon writes to the blob store and automerge doc. The frontend picks up changes via notebook sync.
+- **Project file detection**: Daemon auto-detects pyproject.toml, pixi.toml, environment.yml
 
 ### Key files
 
 | File | Role |
 |------|------|
-| `crates/runtimed/src/kernel_manager.rs` | Kernel process lifecycle, ZMQ subscriptions |
-| `crates/runtimed/src/output_processor.rs` | iopub -> blob store -> manifest -> automerge |
-| `crates/runtimed/src/protocol.rs` | Kernel channel message types |
-| `crates/notebook/src/lib.rs` | Tauri commands thin down to daemon RPC |
+| `crates/runtimed/src/kernel_manager.rs` | Kernel lifecycle, iopub watching, output handling |
+| `crates/runtimed/src/notebook_sync_server.rs` | Room management, request handling, broadcasts |
+| `crates/runtimed/src/project_file.rs` | Project file detection for auto-env |
+| `crates/runtimed/src/notebook_doc.rs` | Automerge doc operations, output persistence |
+| `crates/notebook/src/lib.rs` | Tauri commands (`launch_kernel_via_daemon`, etc.) |
+| `apps/notebook/src/hooks/useDaemonKernel.ts` | Frontend daemon kernel hook |
+| `src/hooks/useSyncedSettings.ts` | `daemon_execution` feature flag |
 
 ---
 
@@ -861,6 +857,12 @@ When a cell executes, there's a brief window where daemon sync updates may confl
 | **3** | Blob store (on-disk CAS + HTTP server) | Implemented (PR #220) |
 | **4** | Protocol consolidation (single socket) | Implemented (PR #220, #223) |
 | **5** | Tauri <-> daemon notebook sync (multi-window) | Implemented (PR #238, #241) |
-| **6** | Output store (manifests, ContentRef, inlining) | Implemented (foundation PR #237, full pipeline wired) |
-| **7** | ipynb round-tripping | Next |
-| **8** | Daemon-owned kernels | After 7 |
+| **6** | Output store (manifests, ContentRef, inlining) | Implemented (PR #237) |
+| **7** | ipynb round-tripping | Future (outputs already persist in nbformat) |
+| **8** | Daemon-owned kernels | Implemented (PRs #258, #259, #267, #271) — behind `daemon_execution` flag |
+
+### Remaining for daemon_execution default-on
+
+1. **Widget comm routing** — ipywidgets require comm message forwarding through daemon
+2. **Inline deps detection** — daemon should check notebook metadata for `uv.dependencies`/`conda.dependencies`
+3. **Testing** — verify project file detection works across fixture notebooks

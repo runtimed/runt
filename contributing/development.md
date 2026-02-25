@@ -72,3 +72,38 @@ The `notebooks/` directory has test files:
 cargo xtask build
 ./target/debug/notebook notebooks/test-isolation.ipynb
 ```
+
+## Daemon Development
+
+The notebook app connects to a background daemon (`runtimed`) that manages prewarmed environments and notebook document sync. **Important:** The daemon is a separate process. When you change code in `crates/runtimed/`, the running daemon still uses the old binary until you reinstall it.
+
+### Reinstalling the daemon
+
+```bash
+# Rebuild and reinstall (builds release, stops old, copies, restarts)
+cargo xtask install-daemon
+
+# Verify version
+cat ~/Library/Caches/runt/daemon.json
+```
+
+### Daemon logs
+
+```bash
+# View recent logs
+tail -100 ~/Library/Caches/runt/runtimed.log
+
+# Watch logs in real-time
+tail -f ~/Library/Caches/runt/runtimed.log
+
+# Filter for specific topics
+tail -f ~/Library/Caches/runt/runtimed.log | grep -i "kernel\|auto-detect"
+```
+
+### Common gotcha
+
+If your daemon code changes aren't taking effect:
+1. Did you run `cargo xtask install-daemon`? (`cargo xtask build` doesn't reinstall the daemon)
+2. Is the daemon running the right version? Check `cat ~/Library/Caches/runt/daemon.json`
+
+See [contributing/runtimed.md](./runtimed.md) for full daemon development docs.
