@@ -430,14 +430,19 @@ function AppContent() {
       clearCellOutputs(cellId);
 
       if (daemonExecution) {
-        // Daemon execution mode: queue via daemon with cell source
+        // Daemon execution mode: launch kernel first, then queue
         const cell = cells.find((c) => c.id === cellId);
-        if (cell && cell.cell_type === "code") {
-          daemonQueueCell(cellId, cell.source);
-        }
-        // Start kernel via daemon if not running
+        if (!cell || cell.cell_type !== "code") return;
+
+        // Start kernel via daemon if not running, then queue cell
         if (kernelStatus === "not_started" || kernelStatus === "not started") {
-          tryStartKernel();
+          // Launch kernel first, then queue after it's ready
+          tryStartKernel().then(() => {
+            daemonQueueCell(cellId, cell.source);
+          });
+        } else {
+          // Kernel already running, queue immediately
+          daemonQueueCell(cellId, cell.source);
         }
       } else {
         // Local execution mode: queue via backend execution queue
@@ -476,16 +481,27 @@ function AppContent() {
 
   const handleRunAllCells = useCallback(async () => {
     if (daemonExecution) {
-      // Daemon execution mode: queue all code cells via daemon
-      for (const cell of cells) {
-        if (cell.cell_type === "code") {
-          clearCellOutputs(cell.id);
+      // Daemon execution mode: launch kernel first, then queue all cells
+      const codeCells = cells.filter((c) => c.cell_type === "code");
+      if (codeCells.length === 0) return;
+
+      // Clear all outputs first
+      for (const cell of codeCells) {
+        clearCellOutputs(cell.id);
+      }
+
+      const queueAllCells = () => {
+        for (const cell of codeCells) {
           daemonQueueCell(cell.id, cell.source);
         }
-      }
-      // Start kernel via daemon if not running
+      };
+
+      // Start kernel via daemon if not running, then queue cells
       if (kernelStatus === "not_started" || kernelStatus === "not started") {
-        tryStartKernel();
+        await tryStartKernel();
+        queueAllCells();
+      } else {
+        queueAllCells();
       }
     } else {
       // Backend clears outputs and emits cells:outputs_cleared before queuing
