@@ -20,6 +20,15 @@ use tokio::net::UnixStream;
 #[cfg(windows)]
 use tokio::net::windows::named_pipe::ClientOptions;
 
+/// Result of inspecting a notebook's state.
+#[derive(Debug, Clone)]
+pub struct InspectResult {
+    pub notebook_id: String,
+    pub cells: Vec<crate::notebook_doc::CellSnapshot>,
+    pub source: String,
+    pub kernel_info: Option<crate::protocol::NotebookKernelInfo>,
+}
+
 /// Error type for client operations.
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -146,6 +155,44 @@ impl PoolClient {
         let response = self.send_request(Request::Shutdown).await?;
         match response {
             Response::ShuttingDown => Ok(()),
+            Response::Error { message } => Err(ClientError::DaemonError(message)),
+            _ => Err(ClientError::ProtocolError(
+                "Unexpected response".to_string(),
+            )),
+        }
+    }
+
+    /// Inspect a notebook's Automerge state.
+    pub async fn inspect_notebook(&self, notebook_id: &str) -> Result<InspectResult, ClientError> {
+        let response = self
+            .send_request(Request::InspectNotebook {
+                notebook_id: notebook_id.to_string(),
+            })
+            .await?;
+        match response {
+            Response::NotebookState {
+                notebook_id,
+                cells,
+                source,
+                kernel_info,
+            } => Ok(InspectResult {
+                notebook_id,
+                cells,
+                source,
+                kernel_info,
+            }),
+            Response::Error { message } => Err(ClientError::DaemonError(message)),
+            _ => Err(ClientError::ProtocolError(
+                "Unexpected response".to_string(),
+            )),
+        }
+    }
+
+    /// List all active notebook rooms.
+    pub async fn list_rooms(&self) -> Result<Vec<crate::protocol::RoomInfo>, ClientError> {
+        let response = self.send_request(Request::ListRooms).await?;
+        match response {
+            Response::RoomsList { rooms } => Ok(rooms),
             Response::Error { message } => Err(ClientError::DaemonError(message)),
             _ => Err(ClientError::ProtocolError(
                 "Unexpected response".to_string(),

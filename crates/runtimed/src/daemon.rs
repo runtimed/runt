@@ -856,6 +856,76 @@ impl Daemon {
                 // Warming loops will detect the deficit and rebuild on their next iteration
                 Response::Flushed
             }
+
+            Request::InspectNotebook { notebook_id } => {
+                info!("[runtimed] Inspecting notebook: {}", notebook_id);
+
+                // First try to get from an active room
+                let rooms = self.notebook_rooms.lock().await;
+                if let Some(room) = rooms.get(&notebook_id) {
+                    let doc = room.doc.read().await;
+                    let cells = doc.get_cells();
+                    let kernel_info = room.kernel_info().await.map(|(kt, es, status)| {
+                        crate::protocol::NotebookKernelInfo {
+                            kernel_type: kt,
+                            env_source: es,
+                            status,
+                        }
+                    });
+                    Response::NotebookState {
+                        notebook_id,
+                        cells,
+                        source: "live_room".to_string(),
+                        kernel_info,
+                    }
+                } else {
+                    // No active room - try to load from persisted file
+                    drop(rooms); // Release lock before disk I/O
+                    let filename = crate::notebook_doc::notebook_doc_filename(&notebook_id);
+                    let persist_path = self.config.notebook_docs_dir.join(filename);
+                    if persist_path.exists() {
+                        match std::fs::read(&persist_path) {
+                            Ok(data) => match crate::notebook_doc::NotebookDoc::load(&data) {
+                                Ok(doc) => {
+                                    let cells = doc.get_cells();
+                                    Response::NotebookState {
+                                        notebook_id,
+                                        cells,
+                                        source: "persisted_file".to_string(),
+                                        kernel_info: None,
+                                    }
+                                }
+                                Err(e) => Response::Error {
+                                    message: format!("Failed to parse Automerge doc: {}", e),
+                                },
+                            },
+                            Err(e) => Response::Error {
+                                message: format!("Failed to read persisted file: {}", e),
+                            },
+                        }
+                    } else {
+                        Response::Error {
+                            message: format!(
+                                "Notebook not found: no active room and no persisted file at {:?}",
+                                persist_path
+                            ),
+                        }
+                    }
+                }
+            }
+
+            Request::ListRooms => {
+                let rooms = self.notebook_rooms.lock().await;
+                let mut room_infos = Vec::new();
+                for (notebook_id, room) in rooms.iter() {
+                    room_infos.push(crate::protocol::RoomInfo {
+                        notebook_id: notebook_id.clone(),
+                        active_peers: room.active_peers.load(std::sync::atomic::Ordering::Relaxed),
+                        has_kernel: room.has_kernel().await,
+                    });
+                }
+                Response::RoomsList { rooms: room_infos }
+            }
         }
     }
 

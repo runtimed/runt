@@ -186,6 +186,23 @@ enum Commands {
         #[arg(long, short)]
         runtime: Option<String>,
     },
+    /// Inspect the Automerge state for a notebook (debug command)
+    Inspect {
+        /// Path to the notebook file
+        path: PathBuf,
+        /// Show full output JSON (otherwise just shows count)
+        #[arg(long)]
+        full_outputs: bool,
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
+    /// List active notebook rooms in the daemon (debug command)
+    Rooms {
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -335,6 +352,12 @@ async fn async_main(command: Option<Commands>) -> Result<()> {
             .await?
         }
         Some(Commands::Pool { command }) => pool_command(command).await?,
+        Some(Commands::Inspect {
+            path,
+            full_outputs,
+            json,
+        }) => inspect_notebook(&path, full_outputs, json).await?,
+        Some(Commands::Rooms { json }) => list_rooms(json).await?,
         None => println!("No command specified. Use --help for usage information."),
     }
 
@@ -1037,6 +1060,170 @@ async fn pool_command(command: PoolCommands) -> Result<()> {
                 std::process::exit(1);
             }
         },
+    }
+
+    Ok(())
+}
+
+// =============================================================================
+// Notebook inspection commands (debug tools)
+// =============================================================================
+
+async fn inspect_notebook(path: &PathBuf, full_outputs: bool, json_output: bool) -> Result<()> {
+    use runtimed::client::PoolClient;
+
+    // Convert to absolute path (notebook_id is the absolute path)
+    let notebook_id = if path.is_absolute() {
+        path.to_string_lossy().to_string()
+    } else {
+        std::env::current_dir()?
+            .join(path)
+            .to_string_lossy()
+            .to_string()
+    };
+
+    let client = PoolClient::default();
+
+    match client.inspect_notebook(&notebook_id).await {
+        Ok(result) => {
+            if json_output {
+                // Full JSON output
+                let output = serde_json::json!({
+                    "notebook_id": result.notebook_id,
+                    "source": result.source,
+                    "kernel_info": result.kernel_info,
+                    "cells": result.cells.iter().map(|c| {
+                        let outputs_info: Vec<serde_json::Value> = if full_outputs {
+                            c.outputs.iter().map(|o| {
+                                serde_json::from_str(o).unwrap_or(serde_json::Value::String(o.clone()))
+                            }).collect()
+                        } else {
+                            c.outputs.iter().map(|o| {
+                                // Parse and summarize
+                                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(o) {
+                                    if let Some(otype) = parsed.get("output_type").and_then(|v| v.as_str()) {
+                                        serde_json::json!({
+                                            "output_type": otype,
+                                            "size": o.len(),
+                                        })
+                                    } else {
+                                        serde_json::json!({ "size": o.len() })
+                                    }
+                                } else {
+                                    serde_json::json!({ "size": o.len(), "parse_error": true })
+                                }
+                            }).collect()
+                        };
+                        serde_json::json!({
+                            "id": c.id,
+                            "cell_type": c.cell_type,
+                            "source_preview": if c.source.chars().count() > 80 {
+                                format!("{}...", c.source.chars().take(80).collect::<String>())
+                            } else {
+                                c.source.clone()
+                            },
+                            "source_len": c.source.len(),
+                            "execution_count": c.execution_count,
+                            "outputs": outputs_info,
+                        })
+                    }).collect::<Vec<_>>(),
+                });
+                println!("{}", serde_json::to_string_pretty(&output)?);
+            } else {
+                // Human-readable output
+                println!("Notebook: {}", result.notebook_id);
+                println!("Source: {}", result.source);
+                if let Some(kernel) = &result.kernel_info {
+                    println!(
+                        "Kernel: {} ({}) - {}",
+                        kernel.kernel_type, kernel.env_source, kernel.status
+                    );
+                } else {
+                    println!("Kernel: none");
+                }
+                println!();
+                println!("Cells ({}):", result.cells.len());
+                println!("{}", "-".repeat(60));
+
+                for (i, cell) in result.cells.iter().enumerate() {
+                    let source_preview = if cell.source.len() > 60 {
+                        format!("{}...", cell.source.chars().take(60).collect::<String>())
+                    } else {
+                        cell.source.replace('\n', "\\n")
+                    };
+
+                    let exec_count = if cell.execution_count == "null" {
+                        "   ".to_string()
+                    } else {
+                        format!("[{}]", cell.execution_count)
+                    };
+
+                    println!(
+                        "{:2}. {} {:8} | {} | outputs: {}",
+                        i + 1,
+                        exec_count,
+                        cell.cell_type,
+                        source_preview,
+                        cell.outputs.len()
+                    );
+
+                    if full_outputs && !cell.outputs.is_empty() {
+                        for (j, output) in cell.outputs.iter().enumerate() {
+                            // Pretty print the JSON
+                            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(output) {
+                                println!(
+                                    "      output[{}]: {}",
+                                    j,
+                                    serde_json::to_string_pretty(&parsed)?
+                                );
+                            } else {
+                                println!("      output[{}]: {}", j, output);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to inspect notebook: {}", e);
+            std::process::exit(1);
+        }
+    }
+
+    Ok(())
+}
+
+async fn list_rooms(json_output: bool) -> Result<()> {
+    use runtimed::client::PoolClient;
+
+    let client = PoolClient::default();
+
+    match client.list_rooms().await {
+        Ok(rooms) => {
+            if json_output {
+                println!("{}", serde_json::to_string_pretty(&rooms)?);
+            } else {
+                if rooms.is_empty() {
+                    println!("No active notebook rooms.");
+                } else {
+                    println!("Active Notebook Rooms ({}):", rooms.len());
+                    println!("{}", "-".repeat(60));
+                    for room in rooms {
+                        println!(
+                            "  {} ({} peer{}, kernel: {})",
+                            shorten_path(&PathBuf::from(&room.notebook_id)),
+                            room.active_peers,
+                            if room.active_peers == 1 { "" } else { "s" },
+                            if room.has_kernel { "yes" } else { "no" }
+                        );
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to list rooms: {}", e);
+            std::process::exit(1);
+        }
     }
 
     Ok(())

@@ -509,7 +509,23 @@ impl RoomKernel {
     }
 
     /// Queue a cell for execution.
+    ///
+    /// Idempotent: if the cell is already executing or queued, this is a no-op.
+    /// This prevents duplicate executions when multiple windows trigger RunAllCells.
     pub async fn queue_cell(&mut self, cell_id: String, code: String) -> Result<()> {
+        // Skip if already executing or queued (idempotent)
+        if self.executing.as_ref() == Some(&cell_id) {
+            info!(
+                "[kernel-manager] Cell {} already executing, skipping",
+                cell_id
+            );
+            return Ok(());
+        }
+        if self.queue.iter().any(|c| c.cell_id == cell_id) {
+            info!("[kernel-manager] Cell {} already queued, skipping", cell_id);
+            return Ok(());
+        }
+
         info!("[kernel-manager] Queuing cell: {}", cell_id);
 
         // Add to queue

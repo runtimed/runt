@@ -29,6 +29,15 @@ pub enum Request {
 
     /// Flush all pooled environments and rebuild with current settings.
     FlushPool,
+
+    /// Inspect the Automerge state for a notebook.
+    InspectNotebook {
+        /// The notebook ID (file path used as identifier).
+        notebook_id: String,
+    },
+
+    /// List all active notebook rooms.
+    ListRooms,
 }
 
 /// Responses from the daemon to clients.
@@ -58,6 +67,37 @@ pub enum Response {
 
     /// An error occurred.
     Error { message: String },
+
+    /// Notebook state inspection result.
+    NotebookState {
+        /// The notebook ID.
+        notebook_id: String,
+        /// Cell snapshots from the Automerge doc.
+        cells: Vec<crate::notebook_doc::CellSnapshot>,
+        /// Whether this was loaded from a live room or from disk.
+        source: String,
+        /// Kernel info if a kernel is running.
+        kernel_info: Option<NotebookKernelInfo>,
+    },
+
+    /// List of active notebook rooms.
+    RoomsList { rooms: Vec<RoomInfo> },
+}
+
+/// Kernel info for a notebook room.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotebookKernelInfo {
+    pub kernel_type: String,
+    pub env_source: String,
+    pub status: String,
+}
+
+/// Info about an active notebook room.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoomInfo {
+    pub notebook_id: String,
+    pub active_peers: usize,
+    pub has_kernel: bool,
 }
 
 /// Blob channel request.
@@ -123,6 +163,10 @@ pub enum NotebookRequest {
 
     /// Get the execution queue state.
     GetQueueState {},
+
+    /// Run all code cells from the synced document.
+    /// Daemon reads cell sources from the Automerge doc and queues them.
+    RunAllCells {},
 }
 
 /// Responses from daemon to notebook app.
@@ -167,6 +211,11 @@ pub enum NotebookResponse {
     QueueState {
         executing: Option<String>, // cell_id currently executing
         queued: Vec<String>,       // cell_ids waiting
+    },
+
+    /// All cells queued for execution.
+    AllCellsQueued {
+        count: usize, // number of code cells queued
     },
 
     /// Generic success.

@@ -284,6 +284,7 @@ async fn initialize_notebook_sync(
     });
 
     // Spawn broadcast receiver task for daemon kernel events
+    let notebook_sync_for_disconnect = notebook_sync.clone();
     tokio::spawn(async move {
         info!("[notebook-sync] Starting broadcast receiver loop");
         while let Some(broadcast) = broadcast_receiver.recv().await {
@@ -293,7 +294,15 @@ async fn initialize_notebook_sync(
                 warn!("[notebook-sync] Failed to emit daemon:broadcast: {}", e);
             }
         }
-        info!("[notebook-sync] Broadcast receiver loop ended");
+        info!("[notebook-sync] Broadcast receiver loop ended - daemon disconnected");
+
+        // Clear the handle so operations fail gracefully
+        *notebook_sync_for_disconnect.lock().await = None;
+
+        // Emit disconnection event so frontend can reset kernel state
+        if let Err(e) = app.emit("daemon:disconnected", ()) {
+            warn!("[notebook-sync] Failed to emit daemon:disconnected: {}", e);
+        }
     });
 
     info!(
@@ -1039,6 +1048,130 @@ async fn get_daemon_queue_state(
         .send_request(NotebookRequest::GetQueueState {})
         .await
         .map_err(|e| format!("daemon request failed: {}", e))
+}
+
+/// Run all code cells via the daemon.
+/// Daemon reads cell sources from the synced Automerge document.
+#[tauri::command]
+async fn run_all_cells_via_daemon(
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<NotebookResponse, String> {
+    info!("[daemon-kernel] run_all_cells_via_daemon");
+
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    handle
+        .send_request(NotebookRequest::RunAllCells {})
+        .await
+        .map_err(|e| format!("daemon request failed: {}", e))
+}
+
+/// Reconnect to the daemon after a disconnection.
+///
+/// Called by the frontend after receiving daemon:disconnected event.
+#[tauri::command]
+async fn reconnect_to_daemon(
+    app: tauri::AppHandle,
+    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<(), String> {
+    info!("[daemon-kernel] reconnect_to_daemon");
+
+    // Check if already connected
+    {
+        let guard = notebook_sync.lock().await;
+        if guard.is_some() {
+            info!("[daemon-kernel] Already connected to daemon");
+            return Ok(());
+        }
+    }
+
+    // Re-initialize notebook sync
+    initialize_notebook_sync(
+        app,
+        notebook_state.inner().clone(),
+        notebook_sync.inner().clone(),
+    )
+    .await
+}
+
+/// Debug: Get Automerge document state from the daemon.
+///
+/// Returns the cells as the daemon sees them, useful for debugging sync issues.
+#[tauri::command]
+async fn debug_get_automerge_state(
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<Vec<serde_json::Value>, String> {
+    info!("[debug] Getting Automerge state from daemon");
+
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    let cells = handle
+        .get_cells()
+        .await
+        .map_err(|e| format!("Failed to get cells: {}", e))?;
+
+    // Convert CellSnapshots to JSON for easy inspection
+    let json_cells: Vec<serde_json::Value> = cells
+        .into_iter()
+        .map(|cell| {
+            serde_json::json!({
+                "id": cell.id,
+                "cell_type": cell.cell_type,
+                "source": cell.source,
+                "execution_count": cell.execution_count,
+                "outputs_count": cell.outputs.len(),
+                "outputs": cell.outputs,
+            })
+        })
+        .collect();
+
+    Ok(json_cells)
+}
+
+/// Debug: Get local notebook state (in-memory).
+#[tauri::command]
+fn debug_get_local_state(
+    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+) -> Result<Vec<serde_json::Value>, String> {
+    info!("[debug] Getting local notebook state");
+
+    let state = state.lock().map_err(|e| e.to_string())?;
+
+    // Use cells_for_frontend which handles the nbformat Cell enum
+    let frontend_cells = state.cells_for_frontend();
+
+    let json_cells: Vec<serde_json::Value> = frontend_cells
+        .into_iter()
+        .map(|cell| match cell {
+            FrontendCell::Code {
+                id,
+                source,
+                outputs,
+                execution_count,
+            } => serde_json::json!({
+                "id": id,
+                "cell_type": "code",
+                "source": source,
+                "execution_count": execution_count,
+                "outputs_count": outputs.len(),
+            }),
+            FrontendCell::Markdown { id, source } => serde_json::json!({
+                "id": id,
+                "cell_type": "markdown",
+                "source": source,
+            }),
+            FrontendCell::Raw { id, source } => serde_json::json!({
+                "id": id,
+                "cell_type": "raw",
+                "source": source,
+            }),
+        })
+        .collect();
+
+    Ok(json_cells)
 }
 
 /// Queue a cell for execution. The queue processor will execute cells in FIFO order.
@@ -3802,6 +3935,10 @@ pub fn run(
             shutdown_kernel_via_daemon,
             get_daemon_kernel_info,
             get_daemon_queue_state,
+            run_all_cells_via_daemon,
+            reconnect_to_daemon,
+            debug_get_automerge_state,
+            debug_get_local_state,
             queue_execute_cell,
             clear_execution_queue,
             get_execution_queue_state,
