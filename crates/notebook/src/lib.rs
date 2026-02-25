@@ -469,6 +469,8 @@ async fn get_conda_pool_status(
 #[derive(Clone, serde::Serialize)]
 pub struct DaemonInfoForBanner {
     pub version: String,
+    pub socket_path: String,
+    pub is_dev_mode: bool,
 }
 
 /// Get daemon info for the debug banner.
@@ -482,7 +484,33 @@ async fn get_daemon_info() -> Option<DaemonInfoForBanner> {
         let contents = std::fs::read_to_string(info_path).ok()?;
         let json: serde_json::Value = serde_json::from_str(&contents).ok()?;
         let version = json.get("version")?.as_str()?.to_string();
-        Some(DaemonInfoForBanner { version })
+        // Read the actual endpoint from daemon.json (supports custom --socket)
+        let socket_path_full = json
+            .get("endpoint")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| {
+                runtimed::default_socket_path()
+                    .to_string_lossy()
+                    .to_string()
+            });
+        // Replace home directory with ~ for shorter display
+        let socket_path = if let Some(home) = dirs::home_dir() {
+            let home_str = home.to_string_lossy();
+            if socket_path_full.starts_with(home_str.as_ref()) {
+                socket_path_full.replacen(home_str.as_ref(), "~", 1)
+            } else {
+                socket_path_full
+            }
+        } else {
+            socket_path_full
+        };
+        let is_dev_mode = runtimed::is_dev_mode();
+        Some(DaemonInfoForBanner {
+            version,
+            socket_path,
+            is_dev_mode,
+        })
     }
     #[cfg(not(debug_assertions))]
     {

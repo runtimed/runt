@@ -27,7 +27,6 @@ import { useExecutionQueue } from "./hooks/useExecutionQueue";
 import { useDaemonInfo, useGitInfo } from "./hooks/useGitInfo";
 import { type MimeBundle, useKernel } from "./hooks/useKernel";
 import { useNotebook } from "./hooks/useNotebook";
-import { usePrewarmStatus } from "./hooks/usePrewarmStatus";
 import { useTrust } from "./hooks/useTrust";
 import type { JupyterMessage, JupyterOutput } from "./types";
 
@@ -75,7 +74,6 @@ async function sendMessage(message: unknown): Promise<void> {
 function AppContent() {
   const gitInfo = useGitInfo();
   const daemonInfo = useDaemonInfo();
-  const prewarmStatus = usePrewarmStatus();
 
   const { theme, setTheme } = useSyncedTheme();
   const {
@@ -753,9 +751,9 @@ function AppContent() {
           branch={gitInfo.branch}
           commit={gitInfo.commit}
           description={gitInfo.description}
-          uvPoolStatus={prewarmStatus.uv}
-          condaPoolStatus={prewarmStatus.conda}
           daemonVersion={daemonInfo?.version}
+          socketPath={daemonInfo?.socket_path}
+          isDevMode={daemonInfo?.is_dev_mode}
         />
       )}
       <NotebookToolbar
