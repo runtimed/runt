@@ -885,5 +885,5 @@ Widgets only render in the window that was active when the widget was created. S
 ### Remaining for daemon_execution default-on
 
 1. **Widget multi-window sync (#276)** — widgets work in single window, but secondary windows show "Loading widget" due to missing `comm_open` history
-2. **Inline deps detection** — daemon should check notebook metadata for `uv.dependencies`/`conda.dependencies`
+2. ~~**Inline deps detection**~~ ✅ — daemon now reads `metadata.uv.dependencies`/`metadata.conda.dependencies` from .ipynb file
 3. **Testing** — verify project file detection works across fixture notebooks
