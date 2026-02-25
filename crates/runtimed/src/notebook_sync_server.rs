@@ -414,7 +414,12 @@ async fn handle_notebook_request(
             }
 
             // Create new kernel
-            let mut kernel = RoomKernel::new(room.kernel_broadcast_tx.clone());
+            let mut kernel = RoomKernel::new(
+                room.kernel_broadcast_tx.clone(),
+                room.doc.clone(),
+                room.persist_path.clone(),
+                room.changed_tx.clone(),
+            );
             let notebook_path = notebook_path.map(std::path::PathBuf::from);
 
             match kernel
@@ -499,16 +504,33 @@ async fn handle_notebook_request(
         }
 
         NotebookRequest::ClearOutputs { cell_id } => {
-            // Always broadcast OutputsCleared for cross-window UI sync,
-            // even before kernel is launched. The kernel.clear_outputs() is
-            // just internal state tracking - the broadcast is what matters.
+            // 1. Mutate the Automerge document to remove outputs
+            let persist_bytes = {
+                let mut doc = room.doc.write().await;
+                if let Err(e) = doc.clear_outputs(&cell_id) {
+                    return NotebookResponse::Error {
+                        error: format!("Failed to clear outputs: {}", e),
+                    };
+                }
+                // Also reset execution count
+                let _ = doc.set_execution_count(&cell_id, "null");
+                let bytes = doc.save();
+                // Notify other peers of doc change
+                let _ = room.changed_tx.send(());
+                bytes
+            };
+
+            // 2. Persist outside the write lock
+            persist_notebook_bytes(&persist_bytes, &room.persist_path);
+
+            // 3. Broadcast for cross-window UI sync (fast path)
             let _ = room
                 .kernel_broadcast_tx
                 .send(NotebookBroadcast::OutputsCleared {
                     cell_id: cell_id.clone(),
                 });
 
-            // Also update kernel's internal tracking if kernel exists
+            // 4. Update kernel's internal tracking if kernel exists
             let kernel_guard = room.kernel.lock().await;
             if let Some(ref kernel) = *kernel_guard {
                 kernel.clear_outputs(&cell_id);
@@ -620,7 +642,7 @@ async fn handle_notebook_request(
 }
 
 /// Persist pre-serialized notebook bytes to disk.
-fn persist_notebook_bytes(data: &[u8], path: &Path) {
+pub(crate) fn persist_notebook_bytes(data: &[u8], path: &Path) {
     if let Some(parent) = path.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
             warn!(
