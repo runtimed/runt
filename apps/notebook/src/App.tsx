@@ -19,6 +19,7 @@ import { NotebookToolbar } from "./components/NotebookToolbar";
 import { NotebookView } from "./components/NotebookView";
 import { TrustDialog } from "./components/TrustDialog";
 import { useCondaDependencies } from "./hooks/useCondaDependencies";
+import { useDaemonKernel } from "./hooks/useDaemonKernel";
 import { useDenoDependencies } from "./hooks/useDenoDependencies";
 import { useDependencies } from "./hooks/useDependencies";
 import { useEnvProgress } from "./hooks/useEnvProgress";
@@ -81,6 +82,7 @@ function AppContent() {
     setDefaultUvPackages,
     defaultCondaPackages,
     setDefaultCondaPackages,
+    daemonExecution,
   } = useSyncedSettings();
 
   // Execution queue - cells are queued and executed in FIFO order by the backend
@@ -278,14 +280,14 @@ function AppContent() {
   }, []);
 
   const {
-    kernelStatus,
-    kernelErrorMessage,
-    envSource,
+    kernelStatus: localKernelStatus,
+    kernelErrorMessage: localKernelErrorMessage,
+    envSource: localEnvSource,
     ensureKernelStarted,
     startKernelWithPyproject,
-    interruptKernel,
-    restartKernel,
-    restartAndRunAll,
+    interruptKernel: localInterruptKernel,
+    restartKernel: localRestartKernel,
+    restartAndRunAll: localRestartAndRunAll,
     listKernelspecs,
   } = useKernel({
     onOutput: handleOutput,
@@ -296,6 +298,42 @@ function AppContent() {
     onPagePayload: handlePagePayload,
     onUpdateDisplayData: updateOutputByDisplayId,
   });
+
+  // Daemon-owned kernel execution (experimental)
+  const {
+    kernelStatus: daemonKernelStatus,
+    kernelInfo: daemonKernelInfo,
+    launchKernel: daemonLaunchKernel,
+    queueCell: daemonQueueCell,
+    interruptKernel: daemonInterruptKernel,
+    shutdownKernel: daemonShutdownKernel,
+  } = useDaemonKernel({
+    onOutput: (cellId, output) => {
+      appendOutput(cellId, output);
+    },
+    onExecutionCount: handleExecutionCount,
+    onExecutionDone: handleExecutionDone,
+    onUpdateDisplayData: updateOutputByDisplayId,
+  });
+
+  // Choose kernel status/operations based on daemon execution mode
+  const kernelStatus = daemonExecution ? daemonKernelStatus : localKernelStatus;
+  const kernelErrorMessage = daemonExecution ? null : localKernelErrorMessage;
+  const envSource = daemonExecution
+    ? (daemonKernelInfo.envSource ?? null)
+    : localEnvSource;
+  const interruptKernel = daemonExecution
+    ? daemonInterruptKernel
+    : localInterruptKernel;
+  const restartKernel = daemonExecution
+    ? daemonShutdownKernel
+    : localRestartKernel;
+  const restartAndRunAll = daemonExecution
+    ? async () => {
+        await daemonShutdownKernel();
+        // TODO: relaunch and run all via daemon
+      }
+    : localRestartAndRunAll;
 
   // When kernel is running and we know the env source, use it to determine panel type.
   // This handles: both-deps (backend picks based on preference), pixi (auto-detected, no metadata).
@@ -334,13 +372,27 @@ function AppContent() {
 
     if (info.status === "trusted" || info.status === "no_dependencies") {
       // Trusted - start kernel
-      await ensureKernelStarted();
+      if (daemonExecution) {
+        // Launch kernel via daemon
+        await daemonLaunchKernel(
+          runtime === "deno" ? "deno" : "python",
+          "prewarmed",
+        );
+      } else {
+        await ensureKernelStarted();
+      }
     } else {
       // Untrusted - show dialog and mark pending start
       pendingKernelStartRef.current = true;
       setTrustDialogOpen(true);
     }
-  }, [checkTrust, ensureKernelStarted]);
+  }, [
+    checkTrust,
+    ensureKernelStarted,
+    daemonExecution,
+    daemonLaunchKernel,
+    runtime,
+  ]);
 
   // Handle trust approval from dialog
   const handleTrustApprove = useCallback(async () => {
@@ -348,10 +400,23 @@ function AppContent() {
     if (success && pendingKernelStartRef.current) {
       pendingKernelStartRef.current = false;
       // Now start the kernel since trust was approved
-      await ensureKernelStarted();
+      if (daemonExecution) {
+        await daemonLaunchKernel(
+          runtime === "deno" ? "deno" : "python",
+          "prewarmed",
+        );
+      } else {
+        await ensureKernelStarted();
+      }
     }
     return success;
-  }, [approveTrust, ensureKernelStarted]);
+  }, [
+    approveTrust,
+    ensureKernelStarted,
+    daemonExecution,
+    daemonLaunchKernel,
+    runtime,
+  ]);
 
   // Handle trust decline from dialog
   const handleTrustDecline = useCallback(() => {
@@ -363,14 +428,35 @@ function AppContent() {
     (cellId: string) => {
       // Clear outputs immediately so user sees feedback
       clearCellOutputs(cellId);
-      // Queue FIRST to preserve order - don't await so rapid executions queue in order
-      queueCell(cellId);
-      // Then ensure kernel is started (queue processor will wait for it)
-      if (kernelStatus === "not started") {
-        tryStartKernel();
+
+      if (daemonExecution) {
+        // Daemon execution mode: queue via daemon with cell source
+        const cell = cells.find((c) => c.id === cellId);
+        if (cell && cell.cell_type === "code") {
+          daemonQueueCell(cellId, cell.source);
+        }
+        // Start kernel via daemon if not running
+        if (kernelStatus === "not_started" || kernelStatus === "not started") {
+          tryStartKernel();
+        }
+      } else {
+        // Local execution mode: queue via backend execution queue
+        queueCell(cellId);
+        // Then ensure kernel is started (queue processor will wait for it)
+        if (kernelStatus === "not started") {
+          tryStartKernel();
+        }
       }
     },
-    [clearCellOutputs, queueCell, kernelStatus, tryStartKernel],
+    [
+      clearCellOutputs,
+      queueCell,
+      kernelStatus,
+      tryStartKernel,
+      daemonExecution,
+      cells,
+      daemonQueueCell,
+    ],
   );
 
   const handleAddCell = useCallback(
@@ -389,13 +475,35 @@ function AppContent() {
   );
 
   const handleRunAllCells = useCallback(async () => {
-    // Backend clears outputs and emits cells:outputs_cleared before queuing
-    await runAllCells();
-    // Start kernel if not running — queue processor retries until ready
-    if (kernelStatus === "not started") {
-      tryStartKernel();
+    if (daemonExecution) {
+      // Daemon execution mode: queue all code cells via daemon
+      for (const cell of cells) {
+        if (cell.cell_type === "code") {
+          clearCellOutputs(cell.id);
+          daemonQueueCell(cell.id, cell.source);
+        }
+      }
+      // Start kernel via daemon if not running
+      if (kernelStatus === "not_started" || kernelStatus === "not started") {
+        tryStartKernel();
+      }
+    } else {
+      // Backend clears outputs and emits cells:outputs_cleared before queuing
+      await runAllCells();
+      // Start kernel if not running — queue processor retries until ready
+      if (kernelStatus === "not started") {
+        tryStartKernel();
+      }
     }
-  }, [runAllCells, kernelStatus, tryStartKernel]);
+  }, [
+    runAllCells,
+    kernelStatus,
+    tryStartKernel,
+    daemonExecution,
+    cells,
+    clearCellOutputs,
+    daemonQueueCell,
+  ]);
 
   const handleRestartAndRunAll = useCallback(async () => {
     // Backend clears outputs and emits cells:outputs_cleared before queuing,
