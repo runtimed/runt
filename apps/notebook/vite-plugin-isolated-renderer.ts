@@ -99,6 +99,16 @@ export function isolatedRendererPlugin(
             "@tauri-apps/plugin-fs",
             /^@tauri-apps\/.*/,
           ],
+          // Suppress "use client" directive warnings from node_modules
+          onwarn(warning, warn) {
+            if (
+              warning.code === "MODULE_LEVEL_DIRECTIVE" &&
+              warning.message?.includes('"use client"')
+            ) {
+              return;
+            }
+            warn(warning);
+          },
         },
         minify,
         sourcemap: false, // No source maps for embedded bundle
