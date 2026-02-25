@@ -492,6 +492,12 @@ async fn handle_notebook_request(
             let kernel_guard = room.kernel.lock().await;
             if let Some(ref kernel) = *kernel_guard {
                 kernel.clear_outputs(&cell_id);
+                // Broadcast to all windows so they clear outputs too
+                let _ = room
+                    .kernel_broadcast_tx
+                    .send(NotebookBroadcast::OutputsCleared {
+                        cell_id: cell_id.clone(),
+                    });
                 NotebookResponse::OutputsCleared { cell_id }
             } else {
                 NotebookResponse::NoKernel {}

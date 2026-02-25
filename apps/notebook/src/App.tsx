@@ -230,12 +230,15 @@ function AppContent() {
 
       appendOutput(cellId, output);
       // Sync output to Automerge for cross-window sync (only if not captured by widget)
-      invoke("sync_append_output", {
-        cellId,
-        outputJson: JSON.stringify(output),
-      }).catch(() => {}); // Fire-and-forget
+      // Skip when daemon execution is enabled - daemon broadcasts outputs to all windows
+      if (!daemonExecution) {
+        invoke("sync_append_output", {
+          cellId,
+          outputJson: JSON.stringify(output),
+        }).catch(() => {}); // Fire-and-forget
+      }
     },
-    [appendOutput, sendWidgetUpdate, widgetStore],
+    [appendOutput, sendWidgetUpdate, widgetStore, daemonExecution],
   );
 
   const handleExecutionCount = useCallback(
@@ -305,6 +308,7 @@ function AppContent() {
     kernelInfo: daemonKernelInfo,
     launchKernel: daemonLaunchKernel,
     queueCell: daemonQueueCell,
+    clearOutputs: daemonClearOutputs,
     interruptKernel: daemonInterruptKernel,
     shutdownKernel: daemonShutdownKernel,
   } = useDaemonKernel({
@@ -314,6 +318,7 @@ function AppContent() {
     onExecutionCount: handleExecutionCount,
     onExecutionDone: handleExecutionDone,
     onUpdateDisplayData: updateOutputByDisplayId,
+    onClearOutputs: clearCellOutputs, // Handle broadcast from other windows
   });
 
   // Choose kernel status/operations based on daemon execution mode
@@ -430,7 +435,8 @@ function AppContent() {
       clearCellOutputs(cellId);
 
       if (daemonExecution) {
-        // Daemon execution mode: launch kernel first, then queue
+        // Daemon execution mode: broadcast clear to other windows, then queue
+        daemonClearOutputs(cellId); // Broadcasts to other windows
         const cell = cells.find((c) => c.id === cellId);
         if (!cell || cell.cell_type !== "code") return;
 
@@ -461,6 +467,7 @@ function AppContent() {
       daemonExecution,
       cells,
       daemonQueueCell,
+      daemonClearOutputs,
     ],
   );
 
@@ -485,9 +492,10 @@ function AppContent() {
       const codeCells = cells.filter((c) => c.cell_type === "code");
       if (codeCells.length === 0) return;
 
-      // Clear all outputs first
+      // Clear all outputs first (local + broadcast to other windows)
       for (const cell of codeCells) {
         clearCellOutputs(cell.id);
+        daemonClearOutputs(cell.id);
       }
 
       const queueAllCells = () => {
@@ -519,6 +527,7 @@ function AppContent() {
     cells,
     clearCellOutputs,
     daemonQueueCell,
+    daemonClearOutputs,
   ]);
 
   const handleRestartAndRunAll = useCallback(async () => {

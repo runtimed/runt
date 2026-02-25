@@ -213,6 +213,9 @@ pub enum NotebookBroadcast {
 
     /// Kernel error (failed to launch, crashed, etc.)
     KernelError { error: String },
+
+    /// Outputs cleared for a cell.
+    OutputsCleared { cell_id: String },
 }
 
 #[cfg(test)]

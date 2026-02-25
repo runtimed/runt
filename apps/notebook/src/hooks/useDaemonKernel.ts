@@ -119,6 +119,8 @@ interface UseDaemonKernelOptions {
     data: Record<string, unknown>,
     metadata: Record<string, unknown>,
   ) => void;
+  /** Called when outputs are cleared for a cell (broadcast from another window) */
+  onClearOutputs?: (cellId: string) => void;
 }
 
 export function useDaemonKernel({
@@ -129,6 +131,7 @@ export function useDaemonKernel({
   onQueueChange,
   onKernelError,
   onUpdateDisplayData,
+  onClearOutputs,
 }: UseDaemonKernelOptions) {
   const [kernelStatus, setKernelStatus] =
     useState<DaemonKernelStatus>("not_started");
@@ -150,6 +153,7 @@ export function useDaemonKernel({
     onQueueChange,
     onKernelError,
     onUpdateDisplayData,
+    onClearOutputs,
   });
   callbacksRef.current = {
     onOutput,
@@ -159,6 +163,7 @@ export function useDaemonKernel({
     onQueueChange,
     onKernelError,
     onUpdateDisplayData,
+    onClearOutputs,
   };
 
   // Listen for daemon broadcasts
@@ -239,6 +244,11 @@ export function useDaemonKernel({
         case "kernel_error": {
           setKernelStatus("error");
           callbacksRef.current.onKernelError?.(broadcast.error);
+          break;
+        }
+
+        case "outputs_cleared": {
+          callbacksRef.current.onClearOutputs?.(broadcast.cell_id);
           break;
         }
       }

@@ -162,6 +162,10 @@ export type DaemonBroadcast =
   | {
       event: "kernel_error";
       error: string;
+    }
+  | {
+      event: "outputs_cleared";
+      cell_id: string;
     };
 
 /** Response types from daemon notebook requests */
