@@ -405,9 +405,8 @@ impl RoomKernel {
                 .map(|p| p.to_path_buf())
                 .unwrap_or_else(std::env::temp_dir)
         } else {
-            dirs::home_dir()
-                .map(|h| h.join("notebooks"))
-                .unwrap_or_else(std::env::temp_dir)
+            // For untitled notebooks, use home directory (which always exists)
+            dirs::home_dir().unwrap_or_else(std::env::temp_dir)
         };
 
         // Launch kernel process

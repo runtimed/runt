@@ -971,8 +971,18 @@ async fn launch_kernel_via_daemon(
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
-    // Use notebook_id from the sync handle if notebook_path not provided
-    let resolved_path = notebook_path.or_else(|| Some(handle.notebook_id().to_string()));
+    // Use notebook_id from the sync handle if notebook_path not provided,
+    // but only if it looks like a real file path (not a UUID for untitled notebooks)
+    let resolved_path = notebook_path.or_else(|| {
+        let id = handle.notebook_id();
+        // Check if it looks like a file path (contains path separator or starts with /)
+        if id.contains('/') || id.contains('\\') {
+            Some(id.to_string())
+        } else {
+            // Likely a UUID for an untitled notebook - don't use as path
+            None
+        }
+    });
 
     info!(
         "[daemon-kernel] launch_kernel_via_daemon: type={}, env_source={}, path={:?}",
