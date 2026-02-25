@@ -564,9 +564,9 @@ async fn list_kernels(json_output: bool, verbose: bool) -> Result<()> {
             connection_files.push(path);
         }
 
-        let kernel_futures = connection_files.into_iter().map(|path| {
-            async move { gather_kernel_info(path, timeout).await }
-        });
+        let kernel_futures = connection_files
+            .into_iter()
+            .map(|path| async move { gather_kernel_info(path, timeout).await });
 
         connection_file_kernels = join_all(kernel_futures)
             .await

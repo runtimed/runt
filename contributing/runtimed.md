@@ -1,6 +1,6 @@
 # Runtime Daemon (runtimed)
 
-The runtime daemon manages prewarmed Python environments shared across notebook windows.
+The runtime daemon manages prewarmed Python environments, notebook document sync, and kernel execution across notebook windows.
 
 ## Quick Reference
 
@@ -9,8 +9,9 @@ The runtime daemon manages prewarmed Python environments shared across notebook 
 | Install daemon from source | `cargo xtask install-daemon` |
 | Run daemon | `cargo run -p runtimed` |
 | Run with debug logs | `RUST_LOG=debug cargo run -p runtimed` |
-| Check status | `cargo run -p runt-cli -- pool status` |
-| Ping daemon | `cargo run -p runt-cli -- pool ping` |
+| Check status | `cargo run -p runt-cli -- daemon status` |
+| Ping daemon | `cargo run -p runt-cli -- daemon ping` |
+| View logs | `cargo run -p runt-cli -- daemon logs -f` |
 | Run tests | `cargo test -p runtimed` |
 
 ## Why It Exists
@@ -86,15 +87,14 @@ For debugging daemon-specific code, stop the installed service and run from sour
 
 ```bash
 # Stop the installed service first
-launchctl bootout gui/$(id -u)/io.runtimed
+cargo run -p runt-cli -- daemon stop
 
 # Run daemon with debug logs
 RUST_LOG=debug cargo run -p runtimed
 
 # In another terminal, test with runt CLI
-cargo run -p runt-cli -- pool ping
-cargo run -p runt-cli -- pool status
-cargo run -p runt-cli -- pool take uv
+cargo run -p runt-cli -- daemon ping
+cargo run -p runt-cli -- daemon status
 ```
 
 ### Testing
@@ -153,7 +153,7 @@ pub enum Handshake {
 }
 ```
 
-**Pool channel** uses length-framed JSON request/response (short-lived). Request types: `ping`, `status`, `take`, `return`, `shutdown`, `flush_pool`.
+**Pool channel** uses length-framed JSON request/response (short-lived). Request types: `ping`, `status`, `take`, `return`, `shutdown`, `flush_pool`, `list_rooms`.
 
 **SettingsSync / NotebookSync** channels use Automerge sync messages (long-lived, bidirectional).
 
@@ -161,14 +161,25 @@ pub enum Handshake {
 
 ## CLI Commands (for testing)
 
-The `runt` CLI has pool subcommands for testing:
+The `runt` CLI has daemon subcommands for testing and service management:
 
 ```bash
-cargo run -p runt-cli -- pool ping          # Check daemon is responding
-cargo run -p runt-cli -- pool status        # Show pool statistics
-cargo run -p runt-cli -- pool status --json # JSON output
-cargo run -p runt-cli -- pool take uv       # Request a UV environment
-cargo run -p runt-cli -- pool shutdown      # Stop the daemon
+# Service management
+cargo run -p runt-cli -- daemon status        # Show service + pool statistics
+cargo run -p runt-cli -- daemon status --json # JSON output
+cargo run -p runt-cli -- daemon start         # Start the daemon service
+cargo run -p runt-cli -- daemon stop          # Stop the daemon service
+cargo run -p runt-cli -- daemon restart       # Restart the daemon service
+cargo run -p runt-cli -- daemon logs -f       # Tail daemon logs
+cargo run -p runt-cli -- daemon flush         # Flush pool and rebuild environments
+
+# Debug/health checks
+cargo run -p runt-cli -- daemon ping          # Check daemon is responding
+cargo run -p runt-cli -- daemon shutdown      # Shutdown daemon via IPC
+
+# Kernel and notebook inspection
+cargo run -p runt-cli -- ps                   # List all kernels (connection-file + daemon)
+cargo run -p runt-cli -- notebooks            # List open notebooks with kernel info
 ```
 
 ## Troubleshooting
@@ -205,34 +216,38 @@ When shipped as a release build, the daemon installs as a system service that st
 
 If you have the app installed and want to run a development version of the daemon instead, you'll need to stop the installed service first.
 
-**macOS:**
+**Cross-platform (recommended):**
 ```bash
 # Stop the installed daemon
-launchctl unload ~/Library/LaunchAgents/io.runtimed.plist
+runt daemon stop
 
 # Check status
-launchctl list | grep io.runtimed
+runt daemon status
 
-# Restart it later
-launchctl load ~/Library/LaunchAgents/io.runtimed.plist
+# Start it later
+runt daemon start
+
+# View logs
+runt daemon logs -f
 
 # Full uninstall (removes binary and service config)
-~/Library/Application\ Support/runt/bin/runtimed uninstall
+runt daemon uninstall
 ```
 
-**Linux:**
+**Platform-specific (if runt isn't available):**
+
+macOS:
 ```bash
-# Stop the installed daemon
+launchctl bootout gui/$(id -u)/io.runtimed
+launchctl list | grep io.runtimed
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.runtimed.plist
+```
+
+Linux:
+```bash
 systemctl --user stop runtimed.service
-
-# Check status
 systemctl --user status runtimed.service
-
-# Restart it later
 systemctl --user start runtimed.service
-
-# Full uninstall
-~/.local/share/runt/bin/runtimed uninstall
 ```
 
 **Key paths (macOS):**

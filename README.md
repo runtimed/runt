@@ -1,6 +1,8 @@
 # Runt
 
-CLI and desktop tools for [Jupyter runtimes](https://github.com/runtimed/runtimed), powered by [runtimelib](https://crates.io/crates/runtimelib) and [jupyter-protocol](https://crates.io/crates/jupyter-protocol).
+A fast, modern toolkit for Jupyter notebooks. Native desktop app with instant startup, real-time collaboration, and intelligent environment management.
+
+Built on [runtimelib](https://crates.io/crates/runtimelib) and [jupyter-protocol](https://crates.io/crates/jupyter-protocol).
 
 ## Install
 
@@ -18,34 +20,43 @@ pip install runtimed
 
 |  App  | Description |
 |-----------|-------------|
-| `runt` | CLI for managing and interacting with Jupyter kernels |
-| `sidecar` | Desktop viewer for Jupyter kernel outputs |
+| `runt` | CLI for managing kernels, notebooks, and the daemon |
+| `runtimed` | Background daemon managing environment pools, notebook sync, and kernel execution |
 | `notebook` | Desktop notebook editor (Tauri + React) |
+| `sidecar` | Desktop viewer for Jupyter kernel outputs |
 | `runtimed` (PyPI) | Python package bundling the `runt` binary |
 
 ## Usage
 
 ```bash
-# List running kernels
+# List all kernels (connection-file and daemon-managed)
 runt ps
 
-# Start a kernel
-runt start python3
+# Launch notebook editor
+runt notebook [path/to/notebook.ipynb]
 
 # Interactive console
 runt console
 
-# Launch sidecar output viewer
-runt sidecar <connection-file>
+# Daemon management
+runt daemon status     # Check daemon and pool status
+runt daemon start      # Start the daemon service
+runt daemon stop       # Stop the daemon service
+runt daemon logs -f    # Tail daemon logs
 
-# Launch notebook editor
-runt notebook
+# List open notebooks with kernel info
+runt notebooks
+
+# Jupyter kernel utilities
+runt jupyter start python3    # Start a connection-file kernel
+runt jupyter stop --all       # Stop all connection-file kernels
+runt jupyter sidecar <file>   # Launch sidecar output viewer
 ```
 
 ## Project structure
 
 ```
-sun-valley/
+runt/
 ├── src/                    # Shared UI code (React components, hooks, utilities)
 │   ├── components/
 │   │   ├── ui/            # shadcn primitives (button, dialog, etc.)
@@ -59,11 +70,13 @@ sun-valley/
 │   ├── notebook/          # Notebook Tauri frontend
 │   └── sidecar/           # Sidecar WebView frontend
 ├── crates/                 # Rust code
-│   ├── runt/              # Main CLI binary
+│   ├── runt/              # CLI binary
+│   ├── runtimed/          # Background daemon
 │   ├── notebook/          # Notebook Tauri app
 │   ├── sidecar/           # Sidecar wry/tao app
 │   └── tauri-jupyter/     # Shared Tauri/Jupyter utilities
-└── components.json         # shadcn config (run commands from repo root)
+├── docs/                   # Architecture documentation
+└── contributing/           # Developer guides
 ```
 
 ## Development

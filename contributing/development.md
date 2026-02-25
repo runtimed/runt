@@ -91,19 +91,19 @@ cat ~/Library/Caches/runt/daemon.json
 
 ```bash
 # View recent logs
-tail -100 ~/Library/Caches/runt/runtimed.log
+runt daemon logs -n 100
 
 # Watch logs in real-time
-tail -f ~/Library/Caches/runt/runtimed.log
+runt daemon logs -f
 
-# Filter for specific topics
-tail -f ~/Library/Caches/runt/runtimed.log | grep -i "kernel\|auto-detect"
+# Filter for specific topics (can combine with grep)
+runt daemon logs -f | grep -i "kernel\|auto-detect"
 ```
 
 ### Common gotcha
 
 If your daemon code changes aren't taking effect:
 1. Did you run `cargo xtask install-daemon`? (`cargo xtask build` doesn't reinstall the daemon)
-2. Is the daemon running the right version? Check `cat ~/Library/Caches/runt/daemon.json`
+2. Is the daemon running the right version? Check `runt daemon status`
 
 See [contributing/runtimed.md](./runtimed.md) for full daemon development docs.
