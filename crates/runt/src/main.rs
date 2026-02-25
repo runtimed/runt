@@ -1324,13 +1324,20 @@ async fn daemon_command(command: DaemonCommands) -> Result<()> {
     use runtimed::service::ServiceManager;
     use runtimed::singleton::get_running_daemon_info;
 
-    let client = PoolClient::default();
     let manager = ServiceManager::default();
+
+    // Get daemon info first so we can use its endpoint for the client
+    let daemon_info = get_running_daemon_info();
+
+    // Create client using daemon's actual endpoint if available, otherwise default
+    let client = match &daemon_info {
+        Some(info) => PoolClient::new(PathBuf::from(&info.endpoint)),
+        None => PoolClient::default(),
+    };
 
     match command {
         DaemonCommands::Status { json } => {
             let installed = manager.is_installed();
-            let daemon_info = get_running_daemon_info();
             let running = if daemon_info.is_some() {
                 client.ping().await.is_ok()
             } else {
@@ -1511,24 +1518,38 @@ async fn daemon_command(command: DaemonCommands) -> Result<()> {
 
 /// Native log file tailing implementation
 async fn tail_log_file(path: &PathBuf, lines: usize, follow: bool) -> Result<()> {
+    use std::collections::VecDeque;
     use std::io::{BufRead, BufReader, Seek, SeekFrom};
 
-    // Read last N lines
+    // Read last N lines efficiently using a fixed-size buffer
     let file = std::fs::File::open(path)?;
     let reader = BufReader::new(&file);
-    let all_lines: Vec<String> = reader.lines().collect::<std::io::Result<Vec<_>>>()?;
-    let start = all_lines.len().saturating_sub(lines);
-    for line in &all_lines[start..] {
+    let mut last_lines: VecDeque<String> = VecDeque::with_capacity(lines);
+
+    for line in reader.lines() {
+        let line = line?;
+        if last_lines.len() >= lines {
+            last_lines.pop_front();
+        }
+        last_lines.push_back(line);
+    }
+
+    for line in &last_lines {
         println!("{}", line);
     }
 
     if follow {
-        // Watch for new lines
+        // Watch for new lines using notify
         use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
-        use std::sync::mpsc::channel;
 
-        let (tx, rx) = channel();
-        let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+        // Use tokio channel to bridge sync notify with async code
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let mut watcher = RecommendedWatcher::new(
+            move |res| {
+                let _ = tx.blocking_send(res);
+            },
+            Config::default(),
+        )?;
         watcher.watch(path.as_ref(), RecursiveMode::NonRecursive)?;
 
         let mut file = std::fs::File::open(path)?;
@@ -1537,23 +1558,19 @@ async fn tail_log_file(path: &PathBuf, lines: usize, follow: bool) -> Result<()>
         let mut line = String::new();
 
         loop {
-            // Check for file changes
-            if let Ok(_event) = rx.recv_timeout(std::time::Duration::from_millis(100)) {
-                // Read any new lines
-                while reader.read_line(&mut line)? > 0 {
-                    print!("{}", line);
-                    line.clear();
+            tokio::select! {
+                // Check for Ctrl+C
+                _ = tokio::signal::ctrl_c() => {
+                    break;
                 }
-            }
-
-            // Check for Ctrl+C
-            if tokio::task::spawn_blocking(|| {
-                // Non-blocking check - we just rely on timeout
-                false
-            })
-            .await?
-            {
-                break;
+                // Check for file changes
+                _ = rx.recv() => {
+                    // Read any new lines
+                    while reader.read_line(&mut line)? > 0 {
+                        print!("{}", line);
+                        line.clear();
+                    }
+                }
             }
         }
     }
@@ -1581,8 +1598,13 @@ struct NotebookTableRow {
 
 async fn list_notebooks(json_output: bool) -> Result<()> {
     use runtimed::client::PoolClient;
+    use runtimed::singleton::get_running_daemon_info;
 
-    let client = PoolClient::default();
+    // Use daemon's actual endpoint if available
+    let client = match get_running_daemon_info() {
+        Some(info) => PoolClient::new(PathBuf::from(&info.endpoint)),
+        None => PoolClient::default(),
+    };
 
     match client.list_rooms().await {
         Ok(rooms) => {
