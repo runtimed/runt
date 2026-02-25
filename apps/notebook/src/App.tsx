@@ -407,10 +407,10 @@ function AppContent() {
     if (info.status === "trusted" || info.status === "no_dependencies") {
       // Trusted - start kernel
       if (daemonExecution) {
-        // Launch kernel via daemon
+        // Launch kernel via daemon - "auto" triggers project file detection
         const response = await daemonLaunchKernel(
           runtime === "deno" ? "deno" : "python",
-          "prewarmed",
+          "auto",
         );
         if (response.result === "error") {
           console.error("[App] tryStartKernel: daemon error", response.error);
@@ -442,7 +442,7 @@ function AppContent() {
       if (daemonExecution) {
         await daemonLaunchKernel(
           runtime === "deno" ? "deno" : "python",
-          "prewarmed",
+          "auto",
         );
       } else {
         await ensureKernelStarted();

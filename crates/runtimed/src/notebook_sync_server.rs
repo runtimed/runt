@@ -422,8 +422,32 @@ async fn handle_notebook_request(
             );
             let notebook_path = notebook_path.map(std::path::PathBuf::from);
 
+            // Auto-detect environment if env_source is "auto" or empty
+            let resolved_env_source =
+                if env_source == "auto" || env_source.is_empty() || env_source == "prewarmed" {
+                    // Detect project files near notebook path
+                    notebook_path
+                        .as_ref()
+                        .and_then(|path| crate::project_file::detect_project_file(path))
+                        .map(|detected| {
+                            info!(
+                                "[notebook-sync] Auto-detected project file: {:?} -> {}",
+                                detected.path,
+                                detected.to_env_source()
+                            );
+                            detected.to_env_source().to_string()
+                        })
+                        .unwrap_or_else(|| {
+                            info!("[notebook-sync] No project file detected, using prewarmed");
+                            "uv:prewarmed".to_string()
+                        })
+                } else {
+                    // Use explicit env_source (e.g., "uv:inline", "conda:inline")
+                    env_source.clone()
+                };
+
             match kernel
-                .launch(&kernel_type, &env_source, notebook_path.as_deref())
+                .launch(&kernel_type, &resolved_env_source, notebook_path.as_deref())
                 .await
             {
                 Ok(()) => {

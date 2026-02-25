@@ -921,6 +921,7 @@ async fn sync_execution_count(
 /// Launch a kernel via the daemon.
 ///
 /// If a kernel is already running for this notebook, returns info about the existing kernel.
+/// The notebook_path is automatically derived from the sync handle if not provided.
 #[tauri::command]
 async fn launch_kernel_via_daemon(
     kernel_type: String,
@@ -928,19 +929,22 @@ async fn launch_kernel_via_daemon(
     notebook_path: Option<String>,
     notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<NotebookResponse, String> {
-    info!(
-        "[daemon-kernel] launch_kernel_via_daemon: type={}, env_source={}",
-        kernel_type, env_source
-    );
-
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    // Use notebook_id from the sync handle if notebook_path not provided
+    let resolved_path = notebook_path.or_else(|| Some(handle.notebook_id().to_string()));
+
+    info!(
+        "[daemon-kernel] launch_kernel_via_daemon: type={}, env_source={}, path={:?}",
+        kernel_type, env_source, resolved_path
+    );
 
     handle
         .send_request(NotebookRequest::LaunchKernel {
             kernel_type,
             env_source,
-            notebook_path,
+            notebook_path: resolved_path,
         })
         .await
         .map_err(|e| format!("daemon request failed: {}", e))
