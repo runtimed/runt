@@ -4,7 +4,7 @@ import {
   open as openDialog,
   save as saveDialog,
 } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { JupyterOutput, NotebookCell } from "../types";
 
 /**
@@ -16,53 +16,244 @@ interface CellSnapshot {
   cell_type: string;
   source: string;
   execution_count: string; // "5" or "null"
-  outputs: string[]; // JSON-encoded Jupyter outputs
+  outputs: string[]; // JSON-encoded Jupyter outputs or manifest hashes
 }
 
 /**
- * Convert a CellSnapshot from Automerge to a NotebookCell for React state.
+ * Check if a string looks like a manifest hash (64-char hex SHA-256).
  */
-function cellSnapshotToNotebookCell(snap: CellSnapshot): NotebookCell {
-  const executionCount =
-    snap.execution_count === "null"
-      ? null
-      : Number.parseInt(snap.execution_count, 10);
+function isManifestHash(s: string): boolean {
+  return /^[a-f0-9]{64}$/.test(s);
+}
 
-  const outputs: JupyterOutput[] = snap.outputs
-    .map((outputJson) => {
-      try {
-        return JSON.parse(outputJson) as JupyterOutput;
-      } catch {
-        console.warn(
-          "[notebook-sync] Failed to parse output JSON:",
-          outputJson,
-        );
-        return null;
-      }
-    })
-    .filter((o): o is JupyterOutput => o !== null);
+/**
+ * ContentRef from manifest - content may be inlined or stored in blob store.
+ */
+type ContentRef = { inline: string } | { blob: string; size: number };
 
-  if (snap.cell_type === "code") {
-    return {
-      id: snap.id,
-      cell_type: "code",
-      source: snap.source,
-      execution_count: Number.isNaN(executionCount) ? null : executionCount,
-      outputs,
+/**
+ * Manifest types matching the Rust OutputManifest enum.
+ */
+type OutputManifest =
+  | {
+      output_type: "display_data";
+      data: Record<string, ContentRef>;
+      metadata?: Record<string, unknown>;
+      transient?: { display_id?: string };
+    }
+  | {
+      output_type: "execute_result";
+      data: Record<string, ContentRef>;
+      metadata?: Record<string, unknown>;
+      execution_count?: number | null;
+      transient?: { display_id?: string };
+    }
+  | {
+      output_type: "stream";
+      name: string;
+      text: ContentRef;
+    }
+  | {
+      output_type: "error";
+      ename: string;
+      evalue: string;
+      traceback: ContentRef;
     };
+
+/**
+ * Resolve a ContentRef to its string value.
+ */
+async function resolveContentRef(
+  ref: ContentRef,
+  blobPort: number,
+): Promise<string> {
+  if ("inline" in ref) {
+    return ref.inline;
   }
-  // markdown or raw
-  return {
-    id: snap.id,
-    cell_type: snap.cell_type as "markdown" | "raw",
-    source: snap.source,
-  };
+  const response = await fetch(`http://127.0.0.1:${blobPort}/blob/${ref.blob}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch blob ${ref.blob}: ${response.status}`);
+  }
+  return response.text();
+}
+
+/**
+ * Resolve a data bundle (MIME type -> ContentRef) to resolved strings.
+ */
+async function resolveDataBundle(
+  data: Record<string, ContentRef>,
+  blobPort: number,
+): Promise<Record<string, unknown>> {
+  const resolved: Record<string, unknown> = {};
+  for (const [mimeType, ref] of Object.entries(data)) {
+    const content = await resolveContentRef(ref, blobPort);
+    if (mimeType.includes("json")) {
+      try {
+        resolved[mimeType] = JSON.parse(content);
+      } catch {
+        resolved[mimeType] = content;
+      }
+    } else {
+      resolved[mimeType] = content;
+    }
+  }
+  return resolved;
+}
+
+/**
+ * Resolve an output manifest to a full Jupyter output.
+ */
+async function resolveManifest(
+  manifest: OutputManifest,
+  blobPort: number,
+): Promise<JupyterOutput> {
+  switch (manifest.output_type) {
+    case "display_data": {
+      const data = await resolveDataBundle(manifest.data, blobPort);
+      return {
+        output_type: "display_data",
+        data,
+        metadata: manifest.metadata ?? {},
+        display_id: manifest.transient?.display_id,
+      };
+    }
+    case "execute_result": {
+      const data = await resolveDataBundle(manifest.data, blobPort);
+      return {
+        output_type: "execute_result",
+        data,
+        metadata: manifest.metadata ?? {},
+        execution_count: manifest.execution_count ?? null,
+        display_id: manifest.transient?.display_id,
+      };
+    }
+    case "stream": {
+      const text = await resolveContentRef(manifest.text, blobPort);
+      return {
+        output_type: "stream",
+        name: manifest.name as "stdout" | "stderr",
+        text,
+      };
+    }
+    case "error": {
+      const tracebackJson = await resolveContentRef(manifest.traceback, blobPort);
+      const traceback = JSON.parse(tracebackJson) as string[];
+      return {
+        output_type: "error",
+        ename: manifest.ename,
+        evalue: manifest.evalue,
+        traceback,
+      };
+    }
+  }
+}
+
+/**
+ * Resolve an output string to a JupyterOutput.
+ * Handles both manifest hashes (64-char hex) and raw JSON.
+ */
+async function resolveOutput(
+  outputStr: string,
+  blobPort: number | null,
+  cache: Map<string, JupyterOutput>,
+): Promise<JupyterOutput | null> {
+  // Check cache first
+  const cached = cache.get(outputStr);
+  if (cached) return cached;
+
+  // If not a manifest hash, parse as raw JSON
+  if (!isManifestHash(outputStr)) {
+    try {
+      const output = JSON.parse(outputStr) as JupyterOutput;
+      cache.set(outputStr, output);
+      return output;
+    } catch {
+      console.warn("[notebook-sync] Failed to parse output JSON:", outputStr.substring(0, 100));
+      return null;
+    }
+  }
+
+  // It's a manifest hash - need blob port to resolve
+  if (blobPort === null) {
+    console.warn("[notebook-sync] Manifest hash but no blob port:", outputStr);
+    return null;
+  }
+
+  try {
+    // Fetch manifest from blob store
+    const response = await fetch(`http://127.0.0.1:${blobPort}/blob/${outputStr}`);
+    if (!response.ok) {
+      console.warn(`[notebook-sync] Failed to fetch manifest ${outputStr}: ${response.status}`);
+      return null;
+    }
+
+    const manifestJson = await response.text();
+    const manifest = JSON.parse(manifestJson) as OutputManifest;
+    const output = await resolveManifest(manifest, blobPort);
+
+    cache.set(outputStr, output);
+    return output;
+  } catch (e) {
+    console.warn(`[notebook-sync] Failed to resolve manifest ${outputStr}:`, e);
+    return null;
+  }
+}
+
+/**
+ * Convert CellSnapshots to NotebookCells, resolving manifest hashes.
+ */
+async function cellSnapshotsToNotebookCells(
+  snapshots: CellSnapshot[],
+  blobPort: number | null,
+  cache: Map<string, JupyterOutput>,
+): Promise<NotebookCell[]> {
+  return Promise.all(
+    snapshots.map(async (snap) => {
+      const executionCount =
+        snap.execution_count === "null"
+          ? null
+          : Number.parseInt(snap.execution_count, 10);
+
+      if (snap.cell_type === "code") {
+        // Resolve all outputs (may be manifest hashes or raw JSON)
+        const outputs = (
+          await Promise.all(
+            snap.outputs.map((o) => resolveOutput(o, blobPort, cache)),
+          )
+        ).filter((o): o is JupyterOutput => o !== null);
+
+        return {
+          id: snap.id,
+          cell_type: "code" as const,
+          source: snap.source,
+          execution_count: Number.isNaN(executionCount) ? null : executionCount,
+          outputs,
+        };
+      }
+
+      // markdown or raw
+      return {
+        id: snap.id,
+        cell_type: snap.cell_type as "markdown" | "raw",
+        source: snap.source,
+      };
+    }),
+  );
 }
 
 export function useNotebook() {
   const [cells, setCells] = useState<NotebookCell[]>([]);
   const [focusedCellId, setFocusedCellId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [blobPort, setBlobPort] = useState<number | null>(null);
+  const outputCacheRef = useRef<Map<string, JupyterOutput>>(new Map());
+
+  // Fetch blob port on mount for manifest resolution
+  useEffect(() => {
+    invoke<number>("get_blob_port")
+      .then(setBlobPort)
+      .catch((e) => console.warn("[notebook] Failed to get blob port:", e));
+  }, []);
 
   const loadCells = useCallback(() => {
     invoke<NotebookCell[]>("load_notebook")
@@ -128,14 +319,19 @@ export function useNotebook() {
 
   // Listen for cross-window sync updates from the Automerge daemon
   useEffect(() => {
-    const unlisten = listen<CellSnapshot[]>("notebook:updated", (event) => {
+    const unlisten = listen<CellSnapshot[]>("notebook:updated", async (event) => {
       console.log(
         "[notebook-sync] Received notebook:updated with",
         event.payload.length,
         "cells",
       );
 
-      const newCells = event.payload.map(cellSnapshotToNotebookCell);
+      // Resolve manifest hashes to full outputs
+      const newCells = await cellSnapshotsToNotebookCells(
+        event.payload,
+        blobPort,
+        outputCacheRef.current,
+      );
 
       // Trust Automerge as source of truth for outputs.
       // The daemon writes outputs to Automerge before broadcasting,
@@ -145,7 +341,7 @@ export function useNotebook() {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [blobPort]);
 
   const updateCellSource = useCallback((cellId: string, source: string) => {
     setCells((prev) =>
