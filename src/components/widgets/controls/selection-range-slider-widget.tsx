@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * SelectionRangeSlider widget - range slider that selects from discrete options.
  *

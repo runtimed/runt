@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * IntSlider widget - renders an integer slider.
  *

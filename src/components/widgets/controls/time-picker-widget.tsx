@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * TimePicker widget - renders a time input field.
  *

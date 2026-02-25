@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Select widget - renders a single-selection listbox.
  *

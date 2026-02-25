@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Button widget - renders a clickable button.
  *

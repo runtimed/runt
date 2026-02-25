@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Label widget - renders plain text content.
  *

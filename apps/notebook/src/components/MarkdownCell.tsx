@@ -11,7 +11,6 @@ import { isDarkMode as detectDarkMode } from "@/lib/dark-mode";
 import { cn } from "@/lib/utils";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
 import { useEditorRegistry } from "../hooks/useEditorRegistry";
-import { rendererCode, rendererCss } from "../renderer-bundle";
 import type { MarkdownCell as MarkdownCellType } from "../types";
 
 interface MarkdownCellProps {
@@ -249,9 +248,6 @@ export function MarkdownCell({
           <IsolatedFrame
             ref={frameRef}
             darkMode={darkMode}
-            useReactRenderer={true}
-            rendererCode={rendererCode}
-            rendererCss={rendererCss}
             minHeight={24}
             maxHeight={2000}
             onReady={handleFrameReady}

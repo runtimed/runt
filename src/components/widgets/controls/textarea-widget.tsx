@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Textarea widget - renders a multi-line text input.
  *

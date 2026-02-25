@@ -6,11 +6,11 @@
  * 2. The message type whitelist is complete
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
+  type IframeToParentMessage,
   isIframeMessage,
   isMessageType,
-  type IframeToParentMessage,
 } from "../frame-bridge";
 
 describe("isIframeMessage", () => {
@@ -30,7 +30,9 @@ describe("isIframeMessage", () => {
     "widget_comm_close",
   ] as const;
 
-  it.each(validMessageTypes)('returns true for valid message type "%s"', (type) => {
+  it.each(
+    validMessageTypes,
+  )('returns true for valid message type "%s"', (type) => {
     expect(isIframeMessage({ type })).toBe(true);
   });
 
@@ -79,12 +81,11 @@ describe("isIframeMessage", () => {
     "comm_sync",
   ];
 
-  it.each(parentMessageTypes)(
-    'returns false for parent message type "%s"',
-    (type) => {
-      expect(isIframeMessage({ type })).toBe(false);
-    }
-  );
+  it.each(
+    parentMessageTypes,
+  )('returns false for parent message type "%s"', (type) => {
+    expect(isIframeMessage({ type })).toBe(false);
+  });
 });
 
 describe("isMessageType", () => {
@@ -134,7 +135,7 @@ describe("message type whitelist completeness", () => {
     for (const type of allIframeMessageTypes) {
       expect(
         isIframeMessage({ type }),
-        `Message type "${type}" should be in whitelist`
+        `Message type "${type}" should be in whitelist`,
       ).toBe(true);
     }
   });

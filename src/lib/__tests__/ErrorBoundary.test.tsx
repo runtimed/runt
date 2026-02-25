@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ErrorBoundary } from "../error-boundary";
 
 // Suppress React's noisy error boundary console output during tests
@@ -132,7 +132,9 @@ describe("ErrorBoundary", () => {
         const [output, setOutput] = useState<{ data: string }>({ data: "bad" });
         return (
           <>
-            <button onClick={() => setOutput({ data: "good" })}>new-output</button>
+            <button onClick={() => setOutput({ data: "good" })}>
+              new-output
+            </button>
             <ErrorBoundary
               resetKeys={[output]}
               fallback={(error) => <div>error: {error.message}</div>}

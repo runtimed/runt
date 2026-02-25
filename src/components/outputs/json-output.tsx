@@ -1,5 +1,3 @@
-"use client";
-
 import { ChevronRightIcon } from "lucide-react";
 import {
   createContext,

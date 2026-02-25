@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Text widget - renders a text input field.
  *

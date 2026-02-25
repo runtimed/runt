@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * FloatText widget - renders a numeric text input for floats.
  *

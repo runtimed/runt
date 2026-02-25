@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Box widget - generic flex container.
  *

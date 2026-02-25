@@ -12,18 +12,18 @@
  * It cannot access Tauri APIs, the parent DOM, or localStorage.
  */
 
+import type {
+  CommCloseMessage,
+  CommMsgMessage,
+  CommOpenMessage,
+  CommSyncMessage,
+  WidgetCommCloseMessage,
+  WidgetCommMsgMessage,
+} from "@/components/isolated/frame-bridge";
 import {
   createWidgetStore,
   type WidgetStore,
 } from "@/components/widgets/widget-store";
-import type {
-  CommOpenMessage,
-  CommMsgMessage,
-  CommCloseMessage,
-  CommSyncMessage,
-  WidgetCommMsgMessage,
-  WidgetCommCloseMessage,
-} from "@/components/isolated/frame-bridge";
 
 // Type for method parameter in comm messages
 type CommMethod = "update" | "custom";
@@ -43,7 +43,7 @@ export interface WidgetBridgeClient {
   sendUpdate: (
     commId: string,
     state: Record<string, unknown>,
-    buffers?: ArrayBuffer[]
+    buffers?: ArrayBuffer[],
   ) => void;
 
   /**
@@ -53,7 +53,7 @@ export interface WidgetBridgeClient {
   sendCustom: (
     commId: string,
     content: Record<string, unknown>,
-    buffers?: ArrayBuffer[]
+    buffers?: ArrayBuffer[],
   ) => void;
 
   /**
@@ -153,7 +153,7 @@ export function createWidgetBridgeClient(): WidgetBridgeClient {
     sendUpdate(
       commId: string,
       state: Record<string, unknown>,
-      buffers?: ArrayBuffer[]
+      buffers?: ArrayBuffer[],
     ) {
       // Update local store immediately for responsive UI (optimistic update)
       store.updateModel(commId, state, buffers);
@@ -174,7 +174,7 @@ export function createWidgetBridgeClient(): WidgetBridgeClient {
     sendCustom(
       commId: string,
       content: Record<string, unknown>,
-      buffers?: ArrayBuffer[]
+      buffers?: ArrayBuffer[],
     ) {
       const msg: WidgetCommMsgMessage = {
         type: "widget_comm_msg",

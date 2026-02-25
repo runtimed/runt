@@ -1,4 +1,4 @@
-import { Sun, Moon, Monitor } from "lucide-react";
+import { Monitor, Moon, Sun } from "lucide-react";
 import type { ThemeMode } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
 

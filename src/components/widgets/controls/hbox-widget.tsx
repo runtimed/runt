@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * HBox widget - horizontal flex container.
  *

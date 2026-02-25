@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Valid widget - displays a validation indicator (checkmark or X).
  *

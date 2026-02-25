@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * ColorPicker widget - renders a color selection input.
  *

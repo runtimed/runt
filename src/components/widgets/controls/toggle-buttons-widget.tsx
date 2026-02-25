@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * ToggleButtons widget - renders a group of toggle buttons (single selection).
  *

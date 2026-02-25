@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Video widget - plays video from the kernel.
  *

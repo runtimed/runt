@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * VBox widget - vertical flex container.
  *

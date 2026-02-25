@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Theme } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useCallback, useEffect, useState } from "react";
 
 export type ThemeMode = "light" | "dark" | "system";
 

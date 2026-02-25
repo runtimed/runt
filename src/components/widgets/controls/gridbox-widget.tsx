@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * GridBox widget - CSS grid container.
  *

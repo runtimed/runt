@@ -1,5 +1,3 @@
-"use client";
-
 import { lazy, type ReactNode, Suspense } from "react";
 import { useMediaContext } from "./media-provider";
 
@@ -244,10 +242,16 @@ export function MediaRouter({
   const mimeType = selectMimeType(data, priority);
 
   if (!mimeType) {
-    return fallback ? (
-      fallback
-    ) : (
-      <div className="py-2 text-sm text-gray-500">No displayable output</div>
+    return (
+      <div data-slot="media-router">
+        {fallback ? (
+          fallback
+        ) : (
+          <div className="py-2 text-sm text-gray-500">
+            No displayable output
+          </div>
+        )}
+      </div>
     );
   }
 
@@ -259,14 +263,16 @@ export function MediaRouter({
   if (renderers[mimeType]) {
     const customRenderer = renderers[mimeType];
     return (
-      <Suspense fallback={loadingComponent}>
-        {customRenderer({
-          data: content,
-          metadata: mimeMetadata,
-          mimeType,
-          className,
-        })}
-      </Suspense>
+      <div data-slot="media-router" data-mime-type={mimeType}>
+        <Suspense fallback={loadingComponent}>
+          {customRenderer({
+            data: content,
+            metadata: mimeMetadata,
+            mimeType,
+            className,
+          })}
+        </Suspense>
+      </div>
     );
   }
 
@@ -353,7 +359,11 @@ export function MediaRouter({
     return <AnsiOutput className={className}>{String(content)}</AnsiOutput>;
   };
 
-  return <Suspense fallback={loadingComponent}>{renderBuiltIn()}</Suspense>;
+  return (
+    <div data-slot="media-router" data-mime-type={mimeType}>
+      <Suspense fallback={loadingComponent}>{renderBuiltIn()}</Suspense>
+    </div>
+  );
 }
 
 /**

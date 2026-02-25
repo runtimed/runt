@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Link widgets — frontend-only property synchronization.
  *

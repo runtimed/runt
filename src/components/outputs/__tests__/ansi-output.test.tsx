@@ -5,13 +5,9 @@
  * and rendered with appropriate styles and CSS classes.
  */
 
-import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import {
-  AnsiOutput,
-  AnsiStreamOutput,
-  AnsiErrorOutput,
-} from "../ansi-output";
+import { describe, expect, it } from "vitest";
+import { AnsiErrorOutput, AnsiOutput, AnsiStreamOutput } from "../ansi-output";
 
 // Helper to get styles from rendered spans
 function getSpanStyles(container: HTMLElement) {
@@ -44,7 +40,7 @@ describe("AnsiOutput", () => {
   describe("standard 16 colors", () => {
     it("renders red foreground with CSS class", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[31mRed text\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[31mRed text\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const redSpan = spans.find((s) => s.text === "Red text");
@@ -53,7 +49,7 @@ describe("AnsiOutput", () => {
 
     it("renders green foreground with CSS class", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[32mGreen text\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[32mGreen text\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const greenSpan = spans.find((s) => s.text === "Green text");
@@ -62,7 +58,7 @@ describe("AnsiOutput", () => {
 
     it("renders yellow foreground with CSS class", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[33mYellow text\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[33mYellow text\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const yellowSpan = spans.find((s) => s.text === "Yellow text");
@@ -71,7 +67,7 @@ describe("AnsiOutput", () => {
 
     it("renders blue foreground with CSS class", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[34mBlue text\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[34mBlue text\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const blueSpan = spans.find((s) => s.text === "Blue text");
@@ -80,7 +76,7 @@ describe("AnsiOutput", () => {
 
     it("renders bright colors with CSS class", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[91mBright red\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[91mBright red\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const brightRedSpan = spans.find((s) => s.text === "Bright red");
@@ -89,7 +85,7 @@ describe("AnsiOutput", () => {
 
     it("renders background colors with CSS class", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[41mRed background\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[41mRed background\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const bgSpan = spans.find((s) => s.text === "Red background");
@@ -101,7 +97,7 @@ describe("AnsiOutput", () => {
     it("renders palette color 196 (red) as inline RGB", () => {
       // Color 196 is in the 6x6x6 cube: r=5, g=0, b=0 -> rgb(255, 0, 0)
       const { container } = render(
-        <AnsiOutput>{"\x1b[38;5;196mPalette 196\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[38;5;196mPalette 196\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const paletteSpan = spans.find((s) => s.text === "Palette 196");
@@ -112,7 +108,7 @@ describe("AnsiOutput", () => {
     it("renders grayscale palette color as inline RGB", () => {
       // Color 240 is grayscale: (240-232)*10+8 = 88
       const { container } = render(
-        <AnsiOutput>{"\x1b[38;5;240mGrayscale\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[38;5;240mGrayscale\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const graySpan = spans.find((s) => s.text === "Grayscale");
@@ -122,7 +118,7 @@ describe("AnsiOutput", () => {
 
     it("renders palette background color", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[48;5;21mBlue BG\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[48;5;21mBlue BG\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const bgSpan = spans.find((s) => s.text === "Blue BG");
@@ -133,7 +129,7 @@ describe("AnsiOutput", () => {
   describe("24-bit truecolor", () => {
     it("renders truecolor foreground as inline RGB", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[38;2;255;128;0mOrange\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[38;2;255;128;0mOrange\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const truecolorSpan = spans.find((s) => s.text === "Orange");
@@ -143,7 +139,7 @@ describe("AnsiOutput", () => {
 
     it("renders truecolor background as inline RGB", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[48;2;50;100;150mTruecolor BG\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[48;2;50;100;150mTruecolor BG\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const bgSpan = spans.find((s) => s.text === "Truecolor BG");
@@ -155,7 +151,7 @@ describe("AnsiOutput", () => {
   describe("decorations", () => {
     it("renders bold text", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[1mBold\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[1mBold\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const boldSpan = spans.find((s) => s.text === "Bold");
@@ -164,7 +160,7 @@ describe("AnsiOutput", () => {
 
     it("renders italic text", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[3mItalic\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[3mItalic\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const italicSpan = spans.find((s) => s.text === "Italic");
@@ -173,7 +169,7 @@ describe("AnsiOutput", () => {
 
     it("renders underline text", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[4mUnderline\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[4mUnderline\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const underlineSpan = spans.find((s) => s.text === "Underline");
@@ -182,7 +178,7 @@ describe("AnsiOutput", () => {
 
     it("renders strikethrough text", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[9mStrikethrough\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[9mStrikethrough\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const strikeSpan = spans.find((s) => s.text === "Strikethrough");
@@ -191,7 +187,7 @@ describe("AnsiOutput", () => {
 
     it("renders dim text with reduced opacity", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[2mDim\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[2mDim\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const dimSpan = spans.find((s) => s.text === "Dim");
@@ -200,10 +196,12 @@ describe("AnsiOutput", () => {
 
     it("combines multiple decorations", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[1;3;4mBold italic underline\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[1;3;4mBold italic underline\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
-      const combinedSpan = spans.find((s) => s.text === "Bold italic underline");
+      const combinedSpan = spans.find(
+        (s) => s.text === "Bold italic underline",
+      );
       expect(combinedSpan?.style).toContain("font-weight: bold");
       expect(combinedSpan?.style).toContain("font-style: italic");
       expect(combinedSpan?.style).toContain("text-decoration: underline");
@@ -213,9 +211,7 @@ describe("AnsiOutput", () => {
   describe("terminal emulation", () => {
     it("handles backspace characters", () => {
       // "abc\b" should become "ab" (backspace removes 'c')
-      const { container } = render(
-        <AnsiOutput>{"abc\x08d"}</AnsiOutput>
-      );
+      const { container } = render(<AnsiOutput>{"abc\x08d"}</AnsiOutput>);
       // The result should be "abd" (c is replaced by backspace+d)
       const text = container.textContent;
       expect(text).toContain("abd");
@@ -223,9 +219,7 @@ describe("AnsiOutput", () => {
 
     it("handles carriage return", () => {
       // Carriage return should work with escape-carriage package
-      const { container } = render(
-        <AnsiOutput>{"hello\rworld"}</AnsiOutput>
-      );
+      const { container } = render(<AnsiOutput>{"hello\rworld"}</AnsiOutput>);
       const text = container.textContent;
       // escape-carriage handles \r by replacing content
       expect(text).toBeDefined();
@@ -235,7 +229,7 @@ describe("AnsiOutput", () => {
   describe("combined styling", () => {
     it("renders color with decoration", () => {
       const { container } = render(
-        <AnsiOutput>{"\x1b[1;31mBold Red\x1b[0m"}</AnsiOutput>
+        <AnsiOutput>{"\x1b[1;31mBold Red\x1b[0m"}</AnsiOutput>,
       );
       const spans = getSpanStyles(container);
       const styledSpan = spans.find((s) => s.text === "Bold Red");
@@ -247,19 +241,25 @@ describe("AnsiOutput", () => {
       const { container } = render(
         <AnsiOutput>
           {"\x1b[31mRed\x1b[0m \x1b[32mGreen\x1b[0m \x1b[34mBlue\x1b[0m"}
-        </AnsiOutput>
+        </AnsiOutput>,
       );
       const spans = getSpanStyles(container);
-      expect(spans.find((s) => s.text === "Red")?.className).toContain("ansi-red-fg");
-      expect(spans.find((s) => s.text === "Green")?.className).toContain("ansi-green-fg");
-      expect(spans.find((s) => s.text === "Blue")?.className).toContain("ansi-blue-fg");
+      expect(spans.find((s) => s.text === "Red")?.className).toContain(
+        "ansi-red-fg",
+      );
+      expect(spans.find((s) => s.text === "Green")?.className).toContain(
+        "ansi-green-fg",
+      );
+      expect(spans.find((s) => s.text === "Blue")?.className).toContain(
+        "ansi-blue-fg",
+      );
     });
   });
 
   describe("isError prop", () => {
     it("applies error styling when isError is true", () => {
       const { container } = render(
-        <AnsiOutput isError>Error message</AnsiOutput>
+        <AnsiOutput isError>Error message</AnsiOutput>,
       );
       const output = container.querySelector("[data-slot='ansi-output']");
       expect(output?.className).toContain("text-red");
@@ -270,7 +270,7 @@ describe("AnsiOutput", () => {
 describe("AnsiStreamOutput", () => {
   it("renders stdout with appropriate styling", () => {
     const { container } = render(
-      <AnsiStreamOutput text="stdout output" streamName="stdout" />
+      <AnsiStreamOutput text="stdout output" streamName="stdout" />,
     );
     const output = container.querySelector("[data-slot='ansi-stream-output']");
     expect(output).toBeInTheDocument();
@@ -279,16 +279,14 @@ describe("AnsiStreamOutput", () => {
 
   it("renders stderr with red styling", () => {
     const { container } = render(
-      <AnsiStreamOutput text="stderr output" streamName="stderr" />
+      <AnsiStreamOutput text="stderr output" streamName="stderr" />,
     );
     const output = container.querySelector("[data-slot='ansi-stream-output']");
     expect(output?.className).toContain("text-red");
   });
 
   it("renders text content", () => {
-    render(
-      <AnsiStreamOutput text="Plain stream output" streamName="stdout" />
-    );
+    render(<AnsiStreamOutput text="Plain stream output" streamName="stdout" />);
     expect(screen.getByText("Plain stream output")).toBeInTheDocument();
   });
 });
@@ -299,7 +297,7 @@ describe("AnsiErrorOutput", () => {
       <AnsiErrorOutput
         ename="TypeError"
         evalue="cannot read property 'foo' of undefined"
-      />
+      />,
     );
     expect(screen.getByText(/TypeError/)).toBeInTheDocument();
     expect(screen.getByText(/cannot read property/)).toBeInTheDocument();
@@ -311,7 +309,7 @@ describe("AnsiErrorOutput", () => {
         ename="Error"
         evalue="test"
         traceback={["line 1", "line 2", "line 3"]}
-      />
+      />,
     );
     expect(screen.getByText(/line 1/)).toBeInTheDocument();
     expect(screen.getByText(/line 2/)).toBeInTheDocument();
@@ -323,7 +321,7 @@ describe("AnsiErrorOutput", () => {
         ename="Error"
         evalue="test"
         traceback="single line traceback"
-      />
+      />,
     );
     expect(screen.getByText(/single line traceback/)).toBeInTheDocument();
   });
@@ -334,7 +332,7 @@ describe("AnsiErrorOutput", () => {
         ename="Error"
         evalue="test"
         traceback={["\x1b[31mRed error line\x1b[0m"]}
-      />
+      />,
     );
     const spans = getSpanStyles(container);
     const redSpan = spans.find((s) => s.text === "Red error line");
@@ -343,7 +341,7 @@ describe("AnsiErrorOutput", () => {
 
   it("has error-specific styling", () => {
     const { container } = render(
-      <AnsiErrorOutput ename="Error" evalue="test" />
+      <AnsiErrorOutput ename="Error" evalue="test" />,
     );
     const output = container.querySelector("[data-slot='ansi-error-output']");
     expect(output?.className).toContain("border-red");

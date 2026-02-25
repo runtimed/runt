@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Comm Protocol Router Hook
  *

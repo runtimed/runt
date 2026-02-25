@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Stack widget - single-child container showing one child at a time.
  *

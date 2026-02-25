@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Accordion widget - collapsible panel container.
  *

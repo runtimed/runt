@@ -6,10 +6,14 @@
  * rendering behavior for different MIME types.
  */
 
-import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import { getSelectedMimeType, DEFAULT_PRIORITY, MediaRouter } from "../media-router";
+import { describe, expect, it, vi } from "vitest";
 import { MediaProvider } from "../media-provider";
+import {
+  DEFAULT_PRIORITY,
+  getSelectedMimeType,
+  MediaRouter,
+} from "../media-router";
 
 describe("getSelectedMimeType", () => {
   describe("priority-based selection", () => {
@@ -29,7 +33,7 @@ describe("getSelectedMimeType", () => {
         "application/vnd.jupyter.widget-view+json": { model_id: "abc" },
       };
       expect(getSelectedMimeType(data)).toBe(
-        "application/vnd.jupyter.widget-view+json"
+        "application/vnd.jupyter.widget-view+json",
       );
     });
 
@@ -161,7 +165,9 @@ describe("getSelectedMimeType", () => {
         "application/vnd.vegalite.v4+json": { $schema: "v4" },
         "application/vnd.vegalite.v5+json": { $schema: "v5" },
       };
-      expect(getSelectedMimeType(data)).toBe("application/vnd.vegalite.v5+json");
+      expect(getSelectedMimeType(data)).toBe(
+        "application/vnd.vegalite.v5+json",
+      );
     });
 
     it("handles GeoJSON", () => {
@@ -200,7 +206,7 @@ describe("getSelectedMimeType", () => {
   describe("DEFAULT_PRIORITY constant", () => {
     it("has widget as highest priority", () => {
       expect(DEFAULT_PRIORITY[0]).toBe(
-        "application/vnd.jupyter.widget-view+json"
+        "application/vnd.jupyter.widget-view+json",
       );
     });
 
@@ -231,49 +237,54 @@ describe("MediaRouter component", () => {
   describe("isolated MIME type handling", () => {
     // These MIME types are routed to IsolatedFrame by OutputArea.tsx
     // and should not be rendered by MediaRouter in the main bundle.
-    // MediaRouter returns null for these to avoid rendering potentially
-    // unsafe content directly in the DOM.
+    // MediaRouter renders an empty wrapper (with data-slot) for these
+    // to avoid rendering potentially unsafe content directly in the DOM.
 
-    it("returns null for text/html", () => {
+    it("renders empty wrapper for text/html", () => {
       // Suppress the expected console.warn in dev mode
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
       const { container } = render(
         <MediaProvider>
           <MediaRouter data={{ "text/html": "<b>test</b>" }} />
-        </MediaProvider>
+        </MediaProvider>,
       );
-      expect(container.firstChild).toBeNull();
+      const wrapper = container.firstChild as HTMLElement;
+      expect(wrapper).toHaveAttribute("data-slot", "media-router");
+      expect(wrapper.children.length).toBe(0);
 
       warnSpy.mockRestore();
     });
 
-    it("returns null for text/markdown", () => {
+    it("renders empty wrapper for text/markdown", () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
       const { container } = render(
         <MediaProvider>
           <MediaRouter data={{ "text/markdown": "# Test" }} />
-        </MediaProvider>
+        </MediaProvider>,
       );
-      expect(container.firstChild).toBeNull();
+      const wrapper = container.firstChild as HTMLElement;
+      expect(wrapper).toHaveAttribute("data-slot", "media-router");
+      expect(wrapper.children.length).toBe(0);
 
       warnSpy.mockRestore();
     });
 
-    it("returns null for image/svg+xml", () => {
+    it("renders empty wrapper for image/svg+xml", () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
       const { container } = render(
         <MediaProvider>
           <MediaRouter data={{ "image/svg+xml": "<svg></svg>" }} />
-        </MediaProvider>
+        </MediaProvider>,
       );
-      expect(container.firstChild).toBeNull();
+      const wrapper = container.firstChild as HTMLElement;
+      expect(wrapper).toHaveAttribute("data-slot", "media-router");
+      expect(wrapper.children.length).toBe(0);
 
       warnSpy.mockRestore();
     });
-
   });
 
   describe("non-isolated rendering (lazy loaded)", () => {
@@ -281,7 +292,7 @@ describe("MediaRouter component", () => {
       render(
         <MediaProvider>
           <MediaRouter data={{ "text/plain": "Hello World" }} />
-        </MediaProvider>
+        </MediaProvider>,
       );
       await waitFor(() => {
         expect(screen.getByText("Hello World")).toBeInTheDocument();
@@ -296,7 +307,7 @@ describe("MediaRouter component", () => {
       render(
         <MediaProvider>
           <MediaRouter data={{ "image/png": pngData }} />
-        </MediaProvider>
+        </MediaProvider>,
       );
       await waitFor(() => {
         expect(screen.getByRole("img")).toBeInTheDocument();
@@ -307,7 +318,7 @@ describe("MediaRouter component", () => {
       render(
         <MediaProvider>
           <MediaRouter data={{ "application/json": { key: "value" } }} />
-        </MediaProvider>
+        </MediaProvider>,
       );
       // JsonOutput renders in a pre element with the JSON structure
       await waitFor(() => {
@@ -322,7 +333,7 @@ describe("MediaRouter component", () => {
       render(
         <MediaProvider>
           <MediaRouter data={{ "text/plain": ansiText }} />
-        </MediaProvider>
+        </MediaProvider>,
       );
       await waitFor(() => {
         expect(screen.getByText("Red text")).toBeInTheDocument();
@@ -332,10 +343,10 @@ describe("MediaRouter component", () => {
 
   describe("fallback behavior", () => {
     it("renders fallback when no data matches", () => {
-      const { container } = render(
+      render(
         <MediaProvider>
           <MediaRouter data={{}} fallback={<div>No output</div>} />
-        </MediaProvider>
+        </MediaProvider>,
       );
       expect(screen.getByText("No output")).toBeInTheDocument();
     });
@@ -344,7 +355,7 @@ describe("MediaRouter component", () => {
       render(
         <MediaProvider>
           <MediaRouter data={{}} />
-        </MediaProvider>
+        </MediaProvider>,
       );
       expect(screen.getByText("No displayable output")).toBeInTheDocument();
     });
@@ -353,7 +364,7 @@ describe("MediaRouter component", () => {
       render(
         <MediaProvider>
           <MediaRouter data={{ "application/octet-stream": "binary data" }} />
-        </MediaProvider>
+        </MediaProvider>,
       );
       // Falls back to AnsiOutput which renders as text
       await waitFor(() => {
@@ -372,7 +383,7 @@ describe("MediaRouter component", () => {
               "custom/type": ({ data }) => <div>Custom: {String(data)}</div>,
             }}
           />
-        </MediaProvider>
+        </MediaProvider>,
       );
       expect(screen.getByText("Custom: custom data")).toBeInTheDocument();
     });
@@ -386,7 +397,7 @@ describe("MediaRouter component", () => {
               "text/plain": ({ data }) => <div>Overridden: {String(data)}</div>,
             }}
           />
-        </MediaProvider>
+        </MediaProvider>,
       );
       expect(screen.getByText("Overridden: plain text")).toBeInTheDocument();
     });

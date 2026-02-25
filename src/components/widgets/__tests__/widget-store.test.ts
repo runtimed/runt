@@ -5,7 +5,7 @@
  * and provides reactive subscriptions for UI updates.
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createWidgetStore,
   isModelRef,
@@ -20,7 +20,9 @@ describe("isModelRef", () => {
   });
 
   it("returns true for IPY_MODEL_ with UUID", () => {
-    expect(isModelRef("IPY_MODEL_550e8400-e29b-41d4-a716-446655440000")).toBe(true);
+    expect(isModelRef("IPY_MODEL_550e8400-e29b-41d4-a716-446655440000")).toBe(
+      true,
+    );
   });
 
   it("returns false for string without prefix", () => {
@@ -490,7 +492,7 @@ describe("createWidgetStore", () => {
       expect(callback).toHaveBeenCalledTimes(1);
       expect(callback).toHaveBeenCalledWith(
         { action: "draw", x: 10 },
-        undefined
+        undefined,
       );
     });
 
@@ -523,8 +525,16 @@ describe("createWidgetStore", () => {
 
       // Should receive buffered messages
       expect(callback).toHaveBeenCalledTimes(2);
-      expect(callback).toHaveBeenNthCalledWith(1, { action: "first" }, undefined);
-      expect(callback).toHaveBeenNthCalledWith(2, { action: "second" }, undefined);
+      expect(callback).toHaveBeenNthCalledWith(
+        1,
+        { action: "first" },
+        undefined,
+      );
+      expect(callback).toHaveBeenNthCalledWith(
+        2,
+        { action: "second" },
+        undefined,
+      );
     });
 
     it("multiple subscribers to same comm receive messages", () => {

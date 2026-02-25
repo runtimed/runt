@@ -1,5 +1,3 @@
-"use client";
-
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   type ReactNode,
@@ -9,22 +7,25 @@ import {
   useRef,
   useState,
 } from "react";
-import { isDarkMode as detectDarkMode } from "@/lib/dark-mode";
-import { cn } from "@/lib/utils";
-import { ErrorBoundary } from "@/lib/error-boundary";
-import { OutputErrorFallback } from "@/lib/output-error-fallback";
-import {
-  AnsiErrorOutput,
-  AnsiStreamOutput,
-} from "@/components/outputs/ansi-output";
 import {
   CommBridgeManager,
   type IframeToParentMessage,
   IsolatedFrame,
   type IsolatedFrameHandle,
 } from "@/components/isolated";
-import { DEFAULT_PRIORITY, MediaRouter } from "@/components/outputs/media-router";
+import {
+  AnsiErrorOutput,
+  AnsiStreamOutput,
+} from "@/components/outputs/ansi-output";
+import {
+  DEFAULT_PRIORITY,
+  MediaRouter,
+} from "@/components/outputs/media-router";
 import { useWidgetStore } from "@/components/widgets/widget-store-context";
+import { isDarkMode as detectDarkMode } from "@/lib/dark-mode";
+import { ErrorBoundary } from "@/lib/error-boundary";
+import { OutputErrorFallback } from "@/lib/output-error-fallback";
+import { cn } from "@/lib/utils";
 
 /**
  * Jupyter output types based on the nbformat spec.
@@ -107,25 +108,6 @@ interface OutputAreaProps {
    * @deprecated Use the comm bridge instead for full widget support
    */
   onWidgetUpdate?: (commId: string, state: Record<string, unknown>) => void;
-  /**
-   * Whether to use the React renderer bundle inside the iframe.
-   * When true, fetches and loads isolated-renderer.js for full React rendering.
-   * When false, uses the inline JavaScript renderer (simpler, no build required).
-   * @default true
-   */
-  useReactRenderer?: boolean;
-  /**
-   * Inline React renderer JavaScript bundle for the iframe.
-   * When provided with rendererCss, uses this code directly instead of fetching.
-   * Use with Vite's `?raw` import: `import code from "./renderer.js?raw"`
-   */
-  rendererCode?: string;
-  /**
-   * Inline React renderer CSS for the iframe.
-   * When provided with rendererCode, uses this CSS directly instead of fetching.
-   * Use with Vite's `?raw` import: `import css from "./renderer.css?raw"`
-   */
-  rendererCss?: string;
 }
 
 /**
@@ -298,9 +280,6 @@ export function OutputArea({
   preloadIframe = false,
   onLinkClick,
   onWidgetUpdate,
-  useReactRenderer = true,
-  rendererCode,
-  rendererCss,
 }: OutputAreaProps) {
   const id = useId();
   const frameRef = useRef<IsolatedFrameHandle>(null);
@@ -488,9 +467,6 @@ export function OutputArea({
               <IsolatedFrame
                 ref={frameRef}
                 darkMode={darkMode}
-                useReactRenderer={useReactRenderer}
-                rendererCode={rendererCode}
-                rendererCss={rendererCss}
                 minHeight={24}
                 maxHeight={maxHeight ?? 2000}
                 onReady={handleFrameReady}
@@ -507,26 +483,31 @@ export function OutputArea({
           {/* In-DOM outputs (when not using isolation) */}
           {!shouldIsolate &&
             outputs.map((output, index) => (
-              <ErrorBoundary
+              <div
                 key={`output-${index}`}
-                resetKeys={[JSON.stringify(output)]}
-                fallback={(error, reset) => (
-                  <OutputErrorFallback
-                    error={error}
-                    outputIndex={index}
-                    onRetry={reset}
-                  />
-                )}
-                onError={(error, errorInfo) => {
-                  console.error(
-                    `[OutputArea] Error rendering output ${index}:`,
-                    error,
-                    errorInfo.componentStack,
-                  );
-                }}
+                data-slot="output-item"
+                data-output-index={index}
               >
-                {renderOutput(output, index, renderers, priority)}
-              </ErrorBoundary>
+                <ErrorBoundary
+                  resetKeys={[JSON.stringify(output)]}
+                  fallback={(error, reset) => (
+                    <OutputErrorFallback
+                      error={error}
+                      outputIndex={index}
+                      onRetry={reset}
+                    />
+                  )}
+                  onError={(error, errorInfo) => {
+                    console.error(
+                      `[OutputArea] Error rendering output ${index}:`,
+                      error,
+                      errorInfo.componentStack,
+                    );
+                  }}
+                >
+                  {renderOutput(output, index, renderers, priority)}
+                </ErrorBoundary>
+              </div>
             ))}
         </div>
       )}

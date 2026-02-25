@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * IntProgress widget - renders an integer progress bar.
  *

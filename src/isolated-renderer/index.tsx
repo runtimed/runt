@@ -9,25 +9,28 @@
  * It cannot access Tauri APIs, the parent DOM, or localStorage.
  */
 
+import { StrictMode, useCallback, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { StrictMode, useState, useEffect, useCallback } from "react";
 
 // Import styles (Tailwind + theme variables)
 import "./styles.css";
 
+import type { RenderPayload } from "@/components/isolated/frame-bridge";
 // Import output components directly (not through MediaRouter's lazy loading)
 // This ensures all components are bundled inline for the isolated iframe
-import { AnsiOutput, AnsiErrorOutput, AnsiStreamOutput } from "@/components/outputs/ansi-output";
-import { MarkdownOutput } from "@/components/outputs/markdown-output";
+import {
+  AnsiErrorOutput,
+  AnsiOutput,
+  AnsiStreamOutput,
+} from "@/components/outputs/ansi-output";
 import { HtmlOutput } from "@/components/outputs/html-output";
 import { ImageOutput } from "@/components/outputs/image-output";
-import { SvgOutput } from "@/components/outputs/svg-output";
 import { JsonOutput } from "@/components/outputs/json-output";
-import type { RenderPayload } from "@/components/isolated/frame-bridge";
-
+import { MarkdownOutput } from "@/components/outputs/markdown-output";
+import { SvgOutput } from "@/components/outputs/svg-output";
+import { WidgetView } from "@/components/widgets/widget-view";
 // Import widget support
 import { IframeWidgetStoreProvider } from "./widget-provider";
-import { WidgetView } from "@/components/widgets/widget-view";
 
 // Import widget controls to register them in the widget registry
 // This import has side effects that register all built-in widgets
@@ -129,7 +132,10 @@ function IsolatedRendererApp() {
             return { ...prev, outputs: [{ id, payload: renderPayload }] };
           }
           // Default: append to existing outputs
-          return { ...prev, outputs: [...prev.outputs, { id, payload: renderPayload }] };
+          return {
+            ...prev,
+            outputs: [...prev.outputs, { id, payload: renderPayload }],
+          };
         });
 
         // Notify parent of render completion after next paint
@@ -139,7 +145,7 @@ function IsolatedRendererApp() {
               type: "render_complete",
               payload: { height: document.body.scrollHeight },
             },
-            "*"
+            "*",
           );
         });
         break;
@@ -153,7 +159,7 @@ function IsolatedRendererApp() {
               type: "render_complete",
               payload: { height: document.body.scrollHeight },
             },
-            "*"
+            "*",
           );
         });
         break;
@@ -184,7 +190,10 @@ function IsolatedRendererApp() {
   }, [handleMessage]);
 
   return (
-    <div className="isolated-renderer" data-theme={state.isDark ? "dark" : "light"}>
+    <div
+      className="isolated-renderer"
+      data-theme={state.isDark ? "dark" : "light"}
+    >
       {state.outputs.map((entry) => (
         <OutputRenderer key={entry.id} payload={entry.payload} />
       ))}
@@ -254,7 +263,9 @@ function OutputRenderer({ payload }: { payload: RenderPayload }) {
     return (
       <ImageOutput
         data={String(content)}
-        mediaType={mimeType as "image/png" | "image/jpeg" | "image/gif" | "image/webp"}
+        mediaType={
+          mimeType as "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+        }
         width={metadata?.width as number | undefined}
         height={metadata?.height as number | undefined}
       />
@@ -263,7 +274,8 @@ function OutputRenderer({ payload }: { payload: RenderPayload }) {
 
   // JSON
   if (mimeType === "application/json") {
-    const jsonData = typeof content === "string" ? JSON.parse(content) : content;
+    const jsonData =
+      typeof content === "string" ? JSON.parse(content) : content;
     return <JsonOutput data={jsonData} />;
   }
 
@@ -320,14 +332,14 @@ export function init() {
       <IframeWidgetStoreProvider>
         <IsolatedRendererApp />
       </IframeWidgetStoreProvider>
-    </StrictMode>
+    </StrictMode>,
   );
 
   // Set up resize observer
   const resizeObserver = new ResizeObserver(() => {
     window.parent.postMessage(
       { type: "resize", payload: { height: document.body.scrollHeight } },
-      "*"
+      "*",
     );
   });
   resizeObserver.observe(document.body);
@@ -339,7 +351,21 @@ export function init() {
 // Auto-init if this is the main module being eval'd
 // The parent will send us via eval, so we auto-start
 if (typeof window !== "undefined") {
-  // Check if we're being eval'd (window.currentMessage exists from bootstrap)
-  // If so, init immediately. Otherwise, export for manual init.
-  init();
+  try {
+    init();
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    console.error("[IsolatedRenderer] init() failed:", error);
+    // Report error back to parent
+    window.parent.postMessage(
+      {
+        type: "error",
+        payload: {
+          message: `Renderer init failed: ${error.message}`,
+          stack: error.stack,
+        },
+      },
+      "*",
+    );
+  }
 }

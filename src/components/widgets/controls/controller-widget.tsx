@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Controller widget - gamepad input via Web Gamepad API.
  *

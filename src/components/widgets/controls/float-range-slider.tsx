@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * FloatRangeSlider widget - renders a dual-handle range slider for floats.
  *

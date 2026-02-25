@@ -7,7 +7,15 @@
  * 3. Message handler validates source
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { createFrameBlobUrl, generateFrameHtml } from "../frame-html";
 
 describe("generateFrameHtml", () => {

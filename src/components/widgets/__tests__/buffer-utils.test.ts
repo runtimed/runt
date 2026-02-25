@@ -5,12 +5,12 @@
  * which is critical for widgets that work with images, audio, and other binary data.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   applyBufferPaths,
-  extractBuffers,
   arrayBufferToBase64,
   buildMediaSrc,
+  extractBuffers,
   findBufferPaths,
 } from "../buffer-utils";
 
@@ -45,8 +45,14 @@ describe("applyBufferPaths", () => {
   it("applies buffer at nested path", () => {
     const data = { nested: { deep: { value: null } } };
     const buffer = new ArrayBuffer(8);
-    const result = applyBufferPaths(data, [["nested", "deep", "value"]], [buffer]);
-    expect((result.nested as Record<string, unknown>).deep).toEqual({ value: buffer });
+    const result = applyBufferPaths(
+      data,
+      [["nested", "deep", "value"]],
+      [buffer],
+    );
+    expect((result.nested as Record<string, unknown>).deep).toEqual({
+      value: buffer,
+    });
   });
 
   it("creates intermediate objects for missing paths", () => {
@@ -55,7 +61,9 @@ describe("applyBufferPaths", () => {
     const result = applyBufferPaths(data, [["a", "b", "c"]], [buffer]);
     expect(result.a).toBeDefined();
     expect((result.a as Record<string, unknown>).b).toBeDefined();
-    expect(((result.a as Record<string, unknown>).b as Record<string, unknown>).c).toBe(buffer);
+    expect(
+      ((result.a as Record<string, unknown>).b as Record<string, unknown>).c,
+    ).toBe(buffer);
   });
 
   it("applies multiple buffers to multiple paths", () => {
@@ -65,7 +73,7 @@ describe("applyBufferPaths", () => {
     const result = applyBufferPaths(
       data,
       [["first"], ["second"]],
-      [buffer1, buffer2]
+      [buffer1, buffer2],
     );
     expect(result.first).toBe(buffer1);
     expect(result.second).toBe(buffer2);
@@ -74,11 +82,7 @@ describe("applyBufferPaths", () => {
   it("handles mismatched buffer count (fewer buffers than paths)", () => {
     const data = { first: null, second: null };
     const buffer = new ArrayBuffer(4);
-    const result = applyBufferPaths(
-      data,
-      [["first"], ["second"]],
-      [buffer]
-    );
+    const result = applyBufferPaths(data, [["first"], ["second"]], [buffer]);
     expect(result.first).toBe(buffer);
     expect(result.second).toBeNull();
   });
@@ -412,7 +416,7 @@ describe("roundtrip: applyBufferPaths and extractBuffers", () => {
 
     // Verify buffer contents preserved
     const restoredView = new Uint8Array(
-      (restored.nested as Record<string, ArrayBuffer>).data
+      (restored.nested as Record<string, ArrayBuffer>).data,
     );
     expect(Array.from(restoredView)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });

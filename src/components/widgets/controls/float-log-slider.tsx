@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * FloatLogSlider widget - renders a logarithmic scale slider.
  *

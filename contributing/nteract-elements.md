@@ -91,6 +91,36 @@ Some utilities are shared across components:
 | `ErrorBoundary` | `@/lib/error-boundary` | Fault isolation with resetKeys |
 | `cn()` | `@/lib/utils` | Class name merging |
 
+## Post-Install Cleanup
+
+After installing or updating components from the registry, run these cleanup steps:
+
+### Remove "use client" Directives
+
+The registry components include `"use client"` directives for Next.js/React Server Components compatibility. These are irrelevant for our Tauri app and cause noisy warnings during the isolated renderer build.
+
+Remove them after any shadcn install:
+
+```bash
+# Remove "use client" from all src files
+grep -rl '"use client"' src/ | xargs -I {} sed -i '' '/^"use client";$/d' {}
+
+# Format to clean up empty lines
+npx @biomejs/biome check --fix src/
+```
+
+### Silence Dynamic Import Warnings
+
+Some widget components use dynamic imports that Vite can't analyze. Add `/* @vite-ignore */` comments to suppress warnings:
+
+```tsx
+// Before (causes warning)
+return import(esm);
+
+// After (warning suppressed)
+return import(/* @vite-ignore */ esm);
+```
+
 ## Troubleshooting
 
 ### Import path mismatches

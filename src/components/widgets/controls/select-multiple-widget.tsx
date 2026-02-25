@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * SelectMultiple widget - renders a multi-select listbox.
  *
