@@ -326,6 +326,11 @@ jobs:
             E2E_SPEC=e2e/specs/error-handling.spec.js \
             pnpm test:e2e || FAIL=1
 
+          start_driver
+          NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/1-vanilla.ipynb \
+            E2E_SPEC=e2e/specs/cell-operations.spec.js \
+            pnpm test:e2e || FAIL=1
+
           # Cleanup
           kill $DRIVER_PID 2>/dev/null || true
           kill $RUNTIMED_PID 2>/dev/null || true

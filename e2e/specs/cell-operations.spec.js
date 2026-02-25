@@ -7,6 +7,8 @@
  * - Delete cell (cannot delete last cell)
  * - Variables persist across cells
  * - Execution count increments
+ *
+ * Requires: NOTEBOOK_PATH=crates/notebook/fixtures/audit-test/1-vanilla.ipynb
  */
 
 import os from "node:os";
@@ -97,10 +99,7 @@ describe("Cell Operations", () => {
   }
 
   describe("Adding cells", () => {
-    // TODO: This test is flaky because it runs without a fixture notebook.
-    // When the app opens blank, auto-cell creation races with the initial count check.
-    // Fix: Add this spec to FIXTURE_SPECS with a dedicated fixture notebook.
-    it.skip("should add a new code cell", async () => {
+    it("should add a new code cell", async () => {
       const initialCount = await countCodeCells();
       console.log("Initial code cell count:", initialCount);
 
