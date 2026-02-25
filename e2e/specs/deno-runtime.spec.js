@@ -24,12 +24,21 @@ describe("Deno Runtime", () => {
   });
 
   it("should show the Deno runtime badge in the toolbar", async () => {
-    const isDenoBadge = await browser.execute(() => {
-      return !!document.querySelector(
-        '[data-testid="deps-toggle"][data-runtime="deno"]',
-      );
-    });
-    expect(isDenoBadge).toBe(true);
+    // Wait for the Deno badge to appear (runtime state is loaded asynchronously)
+    await browser.waitUntil(
+      async () => {
+        return await browser.execute(() => {
+          return !!document.querySelector(
+            '[data-testid="deps-toggle"][data-runtime="deno"]',
+          );
+        });
+      },
+      {
+        timeout: 15000,
+        interval: 300,
+        timeoutMsg: "Deno runtime badge did not appear within 15s",
+      },
+    );
     console.log("Deno runtime badge visible");
   });
 

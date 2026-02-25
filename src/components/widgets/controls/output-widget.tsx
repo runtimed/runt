@@ -112,13 +112,21 @@ export function OutputWidget({ modelId, className }: WidgetComponentProps) {
     return null;
   }
 
+  // Check if we're already inside an iframe (isolated context).
+  // If so, skip nested isolation since the outer iframe already provides security.
+  // This prevents double-nesting: widget iframe → OutputWidget iframe → content
+  const isInIframe = typeof window !== "undefined" && window.parent !== window;
+
   return (
     <div
       className={cn("widget-output", className)}
       data-widget-id={modelId}
       data-widget-type="Output"
     >
-      <OutputArea outputs={renderedOutputs} isolated={false} />
+      <OutputArea
+        outputs={renderedOutputs}
+        isolated={isInIframe ? false : "auto"}
+      />
     </div>
   );
 }

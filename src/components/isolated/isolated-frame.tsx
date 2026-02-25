@@ -193,7 +193,12 @@ export const IsolatedFrame = forwardRef<
   ref,
 ) {
   // Get renderer bundle from context (provided by IsolatedRendererProvider)
-  const { rendererCode, rendererCss } = useIsolatedRenderer();
+  const {
+    rendererCode,
+    rendererCss,
+    isLoading: providerLoading,
+    error: providerError,
+  } = useIsolatedRenderer();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   // Track iframe ready (bootstrap HTML loaded)
@@ -236,6 +241,13 @@ export const IsolatedFrame = forwardRef<
   useEffect(() => {
     isReadyRef.current = isReady;
   }, [isReady]);
+
+  // Surface provider errors to consumers
+  useEffect(() => {
+    if (providerError && !providerLoading) {
+      onError?.({ message: providerError.message, stack: providerError.stack });
+    }
+  }, [providerError, providerLoading, onError]);
 
   // Send a message to the iframe
   // Uses ref to check ready state to avoid stale closure issues
@@ -331,20 +343,20 @@ export const IsolatedFrame = forwardRef<
           }
           break;
 
+        case "error":
+          if (data.payload) {
+            onError?.(data.payload);
+          }
+          break;
+
         case "eval_result":
-          // Report eval failures to help diagnose bundle injection issues
+          // Surface bundle eval failures to help diagnose injection issues
           if (data.payload?.success === false) {
             console.error(
               "[IsolatedFrame] Bundle eval failed:",
               data.payload.error,
             );
             onError?.({ message: `Bundle eval failed: ${data.payload.error}` });
-          }
-          break;
-
-        case "error":
-          if (data.payload) {
-            onError?.(data.payload);
           }
           break;
       }

@@ -89,17 +89,18 @@ export function WidgetStoreProvider({
   }
   const store = storeRef.current;
 
-  // Manage link subscriptions (jslink/jsdlink) at the store level.
-  // Headless widgets like LinkModel have _view_name: null and won't be
-  // in any container's children, so they need store-level subscriptions.
-  useEffect(() => createLinkManager(store), [store]);
-  useEffect(() => createCanvasManagerRouter(store), [store]);
-
   // Use the comm router hook for message handling
   const { handleMessage, sendUpdate, sendCustom, closeComm } = useCommRouter({
     sendMessage,
     store,
   });
+
+  // Manage link subscriptions (jslink/jsdlink) at the store level.
+  // Headless widgets like LinkModel have _view_name: null and won't be
+  // in any container's children, so they need store-level subscriptions.
+  // Pass sendUpdate so linked values sync back to the Python kernel.
+  useEffect(() => createLinkManager(store, sendUpdate), [store, sendUpdate]);
+  useEffect(() => createCanvasManagerRouter(store), [store]);
 
   const value = useMemo(
     () => ({

@@ -36,14 +36,14 @@ export async function waitForAppReady() {
  * Use this in specs that execute code — replaces both the 5000ms before()
  * pause AND the first kernel startup wait.
  */
-export async function waitForKernelReady() {
+export async function waitForKernelReady(timeout = 60000) {
   await waitForAppReady();
   await browser.waitUntil(
     async () => {
       const text = await getKernelStatus();
       return text === "idle" || text === "busy";
     },
-    { timeout: 30000, interval: 200, timeoutMsg: "Kernel not ready" },
+    { timeout, interval: 200, timeoutMsg: "Kernel not ready" },
   );
 }
 
