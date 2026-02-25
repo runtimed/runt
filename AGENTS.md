@@ -50,6 +50,41 @@ The notebook app connects to a background daemon (`runtimed`) that manages prewa
 
 **Important:** The daemon is a separate process from the notebook app. When you change code in `crates/runtimed/`, the running daemon still uses the old binary until you reinstall it. This is a common source of "it works in tests but not in the app" confusion.
 
+### Per-Worktree Daemon Isolation (Development)
+
+Each git worktree can run its own isolated daemon during development, preventing daemon restarts in one worktree from affecting others.
+
+**Important:** In dev mode, the Tauri app does NOT auto-install the system daemon. You must start the dev daemon yourself first.
+
+**Conductor Users (automatic):** If you're using Conductor, dev mode is enabled automatically. Each workspace gets its own daemon:
+
+```bash
+# Terminal 1: Start dev daemon (keeps running)
+cargo xtask dev-daemon
+
+# Terminal 2: Run the notebook app
+cargo xtask dev              # Notebook connects to workspace daemon
+runt daemon status           # Shows workspace info
+runt daemon list-worktrees   # See all workspace daemons
+```
+
+**Non-Conductor Users (manual opt-in):** Set `RUNTIMED_DEV=1` to enable per-worktree isolation:
+
+```bash
+# Terminal 1
+RUNTIMED_DEV=1 cargo xtask dev-daemon
+
+# Terminal 2
+RUNTIMED_DEV=1 cargo xtask dev
+RUNTIMED_DEV=1 runt daemon status
+```
+
+Per-worktree state is stored in `~/.cache/runt/worktrees/{hash}/`.
+
+### System Service (Production)
+
+For production use, install the daemon as a system service:
+
 ```bash
 # Reinstall daemon with your changes (builds release, stops old, copies, restarts)
 cargo xtask install-daemon
@@ -70,6 +105,8 @@ The daemon logs to:
 ~/.cache/runt/runtimed.log          (Linux)
 ```
 
+In dev mode, logs are at `~/.cache/runt/worktrees/{hash}/runtimed.log`.
+
 To check daemon logs:
 ```bash
 runt daemon logs -n 100    # Last 100 lines
@@ -79,8 +116,6 @@ runt daemon logs -f        # Follow/tail logs
 To check which daemon version is running:
 ```bash
 runt daemon status
-# or directly:
-cat ~/Library/Caches/runt/daemon.json
 ```
 
 ## Environment Management

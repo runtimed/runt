@@ -58,6 +58,9 @@ pub fn default_binary_path() -> PathBuf {
 }
 
 /// Get the default path for the daemon log file.
+///
+/// Note: This is the system service log path (always ~/.cache/runt/runtimed.log).
+/// For dev mode, use `crate::default_log_path()` which handles per-worktree paths.
 pub fn default_log_path() -> PathBuf {
     dirs::cache_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
