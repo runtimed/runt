@@ -368,9 +368,14 @@ fn cmd_dev_daemon() {
         exit(1);
     }
 
+    let cache_base = dirs::cache_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .join("runt")
+        .join("worktrees");
+
     println!();
     println!("Starting development daemon for this worktree...");
-    println!("State will be stored in ~/.cache/runt/worktrees/<hash>/");
+    println!("State will be stored in {}/<hash>/", cache_base.display());
     println!("Press Ctrl+C to stop.");
     println!();
 
