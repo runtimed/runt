@@ -120,7 +120,7 @@ jobs:
         run: cargo build --release
 
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --workspace --verbose
 
   # E2E tests (security and happy path)
   # Only runs on Linux where tauri-driver is supported
