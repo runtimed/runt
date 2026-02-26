@@ -12,7 +12,10 @@ fn main() {
     }
 
     match args[0].as_str() {
-        "dev" => cmd_dev(),
+        "dev" => {
+            let notebook = args.get(1).map(String::as_str);
+            cmd_dev(notebook);
+        }
         "build" => cmd_build(),
         "run" => {
             let notebook = args.get(1).map(String::as_str);
@@ -42,7 +45,7 @@ fn print_help() {
         "Usage: cargo xtask <COMMAND>
 
 Development:
-  dev                   Start hot-reload dev server
+  dev [notebook.ipynb]  Start hot-reload dev server
   build                 Quick debug build (no DMG)
   build-e2e             Debug build with built-in WebDriver server
   run [notebook.ipynb]  Build and run debug app
@@ -62,7 +65,7 @@ Other:
     );
 }
 
-fn cmd_dev() {
+fn cmd_dev(notebook: Option<&str>) {
     println!("Starting dev server with hot reload...");
 
     // Check if CONDUCTOR_PORT is set and override devUrl accordingly
@@ -76,6 +79,9 @@ fn cmd_dev() {
         args.extend(["--config", config]);
     }
     args.extend(["--", "-p", "notebook"]);
+    if let Some(path) = notebook {
+        args.extend(["--", path]);
+    }
 
     run_cmd("cargo", &args);
 }
