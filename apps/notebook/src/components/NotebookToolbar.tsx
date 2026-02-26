@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -817,23 +818,28 @@ export function NotebookToolbar({
                     Beta
                   </span>
                 </div>
-                <label className="flex items-start gap-3 cursor-pointer group">
-                  <input
-                    type="checkbox"
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="daemon-execution-toggle"
                     checked={daemonExecution}
-                    onChange={(e) => onDaemonExecutionChange(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-muted-foreground/30 text-primary focus:ring-primary/50"
+                    onCheckedChange={(checked) =>
+                      onDaemonExecutionChange(checked === true)
+                    }
+                    className="mt-0.5"
                   />
-                  <div className="flex-1">
-                    <span className="text-xs font-medium text-foreground group-hover:text-primary transition-colors">
+                  <label
+                    htmlFor="daemon-execution-toggle"
+                    className="flex-1 cursor-pointer"
+                  >
+                    <span className="text-xs font-medium text-foreground hover:text-primary transition-colors">
                       Daemon Execution Mode
                     </span>
                     <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                       Kernel managed by daemon. Enables multi-window kernel
                       sharing.
                     </p>
-                  </div>
-                </label>
+                  </label>
+                </div>
               </div>
             )}
           </div>
