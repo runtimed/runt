@@ -374,34 +374,57 @@ where
     // Peer disconnected — decrement and possibly evict the room
     let remaining = room.active_peers.fetch_sub(1, Ordering::Relaxed) - 1;
     if remaining == 0 {
-        // Check if we're within the auto-launch grace period (30 seconds)
-        // or if a kernel is already running
-        let grace_period = std::time::Duration::from_secs(30);
-        let in_grace_period = {
-            let auto_launch_at = room.auto_launch_at.read().await;
-            auto_launch_at
-                .map(|t| t.elapsed() < grace_period)
-                .unwrap_or(false)
-        };
-        let has_kernel = room.has_kernel().await;
+        // Schedule delayed eviction check. This handles:
+        // 1. Grace period during auto-launch (client may reconnect)
+        // 2. Kernel running with no peers (idle timeout)
+        // Without this, rooms with kernels would leak forever.
+        let eviction_delay = std::time::Duration::from_secs(30);
+        let rooms_for_eviction = rooms.clone();
+        let room_for_eviction = room.clone();
+        let notebook_id_for_eviction = notebook_id.clone();
 
-        if has_kernel || in_grace_period {
-            info!(
-                "[notebook-sync] Keeping room {} alive (kernel: {}, grace_period: {}, waiting for reconnect)",
-                notebook_id, has_kernel, in_grace_period
-            );
-        } else {
-            let mut rooms_guard = rooms.lock().await;
-            // Re-check under the lock — another peer may have joined between
-            // our decrement and acquiring the lock.
-            if room.active_peers.load(Ordering::Relaxed) == 0 {
-                rooms_guard.remove(&notebook_id);
+        info!(
+            "[notebook-sync] All peers disconnected from room {}, scheduling eviction check in {}s",
+            notebook_id,
+            eviction_delay.as_secs()
+        );
+
+        tokio::spawn(async move {
+            tokio::time::sleep(eviction_delay).await;
+
+            // Check if peers reconnected during the delay
+            if room_for_eviction.active_peers.load(Ordering::Relaxed) > 0 {
                 info!(
-                    "[notebook-sync] Evicted room {} (no remaining peers)",
-                    notebook_id
+                    "[notebook-sync] Eviction cancelled for {} (peers reconnected)",
+                    notebook_id_for_eviction
+                );
+                return;
+            }
+
+            // Evict the room and shut down kernel if running
+            let mut rooms_guard = rooms_for_eviction.lock().await;
+            // Re-check under lock
+            if room_for_eviction.active_peers.load(Ordering::Relaxed) == 0 {
+                // Shutdown kernel if running
+                if let Some(mut kernel) = room_for_eviction.kernel.lock().await.take() {
+                    info!(
+                        "[notebook-sync] Shutting down idle kernel for {}",
+                        notebook_id_for_eviction
+                    );
+                    if let Err(e) = kernel.shutdown().await {
+                        warn!(
+                            "[notebook-sync] Error shutting down kernel for {}: {}",
+                            notebook_id_for_eviction, e
+                        );
+                    }
+                }
+                rooms_guard.remove(&notebook_id_for_eviction);
+                info!(
+                    "[notebook-sync] Evicted room {} (idle timeout)",
+                    notebook_id_for_eviction
                 );
             }
-        }
+        });
     } else {
         info!(
             "[notebook-sync] Client disconnected from room {} ({} peer{} remaining)",
