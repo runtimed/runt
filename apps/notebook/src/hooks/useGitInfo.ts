@@ -9,6 +9,8 @@ interface GitInfo {
 
 interface DaemonInfo {
   version: string;
+  socket_path: string;
+  is_dev_mode: boolean;
 }
 
 export function useGitInfo() {
