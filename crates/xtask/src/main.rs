@@ -83,7 +83,7 @@ fn cmd_dev(notebook: Option<&str>) {
         args.extend(["--", path]);
     }
 
-    run_cmd("cargo", &args);
+    run_cmd_with_rust_log("cargo", &args);
 }
 
 fn cmd_build() {
@@ -481,6 +481,26 @@ fn run_cmd(cmd: &str, args: &[&str]) {
         eprintln!("Failed to run {cmd}: {e}");
         exit(1);
     });
+
+    if !status.success() {
+        eprintln!("Command failed: {cmd} {}", args.join(" "));
+        exit(status.code().unwrap_or(1));
+    }
+}
+
+/// Run a command with RUST_LOG set to enable info-level logging.
+/// This is useful for dev mode to see Rust logs from the notebook app.
+fn run_cmd_with_rust_log(cmd: &str, args: &[&str]) {
+    // Use existing RUST_LOG if set, otherwise default to info
+    let rust_log = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
+    let status = Command::new(cmd)
+        .args(args)
+        .env("RUST_LOG", &rust_log)
+        .status()
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to run {cmd}: {e}");
+            exit(1);
+        });
 
     if !status.success() {
         eprintln!("Command failed: {cmd} {}", args.join(" "));

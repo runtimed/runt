@@ -2,6 +2,7 @@
 members = [
     "crates/sidecar",
     "crates/runt",
+    "crates/runt-trust",
     "crates/notebook",
     "crates/tauri-jupyter",
     "crates/xtask",

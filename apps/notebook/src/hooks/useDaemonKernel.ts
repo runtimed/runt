@@ -211,6 +211,41 @@ export function useDaemonKernel({
       },
     );
 
+    // Helper to fetch kernel info with retry for "not_started" status
+    // (kernel may still be auto-launching when daemon:ready fires)
+    const fetchKernelInfo = (retryCount = 0) => {
+      invoke<DaemonNotebookResponse>("get_daemon_kernel_info")
+        .then((response) => {
+          if (cancelled) return;
+          if (response.result === "kernel_info") {
+            console.log(
+              "[daemon-kernel] Got kernel info:",
+              response.status,
+              response.kernel_type,
+              `(retry ${retryCount})`,
+            );
+
+            // If kernel is not started and we haven't retried too many times,
+            // wait a bit and try again (kernel may be auto-launching)
+            if (response.status === "not_started" && retryCount < 5) {
+              setTimeout(() => {
+                if (!cancelled) fetchKernelInfo(retryCount + 1);
+              }, 500);
+              return;
+            }
+
+            setKernelInfo({
+              kernelType: response.kernel_type,
+              envSource: response.env_source,
+            });
+            setKernelStatus(response.status as DaemonKernelStatus);
+          }
+        })
+        .catch(() => {
+          // Expected to fail if daemon isn't ready - daemon:ready listener will retry
+        });
+    };
+
     // Listen for daemon disconnection (e.g., daemon restarted)
     const unlistenDisconnect = listen("daemon:disconnected", async () => {
       if (cancelled) return;
@@ -225,32 +260,32 @@ export function useDaemonKernel({
       console.log("[daemon-kernel] Attempting to reconnect to daemon...");
       try {
         await invoke("reconnect_to_daemon");
-        console.log("[daemon-kernel] Reconnected to daemon");
+        console.log(
+          "[daemon-kernel] Reconnected to daemon, fetching kernel info",
+        );
+        // After reconnecting, fetch kernel info (kernel may already be running)
+        fetchKernelInfo();
       } catch (e) {
         console.error("[daemon-kernel] Failed to reconnect:", e);
       }
     });
 
-    // Get initial kernel info from daemon
-    invoke<DaemonNotebookResponse>("get_daemon_kernel_info")
-      .then((response) => {
-        if (cancelled) return;
-        if (response.result === "kernel_info") {
-          setKernelInfo({
-            kernelType: response.kernel_type,
-            envSource: response.env_source,
-          });
-          setKernelStatus(response.status as DaemonKernelStatus);
-        }
-      })
-      .catch((e) => {
-        console.error("[daemon-kernel] Failed to get kernel info:", e);
-      });
+    // Listen for daemon ready signal
+    const unlistenReady = listen("daemon:ready", () => {
+      if (cancelled) return;
+      console.log("[daemon-kernel] Daemon ready, fetching kernel info");
+      fetchKernelInfo();
+    });
+
+    // Also try immediately in case daemon is already ready
+    // (handles page reload when daemon is already connected)
+    fetchKernelInfo();
 
     return () => {
       cancelled = true;
       unlistenBroadcast.then((fn) => fn());
       unlistenDisconnect.then((fn) => fn());
+      unlistenReady.then((fn) => fn());
     };
   }, []);
 

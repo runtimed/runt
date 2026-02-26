@@ -266,38 +266,79 @@ async fn initialize_notebook_sync(
     }
 
     // Store the handle for commands to use
+    info!(
+        "[notebook-sync] Storing handle for {} (prior state: {:?})",
+        notebook_id,
+        notebook_sync.lock().await.is_some()
+    );
     *notebook_sync.lock().await = Some(handle);
+    info!(
+        "[notebook-sync] Handle stored successfully for {}",
+        notebook_id
+    );
 
     // Spawn receiver task for cross-window sync
     // The receiver is separate from the handle, so it doesn't block commands
     let app_clone = app.clone();
+    let notebook_id_for_receiver = notebook_id.clone();
     tokio::spawn(async move {
-        info!("[notebook-sync] Starting receiver loop");
+        info!(
+            "[notebook-sync] Starting receiver loop for {}",
+            notebook_id_for_receiver
+        );
         while let Some(cells) = receiver.recv().await {
-            info!("[notebook-sync] Received {} cells from peer", cells.len());
+            info!(
+                "[notebook-sync] Received {} cells from peer for {}",
+                cells.len(),
+                notebook_id_for_receiver
+            );
             // Emit event for frontend to reconcile state
             if let Err(e) = app_clone.emit("notebook:updated", &cells) {
                 warn!("[notebook-sync] Failed to emit notebook:updated: {}", e);
             }
         }
-        info!("[notebook-sync] Receiver loop ended");
+        info!(
+            "[notebook-sync] Receiver loop ended for {} - changes_tx was dropped",
+            notebook_id_for_receiver
+        );
     });
+
+    // Clone app for later use (before spawning moves it)
+    let app_for_ready = app.clone();
 
     // Spawn broadcast receiver task for daemon kernel events
     let notebook_sync_for_disconnect = notebook_sync.clone();
+    let notebook_id_for_broadcast = notebook_id.clone();
     tokio::spawn(async move {
-        info!("[notebook-sync] Starting broadcast receiver loop");
+        info!(
+            "[notebook-sync] Starting broadcast receiver loop for {}",
+            notebook_id_for_broadcast
+        );
         while let Some(broadcast) = broadcast_receiver.recv().await {
-            info!("[notebook-sync] Received broadcast: {:?}", broadcast);
+            info!(
+                "[notebook-sync] Received broadcast for {}: {:?}",
+                notebook_id_for_broadcast, broadcast
+            );
             // Emit broadcast events to frontend
             if let Err(e) = app.emit("daemon:broadcast", &broadcast) {
                 warn!("[notebook-sync] Failed to emit daemon:broadcast: {}", e);
             }
         }
-        info!("[notebook-sync] Broadcast receiver loop ended - daemon disconnected");
+        warn!(
+            "[notebook-sync] Broadcast receiver loop ended for {} - daemon disconnected (broadcast_tx dropped)",
+            notebook_id_for_broadcast
+        );
 
         // Clear the handle so operations fail gracefully
+        info!(
+            "[notebook-sync] Clearing notebook_sync handle for {}",
+            notebook_id_for_broadcast
+        );
         *notebook_sync_for_disconnect.lock().await = None;
+        info!(
+            "[notebook-sync] Handle cleared for {}",
+            notebook_id_for_broadcast
+        );
 
         // Emit disconnection event so frontend can reset kernel state
         if let Err(e) = app.emit("daemon:disconnected", ()) {
@@ -309,6 +350,13 @@ async fn initialize_notebook_sync(
         "[notebook-sync] Initialization complete for {}",
         notebook_id
     );
+
+    // Emit event so frontend knows daemon sync is ready
+    // Frontend should wait for this before calling daemon commands
+    if let Err(e) = app_for_ready.emit("daemon:ready", ()) {
+        warn!("[notebook-sync] Failed to emit daemon:ready: {}", e);
+    }
+
     Ok(())
 }
 
@@ -1076,10 +1124,17 @@ async fn shutdown_kernel_via_daemon(
 async fn get_daemon_kernel_info(
     notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<NotebookResponse, String> {
-    info!("[daemon-kernel] get_daemon_kernel_info");
-
     let guard = notebook_sync.lock().await;
-    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+    let has_handle = guard.is_some();
+    info!(
+        "[daemon-kernel] get_daemon_kernel_info called (has_handle: {})",
+        has_handle
+    );
+
+    let handle = guard.as_ref().ok_or_else(|| {
+        warn!("[daemon-kernel] get_daemon_kernel_info: notebook_sync is None - connection may have failed or been cleared");
+        "Not connected to daemon".to_string()
+    })?;
 
     handle
         .send_request(NotebookRequest::GetKernelInfo {})
@@ -1560,15 +1615,11 @@ async fn set_notebook_dependencies(
 ) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
 
-    let uv_value = serde_json::json!({
-        "dependencies": dependencies,
-        "requires-python": requires_python,
-    });
-    state
-        .notebook
-        .metadata
-        .additional
-        .insert("uv".to_string(), uv_value);
+    let deps = uv_env::NotebookDependencies {
+        dependencies,
+        requires_python,
+    };
+    uv_env::set_dependencies(&mut state.notebook.metadata, &deps);
     state.dirty = true;
 
     Ok(())
@@ -1583,8 +1634,10 @@ async fn add_dependency(
     let mut state = state.lock().map_err(|e| e.to_string())?;
 
     // Get existing deps or create new
-    let mut deps = uv_env::extract_dependencies(&state.notebook.metadata)
-        .map(|d| d.dependencies)
+    let existing = uv_env::extract_dependencies(&state.notebook.metadata);
+    let mut deps = existing
+        .as_ref()
+        .map(|d| d.dependencies.clone())
         .unwrap_or_default();
 
     // Check if already exists (by package name, ignoring version specifiers)
@@ -1603,18 +1656,12 @@ async fn add_dependency(
     if !already_exists {
         deps.push(package);
 
-        let requires_python =
-            uv_env::extract_dependencies(&state.notebook.metadata).and_then(|d| d.requires_python);
-
-        let uv_value = serde_json::json!({
-            "dependencies": deps,
-            "requires-python": requires_python,
-        });
-        state
-            .notebook
-            .metadata
-            .additional
-            .insert("uv".to_string(), uv_value);
+        let requires_python = existing.and_then(|d| d.requires_python);
+        let new_deps = uv_env::NotebookDependencies {
+            dependencies: deps,
+            requires_python,
+        };
+        uv_env::set_dependencies(&mut state.notebook.metadata, &new_deps);
         state.dirty = true;
     }
 
@@ -1648,15 +1695,11 @@ async fn remove_dependency(
             })
             .collect();
 
-        let uv_value = serde_json::json!({
-            "dependencies": deps,
-            "requires-python": existing.requires_python,
-        });
-        state
-            .notebook
-            .metadata
-            .additional
-            .insert("uv".to_string(), uv_value);
+        let new_deps = uv_env::NotebookDependencies {
+            dependencies: deps,
+            requires_python: existing.requires_python,
+        };
+        uv_env::set_dependencies(&mut state.notebook.metadata, &new_deps);
         state.dirty = true;
     }
 
@@ -1680,14 +1723,22 @@ async fn clear_dependency_section(
     }
 
     let mut state = state.lock().map_err(|e| e.to_string())?;
-    if state
-        .notebook
-        .metadata
-        .additional
-        .remove(&section)
-        .is_some()
-    {
-        state.dirty = true;
+
+    // Remove from new nested path and legacy path
+    match section.as_str() {
+        "uv" => {
+            if uv_env::has_uv_config(&state.notebook.metadata) {
+                uv_env::remove_uv_config(&mut state.notebook.metadata);
+                state.dirty = true;
+            }
+        }
+        "conda" => {
+            if conda_env::has_conda_config(&state.notebook.metadata) {
+                conda_env::remove_conda_config(&mut state.notebook.metadata);
+                state.dirty = true;
+            }
+        }
+        _ => {}
     }
 
     Ok(())
@@ -1881,16 +1932,13 @@ async fn set_conda_dependencies(
 ) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
 
-    let conda_value = serde_json::json!({
-        "dependencies": dependencies,
-        "channels": channels,
-        "python": python,
-    });
-    state
-        .notebook
-        .metadata
-        .additional
-        .insert("conda".to_string(), conda_value);
+    let deps = conda_env::CondaDependencies {
+        dependencies,
+        channels,
+        python,
+        env_id: None,
+    };
+    conda_env::set_dependencies(&mut state.notebook.metadata, &deps);
     state.dirty = true;
 
     Ok(())
@@ -1932,16 +1980,13 @@ async fn add_conda_dependency(
     if !already_exists {
         deps.push(package);
 
-        let conda_value = serde_json::json!({
-            "dependencies": deps,
-            "channels": channels,
-            "python": python,
-        });
-        state
-            .notebook
-            .metadata
-            .additional
-            .insert("conda".to_string(), conda_value);
+        let new_deps = conda_env::CondaDependencies {
+            dependencies: deps,
+            channels,
+            python,
+            env_id: None,
+        };
+        conda_env::set_dependencies(&mut state.notebook.metadata, &new_deps);
         state.dirty = true;
     }
 
@@ -1975,16 +2020,13 @@ async fn remove_conda_dependency(
             })
             .collect();
 
-        let conda_value = serde_json::json!({
-            "dependencies": deps,
-            "channels": existing.channels,
-            "python": existing.python,
-        });
-        state
-            .notebook
-            .metadata
-            .additional
-            .insert("conda".to_string(), conda_value);
+        let new_deps = conda_env::CondaDependencies {
+            dependencies: deps,
+            channels: existing.channels,
+            python: existing.python,
+            env_id: existing.env_id,
+        };
+        conda_env::set_dependencies(&mut state.notebook.metadata, &new_deps);
         state.dirty = true;
     }
 
@@ -2061,13 +2103,12 @@ async fn start_default_uv_kernel(
     let (env_id, notebook_path) = {
         let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
 
-        if !state.notebook.metadata.additional.contains_key("uv") {
-            state.notebook.metadata.additional.insert(
-                "uv".to_string(),
-                serde_json::json!({
-                    "dependencies": Vec::<String>::new(),
-                }),
-            );
+        if !uv_env::has_uv_config(&state.notebook.metadata) {
+            let deps = uv_env::NotebookDependencies {
+                dependencies: vec![],
+                requires_python: None,
+            };
+            uv_env::set_dependencies(&mut state.notebook.metadata, &deps);
             state.dirty = true;
         }
 
@@ -2173,20 +2214,25 @@ async fn start_default_conda_kernel(
                 // Legacy notebook without env_id - generate one and set conda metadata
                 let new_id = uuid::Uuid::new_v4().to_string();
 
-                state
+                // Ensure runt namespace exists with env_id
+                let runt = state
                     .notebook
                     .metadata
                     .additional
-                    .insert("runt".to_string(), serde_json::json!({ "env_id": new_id }));
+                    .entry("runt".to_string())
+                    .or_insert_with(|| serde_json::json!({"schema_version": "1"}));
+                if let Some(runt_obj) = runt.as_object_mut() {
+                    runt_obj.insert("env_id".to_string(), serde_json::json!(new_id));
+                }
 
-                if !state.notebook.metadata.additional.contains_key("conda") {
-                    state.notebook.metadata.additional.insert(
-                        "conda".to_string(),
-                        serde_json::json!({
-                            "dependencies": Vec::<String>::new(),
-                            "channels": ["conda-forge"],
-                        }),
-                    );
+                if !conda_env::has_conda_config(&state.notebook.metadata) {
+                    let deps = conda_env::CondaDependencies {
+                        dependencies: vec![],
+                        channels: vec!["conda-forge".to_string()],
+                        python: None,
+                        env_id: None,
+                    };
+                    conda_env::set_dependencies(&mut state.notebook.metadata, &deps);
                 }
 
                 state.dirty = true;
@@ -2434,36 +2480,25 @@ async fn start_default_python_kernel_impl(
             let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
 
             // If notebook has empty conda deps and we're using UV, migrate to UV
-            let should_setup_uv =
-                if let Some(conda_val) = state.notebook.metadata.additional.get("conda") {
-                    // Only migrate if conda deps are empty
-                    let conda_deps = conda_val
-                        .get("dependencies")
-                        .and_then(|d| d.as_array())
-                        .map(|a| a.is_empty())
-                        .unwrap_or(true);
-                    conda_deps
-                } else {
-                    true
-                };
+            let conda_deps = conda_env::extract_dependencies(&state.notebook.metadata);
+            let conda_deps_empty = conda_deps
+                .as_ref()
+                .map(|d| d.dependencies.is_empty())
+                .unwrap_or(true);
+            let should_setup_uv = conda_deps_empty;
 
-            if should_setup_uv && !state.notebook.metadata.additional.contains_key("uv") {
-                state.notebook.metadata.additional.insert(
-                    "uv".to_string(),
-                    serde_json::json!({
-                        "dependencies": Vec::<String>::new(),
-                    }),
+            if should_setup_uv && !uv_env::has_uv_config(&state.notebook.metadata) {
+                // Set up empty UV deps in runt.uv
+                uv_env::set_dependencies(
+                    &mut state.notebook.metadata,
+                    &uv_env::NotebookDependencies {
+                        dependencies: Vec::new(),
+                        requires_python: None,
+                    },
                 );
                 // Remove empty conda metadata if migrating to uv
-                if let Some(conda_val) = state.notebook.metadata.additional.get("conda") {
-                    let conda_deps_empty = conda_val
-                        .get("dependencies")
-                        .and_then(|d| d.as_array())
-                        .map(|a| a.is_empty())
-                        .unwrap_or(true);
-                    if conda_deps_empty {
-                        state.notebook.metadata.additional.remove("conda");
-                    }
+                if conda_deps_empty && conda_env::has_conda_config(&state.notebook.metadata) {
+                    conda_env::remove_conda_config(&mut state.notebook.metadata);
                 }
                 state.dirty = true;
             }
@@ -2611,19 +2646,16 @@ async fn start_default_python_kernel_impl(
             let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
 
             // Check if notebook has empty uv deps - if so, migrate to conda
-            let uv_deps_empty = state
-                .notebook
-                .metadata
-                .additional
-                .get("uv")
-                .and_then(|v| v.get("dependencies"))
-                .and_then(|d| d.as_array())
-                .map(|a| a.is_empty())
+            // Check if UV deps are empty (check both new and legacy paths)
+            let uv_deps = uv_env::extract_dependencies(&state.notebook.metadata);
+            let uv_deps_empty = uv_deps
+                .as_ref()
+                .map(|d| d.dependencies.is_empty())
                 .unwrap_or(true);
 
             // Remove empty uv metadata when migrating to conda
-            if uv_deps_empty && state.notebook.metadata.additional.contains_key("uv") {
-                state.notebook.metadata.additional.remove("uv");
+            if uv_deps_empty && uv_env::has_uv_config(&state.notebook.metadata) {
+                uv_env::remove_uv_config(&mut state.notebook.metadata);
                 state.dirty = true;
             }
 
@@ -2640,13 +2672,15 @@ async fn start_default_python_kernel_impl(
             let env_id = match existing_id {
                 Some(id) => {
                     // Ensure conda metadata exists even for existing notebooks
-                    if !state.notebook.metadata.additional.contains_key("conda") {
-                        state.notebook.metadata.additional.insert(
-                            "conda".to_string(),
-                            serde_json::json!({
-                                "dependencies": Vec::<String>::new(),
-                                "channels": ["conda-forge"],
-                            }),
+                    if !conda_env::has_conda_config(&state.notebook.metadata) {
+                        conda_env::set_dependencies(
+                            &mut state.notebook.metadata,
+                            &conda_env::CondaDependencies {
+                                dependencies: Vec::new(),
+                                channels: vec!["conda-forge".to_string()],
+                                python: None,
+                                env_id: Some(id.clone()),
+                            },
                         );
                         state.dirty = true;
                     }
@@ -2656,19 +2690,26 @@ async fn start_default_python_kernel_impl(
                     // Legacy notebook without env_id - generate one and set conda metadata
                     let new_id = uuid::Uuid::new_v4().to_string();
 
-                    state
+                    // Update runt metadata with env_id, preserving existing fields
+                    let runt = state
                         .notebook
                         .metadata
                         .additional
-                        .insert("runt".to_string(), serde_json::json!({ "env_id": new_id }));
+                        .entry("runt".to_string())
+                        .or_insert_with(|| serde_json::json!({"schema_version": "1"}));
+                    if let Some(runt_obj) = runt.as_object_mut() {
+                        runt_obj.insert("env_id".to_string(), serde_json::json!(new_id));
+                    }
 
-                    if !state.notebook.metadata.additional.contains_key("conda") {
-                        state.notebook.metadata.additional.insert(
-                            "conda".to_string(),
-                            serde_json::json!({
-                                "dependencies": Vec::<String>::new(),
-                                "channels": ["conda-forge"],
-                            }),
+                    if !conda_env::has_conda_config(&state.notebook.metadata) {
+                        conda_env::set_dependencies(
+                            &mut state.notebook.metadata,
+                            &conda_env::CondaDependencies {
+                                dependencies: Vec::new(),
+                                channels: vec!["conda-forge".to_string()],
+                                python: None,
+                                env_id: Some(new_id.clone()),
+                            },
                         );
                     }
 
@@ -2973,16 +3014,11 @@ async fn import_pyproject_dependencies(
 
     let all_deps = pyproject::get_all_dependencies(&config);
 
-    let uv_value = serde_json::json!({
-        "dependencies": all_deps,
-        "requires-python": config.requires_python,
-    });
-
-    state
-        .notebook
-        .metadata
-        .additional
-        .insert("uv".to_string(), uv_value);
+    let deps = uv_env::NotebookDependencies {
+        dependencies: all_deps.clone(),
+        requires_python: config.requires_python,
+    };
+    uv_env::set_dependencies(&mut state.notebook.metadata, &deps);
     state.dirty = true;
 
     info!(
@@ -3326,19 +3362,13 @@ async fn import_pixi_dependencies(
     // Merge pixi deps into notebook conda metadata
     let mut state = state.lock().map_err(|e| e.to_string())?;
 
-    let mut conda_value = serde_json::json!({
-        "dependencies": conda_deps.dependencies,
-        "channels": conda_deps.channels,
-    });
-    if let Some(python) = &conda_deps.python {
-        conda_value["python"] = serde_json::json!(python);
-    }
-
-    state
-        .notebook
-        .metadata
-        .additional
-        .insert("conda".to_string(), conda_value);
+    let deps = conda_env::CondaDependencies {
+        dependencies: conda_deps.dependencies.clone(),
+        channels: conda_deps.channels,
+        python: conda_deps.python,
+        env_id: None,
+    };
+    conda_env::set_dependencies(&mut state.notebook.metadata, &deps);
     state.dirty = true;
 
     info!(
@@ -3939,11 +3969,13 @@ pub fn run(
             // Existing notebook - load it (runtime comes from notebook metadata)
             let content = std::fs::read_to_string(path)?;
             let nb = nbformat::parse_notebook(&content).map_err(|e| anyhow::anyhow!("{}", e))?;
-            let nb_v4 = match nb {
+            let mut nb_v4 = match nb {
                 nbformat::Notebook::V4(nb) => nb,
                 nbformat::Notebook::Legacy(legacy) => nbformat::upgrade_legacy_notebook(legacy)?,
                 nbformat::Notebook::V3(v3) => nbformat::upgrade_v3_notebook(v3)?,
             };
+            // Migrate legacy metadata (uv/conda at top level) to new runt namespace
+            notebook_state::migrate_legacy_metadata(&mut nb_v4.metadata.additional);
             NotebookState::from_notebook(nb_v4, path.clone())
         }
         Some(ref path) => {
@@ -4527,7 +4559,7 @@ pub fn run(
                     match std::fs::read_to_string(&path) {
                         Ok(content) => match nbformat::parse_notebook(&content) {
                             Ok(nb) => {
-                                let nb_v4 = match nb {
+                                let mut nb_v4 = match nb {
                                     nbformat::Notebook::V4(nb) => nb,
                                     nbformat::Notebook::Legacy(legacy) => {
                                         match nbformat::upgrade_legacy_notebook(legacy) {
@@ -4548,6 +4580,10 @@ pub fn run(
                                         }
                                     }
                                 };
+                                // Migrate legacy metadata to new runt namespace
+                                notebook_state::migrate_legacy_metadata(
+                                    &mut nb_v4.metadata.additional,
+                                );
                                 let new_state = NotebookState::from_notebook(nb_v4, path.clone());
                                 if let Ok(mut state) = notebook_for_open.lock() {
                                     *state = new_state;

@@ -59,6 +59,9 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 # Automerge CRDT for settings sync
 automerge = "0.7"
 
+# Trust verification (shared with notebook crate)
+runt-trust = { path = "../runt-trust" }
+
 # JSON Schema generation
 schemars = { workspace = true }
 

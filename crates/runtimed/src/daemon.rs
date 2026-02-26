@@ -663,6 +663,8 @@ impl Daemon {
                     )
                 };
                 let (reader, writer) = tokio::io::split(stream);
+                // Get user's default Python env preference for auto-launch
+                let default_python_env = self.settings.read().await.get_all().default_python_env;
                 crate::notebook_sync_server::handle_notebook_sync_connection(
                     reader,
                     writer,
@@ -670,6 +672,7 @@ impl Daemon {
                     self.notebook_rooms.clone(),
                     notebook_id,
                     use_typed_frames,
+                    default_python_env,
                 )
                 .await
             }
