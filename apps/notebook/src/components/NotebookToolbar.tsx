@@ -158,6 +158,9 @@ interface NotebookToolbarProps {
   onDefaultUvPackagesChange?: (packages: string[]) => void;
   defaultCondaPackages?: string[];
   onDefaultCondaPackagesChange?: (packages: string[]) => void;
+  /** Daemon execution mode (experimental) */
+  daemonExecution?: boolean;
+  onDaemonExecutionChange?: (enabled: boolean) => void;
   onSave: () => void;
   onStartKernel: (name: string) => void;
   onInterruptKernel: () => void;
@@ -293,6 +296,8 @@ export function NotebookToolbar({
   onDefaultUvPackagesChange,
   defaultCondaPackages = [],
   onDefaultCondaPackagesChange,
+  daemonExecution = false,
+  onDaemonExecutionChange,
   onSave,
   onStartKernel,
   onInterruptKernel,
@@ -798,6 +803,37 @@ export function NotebookToolbar({
                       </>
                     )}
                 </div>
+              </div>
+            )}
+
+            {/* Experimental settings */}
+            {onDaemonExecutionChange && (
+              <div className="space-y-2">
+                <div>
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Experimental
+                  </span>
+                  <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                    Beta
+                  </span>
+                </div>
+                <label className="flex items-start gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={daemonExecution}
+                    onChange={(e) => onDaemonExecutionChange(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-muted-foreground/30 text-primary focus:ring-primary/50"
+                  />
+                  <div className="flex-1">
+                    <span className="text-xs font-medium text-foreground group-hover:text-primary transition-colors">
+                      Daemon Execution Mode
+                    </span>
+                    <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                      Kernel managed by daemon. Enables multi-window kernel
+                      sharing.
+                    </p>
+                  </div>
+                </label>
               </div>
             )}
           </div>
