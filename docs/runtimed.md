@@ -85,6 +85,8 @@ pub struct DaemonInfo {
     pub version: String,
     pub started_at: DateTime<Utc>,
     pub blob_port: Option<u16>,
+    pub worktree_path: Option<String>,        // dev mode only
+    pub workspace_description: Option<String>, // dev mode only
 }
 ```
 
@@ -110,6 +112,8 @@ Length-prefixed binary framing over a single Unix socket (Unix) or named pipe (W
 | `Ping` | `Pong` | Health check |
 | `Shutdown` | `ShuttingDown` | Graceful stop |
 | `FlushPool` | `Flushed` | Drain and rebuild all envs |
+| `InspectNotebook { notebook_id }` | `NotebookState { ... }` | Debug notebook sync state |
+| `ListRooms` | `RoomsList { rooms }` | List active notebook sync rooms |
 
 ### Settings.json file watcher
 

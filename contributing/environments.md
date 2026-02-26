@@ -82,7 +82,7 @@ graph TB
         CWL[Conda Warming Loop<br/>every 30s]
         SS[Settings Sync Server<br/>Automerge CRDT]
         PC[PoolClient<br/>IPC: Unix socket / Named pipe]
-        PROT[NDJSON Protocol<br/>Take / Return / Status / Ping]
+        PROT[Length-prefixed JSON<br/>Take / Return / Status / Ping]
 
         DM --> UWL
         DM --> CWL
@@ -359,7 +359,7 @@ The diagrams show three main layers and a separate daemon process:
 
 2. **Tauri Backend** (orange) — `start_default_python_kernel_impl` runs the detection priority chain: inline deps first, then closest project file, then prewarmed pool. Each path delegates to a kernel start method.
 
-3. **runtimed Daemon** (indigo) — A singleton background process managing prewarmed UV and Conda environment pools across all notebook windows. Communicates via NDJSON over Unix domain sockets (or Windows named pipes). Also runs an Automerge CRDT sync server for cross-window settings.
+3. **runtimed Daemon** (indigo) — A singleton background process managing prewarmed UV and Conda environment pools across all notebook windows. Communicates via length-prefixed JSON over Unix domain sockets (or Windows named pipes). Also runs an Automerge CRDT sync server for cross-window settings.
 
 4. **External Tools** (grey) — `uv` for pip-compatible package management, `rattler` for conda solving/installing, and `deno` for TypeScript notebooks.
 
