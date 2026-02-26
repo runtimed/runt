@@ -4264,6 +4264,7 @@ pub fn run(
             });
 
             // Auto-launch kernel for faster startup (only if trusted)
+            // Skip if daemon_execution is enabled - the daemon handles auto-launch
             log::info!("[startup] Setup complete in {}ms, spawning auto-launch task", setup_start.elapsed().as_millis());
             let app_for_autolaunch = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -4271,6 +4272,14 @@ pub fn run(
 
                 // Load user's preferred Python environment type
                 let app_settings = settings::load_settings();
+
+                // Skip local auto-launch if daemon execution is enabled
+                // The daemon handles auto-launch when daemon_execution is true
+                if app_settings.daemon_execution {
+                    log::info!("[autolaunch] Skipping local auto-launch (daemon_execution enabled)");
+                    return;
+                }
+
                 let prefer_conda = matches!(app_settings.default_python_env, settings::PythonEnvType::Conda);
 
                 // Wait for the PREFERRED pool recovery to complete (with timeout)
