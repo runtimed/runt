@@ -98,6 +98,21 @@ impl ContentRef {
 // Output manifest types
 // =============================================================================
 
+/// Transient data for display outputs (e.g., display_id for UpdateDisplayData).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransientData {
+    /// Display ID for UpdateDisplayData support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_id: Option<String>,
+}
+
+impl TransientData {
+    /// Returns true if transient data is empty (no display_id).
+    pub fn is_empty(&self) -> bool {
+        self.display_id.is_none()
+    }
+}
+
 /// Manifest for display_data and execute_result outputs.
 ///
 /// These are the most common output types, containing MIME-typed data bundles.
@@ -148,6 +163,8 @@ pub enum OutputManifest {
         data: HashMap<String, ContentRef>,
         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
         metadata: HashMap<String, Value>,
+        #[serde(default, skip_serializing_if = "TransientData::is_empty")]
+        transient: TransientData,
     },
     #[serde(rename = "execute_result")]
     ExecuteResult {
@@ -155,6 +172,8 @@ pub enum OutputManifest {
         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
         metadata: HashMap<String, Value>,
         execution_count: Option<i32>,
+        #[serde(default, skip_serializing_if = "TransientData::is_empty")]
+        transient: TransientData,
     },
     #[serde(rename = "stream")]
     Stream { name: String, text: ContentRef },
@@ -191,11 +210,17 @@ pub async fn create_manifest(
         "display_data" => {
             let data = convert_data_bundle(output.get("data"), blob_store, threshold).await?;
             let metadata = extract_metadata(output.get("metadata"));
-            OutputManifest::DisplayData { data, metadata }
+            let transient = extract_transient(output.get("transient"));
+            OutputManifest::DisplayData {
+                data,
+                metadata,
+                transient,
+            }
         }
         "execute_result" => {
             let data = convert_data_bundle(output.get("data"), blob_store, threshold).await?;
             let metadata = extract_metadata(output.get("metadata"));
+            let transient = extract_transient(output.get("transient"));
             let execution_count = output
                 .get("execution_count")
                 .and_then(|v| v.as_i64())
@@ -204,6 +229,7 @@ pub async fn create_manifest(
                 data,
                 metadata,
                 execution_count,
+                transient,
             }
         }
         "stream" => {
@@ -267,6 +293,100 @@ pub async fn store_manifest(manifest_json: &str, blob_store: &BlobStore) -> io::
         .await
 }
 
+/// Get the display_id from a manifest JSON string, if present.
+///
+/// Used by UpdateDisplayData to find the output to update.
+pub fn get_display_id(manifest_json: &str) -> Option<String> {
+    let manifest: OutputManifest = serde_json::from_str(manifest_json).ok()?;
+    match manifest {
+        OutputManifest::DisplayData { transient, .. }
+        | OutputManifest::ExecuteResult { transient, .. } => transient.display_id,
+        _ => None,
+    }
+}
+
+/// Update display data in a manifest with new data and metadata.
+///
+/// Returns the updated manifest JSON if the manifest is a display_data or execute_result
+/// with matching display_id, otherwise returns None.
+pub async fn update_manifest_display_data(
+    manifest_json: &str,
+    display_id: &str,
+    new_data: &serde_json::Value,
+    new_metadata: &serde_json::Map<String, serde_json::Value>,
+    blob_store: &BlobStore,
+    threshold: usize,
+) -> io::Result<Option<String>> {
+    let manifest: OutputManifest = serde_json::from_str(manifest_json)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+    // Check if this manifest has the matching display_id
+    let matches = match &manifest {
+        OutputManifest::DisplayData { transient, .. }
+        | OutputManifest::ExecuteResult { transient, .. } => {
+            transient.display_id.as_deref() == Some(display_id)
+        }
+        _ => false,
+    };
+
+    if !matches {
+        return Ok(None);
+    }
+
+    // Create updated manifest with new data
+    match manifest {
+        OutputManifest::DisplayData { transient, .. } => {
+            // Convert new_data Value to ContentRef map
+            let data = convert_value_to_content_refs(new_data, blob_store, threshold).await?;
+            let metadata = new_metadata.clone().into_iter().collect();
+            let updated = OutputManifest::DisplayData {
+                data,
+                metadata,
+                transient,
+            };
+            let json = serde_json::to_string(&updated)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            Ok(Some(json))
+        }
+        OutputManifest::ExecuteResult {
+            execution_count,
+            transient,
+            ..
+        } => {
+            let data = convert_value_to_content_refs(new_data, blob_store, threshold).await?;
+            let metadata = new_metadata.clone().into_iter().collect();
+            let updated = OutputManifest::ExecuteResult {
+                data,
+                metadata,
+                execution_count,
+                transient,
+            };
+            let json = serde_json::to_string(&updated)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            Ok(Some(json))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Convert a data Value (MIME bundle) to ContentRef map.
+async fn convert_value_to_content_refs(
+    data: &Value,
+    blob_store: &BlobStore,
+    threshold: usize,
+) -> io::Result<HashMap<String, ContentRef>> {
+    let mut result = HashMap::new();
+    if let Value::Object(map) = data {
+        for (mime_type, value) in map {
+            let content_str = value_to_string(value);
+            let content_ref =
+                ContentRef::from_data(&content_str, mime_type, blob_store, threshold).await?;
+            result.insert(mime_type.clone(), content_ref);
+        }
+    }
+    Ok(result)
+}
+
 /// Resolve a manifest back to a full Jupyter output JSON value.
 ///
 /// Fetches any blob-referenced content and reconstructs the original format.
@@ -275,7 +395,11 @@ pub async fn resolve_manifest(manifest_json: &str, blob_store: &BlobStore) -> io
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     match manifest {
-        OutputManifest::DisplayData { data, metadata } => {
+        OutputManifest::DisplayData {
+            data,
+            metadata,
+            transient,
+        } => {
             let resolved_data = resolve_data_bundle(data, blob_store).await?;
             let mut output = serde_json::json!({
                 "output_type": "display_data",
@@ -286,12 +410,20 @@ pub async fn resolve_manifest(manifest_json: &str, blob_store: &BlobStore) -> io
             } else {
                 output["metadata"] = Value::Object(serde_json::Map::new());
             }
+            if !transient.is_empty() {
+                let mut transient_map = serde_json::Map::new();
+                if let Some(display_id) = transient.display_id {
+                    transient_map.insert("display_id".to_string(), Value::String(display_id));
+                }
+                output["transient"] = Value::Object(transient_map);
+            }
             Ok(output)
         }
         OutputManifest::ExecuteResult {
             data,
             metadata,
             execution_count,
+            transient,
         } => {
             let resolved_data = resolve_data_bundle(data, blob_store).await?;
             let mut output = serde_json::json!({
@@ -303,6 +435,13 @@ pub async fn resolve_manifest(manifest_json: &str, blob_store: &BlobStore) -> io
                 output["metadata"] = Value::Object(metadata.into_iter().collect());
             } else {
                 output["metadata"] = Value::Object(serde_json::Map::new());
+            }
+            if !transient.is_empty() {
+                let mut transient_map = serde_json::Map::new();
+                if let Some(display_id) = transient.display_id {
+                    transient_map.insert("display_id".to_string(), Value::String(display_id));
+                }
+                output["transient"] = Value::Object(transient_map);
             }
             Ok(output)
         }
@@ -383,6 +522,20 @@ fn extract_metadata(metadata: Option<&Value>) -> HashMap<String, Value> {
     match metadata {
         Some(Value::Object(map)) => map.clone().into_iter().collect(),
         _ => HashMap::new(),
+    }
+}
+
+/// Extract transient data (display_id) from a Jupyter output.
+fn extract_transient(transient: Option<&Value>) -> TransientData {
+    match transient {
+        Some(Value::Object(map)) => {
+            let display_id = map
+                .get("display_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            TransientData { display_id }
+        }
+        _ => TransientData::default(),
     }
 }
 

@@ -25,8 +25,10 @@ use serde::Serialize;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use uuid::Uuid;
 
+use crate::blob_store::BlobStore;
 use crate::notebook_doc::NotebookDoc;
 use crate::notebook_sync_server::persist_notebook_bytes;
+use crate::output_store::{self, DEFAULT_INLINE_THRESHOLD};
 use crate::protocol::NotebookBroadcast;
 
 /// Convert a JupyterMessageContent to nbformat-style JSON for storage in Automerge.
@@ -76,6 +78,85 @@ fn message_content_to_nbformat(content: &JupyterMessageContent) -> Option<serde_
         })),
         _ => None,
     }
+}
+
+/// Check if a string looks like a manifest hash (64-char hex).
+fn is_manifest_hash(s: &str) -> bool {
+    s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Update an output by display_id when outputs are manifest hashes.
+///
+/// This function iterates through all cells and outputs in the document,
+/// looking for a manifest with a matching display_id. When found, it creates
+/// a new manifest with updated data and replaces the hash in the document.
+///
+/// Returns true if an output was found and updated, false otherwise.
+async fn update_output_by_display_id_with_manifests(
+    doc: &mut NotebookDoc,
+    display_id: &str,
+    new_data: &serde_json::Value,
+    new_metadata: &serde_json::Map<String, serde_json::Value>,
+    blob_store: &BlobStore,
+) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    // Get all outputs from the document
+    let outputs = doc.get_all_outputs();
+
+    for (cell_id, output_idx, output_str) in outputs {
+        // Check if it's a manifest hash or raw JSON
+        if is_manifest_hash(&output_str) {
+            // Fetch manifest from blob store
+            let manifest_bytes = match blob_store.get(&output_str).await? {
+                Some(bytes) => bytes,
+                None => continue,
+            };
+            let manifest_json = String::from_utf8(manifest_bytes)?;
+
+            // Try to update the manifest
+            if let Some(updated_manifest) = output_store::update_manifest_display_data(
+                &manifest_json,
+                display_id,
+                new_data,
+                new_metadata,
+                blob_store,
+                DEFAULT_INLINE_THRESHOLD,
+            )
+            .await?
+            {
+                // Store the updated manifest and get new hash
+                let new_hash = output_store::store_manifest(&updated_manifest, blob_store).await?;
+
+                // Replace the hash in the document
+                doc.replace_output(&cell_id, output_idx, &new_hash)?;
+                return Ok(true);
+            }
+        } else {
+            // Backward compatibility: try parsing as raw JSON
+            let mut output_json: serde_json::Value = match serde_json::from_str(&output_str) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let matches = output_json
+                .get("transient")
+                .and_then(|t| t.get("display_id"))
+                .and_then(|d| d.as_str())
+                == Some(display_id);
+
+            if matches {
+                // Update data and metadata in place
+                output_json["data"] = new_data.clone();
+                output_json["metadata"] = serde_json::Value::Object(new_metadata.clone());
+
+                // Write back
+                let updated_str = output_json.to_string();
+                doc.replace_output(&cell_id, output_idx, &updated_str)?;
+                return Ok(true);
+            }
+        }
+    }
+
+    Ok(false)
 }
 
 /// A cell queued for execution.
@@ -159,6 +240,8 @@ pub struct RoomKernel {
     persist_path: PathBuf,
     /// Channel to notify peers of document changes
     changed_tx: broadcast::Sender<()>,
+    /// Blob store for output manifests
+    blob_store: Arc<BlobStore>,
 }
 
 /// Commands from iopub/shell handlers for queue state management.
@@ -180,6 +263,7 @@ impl RoomKernel {
         doc: Arc<RwLock<NotebookDoc>>,
         persist_path: PathBuf,
         changed_tx: broadcast::Sender<()>,
+        blob_store: Arc<BlobStore>,
     ) -> Self {
         Self {
             kernel_type: String::new(),
@@ -203,6 +287,7 @@ impl RoomKernel {
             doc,
             persist_path,
             changed_tx,
+            blob_store,
         }
     }
 
@@ -320,9 +405,8 @@ impl RoomKernel {
                 .map(|p| p.to_path_buf())
                 .unwrap_or_else(std::env::temp_dir)
         } else {
-            dirs::home_dir()
-                .map(|h| h.join("notebooks"))
-                .unwrap_or_else(std::env::temp_dir)
+            // For untitled notebooks, use home directory (which always exists)
+            dirs::home_dir().unwrap_or_else(std::env::temp_dir)
         };
 
         // Launch kernel process
@@ -363,6 +447,7 @@ impl RoomKernel {
         let doc = self.doc.clone();
         let persist_path = self.persist_path.clone();
         let changed_tx = self.changed_tx.clone();
+        let blob_store = self.blob_store.clone();
 
         let iopub_task = tokio::spawn(async move {
             loop {
@@ -429,17 +514,51 @@ impl RoomKernel {
                                         _ => "unknown",
                                     };
 
-                                    // Convert to nbformat JSON for storage and broadcast
+                                    // Convert to nbformat JSON for storage
                                     if let Some(nbformat_value) =
                                         message_content_to_nbformat(&message.content)
                                     {
-                                        let output_json = nbformat_value.to_string();
+                                        // Create manifest (inlines small data, blobs large data)
+                                        let output_ref = match output_store::create_manifest(
+                                            &nbformat_value,
+                                            &blob_store,
+                                            DEFAULT_INLINE_THRESHOLD,
+                                        )
+                                        .await
+                                        {
+                                            Ok(manifest_json) => {
+                                                // Store manifest in blob store, get hash
+                                                match output_store::store_manifest(
+                                                    &manifest_json,
+                                                    &blob_store,
+                                                )
+                                                .await
+                                                {
+                                                    Ok(hash) => hash,
+                                                    Err(e) => {
+                                                        warn!(
+                                                            "[kernel-manager] Failed to store manifest: {}",
+                                                            e
+                                                        );
+                                                        nbformat_value.to_string()
+                                                        // Fallback to raw JSON
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                warn!(
+                                                    "[kernel-manager] Failed to create manifest: {}",
+                                                    e
+                                                );
+                                                nbformat_value.to_string() // Fallback to raw JSON
+                                            }
+                                        };
 
-                                        // Write output to Automerge doc before broadcasting
+                                        // Append hash (or fallback JSON) to Automerge doc
                                         let persist_bytes = {
                                             let mut doc_guard = doc.write().await;
                                             if let Err(e) =
-                                                doc_guard.append_output(cid, &output_json)
+                                                doc_guard.append_output(cid, &output_ref)
                                             {
                                                 warn!(
                                                     "[kernel-manager] Failed to append output to doc: {}",
@@ -455,7 +574,7 @@ impl RoomKernel {
                                         let _ = broadcast_tx.send(NotebookBroadcast::Output {
                                             cell_id: cid.clone(),
                                             output_type: output_type.to_string(),
-                                            output_json,
+                                            output_json: output_ref,
                                         });
                                     }
                                 }
@@ -463,15 +582,20 @@ impl RoomKernel {
 
                             // UpdateDisplayData mutates an existing output in place (e.g., progress bars).
                             // Find the output by display_id and update it, rather than appending.
+                            // Supports both manifest hashes and raw JSON (backward compatibility).
                             JupyterMessageContent::UpdateDisplayData(update) => {
                                 if let Some(ref display_id) = update.transient.display_id {
                                     let persist_bytes = {
                                         let mut doc_guard = doc.write().await;
-                                        match doc_guard.update_output_by_display_id(
+                                        match update_output_by_display_id_with_manifests(
+                                            &mut doc_guard,
                                             display_id,
                                             &serde_json::to_value(&update.data).unwrap_or_default(),
                                             &update.metadata,
-                                        ) {
+                                            &blob_store,
+                                        )
+                                        .await
+                                        {
                                             Ok(true) => {
                                                 debug!(
                                                     "[kernel-manager] Updated display_id={}",
@@ -514,13 +638,45 @@ impl RoomKernel {
                                     if let Some(nbformat_value) =
                                         message_content_to_nbformat(&message.content)
                                     {
-                                        let output_json = nbformat_value.to_string();
+                                        // Create manifest for error output
+                                        let output_ref = match output_store::create_manifest(
+                                            &nbformat_value,
+                                            &blob_store,
+                                            DEFAULT_INLINE_THRESHOLD,
+                                        )
+                                        .await
+                                        {
+                                            Ok(manifest_json) => {
+                                                match output_store::store_manifest(
+                                                    &manifest_json,
+                                                    &blob_store,
+                                                )
+                                                .await
+                                                {
+                                                    Ok(hash) => hash,
+                                                    Err(e) => {
+                                                        warn!(
+                                                            "[kernel-manager] Failed to store error manifest: {}",
+                                                            e
+                                                        );
+                                                        nbformat_value.to_string()
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                warn!(
+                                                    "[kernel-manager] Failed to create error manifest: {}",
+                                                    e
+                                                );
+                                                nbformat_value.to_string()
+                                            }
+                                        };
 
                                         // Write error output to Automerge doc before broadcasting
                                         let persist_bytes = {
                                             let mut doc_guard = doc.write().await;
                                             if let Err(e) =
-                                                doc_guard.append_output(cid, &output_json)
+                                                doc_guard.append_output(cid, &output_ref)
                                             {
                                                 warn!(
                                                     "[kernel-manager] Failed to append error output to doc: {}",
@@ -536,7 +692,7 @@ impl RoomKernel {
                                         let _ = broadcast_tx.send(NotebookBroadcast::Output {
                                             cell_id: cid.clone(),
                                             output_type: "error".to_string(),
-                                            output_json,
+                                            output_json: output_ref,
                                         });
                                     }
 
@@ -1030,11 +1186,13 @@ mod tests {
 
     #[test]
     fn test_room_kernel_new() {
+        let tmp = tempfile::TempDir::new().unwrap();
         let (tx, _rx) = broadcast::channel(16);
         let (changed_tx, _changed_rx) = broadcast::channel(16);
         let doc = Arc::new(RwLock::new(NotebookDoc::new("test-notebook")));
         let persist_path = PathBuf::from("/tmp/test.automerge");
-        let kernel = RoomKernel::new(tx, doc, persist_path, changed_tx);
+        let blob_store = Arc::new(BlobStore::new(tmp.path().join("blobs")));
+        let kernel = RoomKernel::new(tx, doc, persist_path, changed_tx, blob_store);
 
         assert!(!kernel.is_running());
         assert!(kernel.executing_cell().is_none());

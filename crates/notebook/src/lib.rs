@@ -518,6 +518,16 @@ async fn get_daemon_info() -> Option<DaemonInfoForBanner> {
     }
 }
 
+/// Get the blob server port from the running daemon.
+/// Used by the frontend to resolve manifest hashes to outputs.
+#[tauri::command]
+async fn get_blob_port() -> Result<u16, String> {
+    let info = runtimed::singleton::get_running_daemon_info()
+        .ok_or_else(|| "Daemon not running".to_string())?;
+    info.blob_port
+        .ok_or_else(|| "Blob server not available".to_string())
+}
+
 #[tauri::command]
 async fn load_notebook(
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
@@ -961,8 +971,18 @@ async fn launch_kernel_via_daemon(
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
-    // Use notebook_id from the sync handle if notebook_path not provided
-    let resolved_path = notebook_path.or_else(|| Some(handle.notebook_id().to_string()));
+    // Use notebook_id from the sync handle if notebook_path not provided,
+    // but only if it looks like a real file path (not a UUID for untitled notebooks)
+    let resolved_path = notebook_path.or_else(|| {
+        let id = handle.notebook_id();
+        // Check if it looks like a file path (contains path separator or starts with /)
+        if id.contains('/') || id.contains('\\') {
+            Some(id.to_string())
+        } else {
+            // Likely a UUID for an untitled notebook - don't use as path
+            None
+        }
+    });
 
     info!(
         "[daemon-kernel] launch_kernel_via_daemon: type={}, env_source={}, path={:?}",
@@ -1155,6 +1175,34 @@ async fn reconnect_to_daemon(
         notebook_sync.inner().clone(),
     )
     .await
+}
+
+/// Refresh cells from Automerge and emit notebook:updated event.
+///
+/// Used by the frontend to request the current Automerge state after
+/// setting up listeners (handles race condition where initial state
+/// was emitted before listeners were ready).
+#[tauri::command]
+async fn refresh_from_automerge(
+    app: tauri::AppHandle,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<(), String> {
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    let cells = handle
+        .get_cells()
+        .await
+        .map_err(|e| format!("Failed to get cells: {}", e))?;
+
+    info!(
+        "[notebook-sync] Refreshing frontend with {} cells from Automerge",
+        cells.len()
+    );
+
+    // Emit to frontend (which will resolve manifest hashes)
+    app.emit("notebook:updated", &cells)
+        .map_err(|e| format!("Failed to emit notebook:updated: {}", e))
 }
 
 /// Debug: Get Automerge document state from the daemon.
@@ -4000,6 +4048,7 @@ pub fn run(
             run_all_cells_via_daemon,
             send_comm_via_daemon,
             reconnect_to_daemon,
+            refresh_from_automerge,
             debug_get_automerge_state,
             debug_get_local_state,
             queue_execute_cell,
@@ -4081,6 +4130,7 @@ pub fn run(
             get_prewarm_status,
             get_conda_pool_status,
             get_daemon_info,
+            get_blob_port,
         ])
         .setup(move |app| {
             let setup_start = std::time::Instant::now();

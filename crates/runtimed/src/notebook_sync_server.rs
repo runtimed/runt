@@ -34,6 +34,7 @@ use log::{info, warn};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{broadcast, Mutex, RwLock};
 
+use crate::blob_store::BlobStore;
 use crate::connection::{self, NotebookFrameType};
 use crate::kernel_manager::RoomKernel;
 use crate::notebook_doc::{notebook_doc_filename, NotebookDoc};
@@ -89,6 +90,8 @@ pub struct NotebookRoom {
     /// Optional kernel for this room (Phase 8: daemon-owned execution).
     /// Arc-wrapped so spawned command processor task can access it.
     pub kernel: Arc<Mutex<Option<RoomKernel>>>,
+    /// Blob store for output manifests.
+    pub blob_store: Arc<BlobStore>,
 }
 
 impl NotebookRoom {
@@ -100,7 +103,7 @@ impl NotebookRoom {
     /// sessions from accumulating.
     ///
     /// Any existing persisted doc is deleted to avoid clutter.
-    pub fn new_fresh(notebook_id: &str, docs_dir: &Path) -> Self {
+    pub fn new_fresh(notebook_id: &str, docs_dir: &Path, blob_store: Arc<BlobStore>) -> Self {
         let filename = notebook_doc_filename(notebook_id);
         let persist_path = docs_dir.join(&filename);
 
@@ -123,6 +126,7 @@ impl NotebookRoom {
             persist_path,
             active_peers: AtomicUsize::new(0),
             kernel: Arc::new(Mutex::new(None)),
+            blob_store,
         }
     }
 
@@ -132,7 +136,7 @@ impl NotebookRoom {
     /// For normal operation, `new_fresh` is used to ensure the .ipynb file
     /// is the source of truth.
     #[cfg(test)]
-    pub fn load_or_create(notebook_id: &str, docs_dir: &Path) -> Self {
+    pub fn load_or_create(notebook_id: &str, docs_dir: &Path, blob_store: Arc<BlobStore>) -> Self {
         let filename = notebook_doc_filename(notebook_id);
         let persist_path = docs_dir.join(filename);
         let doc = NotebookDoc::load_or_create(&persist_path, notebook_id);
@@ -145,6 +149,7 @@ impl NotebookRoom {
             persist_path,
             active_peers: AtomicUsize::new(0),
             kernel: Arc::new(Mutex::new(None)),
+            blob_store,
         }
     }
 
@@ -184,12 +189,13 @@ pub fn get_or_create_room(
     rooms: &mut HashMap<String, Arc<NotebookRoom>>,
     notebook_id: &str,
     docs_dir: &Path,
+    blob_store: Arc<BlobStore>,
 ) -> Arc<NotebookRoom> {
     rooms
         .entry(notebook_id.to_string())
         .or_insert_with(|| {
             info!("[notebook-sync] Creating room for {}", notebook_id);
-            Arc::new(NotebookRoom::new_fresh(notebook_id, docs_dir))
+            Arc::new(NotebookRoom::new_fresh(notebook_id, docs_dir, blob_store))
         })
         .clone()
 }
@@ -494,6 +500,7 @@ async fn handle_notebook_request(
                 room.doc.clone(),
                 room.persist_path.clone(),
                 room.changed_tx.clone(),
+                room.blob_store.clone(),
             );
             let notebook_path = notebook_path.map(std::path::PathBuf::from);
 
@@ -785,10 +792,16 @@ pub(crate) fn persist_notebook_bytes(data: &[u8], path: &Path) {
 mod tests {
     use super::*;
 
+    /// Create a test blob store in the given temp directory.
+    fn test_blob_store(tmp: &tempfile::TempDir) -> Arc<BlobStore> {
+        Arc::new(BlobStore::new(tmp.path().join("blobs")))
+    }
+
     #[test]
     fn test_room_load_or_create_new() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let room = NotebookRoom::load_or_create("test-nb", tmp.path());
+        let blob_store = test_blob_store(&tmp);
+        let room = NotebookRoom::load_or_create("test-nb", tmp.path(), blob_store);
 
         let doc = room.doc.try_read().unwrap();
         assert_eq!(doc.notebook_id(), Some("test-nb".to_string()));
@@ -799,10 +812,11 @@ mod tests {
     #[test]
     fn test_room_persists_and_reloads() {
         let tmp = tempfile::TempDir::new().unwrap();
+        let blob_store = test_blob_store(&tmp);
 
         // Create room and add a cell
         {
-            let room = NotebookRoom::load_or_create("persist-test", tmp.path());
+            let room = NotebookRoom::load_or_create("persist-test", tmp.path(), blob_store.clone());
             let mut doc = room.doc.try_write().unwrap();
             doc.add_cell(0, "c1", "code").unwrap();
             doc.update_source("c1", "hello").unwrap();
@@ -812,7 +826,7 @@ mod tests {
 
         // Load again — should have the cell
         {
-            let room = NotebookRoom::load_or_create("persist-test", tmp.path());
+            let room = NotebookRoom::load_or_create("persist-test", tmp.path(), blob_store);
             let doc = room.doc.try_read().unwrap();
             assert_eq!(doc.cell_count(), 1);
             let cell = doc.get_cell("c1").unwrap();
@@ -823,10 +837,11 @@ mod tests {
     #[test]
     fn test_get_or_create_room_reuses_existing() {
         let tmp = tempfile::TempDir::new().unwrap();
+        let blob_store = test_blob_store(&tmp);
         let mut rooms = HashMap::new();
 
-        let room1 = get_or_create_room(&mut rooms, "nb1", tmp.path());
-        let room2 = get_or_create_room(&mut rooms, "nb1", tmp.path());
+        let room1 = get_or_create_room(&mut rooms, "nb1", tmp.path(), blob_store.clone());
+        let room2 = get_or_create_room(&mut rooms, "nb1", tmp.path(), blob_store);
 
         // Should be the same Arc (same room)
         assert!(Arc::ptr_eq(&room1, &room2));
@@ -835,10 +850,11 @@ mod tests {
     #[test]
     fn test_get_or_create_room_different_notebooks() {
         let tmp = tempfile::TempDir::new().unwrap();
+        let blob_store = test_blob_store(&tmp);
         let mut rooms = HashMap::new();
 
-        let room1 = get_or_create_room(&mut rooms, "nb1", tmp.path());
-        let room2 = get_or_create_room(&mut rooms, "nb2", tmp.path());
+        let room1 = get_or_create_room(&mut rooms, "nb1", tmp.path(), blob_store.clone());
+        let room2 = get_or_create_room(&mut rooms, "nb2", tmp.path(), blob_store);
 
         // Should be different rooms
         assert!(!Arc::ptr_eq(&room1, &room2));
@@ -848,7 +864,8 @@ mod tests {
     #[test]
     fn test_room_peer_counting() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let room = NotebookRoom::load_or_create("peer-test", tmp.path());
+        let blob_store = test_blob_store(&tmp);
+        let room = NotebookRoom::load_or_create("peer-test", tmp.path(), blob_store);
 
         assert_eq!(room.active_peers.load(Ordering::Relaxed), 0);
 
@@ -866,7 +883,8 @@ mod tests {
     #[test]
     fn test_new_fresh_creates_empty_doc() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let room = NotebookRoom::new_fresh("fresh-test", tmp.path());
+        let blob_store = test_blob_store(&tmp);
+        let room = NotebookRoom::new_fresh("fresh-test", tmp.path(), blob_store);
 
         let doc = room.doc.try_read().unwrap();
         assert_eq!(doc.notebook_id(), Some("fresh-test".to_string()));
@@ -876,10 +894,11 @@ mod tests {
     #[test]
     fn test_new_fresh_deletes_stale_persisted_doc() {
         let tmp = tempfile::TempDir::new().unwrap();
+        let blob_store = test_blob_store(&tmp);
 
         // Create and persist a room with content using load_or_create
         {
-            let room = NotebookRoom::load_or_create("stale-test", tmp.path());
+            let room = NotebookRoom::load_or_create("stale-test", tmp.path(), blob_store.clone());
             let mut doc = room.doc.try_write().unwrap();
             doc.add_cell(0, "c1", "code").unwrap();
             doc.update_source("c1", "old content").unwrap();
@@ -893,7 +912,7 @@ mod tests {
         assert!(persist_path.exists(), "Persisted file should exist");
 
         // Create fresh room - should delete persisted doc and start empty
-        let room = NotebookRoom::new_fresh("stale-test", tmp.path());
+        let room = NotebookRoom::new_fresh("stale-test", tmp.path(), blob_store);
 
         // Persisted file should be deleted
         assert!(
