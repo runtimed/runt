@@ -373,11 +373,65 @@ pub struct CondaEnvironment {
 
 /// Extract dependencies from notebook metadata.
 ///
-/// Looks for the `conda` key in the metadata's additional fields,
-/// which should contain `dependencies`, optionally `channels`, and optionally `python`.
+/// Looks for conda config in the new nested path `runt.conda` first,
+/// then falls back to legacy `conda` for backward compatibility.
 pub fn extract_dependencies(metadata: &nbformat::v4::Metadata) -> Option<CondaDependencies> {
+    // New format: metadata.runt.conda
+    if let Some(runt_value) = metadata.additional.get("runt") {
+        if let Some(conda_value) = runt_value.get("conda") {
+            if let Ok(deps) = serde_json::from_value(conda_value.clone()) {
+                return Some(deps);
+            }
+        }
+    }
+    // Legacy format: metadata.conda (fallback for unmigrated notebooks)
     let conda_value = metadata.additional.get("conda")?;
     serde_json::from_value(conda_value.clone()).ok()
+}
+
+/// Set conda dependencies in notebook metadata (nested under runt).
+///
+/// Creates the `runt.conda` path if it doesn't exist.
+pub fn set_dependencies(metadata: &mut nbformat::v4::Metadata, deps: &CondaDependencies) {
+    let conda_value = serde_json::json!({
+        "dependencies": deps.dependencies,
+        "channels": deps.channels,
+        "python": deps.python,
+    });
+
+    // Get or create runt namespace
+    let runt = metadata
+        .additional
+        .entry("runt".to_string())
+        .or_insert_with(|| serde_json::json!({"schema_version": "1"}));
+
+    if let Some(runt_obj) = runt.as_object_mut() {
+        runt_obj.insert("conda".to_string(), conda_value);
+    }
+}
+
+/// Check if notebook has conda config (in new or legacy format).
+pub fn has_conda_config(metadata: &nbformat::v4::Metadata) -> bool {
+    // Check new format
+    if let Some(runt) = metadata.additional.get("runt") {
+        if runt.get("conda").is_some() {
+            return true;
+        }
+    }
+    // Check legacy format
+    metadata.additional.contains_key("conda")
+}
+
+/// Remove conda config from metadata (both new and legacy paths).
+pub fn remove_conda_config(metadata: &mut nbformat::v4::Metadata) {
+    // Remove from new format
+    if let Some(runt) = metadata.additional.get_mut("runt") {
+        if let Some(runt_obj) = runt.as_object_mut() {
+            runt_obj.remove("conda");
+        }
+    }
+    // Remove legacy format
+    metadata.additional.remove("conda");
 }
 
 /// Compute a cache key for the given dependencies.

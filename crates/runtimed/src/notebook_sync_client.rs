@@ -17,6 +17,7 @@ use std::time::Duration;
 use automerge::sync::{self, SyncDoc};
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjType, ReadDoc};
+use futures::FutureExt;
 use log::{info, warn};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
@@ -296,6 +297,9 @@ pub struct NotebookSyncClient<S> {
     /// Whether to use typed frames (v2 protocol) or raw frames (v1).
     /// Determined during connection based on server capabilities.
     use_typed_frames: bool,
+    /// Broadcasts received during initial sync (before split).
+    /// These are delivered immediately after into_split creates the channels.
+    pending_broadcasts: Vec<NotebookBroadcast>,
 }
 
 #[cfg(unix)]
@@ -474,53 +478,95 @@ where
         }
 
         // Continue sync rounds until no more messages (short timeout)
+        // For v2 protocol, we may receive Broadcast frames during initial sync (e.g., from auto-launch).
+        // We need to handle these properly instead of treating them as Automerge sync messages.
+        let mut pending_broadcasts = Vec::new();
         loop {
-            let recv_result = if use_typed_frames {
-                tokio::time::timeout(Duration::from_millis(100), async {
-                    let frame = connection::recv_typed_frame(&mut stream).await?;
-                    Ok::<_, std::io::Error>(frame.map(|f| f.payload))
-                })
+            if use_typed_frames {
+                // v2 protocol: receive typed frame and handle by type
+                match tokio::time::timeout(
+                    Duration::from_millis(100),
+                    connection::recv_typed_frame(&mut stream),
+                )
                 .await
+                {
+                    Ok(Ok(Some(frame))) => match frame.frame_type {
+                        NotebookFrameType::AutomergeSync => {
+                            let message = sync::Message::decode(&frame.payload).map_err(|e| {
+                                NotebookSyncError::SyncError(format!("decode: {}", e))
+                            })?;
+                            doc.sync()
+                                .receive_sync_message(&mut peer_state, message)
+                                .map_err(|e| {
+                                    NotebookSyncError::SyncError(format!("receive: {}", e))
+                                })?;
+
+                            if let Some(msg) = doc.sync().generate_sync_message(&mut peer_state) {
+                                connection::send_typed_frame(
+                                    &mut stream,
+                                    NotebookFrameType::AutomergeSync,
+                                    &msg.encode(),
+                                )
+                                .await?;
+                            }
+                        }
+                        NotebookFrameType::Broadcast => {
+                            // Queue broadcasts to deliver after sync completes
+                            if let Ok(broadcast) =
+                                serde_json::from_slice::<NotebookBroadcast>(&frame.payload)
+                            {
+                                info!(
+                                    "[notebook-sync-client] Received broadcast during init: {:?}",
+                                    broadcast
+                                );
+                                pending_broadcasts.push(broadcast);
+                            }
+                        }
+                        NotebookFrameType::Response => {
+                            // Unexpected during init, ignore
+                            warn!("[notebook-sync-client] Unexpected Response frame during init");
+                        }
+                        NotebookFrameType::Request => {
+                            // Server shouldn't send requests, ignore
+                            warn!("[notebook-sync-client] Unexpected Request frame during init");
+                        }
+                    },
+                    Ok(Ok(None)) => return Err(NotebookSyncError::Disconnected),
+                    Ok(Err(e)) => return Err(NotebookSyncError::ConnectionFailed(e)),
+                    Err(_) => break, // Timeout — initial sync is done
+                }
             } else {
-                tokio::time::timeout(
+                // v1 protocol: raw Automerge frames
+                match tokio::time::timeout(
                     Duration::from_millis(100),
                     connection::recv_frame(&mut stream),
                 )
                 .await
-            };
+                {
+                    Ok(Ok(Some(data))) => {
+                        let message = sync::Message::decode(&data)
+                            .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
+                        doc.sync()
+                            .receive_sync_message(&mut peer_state, message)
+                            .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
 
-            match recv_result {
-                Ok(Ok(Some(data))) => {
-                    let message = sync::Message::decode(&data)
-                        .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
-                    doc.sync()
-                        .receive_sync_message(&mut peer_state, message)
-                        .map_err(|e| NotebookSyncError::SyncError(format!("receive: {}", e)))?;
-
-                    if let Some(msg) = doc.sync().generate_sync_message(&mut peer_state) {
-                        if use_typed_frames {
-                            connection::send_typed_frame(
-                                &mut stream,
-                                NotebookFrameType::AutomergeSync,
-                                &msg.encode(),
-                            )
-                            .await?;
-                        } else {
+                        if let Some(msg) = doc.sync().generate_sync_message(&mut peer_state) {
                             connection::send_frame(&mut stream, &msg.encode()).await?;
                         }
                     }
+                    Ok(Ok(None)) => return Err(NotebookSyncError::Disconnected),
+                    Ok(Err(e)) => return Err(NotebookSyncError::ConnectionFailed(e)),
+                    Err(_) => break, // Timeout — initial sync is done
                 }
-                Ok(Ok(None)) => return Err(NotebookSyncError::Disconnected),
-                Ok(Err(e)) => return Err(NotebookSyncError::ConnectionFailed(e)),
-                Err(_) => break, // Timeout — initial sync is done
             }
         }
 
         let cells = get_cells_from_doc(&doc);
         info!(
-            "[notebook-sync-client] Initial sync complete for {}: {} cells (protocol {})",
+            "[notebook-sync-client] Initial sync complete for {}: {} cells, {} pending broadcasts (protocol {})",
             notebook_id,
             cells.len(),
+            pending_broadcasts.len(),
             if use_typed_frames { "v2" } else { "v1" }
         );
 
@@ -530,6 +576,7 @@ where
             stream,
             notebook_id,
             use_typed_frames,
+            pending_broadcasts,
         })
     }
 
@@ -1166,6 +1213,7 @@ where
     ) {
         let initial_cells = self.get_cells();
         let notebook_id = self.notebook_id.clone();
+        let pending_broadcasts = self.pending_broadcasts.clone();
 
         // Channel for commands from handles
         let (cmd_tx, cmd_rx) = mpsc::channel::<SyncCommand>(32);
@@ -1176,8 +1224,57 @@ where
         // Channel for kernel broadcasts
         let (broadcast_tx, broadcast_rx) = mpsc::channel::<NotebookBroadcast>(64);
 
-        // Spawn background task
-        tokio::spawn(run_sync_task(self, cmd_rx, changes_tx, broadcast_tx));
+        // Send pending broadcasts (received during init) before spawning the task
+        // This ensures the broadcast receiver can get them immediately
+        let broadcast_tx_for_pending = broadcast_tx.clone();
+        if !pending_broadcasts.is_empty() {
+            info!(
+                "[notebook-sync-client] Sending {} pending broadcasts for {}",
+                pending_broadcasts.len(),
+                notebook_id
+            );
+            tokio::spawn(async move {
+                for broadcast in pending_broadcasts {
+                    if broadcast_tx_for_pending.send(broadcast).await.is_err() {
+                        warn!("[notebook-sync-client] Failed to send pending broadcast");
+                        break;
+                    }
+                }
+            });
+        }
+
+        // Spawn background task with panic catching
+        let notebook_id_for_task = notebook_id.clone();
+        info!(
+            "[notebook-sync-client] Spawning run_sync_task for {}",
+            notebook_id_for_task
+        );
+        tokio::spawn(async move {
+            info!(
+                "[notebook-sync-task] Task started for {} (inside spawn)",
+                notebook_id_for_task
+            );
+            let result =
+                std::panic::AssertUnwindSafe(run_sync_task(self, cmd_rx, changes_tx, broadcast_tx))
+                    .catch_unwind()
+                    .await;
+
+            match result {
+                Ok(()) => {
+                    info!(
+                        "[notebook-sync-task] Task completed normally for {}",
+                        notebook_id_for_task
+                    );
+                }
+                Err(panic_info) => {
+                    log::error!(
+                        "[notebook-sync-task] PANIC in run_sync_task for {}: {:?}",
+                        notebook_id_for_task,
+                        panic_info
+                    );
+                }
+            }
+        });
 
         let handle = NotebookSyncHandle {
             tx: cmd_tx,
@@ -1201,47 +1298,65 @@ async fn run_sync_task<S>(
 {
     use tokio::time::{interval, Duration};
 
-    info!("[notebook-sync-task] Starting for {}", client.notebook_id());
+    let notebook_id = client.notebook_id().to_string();
+    info!(
+        "[notebook-sync-task] Starting for {} (changes_tx strong_count before loop: N/A)",
+        notebook_id
+    );
 
     // Use a short poll interval to check for incoming data
     let mut poll_interval = interval(Duration::from_millis(50));
+    let mut loop_count = 0u64;
 
     loop {
+        loop_count += 1;
         tokio::select! {
             // Process commands from handles
-            Some(cmd) = cmd_rx.recv() => {
-                match cmd {
-                    SyncCommand::AddCell { index, cell_id, cell_type, reply } => {
-                        let result = client.add_cell(index, &cell_id, &cell_type).await;
-                        let _ = reply.send(result);
+            cmd_opt = cmd_rx.recv() => {
+                match cmd_opt {
+                    Some(cmd) => {
+                        match cmd {
+                            SyncCommand::AddCell { index, cell_id, cell_type, reply } => {
+                                let result = client.add_cell(index, &cell_id, &cell_type).await;
+                                let _ = reply.send(result);
+                            }
+                            SyncCommand::DeleteCell { cell_id, reply } => {
+                                let result = client.delete_cell(&cell_id).await;
+                                let _ = reply.send(result);
+                            }
+                            SyncCommand::UpdateSource { cell_id, source, reply } => {
+                                let result = client.update_source(&cell_id, &source).await;
+                                let _ = reply.send(result);
+                            }
+                            SyncCommand::ClearOutputs { cell_id, reply } => {
+                                let result = client.clear_outputs(&cell_id).await;
+                                let _ = reply.send(result);
+                            }
+                            SyncCommand::AppendOutput { cell_id, output, reply } => {
+                                let result = client.append_output(&cell_id, &output).await;
+                                let _ = reply.send(result);
+                            }
+                            SyncCommand::SetExecutionCount { cell_id, count, reply } => {
+                                let result = client.set_execution_count(&cell_id, &count).await;
+                                let _ = reply.send(result);
+                            }
+                            SyncCommand::GetCells { reply } => {
+                                let cells = client.get_cells();
+                                let _ = reply.send(cells);
+                            }
+                            SyncCommand::SendRequest { request, reply } => {
+                                let result = client.send_request(&request).await;
+                                let _ = reply.send(result);
+                            }
+                        }
                     }
-                    SyncCommand::DeleteCell { cell_id, reply } => {
-                        let result = client.delete_cell(&cell_id).await;
-                        let _ = reply.send(result);
-                    }
-                    SyncCommand::UpdateSource { cell_id, source, reply } => {
-                        let result = client.update_source(&cell_id, &source).await;
-                        let _ = reply.send(result);
-                    }
-                    SyncCommand::ClearOutputs { cell_id, reply } => {
-                        let result = client.clear_outputs(&cell_id).await;
-                        let _ = reply.send(result);
-                    }
-                    SyncCommand::AppendOutput { cell_id, output, reply } => {
-                        let result = client.append_output(&cell_id, &output).await;
-                        let _ = reply.send(result);
-                    }
-                    SyncCommand::SetExecutionCount { cell_id, count, reply } => {
-                        let result = client.set_execution_count(&cell_id, &count).await;
-                        let _ = reply.send(result);
-                    }
-                    SyncCommand::GetCells { reply } => {
-                        let cells = client.get_cells();
-                        let _ = reply.send(cells);
-                    }
-                    SyncCommand::SendRequest { request, reply } => {
-                        let result = client.send_request(&request).await;
-                        let _ = reply.send(result);
+                    None => {
+                        // Command channel closed - handle was dropped
+                        info!(
+                            "[notebook-sync-task] Command channel closed for {} (handle dropped), loop_count={}",
+                            notebook_id, loop_count
+                        );
+                        break;
                     }
                 }
             }
@@ -1256,30 +1371,42 @@ async fn run_sync_task<S>(
                     Ok(Ok(Some(ReceivedFrame::Changes(cells)))) => {
                         // Got changes from another peer
                         if changes_tx.send(cells).await.is_err() {
-                            info!("[notebook-sync-task] Changes receiver dropped, stopping");
+                            info!(
+                                "[notebook-sync-task] Changes receiver dropped for {}, loop_count={}",
+                                notebook_id, loop_count
+                            );
                             break;
                         }
                     }
                     Ok(Ok(Some(ReceivedFrame::Broadcast(broadcast)))) => {
                         // Got a broadcast from daemon
                         if broadcast_tx.send(broadcast).await.is_err() {
-                            info!("[notebook-sync-task] Broadcast receiver dropped");
+                            info!(
+                                "[notebook-sync-task] Broadcast receiver dropped for {}",
+                                notebook_id
+                            );
                             // Continue - broadcasts are optional
                         }
                     }
                     Ok(Ok(Some(ReceivedFrame::Response(_)))) => {
                         // Unexpected response - we weren't waiting for one
-                        warn!("[notebook-sync-task] Unexpected response frame");
+                        warn!("[notebook-sync-task] Unexpected response frame for {}", notebook_id);
                     }
                     Ok(Ok(None)) => {
                         // No frame available
                     }
                     Ok(Err(NotebookSyncError::Disconnected)) => {
-                        warn!("[notebook-sync-task] Disconnected from daemon");
+                        warn!(
+                            "[notebook-sync-task] Disconnected from daemon for {}, loop_count={}",
+                            notebook_id, loop_count
+                        );
                         break;
                     }
                     Ok(Err(e)) => {
-                        warn!("[notebook-sync-task] Error receiving: {}", e);
+                        warn!(
+                            "[notebook-sync-task] Error receiving for {}: {}, loop_count={}",
+                            notebook_id, e, loop_count
+                        );
                         break;
                     }
                     Err(_) => {
@@ -1290,7 +1417,10 @@ async fn run_sync_task<S>(
         }
     }
 
-    info!("[notebook-sync-task] Stopped for {}", client.notebook_id());
+    info!(
+        "[notebook-sync-task] Stopped for {} after {} loop iterations",
+        notebook_id, loop_count
+    );
 }
 
 /// Result of receiving a frame from the daemon.

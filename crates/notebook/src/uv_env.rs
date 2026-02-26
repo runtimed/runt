@@ -34,11 +34,64 @@ pub async fn check_uv_available() -> bool {
 
 /// Extract dependencies from notebook metadata.
 ///
-/// Looks for the `uv` key in the metadata's additional fields,
-/// which should contain `dependencies` and optionally `requires-python`.
+/// Looks for uv config in the new nested path `runt.uv` first,
+/// then falls back to legacy `uv` for backward compatibility.
 pub fn extract_dependencies(metadata: &nbformat::v4::Metadata) -> Option<NotebookDependencies> {
+    // New format: metadata.runt.uv
+    if let Some(runt_value) = metadata.additional.get("runt") {
+        if let Some(uv_value) = runt_value.get("uv") {
+            if let Ok(deps) = serde_json::from_value(uv_value.clone()) {
+                return Some(deps);
+            }
+        }
+    }
+    // Legacy format: metadata.uv (fallback for unmigrated notebooks)
     let uv_value = metadata.additional.get("uv")?;
     serde_json::from_value(uv_value.clone()).ok()
+}
+
+/// Set uv dependencies in notebook metadata (nested under runt).
+///
+/// Creates the `runt.uv` path if it doesn't exist.
+pub fn set_dependencies(metadata: &mut nbformat::v4::Metadata, deps: &NotebookDependencies) {
+    let uv_value = serde_json::json!({
+        "dependencies": deps.dependencies,
+        "requires-python": deps.requires_python,
+    });
+
+    // Get or create runt namespace
+    let runt = metadata
+        .additional
+        .entry("runt".to_string())
+        .or_insert_with(|| serde_json::json!({"schema_version": "1"}));
+
+    if let Some(runt_obj) = runt.as_object_mut() {
+        runt_obj.insert("uv".to_string(), uv_value);
+    }
+}
+
+/// Check if notebook has uv config (in new or legacy format).
+pub fn has_uv_config(metadata: &nbformat::v4::Metadata) -> bool {
+    // Check new format
+    if let Some(runt) = metadata.additional.get("runt") {
+        if runt.get("uv").is_some() {
+            return true;
+        }
+    }
+    // Check legacy format
+    metadata.additional.contains_key("uv")
+}
+
+/// Remove uv config from metadata (both new and legacy paths).
+pub fn remove_uv_config(metadata: &mut nbformat::v4::Metadata) {
+    // Remove from new format
+    if let Some(runt) = metadata.additional.get_mut("runt") {
+        if let Some(runt_obj) = runt.as_object_mut() {
+            runt_obj.remove("uv");
+        }
+    }
+    // Remove legacy format
+    metadata.additional.remove("uv");
 }
 
 /// Extract the env_id from notebook metadata.

@@ -331,9 +331,12 @@ export function useNotebook() {
 
   // Listen for cross-window sync updates from the Automerge daemon
   useEffect(() => {
+    let isMounted = true;
+
     const unlisten = listen<CellSnapshot[]>(
       "notebook:updated",
       async (event) => {
+        if (!isMounted) return;
         console.log(
           "[notebook-sync] Received notebook:updated with",
           event.payload.length,
@@ -359,15 +362,26 @@ export function useNotebook() {
       },
     );
 
-    // Request current state from Automerge after listener is set up.
-    // This handles the race condition where initial state was emitted
-    // before the listener was ready.
-    invoke("refresh_from_automerge").catch((e) =>
-      console.warn("[notebook-sync] refresh_from_automerge failed:", e),
-    );
+    // Listen for daemon ready signal before requesting Automerge state.
+    // The backend emits daemon:ready after notebook sync is initialized.
+    const unlistenReady = listen("daemon:ready", () => {
+      if (!isMounted) return;
+      console.log("[notebook-sync] Daemon ready, requesting Automerge state");
+      invoke("refresh_from_automerge").catch((e) =>
+        console.warn("[notebook-sync] refresh_from_automerge failed:", e),
+      );
+    });
+
+    // Also try immediately in case daemon:ready was already emitted
+    // (handles page reload when daemon is already connected)
+    invoke("refresh_from_automerge").catch(() => {
+      // Expected to fail if daemon isn't ready yet - daemon:ready listener will retry
+    });
 
     return () => {
+      isMounted = false;
       unlisten.then((fn) => fn());
+      unlistenReady.then((fn) => fn());
     };
   }, []);
 

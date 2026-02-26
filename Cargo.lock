@@ -3261,6 +3261,7 @@ dependencies = [
  "rattler_virtual_packages",
  "reqwest 0.12.28",
  "reqwest-middleware",
+ "runt-trust",
  "runtimed",
  "runtimelib",
  "schemars 1.2.1",
@@ -5115,6 +5116,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "runt-trust"
+version = "0.1.0"
+dependencies = [
+ "dirs 5.0.1",
+ "hex",
+ "hmac",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sha2 0.10.9",
+ "tempfile",
+]
+
+[[package]]
 name = "runtimed"
 version = "0.1.0-dev.10"
 dependencies = [
@@ -5145,6 +5161,7 @@ dependencies = [
  "rattler_virtual_packages",
  "reqwest 0.12.28",
  "reqwest-middleware",
+ "runt-trust",
  "runtimelib",
  "schemars 1.2.1",
  "serde",

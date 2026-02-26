@@ -1,10 +1,71 @@
 use crate::runtime::Runtime;
 use crate::settings::{self, PythonEnvType};
+use log::info;
 use nbformat::v4::{Cell, CellId, CellMetadata, Notebook, Output};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use uuid::Uuid;
+
+/// Migrate legacy metadata format to the new `runt` namespace structure.
+///
+/// Old format:
+///   metadata.uv.dependencies, metadata.conda.dependencies
+///
+/// New format:
+///   metadata.runt.uv.dependencies, metadata.runt.conda.dependencies
+///
+/// Returns `true` if any migration was performed.
+pub fn migrate_legacy_metadata(additional: &mut HashMap<String, serde_json::Value>) -> bool {
+    let mut migrated = false;
+
+    // Extract legacy keys first (before borrowing runt mutably)
+    let legacy_uv = additional.remove("uv");
+    let legacy_conda = additional.remove("conda");
+
+    if legacy_uv.is_none() && legacy_conda.is_none() {
+        return false;
+    }
+
+    // Get or create runt namespace
+    let runt = additional
+        .entry("runt".to_string())
+        .or_insert_with(|| serde_json::json!({"schema_version": "1"}));
+
+    let runt_obj = match runt.as_object_mut() {
+        Some(obj) => obj,
+        None => {
+            // Put the keys back if we can't migrate
+            if let Some(uv) = legacy_uv {
+                additional.insert("uv".to_string(), uv);
+            }
+            if let Some(conda) = legacy_conda {
+                additional.insert("conda".to_string(), conda);
+            }
+            return false;
+        }
+    };
+
+    // Migrate uv if present and not already in runt
+    if let Some(uv) = legacy_uv {
+        if !runt_obj.contains_key("uv") {
+            runt_obj.insert("uv".to_string(), uv);
+            migrated = true;
+            info!("[metadata-migration] Migrated metadata.uv -> metadata.runt.uv");
+        }
+    }
+
+    // Migrate conda if present and not already in runt
+    if let Some(conda) = legacy_conda {
+        if !runt_obj.contains_key("conda") {
+            runt_obj.insert("conda".to_string(), conda);
+            migrated = true;
+            info!("[metadata-migration] Migrated metadata.conda -> metadata.runt.conda");
+        }
+    }
+
+    migrated
+}
 
 /// Flattened cell representation for the frontend.
 /// Converts nbformat's tagged enum into something JS-friendly.
@@ -89,33 +150,32 @@ impl NotebookState {
         let app_settings = settings::load_settings();
         let mut additional = HashMap::new();
 
-        // Set up environment metadata based on user's preference
-        match app_settings.default_python_env {
+        // Build runt metadata with nested uv/conda based on user's preference
+        let runt_meta = match app_settings.default_python_env {
             PythonEnvType::Uv | PythonEnvType::Other(_) => {
-                additional.insert(
-                    "uv".to_string(),
-                    serde_json::json!({
+                serde_json::json!({
+                    "schema_version": "1",
+                    "env_id": env_id,
+                    "runtime": "python",
+                    "uv": {
                         "dependencies": Vec::<String>::new(),
-                    }),
-                );
+                    }
+                })
             }
             PythonEnvType::Conda => {
-                additional.insert(
-                    "conda".to_string(),
-                    serde_json::json!({
+                serde_json::json!({
+                    "schema_version": "1",
+                    "env_id": env_id,
+                    "runtime": "python",
+                    "conda": {
                         "dependencies": Vec::<String>::new(),
                         "channels": vec!["conda-forge"],
-                    }),
-                );
+                    }
+                })
             }
-        }
+        };
 
-        additional.insert(
-            "runt".to_string(),
-            serde_json::json!({
-                "env_id": env_id,
-            }),
-        );
+        additional.insert("runt".to_string(), runt_meta);
 
         NotebookState {
             notebook: Notebook {
@@ -145,65 +205,61 @@ impl NotebookState {
         let env_id = Uuid::new_v4().to_string();
         let mut additional = HashMap::new();
 
-        // Set runtime-specific metadata
-        match &runtime {
+        // Build runt metadata with nested env config based on runtime
+        let runt_meta = match &runtime {
             Runtime::Python => {
                 // Load user's preferred Python environment type from settings
                 let app_settings = settings::load_settings();
                 match app_settings.default_python_env {
                     PythonEnvType::Uv | PythonEnvType::Other(_) => {
-                        additional.insert(
-                            "uv".to_string(),
-                            serde_json::json!({
+                        serde_json::json!({
+                            "schema_version": "1",
+                            "env_id": env_id,
+                            "runtime": "python",
+                            "uv": {
                                 "dependencies": Vec::<String>::new(),
-                            }),
-                        );
+                            }
+                        })
                     }
                     PythonEnvType::Conda => {
-                        additional.insert(
-                            "conda".to_string(),
-                            serde_json::json!({
+                        serde_json::json!({
+                            "schema_version": "1",
+                            "env_id": env_id,
+                            "runtime": "python",
+                            "conda": {
                                 "dependencies": Vec::<String>::new(),
                                 "channels": vec!["conda-forge"],
-                            }),
-                        );
+                            }
+                        })
                     }
                 }
-                additional.insert(
-                    "runt".to_string(),
-                    serde_json::json!({
-                        "env_id": env_id,
-                        "runtime": "python",
-                    }),
-                );
             }
             Runtime::Deno => {
                 // Deno setup with default permissions
+                // Note: deno permissions stay at top level since they're not our namespace
                 additional.insert(
                     "deno".to_string(),
                     serde_json::json!({
                         "permissions": Vec::<String>::new(),
                     }),
                 );
-                additional.insert(
-                    "runt".to_string(),
-                    serde_json::json!({
-                        "env_id": env_id,
-                        "runtime": "deno",
-                    }),
-                );
+                serde_json::json!({
+                    "schema_version": "1",
+                    "env_id": env_id,
+                    "runtime": "deno",
+                })
             }
             Runtime::Other(s) => {
                 // Unknown runtime — store the name but skip env-specific setup
-                additional.insert(
-                    "runt".to_string(),
-                    serde_json::json!({
-                        "env_id": env_id,
-                        "runtime": s,
-                    }),
-                );
+                serde_json::json!({
+                    "schema_version": "1",
+                    "env_id": env_id,
+                    "runtime": s,
+                })
             }
-        }
+        };
+
+        additional.insert("runt".to_string(), runt_meta);
 
         NotebookState {
             notebook: Notebook {
@@ -245,19 +301,15 @@ impl NotebookState {
         };
 
         additional.insert(
-            "conda".to_string(),
-            serde_json::json!({
-                "dependencies": Vec::<String>::new(),
-                "channels": channels,
-                "env_id": env_id.clone(),
-            }),
-        );
-
-        additional.insert(
             "runt".to_string(),
             serde_json::json!({
+                "schema_version": "1",
                 "env_id": env_id,
                 "runtime": "python",
+                "conda": {
+                    "dependencies": Vec::<String>::new(),
+                    "channels": channels,
+                }
             }),
         );
 
@@ -293,18 +345,15 @@ impl NotebookState {
         let all_deps = crate::pyproject::get_all_dependencies(config);
 
         additional.insert(
-            "uv".to_string(),
-            serde_json::json!({
-                "dependencies": all_deps,
-                "requires-python": config.requires_python,
-            }),
-        );
-
-        additional.insert(
             "runt".to_string(),
             serde_json::json!({
+                "schema_version": "1",
                 "env_id": env_id,
                 "runtime": "python",
+                "uv": {
+                    "dependencies": all_deps,
+                    "requires-python": config.requires_python,
+                }
             }),
         );
 
@@ -529,22 +578,30 @@ mod tests {
     fn test_new_empty_sets_env_metadata() {
         let state = NotebookState::new_empty();
 
-        // Should have either uv or conda metadata based on default settings (Conda is default)
-        let has_env = state.notebook.metadata.additional.contains_key("uv")
-            || state.notebook.metadata.additional.contains_key("conda");
+        // Should have runt namespace with either uv or conda nested inside
+        let runt = state
+            .notebook
+            .metadata
+            .additional
+            .get("runt")
+            .expect("runt namespace should exist");
+        let has_env = runt.get("uv").is_some() || runt.get("conda").is_some();
         assert!(has_env);
-        assert!(state.notebook.metadata.additional.contains_key("runt"));
     }
 
     #[test]
     fn test_new_empty_with_runtime_python() {
         let state = NotebookState::new_empty_with_runtime(Runtime::Python);
 
-        // Should have either uv or conda metadata based on default settings
-        let has_env = state.notebook.metadata.additional.contains_key("uv")
-            || state.notebook.metadata.additional.contains_key("conda");
+        // Should have runt namespace with either uv or conda nested inside
+        let runt = state
+            .notebook
+            .metadata
+            .additional
+            .get("runt")
+            .expect("runt namespace should exist");
+        let has_env = runt.get("uv").is_some() || runt.get("conda").is_some();
         assert!(has_env);
-        let runt = state.notebook.metadata.additional.get("runt").unwrap();
         assert_eq!(runt.get("runtime").unwrap(), "python");
     }
 

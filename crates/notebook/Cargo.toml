@@ -33,6 +33,7 @@ jupyter-protocol = { workspace = true }
 runtimelib = { workspace = true, features = ["tokio-runtime", "ring"] }
 tauri-jupyter = { path = "../tauri-jupyter" }
 runtimed = { path = "../runtimed" }
+runt-trust = { path = "../runt-trust" }
 nbformat = "1.2.0"
 petname = "2"
 log = "0.4"

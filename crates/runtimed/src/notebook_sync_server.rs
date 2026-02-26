@@ -40,38 +40,85 @@ use crate::kernel_manager::RoomKernel;
 use crate::notebook_doc::{notebook_doc_filename, NotebookDoc};
 use crate::protocol::{NotebookBroadcast, NotebookRequest, NotebookResponse};
 
+/// Trust state for a notebook room.
+/// Tracks whether the notebook's dependencies are trusted for auto-launch.
+#[derive(Debug, Clone)]
+pub struct TrustState {
+    pub status: runt_trust::TrustStatus,
+    pub info: runt_trust::TrustInfo,
+    /// If true, kernel launch is pending user trust approval
+    pub pending_launch: bool,
+}
+
 /// Check if a notebook file has inline dependencies in its metadata.
 /// Returns the appropriate env_source if found ("uv:inline" or "conda:inline").
 ///
 /// Priority: UV deps are checked first, then conda deps.
+/// Uses runt_trust helpers to check both new (runt.*) and legacy paths.
 fn check_inline_deps(notebook_path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(notebook_path).ok()?;
     let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
-    let metadata = nb.get("metadata")?;
+    let metadata_value = nb.get("metadata")?;
 
-    // Check UV dependencies first
-    if let Some(deps) = metadata
-        .get("uv")
-        .and_then(|u| u.get("dependencies"))
-        .and_then(|d| d.as_array())
-    {
-        if !deps.is_empty() {
-            return Some("uv:inline".to_string());
+    // Convert to HashMap for runt_trust functions
+    let metadata: std::collections::HashMap<String, serde_json::Value> =
+        serde_json::from_value(metadata_value.clone()).ok()?;
+
+    // Check UV dependencies first (runt.uv then legacy uv)
+    if let Some(uv) = runt_trust::get_uv_metadata(&metadata) {
+        if let Some(deps) = uv.get("dependencies").and_then(|d| d.as_array()) {
+            if !deps.is_empty() {
+                return Some("uv:inline".to_string());
+            }
         }
     }
 
-    // Check conda dependencies
-    if let Some(deps) = metadata
-        .get("conda")
-        .and_then(|c| c.get("dependencies"))
-        .and_then(|d| d.as_array())
-    {
-        if !deps.is_empty() {
-            return Some("conda:inline".to_string());
+    // Check conda dependencies (runt.conda then legacy conda)
+    if let Some(conda) = runt_trust::get_conda_metadata(&metadata) {
+        if let Some(deps) = conda.get("dependencies").and_then(|d| d.as_array()) {
+            if !deps.is_empty() {
+                return Some("conda:inline".to_string());
+            }
         }
     }
 
     None
+}
+
+/// Verify trust status of a notebook by reading its file.
+/// Returns TrustState with the verification result.
+fn verify_trust_from_file(notebook_path: &Path) -> TrustState {
+    // Read and parse the notebook file
+    let metadata = match std::fs::read_to_string(notebook_path) {
+        Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+            Ok(nb) => nb
+                .get("metadata")
+                .and_then(|m| m.as_object())
+                .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                .unwrap_or_default(),
+            Err(_) => std::collections::HashMap::new(),
+        },
+        Err(_) => std::collections::HashMap::new(),
+    };
+
+    // Verify trust using the shared runt-trust crate
+    match runt_trust::verify_notebook_trust(&metadata) {
+        Ok(info) => TrustState {
+            status: info.status.clone(),
+            info,
+            pending_launch: false,
+        },
+        Err(_) => TrustState {
+            status: runt_trust::TrustStatus::Untrusted,
+            info: runt_trust::TrustInfo {
+                status: runt_trust::TrustStatus::Untrusted,
+                uv_dependencies: vec![],
+                conda_dependencies: vec![],
+                conda_channels: vec![],
+            },
+            pending_launch: false,
+        },
+    }
 }
 
 /// A notebook sync room — holds the canonical document and a broadcast
@@ -92,6 +139,13 @@ pub struct NotebookRoom {
     pub kernel: Arc<Mutex<Option<RoomKernel>>>,
     /// Blob store for output manifests.
     pub blob_store: Arc<BlobStore>,
+    /// Trust state for this notebook (for auto-launch decisions).
+    pub trust_state: Arc<RwLock<TrustState>>,
+    /// The notebook file path (notebook_id is the path).
+    pub notebook_path: PathBuf,
+    /// Timestamp when auto-launch was triggered (for grace period on eviction).
+    /// If set, the room won't be evicted for 30 seconds to allow client reconnect.
+    pub auto_launch_at: Arc<RwLock<Option<std::time::Instant>>>,
 }
 
 impl NotebookRoom {
@@ -119,6 +173,15 @@ impl NotebookRoom {
         let doc = NotebookDoc::new(notebook_id);
         let (changed_tx, _) = broadcast::channel(16);
         let (kernel_broadcast_tx, _) = broadcast::channel(64);
+
+        // Verify trust from the notebook file
+        let notebook_path = PathBuf::from(notebook_id);
+        let trust_state = verify_trust_from_file(&notebook_path);
+        info!(
+            "[notebook-sync] Trust status for {}: {:?}",
+            notebook_id, trust_state.status
+        );
+
         Self {
             doc: Arc::new(RwLock::new(doc)),
             changed_tx,
@@ -127,6 +190,9 @@ impl NotebookRoom {
             active_peers: AtomicUsize::new(0),
             kernel: Arc::new(Mutex::new(None)),
             blob_store,
+            trust_state: Arc::new(RwLock::new(trust_state)),
+            notebook_path,
+            auto_launch_at: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -142,6 +208,8 @@ impl NotebookRoom {
         let doc = NotebookDoc::load_or_create(&persist_path, notebook_id);
         let (changed_tx, _) = broadcast::channel(16);
         let (kernel_broadcast_tx, _) = broadcast::channel(64);
+        let notebook_path = PathBuf::from(notebook_id);
+        let trust_state = verify_trust_from_file(&notebook_path);
         Self {
             doc: Arc::new(RwLock::new(doc)),
             changed_tx,
@@ -150,6 +218,9 @@ impl NotebookRoom {
             active_peers: AtomicUsize::new(0),
             kernel: Arc::new(Mutex::new(None)),
             blob_store,
+            trust_state: Arc::new(RwLock::new(trust_state)),
+            notebook_path,
+            auto_launch_at: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -222,6 +293,7 @@ pub async fn handle_notebook_sync_connection<R, W>(
     rooms: NotebookRooms,
     notebook_id: String,
     use_typed_frames: bool,
+    default_python_env: crate::settings_doc::PythonEnvType,
 ) -> anyhow::Result<()>
 where
     R: AsyncRead + Unpin,
@@ -236,6 +308,54 @@ where
         if peers == 1 { "" } else { "s" },
         if use_typed_frames { "v2" } else { "v1" }
     );
+
+    // Auto-launch kernel if this is the first peer and notebook is trusted
+    if peers == 1 {
+        // Check if notebook_id is a UUID (new unsaved notebook) vs a file path
+        let is_new_notebook =
+            !room.notebook_path.exists() && uuid::Uuid::parse_str(&notebook_id).is_ok();
+
+        let (should_auto_launch, trust_status) = {
+            let trust_state = room.trust_state.read().await;
+            let has_kernel = room.has_kernel().await;
+            let status = trust_state.status.clone();
+            let should_launch = !has_kernel
+                && matches!(
+                    status,
+                    runt_trust::TrustStatus::Trusted | runt_trust::TrustStatus::NoDependencies
+                )
+                // For existing files: trust must be verified (Trusted or NoDependencies)
+                // For new notebooks (UUID, no file): NoDependencies is safe to auto-launch
+                && (room.notebook_path.exists() || is_new_notebook);
+            (should_launch, status)
+        };
+
+        if should_auto_launch {
+            info!(
+                "[notebook-sync] Auto-launching kernel for notebook {} (trust: {:?}, new: {})",
+                notebook_id, trust_status, is_new_notebook
+            );
+            // Record auto-launch time for grace period on eviction
+            {
+                let mut auto_launch_at = room.auto_launch_at.write().await;
+                *auto_launch_at = Some(std::time::Instant::now());
+            }
+            // Spawn auto-launch in background so we don't block sync
+            let room_clone = room.clone();
+            let notebook_id_clone = notebook_id.clone();
+            tokio::spawn(async move {
+                auto_launch_kernel(&room_clone, &notebook_id_clone, default_python_env).await;
+            });
+        } else if !matches!(
+            trust_status,
+            runt_trust::TrustStatus::Trusted | runt_trust::TrustStatus::NoDependencies
+        ) {
+            info!(
+                "[notebook-sync] Notebook {} not trusted, skipping auto-launch (status: {:?})",
+                notebook_id, trust_status
+            );
+        }
+    }
 
     // For v2 protocol, send capabilities response first
     if use_typed_frames {
@@ -254,16 +374,57 @@ where
     // Peer disconnected — decrement and possibly evict the room
     let remaining = room.active_peers.fetch_sub(1, Ordering::Relaxed) - 1;
     if remaining == 0 {
-        let mut rooms_guard = rooms.lock().await;
-        // Re-check under the lock — another peer may have joined between
-        // our decrement and acquiring the lock.
-        if room.active_peers.load(Ordering::Relaxed) == 0 {
-            rooms_guard.remove(&notebook_id);
-            info!(
-                "[notebook-sync] Evicted room {} (no remaining peers)",
-                notebook_id
-            );
-        }
+        // Schedule delayed eviction check. This handles:
+        // 1. Grace period during auto-launch (client may reconnect)
+        // 2. Kernel running with no peers (idle timeout)
+        // Without this, rooms with kernels would leak forever.
+        let eviction_delay = std::time::Duration::from_secs(30);
+        let rooms_for_eviction = rooms.clone();
+        let room_for_eviction = room.clone();
+        let notebook_id_for_eviction = notebook_id.clone();
+
+        info!(
+            "[notebook-sync] All peers disconnected from room {}, scheduling eviction check in {}s",
+            notebook_id,
+            eviction_delay.as_secs()
+        );
+
+        tokio::spawn(async move {
+            tokio::time::sleep(eviction_delay).await;
+
+            // Check if peers reconnected during the delay
+            if room_for_eviction.active_peers.load(Ordering::Relaxed) > 0 {
+                info!(
+                    "[notebook-sync] Eviction cancelled for {} (peers reconnected)",
+                    notebook_id_for_eviction
+                );
+                return;
+            }
+
+            // Evict the room and shut down kernel if running
+            let mut rooms_guard = rooms_for_eviction.lock().await;
+            // Re-check under lock
+            if room_for_eviction.active_peers.load(Ordering::Relaxed) == 0 {
+                // Shutdown kernel if running
+                if let Some(mut kernel) = room_for_eviction.kernel.lock().await.take() {
+                    info!(
+                        "[notebook-sync] Shutting down idle kernel for {}",
+                        notebook_id_for_eviction
+                    );
+                    if let Err(e) = kernel.shutdown().await {
+                        warn!(
+                            "[notebook-sync] Error shutting down kernel for {}: {}",
+                            notebook_id_for_eviction, e
+                        );
+                    }
+                }
+                rooms_guard.remove(&notebook_id_for_eviction);
+                info!(
+                    "[notebook-sync] Evicted room {} (idle timeout)",
+                    notebook_id_for_eviction
+                );
+            }
+        });
     } else {
         info!(
             "[notebook-sync] Client disconnected from room {} ({} peer{} remaining)",
@@ -465,6 +626,156 @@ where
                 )
                 .await?;
             }
+        }
+    }
+}
+
+/// Auto-launch kernel for a trusted notebook when first peer connects.
+/// This is similar to handle_notebook_request(LaunchKernel) but without a request/response.
+async fn auto_launch_kernel(
+    room: &NotebookRoom,
+    notebook_id: &str,
+    default_python_env: crate::settings_doc::PythonEnvType,
+) {
+    // Check if room still has peers (protect against race condition where client disconnects
+    // before we finish launching)
+    if room.active_peers.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+        info!("[notebook-sync] Auto-launch aborted: no peers remaining");
+        return;
+    }
+
+    // notebook_path is only valid if it's a real file (not a UUID for new notebooks)
+    let notebook_path = PathBuf::from(notebook_id);
+    let notebook_path_opt = if notebook_path.exists() {
+        Some(notebook_path.clone())
+    } else {
+        None
+    };
+
+    let mut kernel_guard = room.kernel.lock().await;
+
+    // Double-check no kernel is already running
+    if let Some(ref kernel) = *kernel_guard {
+        if kernel.is_running() {
+            info!("[notebook-sync] Auto-launch skipped: kernel already running");
+            return;
+        }
+    }
+
+    // Re-check peers after acquiring lock (another race check)
+    if room.active_peers.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+        info!("[notebook-sync] Auto-launch aborted: no peers remaining (after lock)");
+        return;
+    }
+
+    // Create new kernel
+    let mut kernel = RoomKernel::new(
+        room.kernel_broadcast_tx.clone(),
+        room.doc.clone(),
+        room.persist_path.clone(),
+        room.changed_tx.clone(),
+        room.blob_store.clone(),
+    );
+
+    // Auto-detect environment source
+    // Priority 1: Check inline deps in notebook metadata (only for existing files)
+    let env_source = if let Some(ref path) = notebook_path_opt {
+        if let Some(inline_source) = check_inline_deps(path) {
+            info!(
+                "[notebook-sync] Auto-launch: found inline deps -> {}",
+                inline_source
+            );
+            inline_source
+        } else if let Some(detected) = crate::project_file::detect_project_file(path) {
+            info!(
+                "[notebook-sync] Auto-launch: detected project file {:?} -> {}",
+                detected.path,
+                detected.to_env_source()
+            );
+            detected.to_env_source().to_string()
+        } else {
+            // Use user's preferred environment type for prewarmed
+            let prewarmed = match default_python_env {
+                crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
+                _ => "uv:prewarmed", // Default to UV for Uv and Other
+            };
+            info!(
+                "[notebook-sync] Auto-launch: using prewarmed environment ({})",
+                prewarmed
+            );
+            prewarmed.to_string()
+        }
+    } else {
+        // New notebook (UUID, no file) - use user's preferred prewarmed env
+        let prewarmed = match default_python_env {
+            crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
+            _ => "uv:prewarmed", // Default to UV for Uv and Other
+        };
+        info!(
+            "[notebook-sync] Auto-launch: new notebook, using prewarmed environment ({})",
+            prewarmed
+        );
+        prewarmed.to_string()
+    };
+
+    // Launch kernel (default to python)
+    let kernel_type = "python";
+    match kernel
+        .launch(kernel_type, &env_source, notebook_path_opt.as_deref())
+        .await
+    {
+        Ok(()) => {
+            let kt = kernel.kernel_type().to_string();
+            let es = kernel.env_source().to_string();
+
+            // Take the command receiver and spawn a task to process execution events
+            if let Some(mut cmd_rx) = kernel.take_command_rx() {
+                let room_kernel = room.kernel.clone();
+                tokio::spawn(async move {
+                    use crate::kernel_manager::QueueCommand;
+                    while let Some(cmd) = cmd_rx.recv().await {
+                        match cmd {
+                            QueueCommand::ExecutionDone { cell_id } => {
+                                info!("[notebook-sync] Processing ExecutionDone for {}", cell_id);
+                                let mut guard = room_kernel.lock().await;
+                                if let Some(ref mut k) = *guard {
+                                    if let Err(e) = k.execution_done(&cell_id).await {
+                                        warn!("[notebook-sync] execution_done error: {}", e);
+                                    }
+                                }
+                            }
+                            QueueCommand::CellError { cell_id } => {
+                                warn!("[notebook-sync] Cell error (stop-on-error): {}", cell_id);
+                            }
+                        }
+                    }
+                });
+            }
+
+            *kernel_guard = Some(kernel);
+
+            // Broadcast kernel status to all connected peers
+            let _ = room
+                .kernel_broadcast_tx
+                .send(NotebookBroadcast::KernelStatus {
+                    status: "idle".to_string(),
+                    cell_id: None,
+                });
+
+            info!(
+                "[notebook-sync] Auto-launch succeeded: {} kernel with {} environment",
+                kt, es
+            );
+        }
+        Err(e) => {
+            warn!("[notebook-sync] Auto-launch failed: {}", e);
+            // Broadcast error to connected peers
+            let _ = room
+                .kernel_broadcast_tx
+                .send(NotebookBroadcast::KernelStatus {
+                    status: format!("error: {}", e),
+                    cell_id: None,
+                });
         }
     }
 }
@@ -1008,5 +1319,54 @@ mod tests {
     fn test_check_inline_deps_nonexistent_file() {
         let path = std::path::PathBuf::from("/nonexistent/path/to/notebook.ipynb");
         assert_eq!(check_inline_deps(&path), None);
+    }
+
+    #[test]
+    fn test_check_inline_deps_runt_uv() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+
+        // Notebook with UV deps under runt namespace
+        let path = dir.path().join("runt-uv.ipynb");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(
+            f,
+            r#"{{"metadata": {{"runt": {{"uv": {{"dependencies": ["numpy"]}}}}}}, "cells": []}}"#
+        )
+        .unwrap();
+        assert_eq!(check_inline_deps(&path), Some("uv:inline".to_string()));
+    }
+
+    #[test]
+    fn test_check_inline_deps_runt_conda() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+
+        // Notebook with conda deps under runt namespace
+        let path = dir.path().join("runt-conda.ipynb");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(
+            f,
+            r#"{{"metadata": {{"runt": {{"conda": {{"dependencies": ["pandas"]}}}}}}, "cells": []}}"#
+        )
+        .unwrap();
+        assert_eq!(check_inline_deps(&path), Some("conda:inline".to_string()));
+    }
+
+    #[test]
+    fn test_check_inline_deps_runt_takes_precedence() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+
+        // Notebook with both runt.uv and legacy uv - runt should win
+        let path = dir.path().join("mixed.ipynb");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(
+            f,
+            r#"{{"metadata": {{"runt": {{"uv": {{"dependencies": ["torch"]}}}}, "uv": {{"dependencies": ["numpy"]}}}}, "cells": []}}"#
+        )
+        .unwrap();
+        // runt.uv should be checked first, so we get "uv:inline"
+        assert_eq!(check_inline_deps(&path), Some("uv:inline".to_string()));
     }
 }
