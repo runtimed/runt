@@ -2704,9 +2704,9 @@ dependencies = [
 
 [[package]]
 name = "jupyter-protocol"
-version = "1.2.1"
+version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c75a69caf8b8e781224badfb76c4a8da4d49856de36ce72ae3cf5d4a1c94e42"
+checksum = "45cd3027b79a835a8ac9bae08f772b2cb192dd6a52a5d5455f1219861e47e8eb"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3144,9 +3144,9 @@ dependencies = [
 
 [[package]]
 name = "nbformat"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b10a89a2d910233ec3fca4de359b16ebe95e833c8b2162643ef98c6053a0549d"
+checksum = "d4983a40792c45e8639f77ef8e4461c55679cbc618f4b9e83830e8c7e79c8383"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5160,9 +5160,9 @@ dependencies = [
 
 [[package]]
 name = "runtimelib"
-version = "1.3.0"
+version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0bbbbda0bde4637a502077c169fc0b70aef6f6cb7d828327aa2faf46448157d"
+checksum = "fa84884e45ed4a1e663120cef3fc11f14d1a2a1933776e1c31599f7bd2dd0c9e"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -5776,7 +5776,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b1fdf65dd6331831494dd616b30351c38e96e45921a27745cf98490458b90bb"
 dependencies = [
- "dirs 5.0.1",
+ "dirs 6.0.0",
 ]
 
 [[package]]
