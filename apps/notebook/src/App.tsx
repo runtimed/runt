@@ -438,6 +438,12 @@ function AppContent() {
     [tryStartKernel],
   );
 
+  // Restart kernel (shutdown then start)
+  const handleRestartKernel = useCallback(async () => {
+    await shutdownKernel();
+    await tryStartKernel();
+  }, [shutdownKernel, tryStartKernel]);
+
   const handleRunAllCells = useCallback(async () => {
     // Daemon reads cells from synced Automerge doc
     const codeCells = cells.filter((c) => c.cell_type === "code");
@@ -637,7 +643,7 @@ function AppContent() {
         onSave={save}
         onStartKernel={handleStartKernel}
         onInterruptKernel={interruptKernel}
-        onRestartKernel={shutdownKernel}
+        onRestartKernel={handleRestartKernel}
         onRunAllCells={handleRunAllCells}
         onRestartAndRunAll={handleRestartAndRunAll}
         onAddCell={handleAddCell}

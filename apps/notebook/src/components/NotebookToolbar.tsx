@@ -314,6 +314,11 @@ export function NotebookToolbar({
   }, [listKernelspecs]);
 
   const handleStartKernel = useCallback(() => {
+    // In daemon mode (no listKernelspecs), just call with empty name - backend auto-selects
+    if (!listKernelspecs) {
+      onStartKernel("");
+      return;
+    }
     // Default to python3 or first available
     const python = kernelspecs.find(
       (k) => k.name === "python3" || k.name === "python",
@@ -322,7 +327,7 @@ export function NotebookToolbar({
     if (spec) {
       onStartKernel(spec.name);
     }
-  }, [kernelspecs, onStartKernel]);
+  }, [kernelspecs, onStartKernel, listKernelspecs]);
 
   const isKernelRunning =
     kernelStatus === "idle" ||
@@ -394,7 +399,7 @@ export function NotebookToolbar({
             <button
               type="button"
               onClick={handleStartKernel}
-              disabled={kernelspecs.length === 0}
+              disabled={listKernelspecs && kernelspecs.length === 0}
               className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
               title="Start kernel"
               data-testid="start-kernel-button"
