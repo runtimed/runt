@@ -58,21 +58,18 @@ export function useDependencies() {
   );
 
   // Check sync state between declared deps and running kernel
+  // NOTE: Hot-sync functionality was removed with local kernel mode.
+  // In daemon mode, the kernel restarts with new deps. Sync state is always null.
   const checkSyncState = useCallback(async () => {
-    try {
-      const state = await invoke<EnvSyncState>("get_env_sync_state");
-      setSyncState(state);
-    } catch (e) {
-      console.error("Failed to check sync state:", e);
-    }
+    // Sync state not available in daemon mode - always null
+    setSyncState(null);
   }, []);
 
   // Check if uv is available and detect pyproject on mount
   useEffect(() => {
     invoke<boolean>("check_uv_available").then(setUvAvailable);
     invoke<PyProjectInfo | null>("detect_pyproject").then(setPyprojectInfo);
-    checkSyncState();
-  }, [checkSyncState]);
+  }, []);
 
   const loadDependencies = useCallback(async () => {
     try {
@@ -101,38 +98,15 @@ export function useDependencies() {
   }, []);
 
   // Try to sync deps to running kernel
+  // NOTE: Hot-sync to a running kernel was removed with local kernel mode.
+  // In daemon mode, users need to restart the kernel to pick up new deps.
   const syncToKernel = useCallback(async (): Promise<boolean> => {
-    try {
-      // Check if kernel is even running
-      const isRunning = await invoke<boolean>("is_kernel_running");
-      if (!isRunning) {
-        // No kernel running yet - deps will be used when kernel starts
-        console.log("[deps] No kernel running, deps will be used on start");
-        return false;
-      }
-
-      // Check if kernel is running with uv environment
-      const hasUvEnv = await invoke<boolean>("kernel_has_uv_env");
-
-      if (!hasUvEnv) {
-        // Kernel is running but not with uv - user needs to restart
-        console.log(
-          "[deps] Kernel not uv-managed, cannot sync - restart needed",
-        );
-        setNeedsKernelRestart(true);
-        return false;
-      }
-
-      const synced = await invoke<boolean>("sync_kernel_dependencies");
-      if (synced) {
-        setSyncedWhileRunning(true);
-        setNeedsKernelRestart(false);
-      }
-      return synced;
-    } catch (e) {
-      console.error("Failed to sync dependencies to kernel:", e);
-      return false;
-    }
+    // Hot-sync not available in daemon mode - kernel restart required
+    console.log(
+      "[deps] Hot-sync not available in daemon mode, restart kernel to apply changes",
+    );
+    setNeedsKernelRestart(true);
+    return false;
   }, []);
 
   // Explicit sync function for "Sync Now" button

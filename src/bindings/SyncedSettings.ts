@@ -8,30 +8,25 @@ import type { UvDefaults } from "./UvDefaults";
 /**
  * Snapshot of all synced settings.
  */
-export type SyncedSettings = { 
-/**
- * UI theme
- */
-theme: ThemeMode, 
-/**
- * Default runtime for new notebooks
- */
-default_runtime: Runtime, 
-/**
- * Default Python environment type (uv or conda)
- */
-default_python_env: PythonEnvType, 
-/**
- * UV environment defaults
- */
-uv: UvDefaults, 
-/**
- * Conda environment defaults
- */
-conda: CondaDefaults, 
-/**
- * Enable daemon-owned kernel execution.
- * When enabled, the daemon manages kernel lifecycle and execution queue,
- * enabling multi-window kernel sharing.
- */
-daemon_execution: boolean, };
+export type SyncedSettings = {
+  /**
+   * UI theme
+   */
+  theme: ThemeMode;
+  /**
+   * Default runtime for new notebooks
+   */
+  default_runtime: Runtime;
+  /**
+   * Default Python environment type (uv or conda)
+   */
+  default_python_env: PythonEnvType;
+  /**
+   * UV environment defaults
+   */
+  uv: UvDefaults;
+  /**
+   * Conda environment defaults
+   */
+  conda: CondaDefaults;
+};

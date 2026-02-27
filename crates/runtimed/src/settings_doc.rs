@@ -134,13 +134,8 @@ pub struct CondaDefaults {
     pub default_packages: Vec<String>,
 }
 
-/// Default value for daemon_execution setting (enabled by default for new installs).
-fn default_daemon_execution() -> bool {
-    true
-}
-
 /// Snapshot of all synced settings.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
 #[ts(export)]
 pub struct SyncedSettings {
     /// UI theme
@@ -162,25 +157,6 @@ pub struct SyncedSettings {
     /// Conda environment defaults
     #[serde(default)]
     pub conda: CondaDefaults,
-
-    /// Enable daemon-owned kernel execution.
-    /// When enabled, the daemon manages kernel lifecycle and execution queue,
-    /// enabling multi-window kernel sharing.
-    #[serde(default = "default_daemon_execution")]
-    pub daemon_execution: bool,
-}
-
-impl Default for SyncedSettings {
-    fn default() -> Self {
-        Self {
-            theme: ThemeMode::default(),
-            default_runtime: Runtime::default(),
-            default_python_env: PythonEnvType::default(),
-            uv: UvDefaults::default(),
-            conda: CondaDefaults::default(),
-            daemon_execution: true, // Enabled by default for new installs
-        }
-    }
 }
 
 /// Generate a JSON Schema string for the settings file.
@@ -235,13 +211,6 @@ impl SettingsDoc {
         if let Ok(conda_id) = doc.put_object(automerge::ROOT, "conda", ObjType::Map) {
             let _ = doc.put_object(&conda_id, "default_packages", ObjType::List);
         }
-
-        // Boolean settings
-        let _ = doc.put(
-            automerge::ROOT,
-            "daemon_execution",
-            defaults.daemon_execution,
-        );
 
         Self { doc }
     }
@@ -322,10 +291,6 @@ impl SettingsDoc {
         let conda_packages = Self::extract_packages_from_json(json, "conda");
         if !conda_packages.is_empty() {
             settings.put_list("conda.default_packages", &conda_packages);
-        }
-
-        if let Some(daemon_execution) = json.get("daemon_execution").and_then(|v| v.as_bool()) {
-            settings.put_bool("daemon_execution", daemon_execution);
         }
 
         settings
@@ -613,9 +578,6 @@ impl SettingsDoc {
             conda: CondaDefaults {
                 default_packages: conda_packages,
             },
-            daemon_execution: self
-                .get_bool("daemon_execution")
-                .unwrap_or(defaults.daemon_execution),
         }
     }
 
@@ -669,18 +631,6 @@ impl SettingsDoc {
             let conda_packages = Self::extract_packages_from_json(json, "conda");
             if self.get_list("conda.default_packages") != conda_packages {
                 self.put_list("conda.default_packages", &conda_packages);
-                changed = true;
-            }
-        }
-
-        // Boolean settings
-        if let Some(daemon_execution) = json.get("daemon_execution").and_then(|v| v.as_bool()) {
-            if self.get_bool("daemon_execution") != Some(daemon_execution) {
-                info!(
-                    "[settings] apply_json_changes: daemon_execution changed {:?} -> {daemon_execution:?}",
-                    self.get_bool("daemon_execution")
-                );
-                self.put_bool("daemon_execution", daemon_execution);
                 changed = true;
             }
         }

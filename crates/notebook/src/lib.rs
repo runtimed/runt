@@ -3,9 +3,7 @@ pub mod conda_env;
 pub mod deno_env;
 pub mod env_pool;
 pub mod environment_yml;
-pub mod execution_queue;
 pub mod format;
-pub mod kernel;
 pub mod menu;
 pub mod notebook_state;
 pub mod pixi;
@@ -23,17 +21,14 @@ pub mod webdriver;
 
 pub use runtime::Runtime;
 
-use execution_queue::{ExecutionQueue, ExecutionQueueState, QueueCommand, SharedExecutionQueue};
-use kernel::{CompletionResult, HistoryResult, NotebookKernel};
 use notebook_state::{FrontendCell, NotebookState};
 use runtimed::notebook_doc::CellSnapshot;
 use runtimed::notebook_sync_client::{NotebookSyncClient, NotebookSyncHandle};
 use runtimed::protocol::{NotebookRequest, NotebookResponse};
 
-use log::{error, info, warn};
+use log::{info, warn};
 use nbformat::v4::{Cell, CellId, CellMetadata};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 /// Shared notebook sync handle for cross-window state synchronization.
 /// The Option allows graceful fallback when daemon is unavailable.
@@ -42,8 +37,9 @@ type SharedNotebookSync = Arc<tokio::sync::Mutex<Option<NotebookSyncHandle>>>;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::{Emitter, Manager, RunEvent};
-use tokio::sync::mpsc;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+use tauri::RunEvent;
+use tauri::{Emitter, Manager};
 
 #[derive(Serialize)]
 struct KernelspecInfo {
@@ -58,21 +54,6 @@ struct GitInfo {
     branch: String,
     commit: String,
     description: Option<String>,
-}
-
-/// Kernel lifecycle event for frontend status updates.
-#[derive(Debug, Clone, Serialize)]
-struct KernelLifecycleEvent {
-    state: String,
-    runtime: String,
-    /// Environment source identifier, present when state is "ready".
-    /// Values: "uv:inline", "uv:pyproject", "uv:prewarmed", "uv:fresh",
-    ///         "conda:inline", "conda:pixi", "conda:prewarmed", "conda:fresh"
-    #[serde(skip_serializing_if = "Option::is_none")]
-    env_source: Option<String>,
-    /// Error message, present when state is "error".
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error_message: Option<String>,
 }
 
 /// Environment sync state for dirty detection.
@@ -756,12 +737,10 @@ async fn save_notebook_as(
 
 /// Clone the current notebook for saving as a new file.
 /// Generates a fresh env_id and clears outputs/execution counts.
-/// If the kernel is running with a UV environment, copies it for fast startup.
 #[tauri::command]
 async fn clone_notebook_to_path(
     path: String,
     notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
 ) -> Result<(), String> {
     // Generate fresh env_id upfront
     let new_env_id = uuid::Uuid::new_v4().to_string();
@@ -774,7 +753,7 @@ async fn clone_notebook_to_path(
         // Update runt metadata with new env_id (canonical location for env_id)
         if let Some(runt_value) = cloned.metadata.additional.get_mut("runt") {
             if let Some(obj) = runt_value.as_object_mut() {
-                obj.insert("env_id".to_string(), serde_json::json!(new_env_id.clone()));
+                obj.insert("env_id".to_string(), serde_json::json!(new_env_id));
             }
         }
 
@@ -793,20 +772,6 @@ async fn clone_notebook_to_path(
 
         cloned
     };
-
-    // If kernel is running with UV env, copy it for fast clone startup
-    {
-        let kernel = kernel_state.lock().await;
-        if let Some(source_env) = kernel.uv_environment() {
-            // Copy the environment - ignore errors, clone will just create fresh env on start
-            if let Err(e) = uv_env::copy_environment(source_env, &new_env_id).await {
-                info!(
-                    "Failed to copy environment for clone (will create fresh): {}",
-                    e
-                );
-            }
-        }
-    }
 
     // Serialize and write to path
     let nb = nbformat::Notebook::V4(cloned_notebook);
@@ -924,83 +889,8 @@ async fn delete_cell(
     Ok(())
 }
 
-#[tauri::command]
-async fn execute_cell(
-    cell_id: String,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
-) -> Result<String, String> {
-    let code = {
-        let mut nb = state.lock().map_err(|e| e.to_string())?;
-        let src = nb
-            .get_cell_source(&cell_id)
-            .ok_or_else(|| "Cell not found".to_string())?;
-        nb.clear_cell_outputs(&cell_id);
-        src
-    };
-
-    // Clear outputs in Automerge for cross-window sync
-    if let Some(handle) = notebook_sync.lock().await.as_ref() {
-        if let Err(e) = handle.clear_outputs(&cell_id).await {
-            warn!("[notebook-sync] clear_outputs failed: {}", e);
-        }
-    }
-
-    info!(
-        "execute_cell: cell_id={}, code={:?}",
-        cell_id,
-        &code[..code.len().min(100)]
-    );
-    let mut kernel = kernel_state.lock().await;
-    let result = kernel
-        .execute(&code, &cell_id)
-        .await
-        .map_err(|e| e.to_string());
-    match &result {
-        Ok(msg_id) => info!("execute_cell: sent, msg_id={}", msg_id),
-        Err(e) => info!("execute_cell: failed: {}", e),
-    }
-    result
-}
-
-/// Sync an output to Automerge for cross-window sync.
-/// Called from frontend after receiving iopub output.
-#[tauri::command]
-async fn sync_append_output(
-    cell_id: String,
-    output_json: String,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
-) -> Result<(), String> {
-    if let Some(handle) = notebook_sync.lock().await.as_ref() {
-        if let Err(e) = handle.append_output(&cell_id, &output_json).await {
-            warn!("[notebook-sync] append_output failed: {}", e);
-        }
-    }
-    Ok(())
-}
-
-/// Sync execution count to Automerge for cross-window sync.
-/// Called from frontend after receiving execute_input or execute_result.
-#[tauri::command]
-async fn sync_execution_count(
-    cell_id: String,
-    count: i32,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
-) -> Result<(), String> {
-    if let Some(handle) = notebook_sync.lock().await.as_ref() {
-        if let Err(e) = handle
-            .set_execution_count(&cell_id, &count.to_string())
-            .await
-        {
-            warn!("[notebook-sync] set_execution_count failed: {}", e);
-        }
-    }
-    Ok(())
-}
-
 // ============================================================================
-// Daemon Kernel Operations (Phase 8)
+// Daemon Kernel Operations
 // ============================================================================
 // These commands route kernel operations through the daemon, which owns the
 // kernel lifecycle and execution queue. This enables multi-window kernel sharing.
@@ -1365,192 +1255,6 @@ fn debug_get_local_state(
     Ok(json_cells)
 }
 
-/// Queue a cell for execution. The queue processor will execute cells in FIFO order.
-#[tauri::command]
-async fn queue_execute_cell(
-    cell_id: String,
-    queue_tx: tauri::State<'_, mpsc::Sender<QueueCommand>>,
-) -> Result<(), String> {
-    info!("queue_execute_cell: {}", cell_id);
-    queue_tx
-        .send(QueueCommand::Enqueue { cell_id })
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// Clear all pending cells from the execution queue (keeps currently executing cell)
-#[tauri::command]
-async fn clear_execution_queue(
-    queue_tx: tauri::State<'_, mpsc::Sender<QueueCommand>>,
-) -> Result<(), String> {
-    info!("clear_execution_queue");
-    queue_tx
-        .send(QueueCommand::Clear)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// Get the current execution queue state
-#[tauri::command]
-async fn get_execution_queue_state(
-    queue: tauri::State<'_, SharedExecutionQueue>,
-) -> Result<ExecutionQueueState, String> {
-    let q = queue.lock().map_err(|e| e.to_string())?;
-    Ok(q.get_state())
-}
-
-/// Queue all code cells for execution in notebook order.
-/// Returns the list of cell IDs that were queued.
-#[tauri::command]
-async fn run_all_cells(
-    app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    queue_tx: tauri::State<'_, mpsc::Sender<QueueCommand>>,
-) -> Result<Vec<String>, String> {
-    let cell_ids = {
-        let mut nb = notebook_state.lock().map_err(|e| e.to_string())?;
-        let ids = nb.get_code_cell_ids();
-        for id in &ids {
-            nb.clear_cell_outputs(id);
-        }
-        ids
-    };
-    info!("run_all_cells: {} cells", cell_ids.len());
-
-    if !cell_ids.is_empty() {
-        // Notify frontend to clear outputs before queue state updates arrive
-        let _ = app.emit("cells:outputs_cleared", &cell_ids);
-
-        queue_tx
-            .send(QueueCommand::EnqueueAll {
-                cell_ids: cell_ids.clone(),
-            })
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-
-    Ok(cell_ids)
-}
-
-/// Restart the kernel and run all code cells.
-/// Backend-coordinated: interrupt → clear queue → shutdown → clear outputs → queue all.
-/// Returns the list of cell IDs that were queued.
-#[tauri::command]
-async fn restart_and_run_all(
-    app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-    queue_tx: tauri::State<'_, mpsc::Sender<QueueCommand>>,
-) -> Result<Vec<String>, String> {
-    info!("restart_and_run_all: starting");
-
-    // 1. Interrupt current execution and clear the queue
-    queue_tx
-        .send(QueueCommand::InterruptAndClear)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // 2. Shutdown the kernel
-    {
-        let mut kernel = kernel_state.lock().await;
-        kernel.shutdown().await.map_err(|e| e.to_string())?;
-    }
-
-    // 3. Emit lifecycle event so frontend knows kernel is stopped
-    let event = KernelLifecycleEvent {
-        state: "not_started".to_string(),
-        runtime: String::new(),
-        env_source: None,
-        error_message: None,
-    };
-    let _ = app.emit("kernel:lifecycle", &event);
-
-    // 4. Get code cell IDs and clear their outputs
-    let cell_ids = {
-        let mut nb = notebook_state.lock().map_err(|e| e.to_string())?;
-        let ids = nb.get_code_cell_ids();
-        for id in &ids {
-            nb.clear_cell_outputs(id);
-        }
-        ids
-    };
-    info!("restart_and_run_all: queuing {} cells", cell_ids.len());
-
-    // 5. Notify frontend to clear outputs before queue state updates arrive
-    if !cell_ids.is_empty() {
-        let _ = app.emit("cells:outputs_cleared", &cell_ids);
-    }
-
-    // 6. Queue all code cells — the queue processor will retry until kernel is ready
-    if !cell_ids.is_empty() {
-        queue_tx
-            .send(QueueCommand::EnqueueAll {
-                cell_ids: cell_ids.clone(),
-            })
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-
-    Ok(cell_ids)
-}
-
-#[tauri::command]
-async fn start_kernel(
-    kernelspec_name: String,
-    app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<(), String> {
-    let notebook_path = {
-        let state = notebook_state.lock().map_err(|e| e.to_string())?;
-        state.path.clone()
-    };
-    let mut kernel = kernel_state.lock().await;
-    kernel
-        .start(app, &kernelspec_name, notebook_path.as_deref())
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn interrupt_kernel(
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<(), String> {
-    let kernel = kernel_state.lock().await;
-    kernel.interrupt().await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn shutdown_kernel(
-    app: tauri::AppHandle,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<(), String> {
-    let mut kernel = kernel_state.lock().await;
-    kernel.shutdown().await.map_err(|e| e.to_string())?;
-
-    let event = KernelLifecycleEvent {
-        state: "not started".to_string(),
-        runtime: String::new(),
-        env_source: None,
-        error_message: None,
-    };
-    let _ = app.emit("kernel:lifecycle", &event);
-
-    Ok(())
-}
-
-#[tauri::command]
-async fn send_shell_message(
-    message: serde_json::Value,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<(), String> {
-    let mut kernel = kernel_state.lock().await;
-    kernel
-        .send_shell_message(message)
-        .await
-        .map_err(|e| e.to_string())
-}
-
 #[tauri::command]
 async fn get_preferred_kernelspec(
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
@@ -1562,32 +1266,6 @@ async fn get_preferred_kernelspec(
         .kernelspec
         .as_ref()
         .map(|k| k.name.clone()))
-}
-
-#[tauri::command]
-async fn complete(
-    code: String,
-    cursor_pos: usize,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<CompletionResult, String> {
-    let mut kernel = kernel_state.lock().await;
-    kernel
-        .complete(&code, cursor_pos)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn get_history(
-    pattern: Option<String>,
-    n: Option<i32>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<HistoryResult, String> {
-    let mut kernel = kernel_state.lock().await;
-    kernel
-        .history(pattern.as_deref(), n.unwrap_or(100))
-        .await
-        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1771,158 +1449,6 @@ async fn clear_dependency_section(
     Ok(())
 }
 
-/// Start kernel with uv-managed environment.
-#[tauri::command]
-async fn start_kernel_with_uv(
-    app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<(), String> {
-    let (deps, env_id, notebook_path) = {
-        let state = notebook_state.lock().map_err(|e| e.to_string())?;
-        (
-            uv_env::extract_dependencies(&state.notebook.metadata),
-            uv_env::extract_env_id(&state.notebook.metadata),
-            state.path.clone(),
-        )
-    };
-
-    let deps = deps.ok_or_else(|| "No dependencies in notebook metadata".to_string())?;
-
-    info!(
-        "Starting uv-managed kernel with {} dependencies",
-        deps.dependencies.len()
-    );
-
-    let mut kernel = kernel_state.lock().await;
-    kernel
-        .start_with_uv(app, &deps, env_id.as_deref(), notebook_path.as_deref())
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// Check if a kernel is currently running.
-#[tauri::command]
-async fn is_kernel_running(
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<bool, String> {
-    let kernel = kernel_state.lock().await;
-    Ok(kernel.is_running())
-}
-
-/// Get the current kernel lifecycle state for frontend status display.
-/// Returns "launching" if auto-launch is in progress, "running" if kernel is running,
-/// or "not_started" otherwise.
-#[tauri::command]
-async fn get_kernel_lifecycle(
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-    auto_launch_in_progress: tauri::State<'_, Arc<AtomicBool>>,
-) -> Result<String, String> {
-    // Check if auto-launch is in progress first
-    if auto_launch_in_progress.load(Ordering::SeqCst) {
-        return Ok("launching".to_string());
-    }
-    // Then check if kernel is running
-    let kernel = kernel_state.lock().await;
-    if kernel.is_running() {
-        Ok("running".to_string())
-    } else {
-        Ok("not_started".to_string())
-    }
-}
-
-/// Check if the running kernel has a uv-managed environment.
-#[tauri::command]
-async fn kernel_has_uv_env(
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<bool, String> {
-    let kernel = kernel_state.lock().await;
-    Ok(kernel.has_uv_environment())
-}
-
-/// Get the sync state between declared dependencies and the running kernel's environment.
-#[tauri::command]
-async fn get_env_sync_state(
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<EnvSyncState, String> {
-    let declared_deps = {
-        let state = notebook_state.lock().map_err(|e| e.to_string())?;
-        uv_env::extract_dependencies(&state.notebook.metadata)
-            .map(|d| d.dependencies)
-            .unwrap_or_default()
-    };
-
-    let kernel = kernel_state.lock().await;
-
-    if !kernel.is_running() {
-        return Ok(EnvSyncState::NotRunning);
-    }
-
-    if !kernel.has_uv_environment() {
-        return Ok(EnvSyncState::NotUvManaged);
-    }
-
-    let synced_deps = kernel.synced_dependencies().cloned().unwrap_or_default();
-
-    // Compare as sets
-    let declared_set: HashSet<_> = declared_deps.iter().collect();
-    let synced_set: HashSet<_> = synced_deps.iter().collect();
-
-    let added: Vec<_> = declared_set
-        .difference(&synced_set)
-        .map(|s| (*s).clone())
-        .collect();
-    let removed: Vec<_> = synced_set
-        .difference(&declared_set)
-        .map(|s| (*s).clone())
-        .collect();
-
-    if added.is_empty() && removed.is_empty() {
-        Ok(EnvSyncState::Synced)
-    } else {
-        Ok(EnvSyncState::Dirty { added, removed })
-    }
-}
-
-/// Sync dependencies to the running kernel's uv environment.
-///
-/// Installs any new/changed dependencies into the existing venv.
-/// Returns true if sync was performed, false if no uv environment exists.
-#[tauri::command]
-async fn sync_kernel_dependencies(
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<bool, String> {
-    let deps = {
-        let state = notebook_state.lock().map_err(|e| e.to_string())?;
-        uv_env::extract_dependencies(&state.notebook.metadata)
-    };
-
-    let Some(deps) = deps else {
-        return Ok(false);
-    };
-
-    let mut kernel = kernel_state.lock().await;
-    let Some(env) = kernel.uv_environment() else {
-        return Ok(false);
-    };
-
-    info!(
-        "Syncing {} dependencies to kernel environment",
-        deps.dependencies.len()
-    );
-
-    uv_env::sync_dependencies(env, &deps.dependencies)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Update tracked synced dependencies after successful sync
-    kernel.set_synced_dependencies(deps.dependencies.clone());
-
-    Ok(true)
-}
-
 // ============================================================================
 // Conda Dependency Management Commands
 // ============================================================================
@@ -2058,875 +1584,6 @@ async fn remove_conda_dependency(
     }
 
     Ok(())
-}
-
-/// Start kernel with conda-managed environment.
-#[tauri::command]
-async fn start_kernel_with_conda(
-    app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<(), String> {
-    let (deps, notebook_path) = {
-        let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
-        let mut deps = conda_env::extract_dependencies(&state.notebook.metadata)
-            .ok_or_else(|| "No conda dependencies in notebook metadata".to_string())?;
-
-        // Get or create env_id for isolation
-        let env_id = state
-            .notebook
-            .metadata
-            .additional
-            .get("runt")
-            .and_then(|v| v.get("env_id"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-
-        if let Some(id) = env_id {
-            deps.env_id = Some(id);
-        } else {
-            // Generate and store a new env_id
-            let new_id = uuid::Uuid::new_v4().to_string();
-            let runt_value = serde_json::json!({
-                "env_id": new_id,
-            });
-            state
-                .notebook
-                .metadata
-                .additional
-                .insert("runt".to_string(), runt_value);
-            state.dirty = true;
-            deps.env_id = Some(new_id);
-        }
-
-        (deps, state.path.clone())
-    };
-
-    info!(
-        "Starting conda-managed kernel with {} dependencies (env_id: {:?})",
-        deps.dependencies.len(),
-        deps.env_id
-    );
-
-    let mut kernel = kernel_state.lock().await;
-    kernel
-        .start_with_conda(app, &deps, notebook_path.as_deref())
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// Start a default uv kernel with just Python (no extra deps).
-/// Used as the default when no environment is configured.
-/// Uses prewarmed environments from the pool when available for faster startup.
-#[tauri::command]
-async fn start_default_uv_kernel(
-    app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-    pool: tauri::State<'_, env_pool::SharedEnvPool>,
-) -> Result<(), String> {
-    // Ensure uv metadata exists in the notebook (for legacy notebooks)
-    // Also extract env_id for per-notebook isolation
-    let (env_id, notebook_path) = {
-        let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
-
-        if !uv_env::has_uv_config(&state.notebook.metadata) {
-            let deps = uv_env::NotebookDependencies {
-                dependencies: vec![],
-                requires_python: None,
-            };
-            uv_env::set_dependencies(&mut state.notebook.metadata, &deps);
-            state.dirty = true;
-        }
-
-        (
-            uv_env::extract_env_id(&state.notebook.metadata),
-            state.path.clone(),
-        )
-    };
-
-    // Try to use a prewarmed environment (daemon first, then in-process pool)
-    if let Some(env_id) = &env_id {
-        let prewarmed = {
-            #[allow(clippy::needless_borrow)]
-            env_pool::take_uv_env(&pool)
-        }
-        .await;
-        if let Some(prewarmed_env) = prewarmed {
-            info!("[prewarm] Using prewarmed environment for default uv kernel");
-
-            // Try to claim and use the prewarmed env, but fall back gracefully on error
-            match uv_env::claim_prewarmed_environment(prewarmed_env.into_uv_environment(), env_id)
-                .await
-            {
-                Ok(env) => {
-                    // Validate the python path exists before trying to use it
-                    if env.python_path.exists() {
-                        // Immediately spawn replenishment
-                        env_pool::spawn_replenishment(pool.inner().clone());
-
-                        let mut kernel = kernel_state.lock().await;
-                        match kernel
-                            .start_with_prewarmed_uv(app.clone(), env, notebook_path.as_deref())
-                            .await
-                        {
-                            Ok(()) => return Ok(()),
-                            Err(e) => {
-                                log::warn!(
-                                    "[prewarm] Failed to start kernel with prewarmed env, falling back: {}",
-                                    e
-                                );
-                                // Fall through to create fresh environment
-                            }
-                        }
-                    } else {
-                        log::warn!(
-                            "[prewarm] Claimed env has invalid python path: {:?}, falling back",
-                            env.python_path
-                        );
-                    }
-                }
-                Err(e) => {
-                    log::warn!(
-                        "[prewarm] Failed to claim prewarmed env, falling back: {}",
-                        e
-                    );
-                    // Fall through to create fresh environment
-                }
-            }
-        }
-    }
-
-    // No prewarmed env available (or prewarmed failed), create one normally
-    info!("Starting default uv kernel with ipykernel (creating fresh env)");
-    let deps = uv_env::NotebookDependencies {
-        dependencies: vec![],
-        requires_python: None,
-    };
-
-    let mut kernel = kernel_state.lock().await;
-    kernel
-        .start_with_uv(app, &deps, env_id.as_deref(), notebook_path.as_deref())
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// Start a default conda kernel with just Python (no extra deps).
-/// Used as fallback when no environment is configured.
-/// Each notebook gets its own isolated environment via a unique env_id.
-#[tauri::command]
-async fn start_default_conda_kernel(
-    app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<(), String> {
-    // Get the env_id for this notebook (should be set at notebook creation)
-    // Fall back to creating one for legacy notebooks
-    let (env_id, notebook_path) = {
-        let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
-
-        // Check if there's already an env_id in the runt metadata
-        let existing_id = state
-            .notebook
-            .metadata
-            .additional
-            .get("runt")
-            .and_then(|v| v.get("env_id"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-
-        let env_id = match existing_id {
-            Some(id) => id,
-            None => {
-                // Legacy notebook without env_id - generate one and set conda metadata
-                let new_id = uuid::Uuid::new_v4().to_string();
-
-                // Ensure runt namespace exists with env_id
-                let runt = state
-                    .notebook
-                    .metadata
-                    .additional
-                    .entry("runt".to_string())
-                    .or_insert_with(|| serde_json::json!({"schema_version": "1"}));
-                if let Some(runt_obj) = runt.as_object_mut() {
-                    runt_obj.insert("env_id".to_string(), serde_json::json!(new_id));
-                }
-
-                if !conda_env::has_conda_config(&state.notebook.metadata) {
-                    let deps = conda_env::CondaDependencies {
-                        dependencies: vec![],
-                        channels: vec!["conda-forge".to_string()],
-                        python: None,
-                        env_id: None,
-                    };
-                    conda_env::set_dependencies(&mut state.notebook.metadata, &deps);
-                }
-
-                state.dirty = true;
-                new_id
-            }
-        };
-        (env_id, state.path.clone())
-    };
-
-    // Create minimal deps with just ipykernel and the unique env_id
-    let deps = conda_env::CondaDependencies {
-        dependencies: vec!["ipykernel".to_string()],
-        channels: vec!["conda-forge".to_string()],
-        python: None,
-        env_id: Some(env_id.clone()),
-    };
-
-    info!(
-        "Starting default conda kernel with ipykernel (env_id: {})",
-        env_id
-    );
-
-    let mut kernel = kernel_state.lock().await;
-    kernel
-        .start_with_conda(app, &deps, notebook_path.as_deref())
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// Core implementation for starting a default Python kernel.
-/// Extracted to allow calling from both Tauri commands and the setup hook.
-async fn start_default_python_kernel_impl(
-    app: tauri::AppHandle,
-    notebook_state: &Arc<Mutex<NotebookState>>,
-    kernel_state: &Arc<tokio::sync::Mutex<NotebookKernel>>,
-    pool: &env_pool::SharedEnvPool,
-    conda_pool: &env_pool::SharedCondaEnvPool,
-) -> Result<String, String> {
-    let kernel_start = std::time::Instant::now();
-
-    // Load user's preferred Python environment type from settings
-    let app_settings = settings::load_settings();
-    let preferred_env = app_settings.default_python_env;
-    let uv_available = uv_env::check_uv_available().await;
-
-    // Check which env type actually has dependencies in the notebook metadata
-    // This overrides user preference when deps exist in only one type
-    let (has_uv_deps, has_conda_deps) = {
-        let state = notebook_state.lock().map_err(|e| e.to_string())?;
-        let uv_deps = uv_env::extract_dependencies(&state.notebook.metadata);
-        let conda_deps = conda_env::extract_dependencies(&state.notebook.metadata);
-        let has_uv = uv_deps.map(|d| !d.dependencies.is_empty()).unwrap_or(false);
-        let has_conda = conda_deps
-            .map(|d| !d.dependencies.is_empty())
-            .unwrap_or(false);
-        (has_uv, has_conda)
-    };
-
-    // Determine which env type to actually use
-    // Priority: 1) Use whichever has deps, 2) Fall back to user preference
-    let use_uv = if has_uv_deps && !has_conda_deps {
-        // UV has deps, conda doesn't - use UV regardless of preference
-        if uv_available {
-            info!("Using uv (has dependencies, conda is empty)");
-            true
-        } else {
-            log::warn!("Notebook has uv dependencies but uv not available, falling back to conda");
-            false
-        }
-    } else if has_conda_deps && !has_uv_deps {
-        // Conda has deps, uv doesn't - use conda regardless of preference
-        info!("Using conda (has dependencies, uv is empty)");
-        false
-    } else if has_uv_deps && has_conda_deps {
-        // Both have deps - use user preference but warn
-        log::warn!(
-            "Notebook has both uv and conda dependencies, using preference: {:?}",
-            preferred_env
-        );
-        match preferred_env {
-            settings::PythonEnvType::Uv | settings::PythonEnvType::Other(_) => uv_available,
-            settings::PythonEnvType::Conda => false,
-        }
-    } else {
-        // Neither has inline deps - check for project files before falling back to prewarmed.
-        // Uses "closest wins" detection: single walk-up from notebook, first match wins.
-        // Tiebreaker when multiple files at same level: pyproject > pixi > environment.yml.
-        let notebook_path_for_detection = {
-            let state = notebook_state.lock().map_err(|e| e.to_string())?;
-            state.path.clone()
-        };
-
-        // Build the set of project file kinds to search for
-        let mut search_kinds = vec![
-            project_file::ProjectFileKind::PixiToml,
-            project_file::ProjectFileKind::EnvironmentYml,
-        ];
-        if uv_available {
-            // Only search for pyproject.toml when uv is available to handle it
-            search_kinds.insert(0, project_file::ProjectFileKind::PyprojectToml);
-        }
-
-        if let Some(ref nb_path) = notebook_path_for_detection {
-            if let Some(detected) = project_file::find_nearest_project_file(nb_path, &search_kinds)
-            {
-                match detected.kind {
-                    project_file::ProjectFileKind::PyprojectToml => {
-                        if let Ok(config) = pyproject::parse_pyproject(&detected.path) {
-                            let info = pyproject::create_pyproject_info(&config, nb_path);
-                            if info.has_dependencies || info.has_venv {
-                                let project_dir = detected
-                                    .path
-                                    .parent()
-                                    .ok_or_else(|| "Invalid pyproject.toml path".to_string())?;
-
-                                info!(
-                                    "Auto-detected pyproject.toml at {} (closest project file), starting with uv run",
-                                    info.relative_path
-                                );
-
-                                let mut kernel = kernel_state.lock().await;
-                                kernel
-                                    .start_with_uv_run(app, project_dir)
-                                    .await
-                                    .map_err(|e| e.to_string())?;
-
-                                info!(
-                                    "[kernel-ready] Started UV kernel in {}ms | Source: pyproject.toml (auto-detected)",
-                                    kernel_start.elapsed().as_millis()
-                                );
-                                return Ok("uv:pyproject".to_string());
-                            }
-                        }
-                        // Closest project file has no usable deps — fall through to prewarmed
-                    }
-                    project_file::ProjectFileKind::PixiToml => {
-                        if let Ok(config) = pixi::parse_pixi_toml(&detected.path) {
-                            if !config.dependencies.is_empty() {
-                                let pixi_info = pixi::create_pixi_info(&config, nb_path);
-                                info!(
-                                    "Auto-detected pixi.toml at {} with {} deps (closest project file), using conda/rattler",
-                                    pixi_info.relative_path,
-                                    pixi_info.dependency_count
-                                );
-
-                                let mut deps = pixi::convert_to_conda_dependencies(&config);
-
-                                // Get or create env_id for this notebook
-                                let env_id = {
-                                    let mut state =
-                                        notebook_state.lock().map_err(|e| e.to_string())?;
-                                    let existing_id = state
-                                        .notebook
-                                        .metadata
-                                        .additional
-                                        .get("runt")
-                                        .and_then(|v| v.get("env_id"))
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| s.to_string());
-                                    match existing_id {
-                                        Some(id) => id,
-                                        None => {
-                                            let new_id = uuid::Uuid::new_v4().to_string();
-                                            state.notebook.metadata.additional.insert(
-                                                "runt".to_string(),
-                                                serde_json::json!({ "env_id": new_id }),
-                                            );
-                                            state.dirty = true;
-                                            new_id
-                                        }
-                                    }
-                                };
-                                deps.env_id = Some(env_id);
-
-                                let mut kernel = kernel_state.lock().await;
-                                kernel
-                                    .start_with_conda(
-                                        app,
-                                        &deps,
-                                        notebook_path_for_detection.as_deref(),
-                                    )
-                                    .await
-                                    .map_err(|e| e.to_string())?;
-
-                                info!(
-                                    "[kernel-ready] Started Conda kernel in {}ms | Source: pixi.toml (auto-detected)",
-                                    kernel_start.elapsed().as_millis()
-                                );
-                                return Ok("conda:pixi".to_string());
-                            }
-                        }
-                        // Closest project file has no usable deps — fall through to prewarmed
-                    }
-                    project_file::ProjectFileKind::EnvironmentYml => {
-                        if let Ok(config) = environment_yml::parse_environment_yml(&detected.path) {
-                            if !config.dependencies.is_empty() {
-                                let deps = environment_yml::convert_to_conda_dependencies(&config);
-                                info!(
-                                    "Auto-detected environment.yml at {} with {} deps (closest project file)",
-                                    detected.path.display(),
-                                    deps.dependencies.len()
-                                );
-                                let mut kernel = kernel_state.lock().await;
-                                kernel
-                                    .start_with_conda(app, &deps, Some(nb_path))
-                                    .await
-                                    .map_err(|e| e.to_string())?;
-
-                                info!(
-                                    "[kernel-ready] Started conda kernel via environment.yml in {}ms",
-                                    kernel_start.elapsed().as_millis()
-                                );
-                                return Ok("conda:env_yml".to_string());
-                            }
-                        }
-                        // Closest project file has no usable deps — fall through to prewarmed
-                    }
-                }
-            }
-        }
-
-        // No project file found (or closest had no usable deps) — fall back to user preference
-        match preferred_env {
-            settings::PythonEnvType::Uv | settings::PythonEnvType::Other(_) => {
-                if uv_available {
-                    true
-                } else {
-                    info!("uv preferred but not available, falling back to conda");
-                    false
-                }
-            }
-            settings::PythonEnvType::Conda => false,
-        }
-    };
-
-    if use_uv {
-        info!(
-            "Using uv for default kernel (preferred: {:?})",
-            preferred_env
-        );
-
-        // Ensure uv metadata exists in the notebook (for legacy notebooks)
-        // Also extract env_id for per-notebook isolation and notebook dependencies
-        let (env_id, notebook_path, notebook_deps) = {
-            let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
-
-            // If notebook has empty conda deps and we're using UV, migrate to UV
-            let conda_deps = conda_env::extract_dependencies(&state.notebook.metadata);
-            let conda_deps_empty = conda_deps
-                .as_ref()
-                .map(|d| d.dependencies.is_empty())
-                .unwrap_or(true);
-            let should_setup_uv = conda_deps_empty;
-
-            if should_setup_uv && !uv_env::has_uv_config(&state.notebook.metadata) {
-                // Set up empty UV deps in runt.uv
-                uv_env::set_dependencies(
-                    &mut state.notebook.metadata,
-                    &uv_env::NotebookDependencies {
-                        dependencies: Vec::new(),
-                        requires_python: None,
-                    },
-                );
-                // Remove empty conda metadata if migrating to uv
-                if conda_deps_empty && conda_env::has_conda_config(&state.notebook.metadata) {
-                    conda_env::remove_conda_config(&mut state.notebook.metadata);
-                }
-                state.dirty = true;
-            }
-
-            // Extract notebook dependencies
-            let deps = uv_env::extract_dependencies(&state.notebook.metadata);
-
-            (
-                uv_env::extract_env_id(&state.notebook.metadata),
-                state.path.clone(),
-                deps,
-            )
-        };
-
-        // Check if notebook has dependencies - if so, use prepare_environment path
-        // which properly finds existing cached environments
-        let has_deps = notebook_deps
-            .as_ref()
-            .map(|d| !d.dependencies.is_empty())
-            .unwrap_or(false);
-
-        if has_deps {
-            // Notebook has dependencies - use the normal path that finds/creates cached envs
-            let deps = notebook_deps.unwrap();
-            info!(
-                "[env] Notebook has {} dependencies, using prepare_environment path",
-                deps.dependencies.len()
-            );
-
-            let mut kernel = kernel_state.lock().await;
-            kernel
-                .start_with_uv(app, &deps, env_id.as_deref(), notebook_path.as_deref())
-                .await
-                .map_err(|e| e.to_string())?;
-
-            info!(
-                "[kernel-ready] Started UV kernel in {}ms | Source: cached/fresh env with deps",
-                kernel_start.elapsed().as_millis()
-            );
-            return Ok("uv:inline".to_string());
-        }
-
-        // No dependencies - try to use a prewarmed environment (daemon first, then in-process pool)
-        if let Some(env_id) = &env_id {
-            let prewarmed = {
-                #[allow(clippy::needless_borrow)]
-                env_pool::take_uv_env(&pool)
-            }
-            .await;
-            if let Some(prewarmed_env) = prewarmed {
-                info!("[prewarm] Using prewarmed environment for notebook (no deps)");
-
-                // Try to claim and use the prewarmed env, but fall back gracefully on error
-                match uv_env::claim_prewarmed_environment(
-                    prewarmed_env.into_uv_environment(),
-                    env_id,
-                )
-                .await
-                {
-                    Ok(env) => {
-                        // Validate the python path exists before trying to use it
-                        if env.python_path.exists() {
-                            // Immediately spawn replenishment
-                            env_pool::spawn_replenishment(pool.clone());
-
-                            let mut kernel = kernel_state.lock().await;
-                            match kernel
-                                .start_with_prewarmed_uv(app.clone(), env, notebook_path.as_deref())
-                                .await
-                            {
-                                Ok(()) => {
-                                    info!(
-                                        "[kernel-ready] Started UV kernel in {}ms | Source: prewarmed",
-                                        kernel_start.elapsed().as_millis()
-                                    );
-                                    return Ok("uv:prewarmed".to_string());
-                                }
-                                Err(e) => {
-                                    log::warn!(
-                                        "[prewarm] Failed to start kernel with prewarmed env, falling back: {}",
-                                        e
-                                    );
-                                    // Fall through to create fresh environment
-                                }
-                            }
-                        } else {
-                            log::warn!(
-                                "[prewarm] Claimed env has invalid python path: {:?}, falling back",
-                                env.python_path
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "[prewarm] Failed to claim prewarmed env, falling back: {}",
-                            e
-                        );
-                        // Fall through to create fresh environment
-                    }
-                }
-            }
-        }
-
-        // No prewarmed env available, create one normally
-        info!("[prewarm:uv] No prewarmed environment available, creating fresh");
-
-        // Include default uv packages from settings
-        let default_deps: Vec<String> = {
-            let s = settings::load_settings();
-            s.uv.default_packages
-        };
-        if !default_deps.is_empty() {
-            info!(
-                "[prewarm:uv] Including default packages: {:?}",
-                default_deps
-            );
-        }
-
-        let deps = uv_env::NotebookDependencies {
-            dependencies: default_deps,
-            requires_python: None,
-        };
-
-        let mut kernel = kernel_state.lock().await;
-        kernel
-            .start_with_uv(app, &deps, env_id.as_deref(), notebook_path.as_deref())
-            .await
-            .map_err(|e| e.to_string())?;
-
-        info!(
-            "[kernel-ready] Started UV kernel in {}ms | Source: fresh",
-            kernel_start.elapsed().as_millis()
-        );
-        Ok("uv:fresh".to_string())
-    } else {
-        info!(
-            "Using conda/rattler for default kernel (preferred: {:?})",
-            preferred_env
-        );
-
-        // Get the env_id for this notebook (should be set at notebook creation)
-        // Fall back to creating one for legacy notebooks
-        // Also extract conda dependencies
-        let (env_id, notebook_path, conda_deps) = {
-            let mut state = notebook_state.lock().map_err(|e| e.to_string())?;
-
-            // Check if notebook has empty uv deps - if so, migrate to conda
-            // Check if UV deps are empty (check both new and legacy paths)
-            let uv_deps = uv_env::extract_dependencies(&state.notebook.metadata);
-            let uv_deps_empty = uv_deps
-                .as_ref()
-                .map(|d| d.dependencies.is_empty())
-                .unwrap_or(true);
-
-            // Remove empty uv metadata when migrating to conda
-            if uv_deps_empty && uv_env::has_uv_config(&state.notebook.metadata) {
-                uv_env::remove_uv_config(&mut state.notebook.metadata);
-                state.dirty = true;
-            }
-
-            // Check if there's already an env_id in the runt metadata
-            let existing_id = state
-                .notebook
-                .metadata
-                .additional
-                .get("runt")
-                .and_then(|v| v.get("env_id"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-
-            let env_id = match existing_id {
-                Some(id) => {
-                    // Ensure conda metadata exists even for existing notebooks
-                    if !conda_env::has_conda_config(&state.notebook.metadata) {
-                        conda_env::set_dependencies(
-                            &mut state.notebook.metadata,
-                            &conda_env::CondaDependencies {
-                                dependencies: Vec::new(),
-                                channels: vec!["conda-forge".to_string()],
-                                python: None,
-                                env_id: Some(id.clone()),
-                            },
-                        );
-                        state.dirty = true;
-                    }
-                    id
-                }
-                None => {
-                    // Legacy notebook without env_id - generate one and set conda metadata
-                    let new_id = uuid::Uuid::new_v4().to_string();
-
-                    // Update runt metadata with env_id, preserving existing fields
-                    let runt = state
-                        .notebook
-                        .metadata
-                        .additional
-                        .entry("runt".to_string())
-                        .or_insert_with(|| serde_json::json!({"schema_version": "1"}));
-                    if let Some(runt_obj) = runt.as_object_mut() {
-                        runt_obj.insert("env_id".to_string(), serde_json::json!(new_id));
-                    }
-
-                    if !conda_env::has_conda_config(&state.notebook.metadata) {
-                        conda_env::set_dependencies(
-                            &mut state.notebook.metadata,
-                            &conda_env::CondaDependencies {
-                                dependencies: Vec::new(),
-                                channels: vec!["conda-forge".to_string()],
-                                python: None,
-                                env_id: Some(new_id.clone()),
-                            },
-                        );
-                    }
-
-                    state.dirty = true;
-                    new_id
-                }
-            };
-
-            // Extract conda dependencies
-            let deps = conda_env::extract_dependencies(&state.notebook.metadata);
-
-            (env_id, state.path.clone(), deps)
-        };
-
-        // Check if notebook has dependencies - if so, use prepare_environment path
-        // which properly finds existing cached environments
-        let has_deps = conda_deps
-            .as_ref()
-            .map(|d| !d.dependencies.is_empty())
-            .unwrap_or(false);
-
-        if has_deps {
-            // Notebook has dependencies - use the normal path that finds/creates cached envs
-            let mut deps = conda_deps.unwrap();
-            deps.env_id = Some(env_id.clone());
-            info!(
-                "[env] Notebook has {} conda dependencies, using prepare_environment path",
-                deps.dependencies.len()
-            );
-
-            let mut kernel = kernel_state.lock().await;
-            kernel
-                .start_with_conda(app, &deps, notebook_path.as_deref())
-                .await
-                .map_err(|e| e.to_string())?;
-
-            info!(
-                "[kernel-ready] Started Conda kernel in {}ms | Source: cached/fresh env with deps",
-                kernel_start.elapsed().as_millis()
-            );
-            return Ok("conda:inline".to_string());
-        }
-
-        // No dependencies - try to use a prewarmed conda environment (daemon first, then in-process pool)
-        let prewarmed = {
-            #[allow(clippy::needless_borrow)]
-            env_pool::take_conda_env(&conda_pool)
-        }
-        .await;
-        if let Some(prewarmed_env) = prewarmed {
-            info!("[prewarm] Using prewarmed conda environment for notebook (no deps)");
-
-            // Try to claim and use the prewarmed env, but fall back gracefully on error
-            match conda_env::claim_prewarmed_conda_environment(
-                prewarmed_env.into_conda_environment(),
-                &env_id,
-            )
-            .await
-            {
-                Ok(env) => {
-                    if env.python_path.exists() {
-                        let mut kernel = kernel_state.lock().await;
-                        match kernel
-                            .start_with_prewarmed_conda(app.clone(), env, notebook_path.as_deref())
-                            .await
-                        {
-                            Ok(()) => {
-                                // Trigger replenishment of the pool
-                                env_pool::spawn_conda_replenishment(conda_pool.clone());
-                                info!(
-                                    "[kernel-ready] Started Conda kernel in {}ms | Source: prewarmed",
-                                    kernel_start.elapsed().as_millis()
-                                );
-                                return Ok("conda:prewarmed".to_string());
-                            }
-                            Err(e) => {
-                                error!(
-                                    "[prewarm] Failed to start kernel with prewarmed conda env, falling back: {}",
-                                    e
-                                );
-                            }
-                        }
-                    } else {
-                        info!(
-                            "[prewarm] Claimed conda env has invalid python path: {:?}, falling back",
-                            env.python_path
-                        );
-                    }
-                }
-                Err(e) => {
-                    error!(
-                        "[prewarm] Failed to claim prewarmed conda env, falling back: {}",
-                        e
-                    );
-                }
-            }
-        }
-
-        // No prewarmed env available (or prewarmed failed), create one normally
-        info!("[prewarm:conda] No prewarmed conda environment available, creating fresh");
-
-        // Include default conda packages from settings
-        let mut conda_deps_list = vec!["ipykernel".to_string()];
-        {
-            let s = settings::load_settings();
-            let extra = s.conda.default_packages;
-            if !extra.is_empty() {
-                info!("[prewarm:conda] Including default packages: {:?}", extra);
-                conda_deps_list.extend(extra);
-            }
-        }
-
-        let deps = conda_env::CondaDependencies {
-            dependencies: conda_deps_list,
-            channels: vec!["conda-forge".to_string()],
-            python: None,
-            env_id: Some(env_id.clone()),
-        };
-
-        let mut kernel = kernel_state.lock().await;
-        kernel
-            .start_with_conda(app, &deps, notebook_path.as_deref())
-            .await
-            .map_err(|e| e.to_string())?;
-
-        info!(
-            "[kernel-ready] Started Conda kernel in {}ms | Source: fresh",
-            kernel_start.elapsed().as_millis()
-        );
-        Ok("conda:fresh".to_string())
-    }
-}
-
-/// Start a default kernel, automatically choosing uv or conda based on availability.
-/// Prefers uv when available, falls back to conda/rattler otherwise.
-/// Uses prewarmed environments from the pool when available for faster startup.
-#[tauri::command]
-async fn start_default_kernel(
-    app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-    pool: tauri::State<'_, env_pool::SharedEnvPool>,
-    conda_pool: tauri::State<'_, env_pool::SharedCondaEnvPool>,
-) -> Result<String, String> {
-    start_default_python_kernel_impl(app, &notebook_state, &kernel_state, &pool, &conda_pool).await
-}
-
-/// Check if the running kernel has a conda-managed environment.
-#[tauri::command]
-async fn kernel_has_conda_env(
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<bool, String> {
-    let kernel = kernel_state.lock().await;
-    Ok(kernel.has_conda_environment())
-}
-
-/// Sync dependencies to the running kernel's conda environment.
-///
-/// Note: For conda environments, this currently requires a kernel restart.
-/// Returns true if sync was performed, false if no conda environment exists.
-#[tauri::command]
-async fn sync_conda_dependencies(
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<bool, String> {
-    let deps = {
-        let state = notebook_state.lock().map_err(|e| e.to_string())?;
-        conda_env::extract_dependencies(&state.notebook.metadata)
-    };
-
-    let Some(deps) = deps else {
-        return Ok(false);
-    };
-
-    let kernel = kernel_state.lock().await;
-    let Some(env) = kernel.conda_environment() else {
-        return Ok(false);
-    };
-
-    info!(
-        "Syncing {} conda dependencies to kernel environment",
-        deps.dependencies.len()
-    );
-
-    // Note: This will return an error for now since conda sync requires restart
-    conda_env::sync_dependencies(env, &deps)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(true)
 }
 
 // ============================================================================
@@ -3116,46 +1773,6 @@ async fn check_typosquats(packages: Vec<String>) -> Vec<typosquat::TyposquatWarn
     typosquat::check_packages(&packages)
 }
 
-/// Start kernel using `uv run` in the project directory with pyproject.toml.
-///
-/// This delegates environment management to uv:
-/// - uv auto-detects and uses the project's pyproject.toml
-/// - Creates/updates .venv in the project directory
-/// - Respects uv.lock if present
-/// - Adds ipykernel transiently via --with
-#[tauri::command]
-async fn start_kernel_with_pyproject(
-    app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<(), String> {
-    let notebook_path = {
-        let state = notebook_state.lock().map_err(|e| e.to_string())?;
-        state.path.clone()
-    };
-
-    let notebook_path = notebook_path.ok_or_else(|| "No notebook path set".to_string())?;
-
-    let pyproject_path = pyproject::find_pyproject(&notebook_path)
-        .ok_or_else(|| "No pyproject.toml found".to_string())?;
-
-    // Get the project directory (parent of pyproject.toml)
-    let project_dir = pyproject_path
-        .parent()
-        .ok_or_else(|| "Invalid pyproject.toml path".to_string())?;
-
-    info!(
-        "Starting kernel with uv run in project {}",
-        project_dir.display()
-    );
-
-    let mut kernel = kernel_state.lock().await;
-    kernel
-        .start_with_uv_run(app, project_dir)
-        .await
-        .map_err(|e| e.to_string())
-}
-
 // ============================================================================
 // pixi.toml Discovery and Environment Commands
 // ============================================================================
@@ -3328,42 +1945,6 @@ async fn get_environment_yml_dependencies(
     }))
 }
 
-/// Start kernel using dependencies from a detected environment.yml.
-#[tauri::command]
-async fn start_kernel_with_environment_yml(
-    app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<(), String> {
-    let notebook_path = {
-        let state = notebook_state.lock().map_err(|e| e.to_string())?;
-        state.path.clone()
-    };
-
-    let Some(notebook_path) = notebook_path else {
-        return Err("No notebook path available".to_string());
-    };
-
-    let Some(yml_path) = environment_yml::find_environment_yml(&notebook_path) else {
-        return Err("No environment.yml found".to_string());
-    };
-
-    let config = environment_yml::parse_environment_yml(&yml_path).map_err(|e| e.to_string())?;
-    let deps = environment_yml::convert_to_conda_dependencies(&config);
-
-    info!(
-        "Starting kernel with environment.yml ({} deps) from {}",
-        deps.dependencies.len(),
-        yml_path.display()
-    );
-
-    let mut kernel = kernel_state.lock().await;
-    kernel
-        .start_with_conda(app, &deps, Some(&notebook_path))
-        .await
-        .map_err(|e| e.to_string())
-}
-
 /// Import dependencies from pixi.toml into notebook conda metadata.
 /// This converts pixi deps to conda format and stores them inline in the notebook.
 #[tauri::command]
@@ -3522,65 +2103,6 @@ async fn set_deno_flexible_npm_imports(
     state.dirty = true;
 
     Ok(())
-}
-
-/// Core implementation for starting a Deno kernel.
-/// Extracted to allow calling from both Tauri commands and the setup hook.
-async fn start_deno_kernel_impl(
-    app: tauri::AppHandle,
-    notebook_state: &Arc<Mutex<NotebookState>>,
-    kernel_state: &Arc<tokio::sync::Mutex<NotebookKernel>>,
-) -> Result<(), String> {
-    // Get permissions and settings from notebook metadata
-    let (permissions, workspace_dir, flexible_npm_imports, notebook_path) = {
-        let state = notebook_state.lock().map_err(|e| e.to_string())?;
-        let deps = deno_env::extract_deno_metadata(&state.notebook.metadata);
-        let perms = deps
-            .as_ref()
-            .map(|d| d.permissions.clone())
-            .unwrap_or_default();
-        let flexible = deps.map(|d| d.flexible_npm_imports).unwrap_or(true);
-
-        // Find workspace directory with deno.json (canonicalized so Deno gets an
-        // absolute working directory even when the notebook was opened with a relative path)
-        let ws_dir = state
-            .path
-            .as_ref()
-            .and_then(|p| deno_env::find_deno_config(p))
-            .and_then(|c| {
-                c.parent()
-                    .map(|p| p.canonicalize().unwrap_or_else(|_| p.to_path_buf()))
-            });
-
-        (perms, ws_dir, flexible, state.path.clone())
-    };
-
-    info!(
-        "Starting Deno kernel with permissions: {:?}, workspace: {:?}, flexible_npm_imports: {}",
-        permissions, workspace_dir, flexible_npm_imports
-    );
-
-    let mut kernel = kernel_state.lock().await;
-    kernel
-        .start_with_deno(
-            app,
-            &permissions,
-            workspace_dir.as_deref(),
-            flexible_npm_imports,
-            notebook_path.as_deref(),
-        )
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// Start a Deno kernel
-#[tauri::command]
-async fn start_kernel_with_deno(
-    app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    kernel_state: tauri::State<'_, Arc<tokio::sync::Mutex<NotebookKernel>>>,
-) -> Result<(), String> {
-    start_deno_kernel_impl(app, &notebook_state, &kernel_state).await
 }
 
 /// Format a cell's source code using the appropriate formatter (ruff for Python, deno fmt for TypeScript/JavaScript).
@@ -3759,12 +2281,6 @@ fn save_setting_locally(key: &str, value: &serde_json::Value) -> Result<(), Stri
             let packages = json_value_to_string_vec(value);
             let mut s = settings::load_settings();
             s.conda.default_packages = packages;
-            settings::save_settings(&s).map_err(|e| e.to_string())
-        }
-        "daemon_execution" => {
-            let enabled = value.as_bool().ok_or("expected boolean")?;
-            let mut s = settings::load_settings();
-            s.daemon_execution = enabled;
             settings::save_settings(&s).map_err(|e| e.to_string())
         }
         _ => Ok(()),
@@ -4022,10 +2538,7 @@ pub fn run(
         .unwrap_or("Untitled.ipynb")
         .to_string();
 
-    // Create execution queue and command sender
-    let queue: SharedExecutionQueue = Arc::new(Mutex::new(ExecutionQueue::default()));
     let notebook_state = Arc::new(Mutex::new(initial_state));
-    let kernel_state = Arc::new(tokio::sync::Mutex::new(NotebookKernel::default()));
 
     // Create the prewarming environment pools (UV and Conda)
     let env_pool: env_pool::SharedEnvPool = Arc::new(tokio::sync::Mutex::new(
@@ -4054,26 +2567,11 @@ pub fn run(
     let daemon_sync_success = Arc::new(AtomicBool::new(false));
 
     // Clone for setup closure
-    let queue_for_processor = queue.clone();
-    let notebook_for_processor = notebook_state.clone();
-    let kernel_for_processor = kernel_state.clone();
     let pool_for_prewarm = env_pool.clone();
     let conda_pool_for_prewarm = conda_env_pool.clone();
     let uv_recovery_for_prewarm = uv_recovery_complete.clone();
     let conda_recovery_for_prewarm = conda_recovery_complete.clone();
 
-    // Clone for auto-launch kernel task
-    let notebook_for_autolaunch = notebook_state.clone();
-    let kernel_for_autolaunch = kernel_state.clone();
-    let pool_for_autolaunch = env_pool.clone();
-    let conda_pool_for_autolaunch = conda_env_pool.clone();
-    let auto_launch_flag = auto_launch_in_progress.clone();
-    let uv_recovery_for_autolaunch = uv_recovery_complete.clone();
-    let conda_recovery_for_autolaunch = conda_recovery_complete.clone();
-
-    // Clone for lifecycle event handlers
-    let kernel_for_window_event = kernel_state.clone();
-    let kernel_for_exit = kernel_state.clone();
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     let notebook_for_open = notebook_state.clone();
 
@@ -4090,14 +2588,13 @@ pub fn run(
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(notebook_state)
-        .manage(kernel_state)
-        .manage(queue)
         .manage(env_pool)
         .manage(conda_env_pool)
         .manage(auto_launch_in_progress)
         .manage(reconnect_in_progress)
         .manage(notebook_sync)
         .invoke_handler(tauri::generate_handler![
+            // Notebook file operations
             load_notebook,
             has_notebook_path,
             get_notebook_path,
@@ -4105,13 +2602,11 @@ pub fn run(
             save_notebook_as,
             clone_notebook_to_path,
             open_notebook_in_new_window,
+            // Cell operations
             update_cell_source,
             add_cell,
             delete_cell,
-            execute_cell,
-            sync_append_output,
-            sync_execution_count,
-            // Daemon kernel operations (Phase 8)
+            // Daemon kernel operations (all kernel ops go through daemon)
             launch_kernel_via_daemon,
             queue_cell_via_daemon,
             clear_outputs_via_daemon,
@@ -4126,17 +2621,7 @@ pub fn run(
             refresh_from_automerge,
             debug_get_automerge_state,
             debug_get_local_state,
-            queue_execute_cell,
-            clear_execution_queue,
-            get_execution_queue_state,
-            run_all_cells,
-            restart_and_run_all,
-            start_kernel,
-            interrupt_kernel,
-            shutdown_kernel,
-            send_shell_message,
-            complete,
-            get_history,
+            // Kernelspec discovery (used by UI)
             get_preferred_kernelspec,
             list_kernelspecs,
             // UV dependency management
@@ -4146,28 +2631,15 @@ pub fn run(
             add_dependency,
             remove_dependency,
             clear_dependency_section,
-            start_kernel_with_uv,
-            start_default_uv_kernel,
-            is_kernel_running,
-            get_kernel_lifecycle,
-            kernel_has_uv_env,
-            get_env_sync_state,
-            sync_kernel_dependencies,
             // Conda dependency management
             get_conda_dependencies,
             set_conda_dependencies,
             add_conda_dependency,
             remove_conda_dependency,
-            start_kernel_with_conda,
-            start_default_conda_kernel,
-            start_default_kernel,
-            kernel_has_conda_env,
-            sync_conda_dependencies,
             // pyproject.toml discovery
             detect_pyproject,
             get_pyproject_dependencies,
             import_pyproject_dependencies,
-            start_kernel_with_pyproject,
             // pixi.toml support
             detect_pixi_toml,
             get_pixi_dependencies,
@@ -4175,7 +2647,6 @@ pub fn run(
             // environment.yml support
             detect_environment_yml,
             get_environment_yml_dependencies,
-            start_kernel_with_environment_yml,
             // Trust verification
             verify_notebook_trust,
             approve_notebook_trust,
@@ -4189,7 +2660,6 @@ pub fn run(
             set_deno_permissions,
             get_deno_flexible_npm_imports,
             set_deno_flexible_npm_imports,
-            start_kernel_with_deno,
             // Code formatting
             format_cell,
             check_formatter_available,
@@ -4237,27 +2707,7 @@ pub fn run(
             let menu = crate::menu::create_menu(app.handle())?;
             app.set_menu(menu)?;
 
-            // Spawn the execution queue processor
-            let app_handle = app.handle().clone();
-            let queue_tx = execution_queue::spawn_queue_processor(
-                app_handle,
-                queue_for_processor,
-                notebook_for_processor,
-                kernel_for_processor.clone(),
-            );
-
-            // Store the queue sender in Tauri state for commands to use
-            app.manage(queue_tx.clone());
-
-            // Set the queue sender on the kernel so iopub can signal completion
-            let kernel_for_tx = kernel_for_processor.clone();
-            let tx_for_kernel = queue_tx.clone();
-            tauri::async_runtime::spawn(async move {
-                let mut kernel = kernel_for_tx.lock().await;
-                kernel.set_queue_tx(tx_for_kernel);
-            });
-
-            // Try to ensure runtimed is running (non-blocking, optional)
+            // Ensure runtimed is running (required for daemon-only mode)
             // The daemon provides centralized prewarming across all notebook windows
             let app_for_daemon = app.handle().clone();
             let app_for_sync = app.handle().clone();
@@ -4327,226 +2777,57 @@ pub fn run(
                 env_pool::run_conda_prewarming_loop(conda_pool_for_prewarm, conda_recovery_for_prewarm).await;
             });
 
-            // Auto-launch kernel for faster startup (only if trusted)
-            // Skip if daemon_execution is enabled AND daemon sync succeeded
-            log::info!("[startup] Setup complete in {}ms, spawning auto-launch task", setup_start.elapsed().as_millis());
+            // Wait for daemon sync to complete before considering startup done
+            log::info!("[startup] Setup complete in {}ms, spawning daemon sync wait task", setup_start.elapsed().as_millis());
             let app_for_autolaunch = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let autolaunch_start = std::time::Instant::now();
 
-                // Load user's preferred Python environment type
-                let app_settings = settings::load_settings();
+                log::info!("[autolaunch] Waiting for daemon sync...");
 
-                // If daemon_execution is enabled, wait for daemon sync to complete
-                // Don't fall back to local mode - if daemon fails, show error state instead
-                if app_settings.daemon_execution {
-                    log::info!("[autolaunch] Daemon execution enabled, waiting for daemon sync...");
-
-                    // Wait up to 10 seconds for daemon sync to complete
-                    // This needs to be long enough for large notebooks with many cells
-                    let sync_timeout = tokio::time::timeout(
-                        std::time::Duration::from_secs(10),
-                        async {
-                            while !daemon_sync_complete_for_autolaunch.load(Ordering::SeqCst) {
-                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                            }
-                        },
-                    )
-                    .await;
-
-                    let sync_wait_ms = autolaunch_start.elapsed().as_millis();
-
-                    if sync_timeout.is_err() {
-                        // Daemon sync timed out - emit error event for frontend to display
-                        log::error!(
-                            "[autolaunch] Daemon sync timed out after {}ms. Daemon execution is enabled but daemon is not available.",
-                            sync_wait_ms
-                        );
-                        let _ = app_for_autolaunch.emit("daemon:unavailable", serde_json::json!({
-                            "reason": "sync_timeout",
-                            "message": "Daemon sync timed out. The runtime daemon may not be running.",
-                            "guidance": "Run 'cargo xtask dev-daemon' in another terminal, or disable daemon mode in settings."
-                        }));
-                        return;
-                    } else if daemon_sync_success_for_autolaunch.load(Ordering::SeqCst) {
-                        // Daemon sync succeeded - let daemon handle auto-launch
-                        log::info!(
-                            "[autolaunch] Daemon sync succeeded in {}ms, daemon handles auto-launch",
-                            sync_wait_ms
-                        );
-                        return;
-                    } else {
-                        // Daemon sync completed but failed - emit error event
-                        log::error!(
-                            "[autolaunch] Daemon sync failed after {}ms. Daemon execution is enabled but connection failed.",
-                            sync_wait_ms
-                        );
-                        let _ = app_for_autolaunch.emit("daemon:unavailable", serde_json::json!({
-                            "reason": "sync_failed",
-                            "message": "Failed to connect to runtime daemon.",
-                            "guidance": "Run 'cargo xtask dev-daemon' in another terminal, or disable daemon mode in settings."
-                        }));
-                        return;
-                    }
-                }
-
-                let prefer_conda = matches!(app_settings.default_python_env, settings::PythonEnvType::Conda);
-
-                // Wait for the PREFERRED pool recovery to complete (with timeout)
-                // This ensures prewarmed environments are available before auto-launch
-                let recovery_timeout = tokio::time::timeout(
-                    std::time::Duration::from_secs(2),
+                // Wait up to 10 seconds for daemon sync to complete
+                // This needs to be long enough for large notebooks with many cells
+                let sync_timeout = tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
                     async {
-                        if prefer_conda {
-                            // Wait for conda recovery specifically
-                            while !conda_recovery_for_autolaunch.load(std::sync::atomic::Ordering::SeqCst) {
-                                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                            }
-                        } else {
-                            // Wait for UV recovery specifically
-                            while !uv_recovery_for_autolaunch.load(std::sync::atomic::Ordering::SeqCst) {
-                                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                            }
+                        while !daemon_sync_complete_for_autolaunch.load(Ordering::SeqCst) {
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                         }
                     },
                 )
                 .await;
 
-                let recovery_wait_ms = autolaunch_start.elapsed().as_millis();
-                let preferred_type = if prefer_conda { "conda" } else { "uv" };
-                if recovery_timeout.is_err() {
+                let sync_wait_ms = autolaunch_start.elapsed().as_millis();
+
+                if sync_timeout.is_err() {
+                    // Daemon sync timed out - emit error event for frontend to display
+                    log::error!(
+                        "[autolaunch] Daemon sync timed out after {}ms. Daemon is not available.",
+                        sync_wait_ms
+                    );
+                    let _ = app_for_autolaunch.emit("daemon:unavailable", serde_json::json!({
+                        "reason": "sync_timeout",
+                        "message": "Daemon sync timed out. The runtime daemon may not be running.",
+                        "guidance": "Run 'cargo xtask dev-daemon' in another terminal (dev mode), or check daemon status with 'runt daemon status'."
+                    }));
+                } else if daemon_sync_success_for_autolaunch.load(Ordering::SeqCst) {
+                    // Daemon sync succeeded - daemon handles auto-launch
                     log::info!(
-                        "[autolaunch] Recovery timeout after {}ms (preferred: {}), UV: {}, Conda: {}",
-                        recovery_wait_ms,
-                        preferred_type,
-                        uv_recovery_for_autolaunch.load(std::sync::atomic::Ordering::SeqCst),
-                        conda_recovery_for_autolaunch.load(std::sync::atomic::Ordering::SeqCst)
+                        "[autolaunch] Daemon sync succeeded in {}ms, daemon handles auto-launch",
+                        sync_wait_ms
                     );
                 } else {
-                    log::info!(
-                        "[autolaunch] {} recovery complete in {}ms, proceeding with auto-launch",
-                        preferred_type,
-                        recovery_wait_ms
+                    // Daemon sync completed but failed - emit error event
+                    log::error!(
+                        "[autolaunch] Daemon sync failed after {}ms. Connection failed.",
+                        sync_wait_ms
                     );
+                    let _ = app_for_autolaunch.emit("daemon:unavailable", serde_json::json!({
+                        "reason": "sync_failed",
+                        "message": "Failed to connect to runtime daemon.",
+                        "guidance": "Run 'cargo xtask dev-daemon' in another terminal (dev mode), or check daemon status with 'runt daemon status'."
+                    }));
                 }
-
-                // Log pool status before attempting to get prewarmed env
-                let uv_status = pool_for_autolaunch.lock().await.status();
-                let conda_status = conda_pool_for_autolaunch.lock().await.status();
-                log::info!(
-                    "[autolaunch] Pool status - UV: {}/{} ready ({} creating), Conda: {}/{} ready ({} creating)",
-                    uv_status.available, uv_status.target, uv_status.creating,
-                    conda_status.available, conda_status.target, conda_status.creating
-                );
-
-                // Get runtime and verify trust before launching
-                let (runtime, trust_status) = {
-                    match notebook_for_autolaunch.lock() {
-                        Ok(state) => {
-                            let rt = state.get_runtime();
-                            let trust_result =
-                                trust::verify_notebook_trust(&state.notebook.metadata.additional);
-                            (rt, trust_result)
-                        }
-                        Err(_) => return,
-                    }
-                };
-
-                // Only auto-launch for trusted notebooks or those with no dependencies
-                // Untrusted notebooks must wait for user approval via frontend dialog
-                let trust_info = match trust_status {
-                    Ok(info) => info,
-                    Err(e) => {
-                        log::warn!("Trust verification failed, skipping auto-launch: {}", e);
-                        return;
-                    }
-                };
-
-                match trust_info.status {
-                    trust::TrustStatus::Trusted | trust::TrustStatus::NoDependencies => {
-                        // Safe to auto-launch
-                    }
-                    trust::TrustStatus::Untrusted | trust::TrustStatus::SignatureInvalid => {
-                        log::info!(
-                            "Notebook not trusted, skipping auto-launch (will prompt user)"
-                        );
-                        return;
-                    }
-                }
-
-                // Set auto-launch flag so frontend can query state
-                auto_launch_flag.store(true, Ordering::SeqCst);
-
-                // Emit lifecycle event so frontend can show "Starting" status
-                let runtime_str = runtime.to_string();
-                let lifecycle_event = KernelLifecycleEvent {
-                    state: "launching".to_string(),
-                    runtime: runtime_str.clone(),
-                    env_source: None,
-                    error_message: None,
-                };
-                let _ = app_for_autolaunch.emit("kernel:lifecycle", &lifecycle_event);
-
-                let (env_source, error_msg) = match &runtime {
-                    Runtime::Python => {
-                        match start_default_python_kernel_impl(
-                            app_for_autolaunch.clone(),
-                            &notebook_for_autolaunch,
-                            &kernel_for_autolaunch,
-                            &pool_for_autolaunch,
-                            &conda_pool_for_autolaunch,
-                        )
-                        .await
-                        {
-                            Ok(source) => (Some(source), None),
-                            Err(e) => {
-                                log::error!("Auto-launch kernel failed: {}", e);
-                                (None, Some(e.to_string()))
-                            }
-                        }
-                    }
-                    Runtime::Deno => {
-                        match start_deno_kernel_impl(
-                            app_for_autolaunch.clone(),
-                            &notebook_for_autolaunch,
-                            &kernel_for_autolaunch,
-                        )
-                        .await
-                        {
-                            Ok(()) => (Some("deno".to_string()), None),
-                            Err(e) => {
-                                log::error!("Auto-launch Deno kernel failed: {}", e);
-                                (None, Some(e.to_string()))
-                            }
-                        }
-                    }
-                    Runtime::Other(s) => {
-                        let msg = format!("No kernel available for runtime: {s}");
-                        log::error!("{}", msg);
-                        (None, Some(msg))
-                    }
-                };
-
-                if let Some(source) = env_source {
-                    let ready_event = KernelLifecycleEvent {
-                        state: "ready".to_string(),
-                        runtime: runtime_str,
-                        env_source: Some(source),
-                        error_message: None,
-                    };
-                    let _ = app_for_autolaunch.emit("kernel:lifecycle", &ready_event);
-                } else {
-                    let error_event = KernelLifecycleEvent {
-                        state: "error".to_string(),
-                        runtime: runtime_str,
-                        env_source: None,
-                        error_message: error_msg,
-                    };
-                    let _ = app_for_autolaunch.emit("kernel:lifecycle", &error_event);
-                }
-
-                // Clear auto-launch flag when done
-                auto_launch_flag.store(false, Ordering::SeqCst);
             });
 
             Ok(())
@@ -4637,25 +2918,13 @@ pub fn run(
                 _ => {}
             }
         })
-        .on_window_event(move |_window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                // Shutdown kernel when window is closed
-                let kernel = kernel_for_window_event.clone();
-                tauri::async_runtime::block_on(async {
-                    let mut k = kernel.lock().await;
-                    if let Err(e) = k.shutdown().await {
-                        log::error!("Failed to shutdown kernel on window close: {}", e);
-                    }
-                });
-            }
-        })
         .build(tauri::generate_context!())
         .map_err(|e| anyhow::anyhow!("Tauri build error: {}", e))?;
 
-    app.run(move |_app_handle, event| {
+    app.run(move |_app_handle, _event| {
         // Handle file associations (macOS only)
         #[cfg(any(target_os = "macos", target_os = "ios"))]
-        if let RunEvent::Opened { urls } = &event {
+        if let RunEvent::Opened { urls } = &_event {
             for url in urls {
                 let path = match url.scheme() {
                     "file" => url.to_file_path().ok(),
@@ -4728,18 +2997,6 @@ pub fn run(
                     }
                 }
             }
-        }
-
-        // Handle app exit
-        if let RunEvent::Exit = event {
-            // Shutdown kernel when app exits
-            let kernel = kernel_for_exit.clone();
-            tauri::async_runtime::block_on(async {
-                let mut k = kernel.lock().await;
-                if let Err(e) = k.shutdown().await {
-                    log::error!("Failed to shutdown kernel on app exit: {}", e);
-                }
-            });
         }
     });
 

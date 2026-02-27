@@ -111,69 +111,23 @@ export function useCondaDependencies() {
   }, []);
 
   // Check sync state between declared deps and the running kernel
+  // NOTE: Hot-sync functionality was removed with local kernel mode.
+  // In daemon mode, the kernel restarts with new deps. Sync state is always null.
   const checkSyncState = useCallback(async () => {
-    try {
-      const isRunning = await invoke<boolean>("is_kernel_running");
-      if (!isRunning) {
-        setSyncState({ status: "not_running" });
-        return;
-      }
-
-      const hasCondaEnv = await invoke<boolean>("kernel_has_conda_env");
-      if (!hasCondaEnv) {
-        setSyncState({ status: "not_conda_managed" });
-        return;
-      }
-
-      // If we reach here, kernel is running with conda — mark as dirty
-      // (we can't cheaply check if they actually match, so assume dirty after changes)
-      setSyncState({ status: "dirty" });
-    } catch (e) {
-      console.error("Failed to check conda sync state:", e);
-    }
+    // Sync state not available in daemon mode - always null
+    setSyncState(null);
   }, []);
 
   // Try to sync deps to running kernel
+  // NOTE: Hot-sync to a running kernel was removed with local kernel mode.
+  // In daemon mode, users need to restart the kernel to pick up new deps.
   const syncToKernel = useCallback(async (): Promise<boolean> => {
-    try {
-      // Check if kernel is even running
-      const isRunning = await invoke<boolean>("is_kernel_running");
-      if (!isRunning) {
-        // No kernel running yet - deps will be used when kernel starts
-        console.log("[conda] No kernel running, deps will be used on start");
-        return false;
-      }
-
-      // Check if kernel is running with conda environment
-      const hasCondaEnv = await invoke<boolean>("kernel_has_conda_env");
-
-      if (!hasCondaEnv) {
-        // Kernel is running but not with conda - user needs to restart
-        console.log(
-          "[conda] Kernel not conda-managed, cannot sync - restart needed",
-        );
-        setNeedsKernelRestart(true);
-        return false;
-      }
-
-      // Try to sync new packages to the running conda environment
-      try {
-        const synced = await invoke<boolean>("sync_conda_dependencies");
-        if (synced) {
-          setSyncedWhileRunning(true);
-          setNeedsKernelRestart(false);
-          setSyncState({ status: "synced" });
-        }
-        return synced;
-      } catch {
-        // Sync failed - may need restart for complex dependency changes
-        setNeedsKernelRestart(true);
-        return false;
-      }
-    } catch (e) {
-      console.error("Failed to sync conda dependencies to kernel:", e);
-      return false;
-    }
+    // Hot-sync not available in daemon mode - kernel restart required
+    console.log(
+      "[conda] Hot-sync not available in daemon mode, restart kernel to apply changes",
+    );
+    setNeedsKernelRestart(true);
+    return false;
   }, []);
 
   // Explicit sync function for "Sync Now" button — does NOT block the input

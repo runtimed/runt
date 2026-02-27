@@ -416,23 +416,6 @@ export function useNotebook() {
     );
   }, []);
 
-  const executeCell = useCallback(
-    async (cellId: string) => {
-      console.log("[notebook] executeCell:", cellId);
-      // Clear old outputs and mark running
-      clearCellOutputs(cellId);
-      try {
-        const msgId = await invoke<string>("execute_cell", { cellId });
-        console.log("[notebook] execute_cell returned msg_id:", msgId);
-        return msgId;
-      } catch (e) {
-        console.error("[notebook] execute_cell failed:", e);
-        return null;
-      }
-    },
-    [clearCellOutputs],
-  );
-
   const addCell = useCallback(
     async (cellType: "code" | "markdown", afterCellId?: string | null) => {
       try {
@@ -629,7 +612,6 @@ export function useNotebook() {
     focusedCellId,
     setFocusedCellId,
     updateCellSource,
-    executeCell,
     clearCellOutputs,
     addCell,
     deleteCell,
