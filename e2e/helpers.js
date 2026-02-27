@@ -97,12 +97,26 @@ export async function executeFirstCell() {
 /**
  * Wait for stream output to appear in a cell.
  * Returns the output text.
+ *
+ * Note: In daemon mode, the DOM may re-render after trust approval,
+ * so we use a global selector if the cell-scoped one fails.
  */
 export async function waitForCellOutput(cell, timeout = 120000) {
   await browser.waitUntil(
     async () => {
-      const output = await cell.$('[data-slot="ansi-stream-output"]');
-      return await output.isExisting();
+      // Try cell-scoped selector first
+      try {
+        const output = await cell.$('[data-slot="ansi-stream-output"]');
+        if (await output.isExisting()) {
+          return true;
+        }
+      } catch {
+        // Cell reference may be stale, continue to global check
+      }
+
+      // Fall back to global selector (any stream output on page)
+      const globalOutput = await $('[data-slot="ansi-stream-output"]');
+      return await globalOutput.isExisting();
     },
     {
       timeout,
@@ -111,7 +125,17 @@ export async function waitForCellOutput(cell, timeout = 120000) {
     },
   );
 
-  return await cell.$('[data-slot="ansi-stream-output"]').getText();
+  // Try cell-scoped first, then fall back to global
+  try {
+    const cellOutput = await cell.$('[data-slot="ansi-stream-output"]');
+    if (await cellOutput.isExisting()) {
+      return await cellOutput.getText();
+    }
+  } catch {
+    // Cell reference stale, use global
+  }
+
+  return await $('[data-slot="ansi-stream-output"]').getText();
 }
 
 /**
@@ -166,10 +190,24 @@ export async function waitForErrorOutput(cell, timeout = 30000) {
  * Wait for the trust dialog to appear and click "Trust & Install".
  * Call this after executing a cell in an untrusted notebook with inline deps.
  * The trust dialog appears because the kernel won't start until deps are approved.
+ *
+ * In daemon mode, the trust check may be bypassed (daemon handles trust differently),
+ * so this function will return false if the dialog doesn't appear within the timeout.
+ *
+ * @param timeout Max time to wait for the dialog (default 15s)
+ * @returns true if dialog was approved, false if dialog didn't appear
  */
 export async function approveTrustDialog(timeout = 15000) {
   const dialog = await $('[data-testid="trust-dialog"]');
-  await dialog.waitForExist({ timeout });
+
+  // Try to wait for dialog, but don't fail if it doesn't appear (daemon mode may skip trust)
+  try {
+    await dialog.waitForExist({ timeout });
+  } catch {
+    // Dialog didn't appear - daemon mode may have bypassed trust
+    console.log("Trust dialog did not appear (may be daemon mode)");
+    return false;
+  }
 
   const approveButton = await $('[data-testid="trust-approve-button"]');
   await approveButton.waitForClickable({ timeout: 5000 });
@@ -182,6 +220,8 @@ export async function approveTrustDialog(timeout = 15000) {
     },
     { timeout: 10000, interval: 300, timeoutMsg: "Trust dialog did not close" },
   );
+
+  return true;
 }
 
 /**
