@@ -30,7 +30,7 @@ uv: UvDefaults,
  */
 conda: CondaDefaults, 
 /**
- * Enable daemon-owned kernel execution (experimental).
+ * Enable daemon-owned kernel execution.
  * When enabled, the daemon manages kernel lifecycle and execution queue,
  * enabling multi-window kernel sharing.
  */

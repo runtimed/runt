@@ -102,8 +102,8 @@ export function useSyncedSettings() {
   const [defaultCondaPackages, setDefaultCondaPackagesState] = useState<
     string[]
   >([]);
-  // Daemon execution mode (experimental)
-  const [daemonExecution, setDaemonExecutionState] = useState<boolean>(false);
+  // Daemon execution mode (enabled by default)
+  const [daemonExecution, setDaemonExecutionState] = useState<boolean>(true);
 
   // Load initial settings from daemon
   useEffect(() => {
