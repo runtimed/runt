@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import type { PoolError, SyncedDaemonState } from "../types";
@@ -10,9 +11,9 @@ export interface PoolState {
 /**
  * Hook to subscribe to synchronized daemon state (pool health).
  *
- * Returns the current UV and Conda pool error state. The daemon sends
- * the current state immediately on connection and pushes updates when
- * state changes.
+ * Returns the current UV and Conda pool error state. The hook:
+ * 1. Fetches the current state immediately on mount via Tauri command
+ * 2. Listens for state change events for live updates
  *
  * The hook auto-clears errors when the daemon reports success, so there's
  * no need for manual dismiss - it reflects the actual daemon state.
@@ -24,6 +25,18 @@ export function usePoolState(): PoolState {
   useEffect(() => {
     let cancelled = false;
 
+    // Fetch initial state immediately (don't wait for events)
+    invoke<SyncedDaemonState>("get_daemon_state")
+      .then((state) => {
+        if (cancelled) return;
+        setUvError(state.uv_error);
+        setCondaError(state.conda_error);
+      })
+      .catch((e) => {
+        console.warn("[usePoolState] Failed to get initial state:", e);
+      });
+
+    // Listen for state change events
     const unlistenPromise = listen<SyncedDaemonState>(
       "daemon:state",
       (event) => {

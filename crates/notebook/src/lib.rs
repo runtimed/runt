@@ -3694,6 +3694,33 @@ async fn get_synced_settings() -> Result<runtimed::settings_doc::SyncedSettings,
     }
 }
 
+/// Get the current daemon state (pool health).
+///
+/// Returns the current pool errors from the daemon. This is used by the frontend
+/// to get the initial state on mount, complementing the event-based updates.
+#[tauri::command]
+async fn get_daemon_state() -> Result<runtimed::daemon_state_client::SyncedDaemonState, String> {
+    let socket_path = runtimed::default_socket_path();
+    match runtimed::daemon_state_client::DaemonStateClient::connect(socket_path).await {
+        Ok(mut client) => match client.recv().await {
+            Ok(state) => {
+                log::info!("[daemon-state] get_daemon_state: {:?}", state);
+                Ok(state)
+            }
+            Err(e) => {
+                log::warn!("[daemon-state] Failed to receive state: {}", e);
+                // Return empty state on error
+                Ok(runtimed::daemon_state_client::SyncedDaemonState::default())
+            }
+        },
+        Err(e) => {
+            log::info!("[daemon-state] Daemon unavailable: {}", e);
+            // Return empty state when daemon is unavailable
+            Ok(runtimed::daemon_state_client::SyncedDaemonState::default())
+        }
+    }
+}
+
 /// Persist a setting to local settings.json (for keys that have local representation).
 fn save_setting_locally(key: &str, value: &serde_json::Value) -> Result<(), String> {
     match key {
@@ -4198,6 +4225,8 @@ pub fn run(
             // Synced settings (via runtimed Automerge)
             get_synced_settings,
             set_synced_setting,
+            // Daemon state (pool health)
+            get_daemon_state,
             // Debug info
             get_git_info,
             get_prewarm_status,
