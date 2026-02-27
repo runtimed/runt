@@ -693,6 +693,9 @@ async fn auto_launch_kernel(
         return;
     }
 
+    // Clear any stale comm state from a previous kernel (in case it crashed)
+    room.comm_state.clear().await;
+
     // Create new kernel
     let mut kernel = RoomKernel::new(
         room.kernel_broadcast_tx.clone(),
@@ -830,6 +833,9 @@ async fn handle_notebook_request(
                     };
                 }
             }
+
+            // Clear any stale comm state from a previous kernel (in case it crashed)
+            room.comm_state.clear().await;
 
             // Create new kernel
             let mut kernel = RoomKernel::new(

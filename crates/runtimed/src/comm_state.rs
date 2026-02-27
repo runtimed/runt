@@ -15,6 +15,7 @@
 //! `comm_msg` with `method: "update"` sends state deltas.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -51,13 +52,24 @@ pub struct CommSnapshot {
     pub buffers: Vec<Vec<u8>>,
 }
 
+/// Internal entry with sequence number for ordering.
+struct CommEntry {
+    snapshot: CommSnapshot,
+    seq: u64,
+}
+
 /// Thread-safe storage for active comm channels.
 ///
 /// Tracks all active comm channels in a notebook room, allowing new clients
 /// to receive the current state and reconstruct widget models.
+///
+/// Comms are returned in insertion order to ensure deterministic replay,
+/// which matters for widgets that reference other widgets (e.g., layouts).
 pub struct CommState {
-    /// Active comms: comm_id -> CommSnapshot
-    comms: RwLock<HashMap<String, CommSnapshot>>,
+    /// Active comms: comm_id -> (CommSnapshot, sequence_number)
+    comms: RwLock<HashMap<String, CommEntry>>,
+    /// Counter for insertion order
+    next_seq: AtomicU64,
 }
 
 impl CommState {
@@ -65,6 +77,7 @@ impl CommState {
     pub fn new() -> Self {
         Self {
             comms: RwLock::new(HashMap::new()),
+            next_seq: AtomicU64::new(0),
         }
     }
 
@@ -104,8 +117,9 @@ impl CommState {
             buffers,
         };
 
+        let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
         let mut comms = self.comms.write().await;
-        comms.insert(comm_id.to_string(), snapshot);
+        comms.insert(comm_id.to_string(), CommEntry { snapshot, seq });
     }
 
     /// Handle a `comm_msg` with `method: "update"`: merge state delta.
@@ -114,11 +128,12 @@ impl CommState {
     pub async fn on_comm_update(&self, comm_id: &str, state_delta: &serde_json::Value) {
         let mut comms = self.comms.write().await;
 
-        if let Some(snapshot) = comms.get_mut(comm_id) {
+        if let Some(entry) = comms.get_mut(comm_id) {
             // Merge delta into existing state
-            if let (Some(existing), Some(delta)) =
-                (snapshot.state.as_object_mut(), state_delta.as_object())
-            {
+            if let (Some(existing), Some(delta)) = (
+                entry.snapshot.state.as_object_mut(),
+                state_delta.as_object(),
+            ) {
                 for (key, value) in delta {
                     existing.insert(key.clone(), value.clone());
                 }
@@ -133,12 +148,16 @@ impl CommState {
         comms.remove(comm_id);
     }
 
-    /// Get all active comm snapshots.
+    /// Get all active comm snapshots in insertion order.
     ///
     /// Used to send current state to newly connected clients.
+    /// Returns comms sorted by creation order, which ensures widget dependencies
+    /// (e.g., layout models referenced by other widgets) are replayed correctly.
     pub async fn get_all(&self) -> Vec<CommSnapshot> {
         let comms = self.comms.read().await;
-        comms.values().cloned().collect()
+        let mut entries: Vec<_> = comms.values().collect();
+        entries.sort_by_key(|e| e.seq);
+        entries.into_iter().map(|e| e.snapshot.clone()).collect()
     }
 
     /// Clear all comm state.
@@ -147,6 +166,7 @@ impl CommState {
     pub async fn clear(&self) {
         let mut comms = self.comms.write().await;
         comms.clear();
+        self.next_seq.store(0, Ordering::Relaxed);
     }
 
     /// Check if there are any active comms.
@@ -289,5 +309,29 @@ mod tests {
 
         let comms = state.get_all().await;
         assert_eq!(comms[0].buffers, buffers);
+    }
+
+    #[tokio::test]
+    async fn test_get_all_returns_insertion_order() {
+        let state = CommState::new();
+
+        // Insert comms in a specific order
+        for i in 0..10 {
+            state
+                .on_comm_open(
+                    &format!("comm-{}", i),
+                    "jupyter.widget",
+                    &serde_json::json!({"state": {"index": i}}),
+                    vec![],
+                )
+                .await;
+        }
+
+        // Verify they come back in insertion order
+        let comms = state.get_all().await;
+        assert_eq!(comms.len(), 10);
+        for (i, comm) in comms.iter().enumerate() {
+            assert_eq!(comm.comm_id, format!("comm-{}", i));
+        }
     }
 }
