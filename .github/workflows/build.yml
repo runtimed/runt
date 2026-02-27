@@ -62,17 +62,12 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.6
-
-      - name: Configure sccache
-        shell: bash
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-
       - name: Install rust
         uses: dsherret/rust-toolchain-file@v1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.platform.runner }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -127,9 +122,6 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
 
-      - name: Show sccache stats
-        run: sccache --show-stats
-
   # Build Tauri app once and share with E2E shards
   build-e2e-app:
     name: Build E2E Test App
@@ -142,16 +134,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev
 
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.6
-
-      - name: Configure sccache
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-
       - name: Install rust
         uses: dsherret/rust-toolchain-file@v1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-latest-m
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -207,9 +195,6 @@ jobs:
 
       - name: Build Tauri app
         run: cd crates/notebook && cargo tauri build --ci --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
-
-      - name: Show sccache stats
-        run: sccache --show-stats
 
       - name: Upload E2E artifacts
         uses: actions/upload-artifact@v4
