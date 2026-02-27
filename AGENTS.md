@@ -95,6 +95,8 @@ runt daemon stop && runt daemon uninstall && runt daemon install
 
 `cargo xtask dev` and `cargo xtask build` do **not** reinstall the daemon. If you're changing daemon code (settings, sync, environments), you must run `cargo xtask install-daemon` separately to test your changes.
 
+For faster iteration when only changing Rust code, use `cargo xtask build --rust-only` to skip frontend rebuild (requires an initial `cargo xtask build` first).
+
 See `docs/runtimed.md` for service management and troubleshooting.
 
 ### Daemon Logs

@@ -81,6 +81,22 @@ This builds runtimed in release mode, stops the running service, replaces the bi
 cat ~/.cache/runt/daemon.json   # check "version" field
 ```
 
+### Fast iteration: Daemon + bundled notebook
+
+When iterating on daemon code, you often want to test changes in the notebook app without rebuilding the frontend:
+
+```bash
+# Terminal 1: Run dev daemon (restart when you change daemon code)
+cargo xtask dev-daemon
+
+# Terminal 2: Build once, then iterate
+cargo xtask build                 # Full build (includes frontend)
+cargo xtask build --rust-only     # Fast rebuild (reuses frontend assets)
+cargo xtask run                   # Run the bundled binary
+```
+
+The `--rust-only` flag skips `pnpm build`, reusing the existing frontend assets in `apps/notebook/dist/`. This is much faster when you're only changing Rust code.
+
 ### Manual: Run daemon separately
 
 For debugging daemon-specific code, stop the installed service and run from source:

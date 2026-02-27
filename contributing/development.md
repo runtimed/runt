@@ -5,9 +5,12 @@
 | Task | Command |
 |------|---------|
 | Start dev server | `cargo xtask dev` |
-| Quick debug build | `cargo xtask build` |
-| Build and run | `cargo xtask run` |
-| Run with notebook | `cargo xtask build && ./target/debug/notebook path/to/notebook.ipynb` |
+| Standalone Vite | `cargo xtask vite` |
+| Attach to Vite | `cargo xtask dev --attach` |
+| Full debug build | `cargo xtask build` |
+| Rust-only rebuild | `cargo xtask build --rust-only` |
+| Run bundled binary | `cargo xtask run` |
+| Run with notebook | `cargo xtask run path/to/notebook.ipynb` |
 | Build release .app | `cargo xtask build-app` |
 | Build release DMG | `cargo xtask build-dmg` |
 
@@ -21,28 +24,57 @@ Best for UI/React development. Uses Vite dev server on port 5174. Changes to Rea
 cargo xtask dev
 ```
 
+### `cargo xtask vite` + `dev --attach` — Multi-Window Testing
+
+When testing with multiple notebook windows, closing the first Tauri window normally kills the Vite server. To avoid this:
+
+```bash
+# Terminal 1: Start Vite standalone (stays running)
+cargo xtask vite
+
+# Terminal 2+: Attach Tauri to existing Vite
+cargo xtask dev --attach
+```
+
+Now you can close and reopen Tauri windows without losing Vite. This is useful for:
+- Testing realtime collaboration
+- Testing widgets across windows
+- Avoiding confusion when one window close breaks others
+
 ### `cargo xtask build` / `run` — Debug Build
 
 Best for:
 - Testing Rust changes
 - Multiple worktrees (avoids port 5174 conflicts)
-- Quick manual testing
+- Running the standalone binary
 
-Builds a debug binary without DMG creation.
+Builds a debug binary with frontend assets bundled in.
 
 ```bash
-# Build only
+# Full build (frontend + rust)
 cargo xtask build
 
-# Build and run
+# Run the bundled binary
 cargo xtask run
 
-# Build and open a specific notebook
-cargo xtask build
-./target/debug/notebook path/to/notebook.ipynb
+# Run with a specific notebook
+cargo xtask run path/to/notebook.ipynb
 ```
 
-**Note:** Use `./target/debug/notebook` directly to open notebooks with file paths. The `cargo xtask run` command doesn't pass file arguments through correctly.
+### `cargo xtask build --rust-only` — Fast Rust Iteration
+
+When you're only changing Rust code (not the frontend), skip the frontend rebuild:
+
+```bash
+# First time: full build
+cargo xtask build
+
+# Subsequent rebuilds: rust only (much faster)
+cargo xtask build --rust-only
+cargo xtask run
+```
+
+This is ideal for daemon development — build the frontend once, then iterate on Rust with fast rebuilds.
 
 ### `cargo xtask build-app` / `build-dmg` — Release Builds
 
@@ -94,7 +126,8 @@ cargo xtask dev-daemon
 # Terminal 2: Run the notebook app
 cargo xtask dev              # Hot-reload mode
 # or
-cargo xtask build && ./target/debug/notebook   # Debug build
+cargo xtask build            # Full build once
+cargo xtask build --rust-only && cargo xtask run  # Fast iteration
 ```
 
 The app detects dev mode and connects to the per-worktree daemon instead of installing/starting the system daemon.

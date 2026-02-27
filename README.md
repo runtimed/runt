@@ -110,17 +110,19 @@ cargo build --release
 | Workflow | Command | Use when |
 |----------|---------|----------|
 | Hot reload | `cargo xtask dev` | Iterating on React UI |
-| Debug build | `cargo xtask build` | Testing without dev server |
-| Build and run | `cargo xtask run notebook.ipynb` | Quick manual testing |
+| Standalone Vite | `cargo xtask vite` | Multi-window testing (Vite survives window closes) |
+| Attach to Vite | `cargo xtask dev --attach` | Connect Tauri to already-running Vite |
+| Debug build | `cargo xtask build` | Full debug build (frontend + rust) |
+| Rust-only build | `cargo xtask build --rust-only` | Rebuild rust, reuse existing frontend |
+| Run bundled | `cargo xtask run notebook.ipynb` | Run standalone binary |
 | Release .app | `cargo xtask build-app` | Testing app bundle locally |
 | Release DMG | `cargo xtask build-dmg` | Distribution (usually CI) |
 
 **Hot reload** connects to Vite dev server (port 5174) for instant UI updates.
 
-**Debug builds** skip DMG creation for fast iteration. Ideal when:
-- Working with multiple worktrees (avoids port conflicts)
-- Testing Rust changes
-- Don't need hot reload
+**Multi-window testing**: Use `cargo xtask vite` + `cargo xtask dev --attach` to keep Vite running when closing/reopening Tauri windows.
+
+**Daemon iteration**: Use `cargo xtask build` once, then `cargo xtask build --rust-only` for fast rebuilds when only changing Rust code.
 
 ### Sidecar UI development
 
