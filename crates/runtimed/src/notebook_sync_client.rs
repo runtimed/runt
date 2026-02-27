@@ -512,14 +512,21 @@ where
                         }
                         NotebookFrameType::Broadcast => {
                             // Queue broadcasts to deliver after sync completes
-                            if let Ok(broadcast) =
-                                serde_json::from_slice::<NotebookBroadcast>(&frame.payload)
-                            {
-                                info!(
-                                    "[notebook-sync-client] Received broadcast during init: {:?}",
-                                    broadcast
-                                );
-                                pending_broadcasts.push(broadcast);
+                            match serde_json::from_slice::<NotebookBroadcast>(&frame.payload) {
+                                Ok(broadcast) => {
+                                    info!(
+                                        "[notebook-sync-client] Received broadcast during init: {:?}",
+                                        broadcast
+                                    );
+                                    pending_broadcasts.push(broadcast);
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "[notebook-sync-client] Failed to deserialize broadcast: {} (payload: {} bytes)",
+                                        e,
+                                        frame.payload.len()
+                                    );
+                                }
                             }
                         }
                         NotebookFrameType::Response => {
