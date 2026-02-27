@@ -1221,25 +1221,42 @@ async fn reconnect_to_daemon(
     app: tauri::AppHandle,
     notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
     notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    reconnect_in_progress: tauri::State<'_, Arc<AtomicBool>>,
 ) -> Result<(), String> {
     info!("[daemon-kernel] reconnect_to_daemon");
 
+    // Use atomic compare_exchange to ensure only one reconnect runs at a time
+    if reconnect_in_progress
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        info!("[daemon-kernel] Reconnect already in progress, skipping");
+        return Ok(());
+    }
+
+    // Helper to reset flag on all exit paths
+    let reset_flag = || reconnect_in_progress.store(false, Ordering::SeqCst);
+
     // Check if already connected
     {
-        let guard = notebook_sync.lock().await;
-        if guard.is_some() {
+        let sync_guard = notebook_sync.lock().await;
+        if sync_guard.is_some() {
             info!("[daemon-kernel] Already connected to daemon");
+            reset_flag();
             return Ok(());
         }
     }
 
     // Re-initialize notebook sync
-    initialize_notebook_sync(
+    let result = initialize_notebook_sync(
         app,
         notebook_state.inner().clone(),
         notebook_sync.inner().clone(),
     )
-    .await
+    .await;
+
+    reset_flag();
+    result
 }
 
 /// Refresh cells from Automerge and emit notebook:updated event.
@@ -4021,6 +4038,9 @@ pub fn run(
     // Track auto-launch state for frontend to query
     let auto_launch_in_progress = Arc::new(AtomicBool::new(false));
 
+    // Guard against concurrent reconnect attempts
+    let reconnect_in_progress = Arc::new(AtomicBool::new(false));
+
     // Notebook sync client for cross-window state synchronization
     let notebook_sync: SharedNotebookSync = Arc::new(tokio::sync::Mutex::new(None));
 
@@ -4075,6 +4095,7 @@ pub fn run(
         .manage(env_pool)
         .manage(conda_env_pool)
         .manage(auto_launch_in_progress)
+        .manage(reconnect_in_progress)
         .manage(notebook_sync)
         .invoke_handler(tauri::generate_handler![
             load_notebook,

@@ -113,6 +113,8 @@ function AppContent() {
 
   // Daemon startup status (installing, starting, failed, etc.)
   const [daemonStatus, setDaemonStatus] = useState<DaemonStatus>(null);
+  // Track ready timeout so we can cancel it if status changes
+  const readyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Trust verification for notebook dependencies
   const {
@@ -605,21 +607,37 @@ function AppContent() {
 
   // Listen for daemon startup progress events
   useEffect(() => {
+    // Helper to cancel any pending ready timeout
+    const cancelReadyTimeout = () => {
+      if (readyTimeoutRef.current) {
+        clearTimeout(readyTimeoutRef.current);
+        readyTimeoutRef.current = null;
+      }
+    };
+
     const unlistenProgress = listen<DaemonStatus>(
       "daemon:progress",
       (event) => {
         const status = event.payload;
+
+        // Cancel any pending ready timeout before setting new status
+        cancelReadyTimeout();
         setDaemonStatus(status);
 
         // Clear status after a short delay when daemon is ready
         if (status?.status === "ready") {
-          setTimeout(() => setDaemonStatus(null), 1000);
+          readyTimeoutRef.current = setTimeout(() => {
+            // Only clear if still in ready state (use functional update)
+            setDaemonStatus((prev) => (prev?.status === "ready" ? null : prev));
+            readyTimeoutRef.current = null;
+          }, 1000);
         }
       },
     );
 
     // Listen for daemon disconnection (mid-session)
     const unlistenDisconnect = listen("daemon:disconnected", () => {
+      cancelReadyTimeout();
       setDaemonStatus({
         status: "failed",
         error: "Runtime disconnected. Attempting to reconnect...",
@@ -632,6 +650,7 @@ function AppContent() {
       message: string;
       guidance: string;
     }>("daemon:unavailable", (event) => {
+      cancelReadyTimeout();
       setDaemonStatus({
         status: "failed",
         error: `${event.payload.message} ${event.payload.guidance}`,
@@ -641,6 +660,7 @@ function AppContent() {
     // Listen for daemon ready (reconnection success)
     const unlistenReady = listen("daemon:ready", () => {
       // Clear any status banner when daemon reconnects (failed, checking, etc.)
+      cancelReadyTimeout();
       setDaemonStatus(null);
     });
 
@@ -654,8 +674,7 @@ function AppContent() {
             if (!prev) {
               return {
                 status: "failed",
-                error:
-                  "Runtime daemon not available. Run 'cargo xtask dev-daemon' to start it.",
+                error: "Runtime daemon not available. Click Retry to connect.",
               };
             }
             return prev;
@@ -666,6 +685,7 @@ function AppContent() {
 
     return () => {
       clearTimeout(checkTimeout);
+      cancelReadyTimeout();
       unlistenProgress.then((unlisten) => unlisten()).catch(() => {});
       unlistenDisconnect.then((unlisten) => unlisten()).catch(() => {});
       unlistenUnavailable.then((unlisten) => unlisten()).catch(() => {});
