@@ -275,6 +275,20 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Jupyter kernel
+        run: |
+          # Install ipykernel to create a system kernelspec
+          # The daemon's RoomKernel.launch() uses find_kernelspec() which needs this
+          pip install ipykernel
+          python -m ipykernel install --user --name python3
+          # Verify kernelspec was created
+          ls -la ~/.local/share/jupyter/kernels/
+
       - name: Start E2E daemon
         run: |
           TARGET=$(ls target/release/binaries/ | grep runtimed | head -1)
