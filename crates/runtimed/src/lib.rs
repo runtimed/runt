@@ -16,6 +16,7 @@ use sha2::{Digest, Sha256};
 pub mod blob_server;
 pub mod blob_store;
 pub mod client;
+pub mod comm_state;
 pub mod connection;
 pub mod daemon;
 pub mod kernel_manager;

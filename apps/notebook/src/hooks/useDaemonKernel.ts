@@ -207,6 +207,59 @@ export function useDaemonKernel({
             }
             break;
           }
+
+          case "comm_sync": {
+            // Initial comm state sync from daemon for multi-window widget reconstruction
+            // Replay all comms as comm_open messages to the widget store
+            const { onCommMessage } = callbacksRef.current;
+            console.log(
+              `[daemon-kernel] Received comm_sync event with ${broadcast.comms?.length ?? 0} comms, handler=${!!onCommMessage}`,
+            );
+            if (onCommMessage && broadcast.comms) {
+              console.log(
+                `[daemon-kernel] Processing comm_sync: replaying ${broadcast.comms.length} comms`,
+              );
+              for (const comm of broadcast.comms) {
+                // Synthesize a comm_open message for each active comm
+                const msg: JupyterMessage = {
+                  header: {
+                    msg_id: crypto.randomUUID(),
+                    msg_type: "comm_open",
+                    session: "",
+                    username: "kernel",
+                    date: new Date().toISOString(),
+                    version: "5.3",
+                  },
+                  metadata: {},
+                  content: {
+                    comm_id: comm.comm_id,
+                    target_name: comm.target_name,
+                    data: {
+                      state: comm.state,
+                      buffer_paths: [],
+                    },
+                  },
+                  // Convert buffers if present
+                  buffers: comm.buffers
+                    ? comm.buffers.map((arr) => new Uint8Array(arr).buffer)
+                    : [],
+                };
+                onCommMessage(msg);
+              }
+            } else if (!onCommMessage) {
+              console.warn(
+                "[daemon-kernel] comm_sync received but onCommMessage not set!",
+              );
+            }
+            break;
+          }
+
+          default: {
+            // Log unknown events to help debug unexpected broadcast types
+            console.log(
+              `[daemon-kernel] Unknown broadcast event: ${(broadcast as { event: string }).event}`,
+            );
+          }
         }
       },
     );
