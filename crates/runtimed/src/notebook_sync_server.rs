@@ -1115,6 +1115,20 @@ async fn handle_notebook_request(
                 NotebookResponse::NoKernel {}
             }
         }
+
+        NotebookRequest::GetHistory { pattern, n, unique } => {
+            let mut kernel_guard = room.kernel.lock().await;
+            if let Some(ref mut kernel) = *kernel_guard {
+                match kernel.get_history(pattern, n, unique).await {
+                    Ok(entries) => NotebookResponse::HistoryResult { entries },
+                    Err(e) => NotebookResponse::Error {
+                        error: format!("Failed to get history: {}", e),
+                    },
+                }
+            } else {
+                NotebookResponse::NoKernel {}
+            }
+        }
     }
 }
 
