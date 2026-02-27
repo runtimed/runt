@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Dev wrapper for runt — resolves to the local debug build instead of system install.
+#
+# Fast path: if target/debug/runt exists, exec it directly (instant).
+# Cold path: if it hasn't been built yet, build it first.
+#
+# Activated automatically via .envrc (direnv) which prepends bin/ to PATH.
+# For a build-if-stale experience, use `cargo runt` instead (cargo alias).
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BINARY="$REPO_ROOT/target/debug/runt"
+
+if [ ! -f "$BINARY" ]; then
+    echo "runt not built yet — building..." >&2
+    cargo build --manifest-path "$REPO_ROOT/Cargo.toml" -p runt-cli
+fi
+
+exec "$BINARY" "$@"
