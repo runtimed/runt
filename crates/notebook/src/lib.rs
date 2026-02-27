@@ -4018,6 +4018,11 @@ pub fn run(
     let uv_recovery_complete = Arc::new(AtomicBool::new(false));
     let conda_recovery_complete = Arc::new(AtomicBool::new(false));
 
+    // Daemon sync completion flag - set when notebook sync initialization completes
+    // Used to coordinate auto-launch decision with daemon connection status
+    let daemon_sync_complete = Arc::new(AtomicBool::new(false));
+    let daemon_sync_success = Arc::new(AtomicBool::new(false));
+
     // Clone for setup closure
     let queue_for_processor = queue.clone();
     let notebook_for_processor = notebook_state.clone();
@@ -4045,6 +4050,12 @@ pub fn run(
     // Clone for notebook sync initialization
     let notebook_for_sync = notebook_state.clone();
     let notebook_sync_for_init = notebook_sync.clone();
+    let daemon_sync_complete_for_init = daemon_sync_complete.clone();
+    let daemon_sync_success_for_init = daemon_sync_success.clone();
+
+    // Clone for auto-launch coordination
+    let daemon_sync_complete_for_autolaunch = daemon_sync_complete.clone();
+    let daemon_sync_success_for_autolaunch = daemon_sync_success.clone();
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -4240,16 +4251,24 @@ pub fn run(
 
                 // Initialize notebook sync if daemon is available
                 if daemon_available {
-                    if let Err(e) = initialize_notebook_sync(
+                    match initialize_notebook_sync(
                         app_for_notebook_sync,
                         notebook_for_sync,
                         notebook_sync_for_init,
                     )
                     .await
                     {
-                        log::warn!("[startup] Notebook sync initialization failed: {}", e);
+                        Ok(()) => {
+                            log::info!("[startup] Notebook sync initialized successfully");
+                            daemon_sync_success_for_init.store(true, Ordering::SeqCst);
+                        }
+                        Err(e) => {
+                            log::warn!("[startup] Notebook sync initialization failed: {}", e);
+                        }
                     }
                 }
+                // Signal that daemon sync attempt is complete (success or failure)
+                daemon_sync_complete_for_init.store(true, Ordering::SeqCst);
             });
 
             // Spawn the UV environment prewarming loop
@@ -4264,7 +4283,7 @@ pub fn run(
             });
 
             // Auto-launch kernel for faster startup (only if trusted)
-            // Skip if daemon_execution is enabled - the daemon handles auto-launch
+            // Skip if daemon_execution is enabled AND daemon sync succeeded
             log::info!("[startup] Setup complete in {}ms, spawning auto-launch task", setup_start.elapsed().as_millis());
             let app_for_autolaunch = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -4273,11 +4292,57 @@ pub fn run(
                 // Load user's preferred Python environment type
                 let app_settings = settings::load_settings();
 
-                // Skip local auto-launch if daemon execution is enabled
-                // The daemon handles auto-launch when daemon_execution is true
+                // If daemon_execution is enabled, wait for daemon sync to complete
+                // Don't fall back to local mode - if daemon fails, show error state instead
                 if app_settings.daemon_execution {
-                    log::info!("[autolaunch] Skipping local auto-launch (daemon_execution enabled)");
-                    return;
+                    log::info!("[autolaunch] Daemon execution enabled, waiting for daemon sync...");
+
+                    // Wait up to 10 seconds for daemon sync to complete
+                    // This needs to be long enough for large notebooks with many cells
+                    let sync_timeout = tokio::time::timeout(
+                        std::time::Duration::from_secs(10),
+                        async {
+                            while !daemon_sync_complete_for_autolaunch.load(Ordering::SeqCst) {
+                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                            }
+                        },
+                    )
+                    .await;
+
+                    let sync_wait_ms = autolaunch_start.elapsed().as_millis();
+
+                    if sync_timeout.is_err() {
+                        // Daemon sync timed out - emit error event for frontend to display
+                        log::error!(
+                            "[autolaunch] Daemon sync timed out after {}ms. Daemon execution is enabled but daemon is not available.",
+                            sync_wait_ms
+                        );
+                        let _ = app_for_autolaunch.emit("daemon:unavailable", serde_json::json!({
+                            "reason": "sync_timeout",
+                            "message": "Daemon sync timed out. The runtime daemon may not be running.",
+                            "guidance": "Run 'cargo xtask dev-daemon' in another terminal, or disable daemon mode in settings."
+                        }));
+                        return;
+                    } else if daemon_sync_success_for_autolaunch.load(Ordering::SeqCst) {
+                        // Daemon sync succeeded - let daemon handle auto-launch
+                        log::info!(
+                            "[autolaunch] Daemon sync succeeded in {}ms, daemon handles auto-launch",
+                            sync_wait_ms
+                        );
+                        return;
+                    } else {
+                        // Daemon sync completed but failed - emit error event
+                        log::error!(
+                            "[autolaunch] Daemon sync failed after {}ms. Daemon execution is enabled but connection failed.",
+                            sync_wait_ms
+                        );
+                        let _ = app_for_autolaunch.emit("daemon:unavailable", serde_json::json!({
+                            "reason": "sync_failed",
+                            "message": "Failed to connect to runtime daemon.",
+                            "guidance": "Run 'cargo xtask dev-daemon' in another terminal, or disable daemon mode in settings."
+                        }));
+                        return;
+                    }
                 }
 
                 let prefer_conda = matches!(app_settings.default_python_env, settings::PythonEnvType::Conda);
