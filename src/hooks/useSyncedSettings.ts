@@ -102,8 +102,6 @@ export function useSyncedSettings() {
   const [defaultCondaPackages, setDefaultCondaPackagesState] = useState<
     string[]
   >([]);
-  // Daemon execution mode (enabled by default)
-  const [daemonExecution, setDaemonExecutionState] = useState<boolean>(true);
 
   // Load initial settings from daemon
   useEffect(() => {
@@ -125,9 +123,6 @@ export function useSyncedSettings() {
         if (Array.isArray(settings.conda?.default_packages)) {
           setDefaultCondaPackagesState(settings.conda.default_packages);
         }
-        if (typeof settings.daemon_execution === "boolean") {
-          setDaemonExecutionState(settings.daemon_execution);
-        }
       })
       .catch(() => {
         // Daemon unavailable — defaults are fine
@@ -141,7 +136,6 @@ export function useSyncedSettings() {
         theme: newTheme,
         default_runtime,
         default_python_env,
-        daemon_execution,
       } = event.payload;
       if (isValidTheme(newTheme)) {
         setThemeState(newTheme);
@@ -158,9 +152,6 @@ export function useSyncedSettings() {
       }
       if (Array.isArray(event.payload.conda?.default_packages)) {
         setDefaultCondaPackagesState(event.payload.conda.default_packages);
-      }
-      if (typeof daemon_execution === "boolean") {
-        setDaemonExecutionState(daemon_execution);
       }
     });
     return () => {
@@ -208,14 +199,6 @@ export function useSyncedSettings() {
     }).catch(() => {});
   }, []);
 
-  const setDaemonExecution = useCallback((enabled: boolean) => {
-    setDaemonExecutionState(enabled);
-    invoke("set_synced_setting", {
-      key: "daemon_execution",
-      value: enabled,
-    }).catch(() => {});
-  }, []);
-
   return {
     theme,
     setTheme,
@@ -227,8 +210,6 @@ export function useSyncedSettings() {
     setDefaultUvPackages,
     defaultCondaPackages,
     setDefaultCondaPackages,
-    daemonExecution,
-    setDaemonExecution,
   };
 }
 

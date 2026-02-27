@@ -2266,12 +2266,6 @@ fn save_setting_locally(key: &str, value: &serde_json::Value) -> Result<(), Stri
             s.conda.default_packages = packages;
             settings::save_settings(&s).map_err(|e| e.to_string())
         }
-        "daemon_execution" => {
-            // daemon_execution is always true now - local kernel mode has been removed.
-            // This setting is preserved for backwards compatibility but ignored.
-            log::info!("[settings] daemon_execution is always enabled (local kernel mode removed)");
-            Ok(())
-        }
         _ => Ok(()),
     }
 }
