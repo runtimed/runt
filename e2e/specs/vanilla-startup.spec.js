@@ -10,6 +10,7 @@
 import { browser, expect } from "@wdio/globals";
 import {
   executeFirstCell,
+  isManagedEnv,
   waitForAppReady,
   waitForCellOutput,
   waitForKernelReady,
@@ -29,10 +30,7 @@ describe("Vanilla Notebook Startup", () => {
     const outputText = await waitForCellOutput(codeCell, 60000);
     console.log("Python executable:", outputText);
 
-    // Should be a managed environment (either UV prewarmed or conda prewarmed)
-    const isManagedEnv =
-      outputText.includes("runt/envs") ||
-      outputText.includes("runt/conda-envs");
-    expect(isManagedEnv).toBe(true);
+    // Should be a managed environment (UV/conda prewarmed or daemon worktree env)
+    expect(isManagedEnv(outputText)).toBe(true);
   });
 });

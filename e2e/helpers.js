@@ -275,3 +275,27 @@ export async function setupCodeCell() {
 
   return codeCell;
 }
+
+/**
+ * Check if a Python executable path is from a UV-managed environment.
+ * Works for both local mode (runt/envs) and daemon mode (runtimed-uv).
+ */
+export function isUvManagedEnv(path) {
+  return path.includes("runt/envs") || path.includes("runtimed-uv");
+}
+
+/**
+ * Check if a Python executable path is from a Conda-managed environment.
+ * Works for both local mode (runt/conda-envs) and daemon mode (runtimed-conda).
+ */
+export function isCondaManagedEnv(path) {
+  return path.includes("runt/conda-envs") || path.includes("runtimed-conda");
+}
+
+/**
+ * Check if a Python executable path is from any runt-managed environment.
+ * Combines UV and Conda checks.
+ */
+export function isManagedEnv(path) {
+  return isUvManagedEnv(path) || isCondaManagedEnv(path);
+}

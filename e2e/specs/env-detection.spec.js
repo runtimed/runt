@@ -11,6 +11,8 @@
 
 import { browser, expect } from "@wdio/globals";
 import {
+  isManagedEnv,
+  isUvManagedEnv,
   setupCodeCell,
   typeSlowly,
   waitForAppReady,
@@ -49,12 +51,9 @@ describe("Environment Detection", () => {
     console.log("Python executable:", outputText);
 
     // Should be from either runt/envs (uv) or runt/conda-envs (conda)
-    const isUvEnv = outputText.includes("runt/envs");
-    const isCondaEnv = outputText.includes("runt/conda-envs");
+    expect(isManagedEnv(outputText)).toBe(true);
 
-    expect(isUvEnv || isCondaEnv).toBe(true);
-
-    const envType = isUvEnv ? "uv" : "conda";
+    const envType = isUvManagedEnv(outputText) ? "uv" : "conda";
     console.log(`Environment type detected: ${envType}`);
   });
 

@@ -11,6 +11,7 @@
 import { browser, expect } from "@wdio/globals";
 import {
   executeFirstCell,
+  isCondaManagedEnv,
   waitForAppReady,
   waitForCellOutput,
   waitForKernelReady,
@@ -31,6 +32,6 @@ describe("Environment.yml Detection", () => {
     console.log("Python executable:", outputText);
 
     // environment.yml detection should launch a conda kernel
-    expect(outputText).toContain("runt/conda-envs");
+    expect(isCondaManagedEnv(outputText)).toBe(true);
   });
 });

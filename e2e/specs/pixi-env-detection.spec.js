@@ -11,6 +11,7 @@
 import { browser, expect } from "@wdio/globals";
 import {
   executeFirstCell,
+  isCondaManagedEnv,
   waitForAppReady,
   waitForCellOutput,
   waitForKernelReady,
@@ -31,7 +32,7 @@ describe("Pixi Environment Detection", () => {
     console.log("Python executable:", outputText);
 
     // Pixi auto-detection should launch a conda kernel
-    expect(outputText).toContain("runt/conda-envs");
+    expect(isCondaManagedEnv(outputText)).toBe(true);
     console.log("Pixi test passed: kernel is from conda env");
   });
 });

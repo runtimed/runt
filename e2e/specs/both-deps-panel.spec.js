@@ -12,6 +12,9 @@ import { browser, expect } from "@wdio/globals";
 import {
   approveTrustDialog,
   executeFirstCell,
+  isCondaManagedEnv,
+  isManagedEnv,
+  isUvManagedEnv,
   waitForAppReady,
   waitForCellOutput,
 } from "../helpers.js";
@@ -33,13 +36,13 @@ describe("Both Dependencies Panel", () => {
     console.log("Python executable:", outputText);
 
     // Check which env backend was used
-    const isCondaEnv = outputText.includes("runt/conda-envs");
-    const isUvEnv = outputText.includes("runt/envs");
+    const isCondaEnv = isCondaManagedEnv(outputText);
+    const isUvEnv = isUvManagedEnv(outputText);
     console.log(
       `Backend chose: ${isCondaEnv ? "conda" : isUvEnv ? "uv" : "unknown"}`,
     );
 
     // The key assertion: kernel started with *some* managed environment
-    expect(isCondaEnv || isUvEnv).toBe(true);
+    expect(isManagedEnv(outputText)).toBe(true);
   });
 });

@@ -12,6 +12,7 @@ import { browser, expect } from "@wdio/globals";
 import {
   approveTrustDialog,
   executeFirstCell,
+  isUvManagedEnv,
   waitForAppReady,
   waitForCellOutput,
 } from "../helpers.js";
@@ -33,6 +34,6 @@ describe("UV Inline Dependencies", () => {
     console.log("Python executable:", outputText);
 
     // Should be a UV-managed environment
-    expect(outputText).toContain("runt/envs");
+    expect(isUvManagedEnv(outputText)).toBe(true);
   });
 });
