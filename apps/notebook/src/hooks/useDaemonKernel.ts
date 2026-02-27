@@ -212,9 +212,12 @@ export function useDaemonKernel({
             // Initial comm state sync from daemon for multi-window widget reconstruction
             // Replay all comms as comm_open messages to the widget store
             const { onCommMessage } = callbacksRef.current;
+            console.log(
+              `[daemon-kernel] Received comm_sync event with ${broadcast.comms?.length ?? 0} comms, handler=${!!onCommMessage}`,
+            );
             if (onCommMessage && broadcast.comms) {
               console.log(
-                `[daemon-kernel] Received comm_sync with ${broadcast.comms.length} comms`,
+                `[daemon-kernel] Processing comm_sync: replaying ${broadcast.comms.length} comms`,
               );
               for (const comm of broadcast.comms) {
                 // Synthesize a comm_open message for each active comm
@@ -243,8 +246,19 @@ export function useDaemonKernel({
                 };
                 onCommMessage(msg);
               }
+            } else if (!onCommMessage) {
+              console.warn(
+                "[daemon-kernel] comm_sync received but onCommMessage not set!",
+              );
             }
             break;
+          }
+
+          default: {
+            // Log unknown events to help debug unexpected broadcast types
+            console.log(
+              `[daemon-kernel] Unknown broadcast event: ${(broadcast as { event: string }).event}`,
+            );
           }
         }
       },
