@@ -2800,14 +2800,12 @@ pub fn run(
                             "message": "Daemon sync timed out. The runtime daemon may not be running.",
                             "guidance": "Run 'cargo xtask dev-daemon' in another terminal, or disable daemon mode in settings."
                         }));
-                        return;
                     } else if daemon_sync_success_for_autolaunch.load(Ordering::SeqCst) {
                         // Daemon sync succeeded - let daemon handle auto-launch
                         log::info!(
                             "[autolaunch] Daemon sync succeeded in {}ms, daemon handles auto-launch",
                             sync_wait_ms
                         );
-                        return;
                     } else {
                         // Daemon sync completed but failed - emit error event
                         log::error!(
@@ -2819,7 +2817,6 @@ pub fn run(
                             "message": "Failed to connect to runtime daemon.",
                             "guidance": "Run 'cargo xtask dev-daemon' in another terminal, or disable daemon mode in settings."
                         }));
-                        return;
                     }
                 }
                 // Daemon handles kernel auto-launch - no local fallback needed
