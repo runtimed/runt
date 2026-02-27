@@ -861,44 +861,52 @@ impl Daemon {
                 .await
             }
             Handshake::Blob => self.handle_blob_connection(stream).await,
-            Handshake::PoolStateSubscribe => self.handle_pool_state_subscription(stream).await,
+            Handshake::DaemonStateSubscribe => self.handle_daemon_state_subscription(stream).await,
         }
     }
 
-    /// Handle a pool state subscription connection.
+    /// Handle a daemon state subscription connection.
     ///
-    /// Sends the current pool state immediately, then forwards all broadcasts
+    /// Sends the current daemon state immediately, then forwards all state changes
     /// until the client disconnects or the daemon shuts down.
-    async fn handle_pool_state_subscription<S>(self: Arc<Self>, mut stream: S) -> anyhow::Result<()>
+    async fn handle_daemon_state_subscription<S>(
+        self: Arc<Self>,
+        mut stream: S,
+    ) -> anyhow::Result<()>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        info!("[runtimed] Pool state subscriber connected");
+        use crate::daemon_state_client::SyncedDaemonState;
 
-        // Subscribe to pool state changes
+        info!("[runtimed] Daemon state subscriber connected");
+
+        // Subscribe to state changes
         let mut rx = self.pool_state_changed.subscribe();
 
         // Send current state immediately
-        let current_state = DaemonBroadcast::PoolState {
+        let current_state = SyncedDaemonState {
             uv_error: self.uv_pool.lock().await.get_error(),
             conda_error: self.conda_pool.lock().await.get_error(),
         };
         connection::send_json_frame(&mut stream, &current_state).await?;
 
-        // Forward broadcasts until disconnect or shutdown
+        // Forward state changes until disconnect or shutdown
         loop {
             tokio::select! {
                 result = rx.recv() => {
                     match result {
                         Ok(broadcast) => {
-                            if connection::send_json_frame(&mut stream, &broadcast).await.is_err() {
+                            // Convert DaemonBroadcast to SyncedDaemonState
+                            let DaemonBroadcast::PoolState { uv_error, conda_error } = broadcast;
+                            let state = SyncedDaemonState { uv_error, conda_error };
+                            if connection::send_json_frame(&mut stream, &state).await.is_err() {
                                 break; // Client disconnected
                             }
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                            warn!("[runtimed] Pool state subscriber lagged {} messages", n);
+                            warn!("[runtimed] Daemon state subscriber lagged {} messages", n);
                             // Send current state to catch up
-                            let state = DaemonBroadcast::PoolState {
+                            let state = SyncedDaemonState {
                                 uv_error: self.uv_pool.lock().await.get_error(),
                                 conda_error: self.conda_pool.lock().await.get_error(),
                             };
@@ -919,7 +927,7 @@ impl Daemon {
             }
         }
 
-        info!("[runtimed] Pool state subscriber disconnected");
+        info!("[runtimed] Daemon state subscriber disconnected");
         Ok(())
     }
 

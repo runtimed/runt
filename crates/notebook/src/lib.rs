@@ -3906,28 +3906,37 @@ async fn run_settings_sync(app: tauri::AppHandle) {
     }
 }
 
-/// Background task that subscribes to pool state broadcasts from the runtimed daemon
-/// and emits Tauri events to all windows when pool errors occur or clear.
+/// Background task that subscribes to daemon state (pool health) from the runtimed daemon
+/// and emits Tauri events to all windows when state changes.
 ///
 /// Reconnects automatically with backoff if the connection drops.
-async fn run_pool_state_sync(app: tauri::AppHandle) {
+async fn run_daemon_state_sync(app: tauri::AppHandle) {
     use tauri::Emitter;
 
+    let socket_path = runtimed::default_socket_path();
+
     loop {
-        match runtimed::client::subscribe_pool_state().await {
-            Ok(mut rx) => {
-                log::info!("[pool-state] Subscribed to pool state broadcasts");
-                while let Some(broadcast) = rx.recv().await {
-                    log::info!("[pool-state] Pool state changed: {:?}", broadcast);
-                    if let Err(e) = app.emit("daemon:pool_state", &broadcast) {
-                        log::warn!("[pool-state] Failed to emit: {}", e);
+        match runtimed::daemon_state_client::DaemonStateClient::connect(socket_path.clone()).await {
+            Ok(mut client) => {
+                log::info!("[daemon-state] Connected to daemon state sync");
+
+                // Receive initial state and subsequent updates
+                loop {
+                    match client.recv().await {
+                        Ok(state) => {
+                            log::info!("[daemon-state] State: {:?}", state);
+                            let _ = app.emit("daemon:state", &state);
+                        }
+                        Err(e) => {
+                            log::warn!("[daemon-state] Disconnected: {}", e);
+                            break;
+                        }
                     }
                 }
-                log::warn!("[pool-state] Subscription ended, reconnecting...");
             }
             Err(e) => {
                 log::info!(
-                    "[pool-state] Cannot connect to daemon: {}. Retrying in 5s.",
+                    "[daemon-state] Cannot connect to daemon: {}. Retrying in 5s.",
                     e
                 );
             }
@@ -4273,7 +4282,7 @@ pub fn run(
 
                 // Start pool state subscription (reconnects automatically)
                 // This notifies frontends about prewarm pool errors
-                tokio::spawn(run_pool_state_sync(app_for_pool_state));
+                tokio::spawn(run_daemon_state_sync(app_for_pool_state));
 
                 // Initialize notebook sync if daemon is available
                 if daemon_available {

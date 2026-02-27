@@ -18,6 +18,7 @@ pub mod blob_store;
 pub mod client;
 pub mod connection;
 pub mod daemon;
+pub mod daemon_state_client;
 pub mod kernel_manager;
 pub mod notebook_doc;
 pub mod notebook_sync_client;

@@ -56,9 +56,9 @@ pub enum Handshake {
     },
     /// Blob store: write blobs, query port.
     Blob,
-    /// Pool state subscription: receive broadcasts when pool errors occur/clear.
-    /// Read-only channel - server pushes DaemonBroadcast messages to client.
-    PoolStateSubscribe,
+    /// Daemon state subscription: receive synced daemon runtime state.
+    /// Read-only channel - server pushes SyncedDaemonState on connect and changes.
+    DaemonStateSubscribe,
 }
 
 /// Protocol version constants.

@@ -181,7 +181,7 @@ export type DaemonBroadcast =
     };
 
 // =============================================================================
-// Pool State Types (Daemon prewarm pool error tracking)
+// Synced Daemon State (Pool health and other ephemeral runtime state)
 // =============================================================================
 
 /** Error information from daemon prewarm pool */
@@ -192,9 +192,8 @@ export interface PoolError {
   retry_in_secs: number;
 }
 
-/** Broadcast event for pool state changes (global daemon state, not per-notebook) */
-export interface PoolStateBroadcast {
-  event: "pool_state";
+/** Synchronized daemon state - ephemeral runtime state from the daemon */
+export interface SyncedDaemonState {
   uv_error: PoolError | null;
   conda_error: PoolError | null;
 }
