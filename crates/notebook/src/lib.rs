@@ -4233,17 +4233,30 @@ pub fn run(
             tauri::async_runtime::spawn(async move {
                 // Get path to bundled runtimed binary (for auto-installation)
                 let binary_path = get_bundled_runtimed_path(&app_for_daemon);
-                let daemon_available = match runtimed::client::ensure_daemon_running(binary_path).await {
-                    Ok(endpoint) => {
-                        log::info!("[startup] runtimed running at {}", endpoint);
-                        true
-                    }
-                    Err(e) => {
-                        // Not critical - in-process prewarming will work as fallback
-                        log::info!("[startup] runtimed not available: {}. Using in-process prewarming.", e);
-                        false
-                    }
+
+                // Create progress callback to emit Tauri events for UI feedback
+                let app_for_progress = app_for_daemon.clone();
+                let on_progress = move |progress: runtimed::client::DaemonProgress| {
+                    let _ = app_for_progress.emit("daemon:progress", &progress);
                 };
+
+                let daemon_available =
+                    match runtimed::client::ensure_daemon_running(binary_path, Some(on_progress))
+                        .await
+                    {
+                        Ok(endpoint) => {
+                            log::info!("[startup] runtimed running at {}", endpoint);
+                            true
+                        }
+                        Err(e) => {
+                            // Not critical - in-process prewarming will work as fallback
+                            log::info!(
+                                "[startup] runtimed not available: {}. Using in-process prewarming.",
+                                e
+                            );
+                            false
+                        }
+                    };
 
                 // Start settings sync subscription (reconnects automatically)
                 // Spawn as separate task since it runs forever

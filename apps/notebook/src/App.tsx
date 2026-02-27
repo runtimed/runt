@@ -12,6 +12,10 @@ import { WidgetView } from "@/components/widgets/widget-view";
 import { useSyncedSettings, useSyncedTheme } from "@/hooks/useSyncedSettings";
 import { ErrorBoundary } from "@/lib/error-boundary";
 import { CondaDependencyHeader } from "./components/CondaDependencyHeader";
+import {
+  type DaemonStatus,
+  DaemonStatusBanner,
+} from "./components/DaemonStatusBanner";
 import { DebugBanner } from "./components/DebugBanner";
 import { DenoDependencyHeader } from "./components/DenoDependencyHeader";
 import { DependencyHeader } from "./components/DependencyHeader";
@@ -106,6 +110,9 @@ function AppContent() {
   const [showIsolationTest, setShowIsolationTest] = useState(false);
   const [trustDialogOpen, setTrustDialogOpen] = useState(false);
   const [clearingDeps, setClearingDeps] = useState(false);
+
+  // Daemon startup status (installing, starting, failed, etc.)
+  const [daemonStatus, setDaemonStatus] = useState<DaemonStatus>(null);
 
   // Trust verification for notebook dependencies
   const {
@@ -596,6 +603,23 @@ function AppContent() {
     };
   }, []);
 
+  // Listen for daemon startup progress events
+  useEffect(() => {
+    const unlistenPromise = listen<DaemonStatus>("daemon:progress", (event) => {
+      const status = event.payload;
+      setDaemonStatus(status);
+
+      // Clear status after a short delay when daemon is ready
+      if (status?.status === "ready") {
+        setTimeout(() => setDaemonStatus(null), 1000);
+      }
+    });
+
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, []);
+
   // Cmd+Shift+I to toggle isolation test panel (dev only)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -620,6 +644,10 @@ function AppContent() {
           isDevMode={daemonInfo?.is_dev_mode}
         />
       )}
+      <DaemonStatusBanner
+        status={daemonStatus}
+        onDismiss={() => setDaemonStatus(null)}
+      />
       <NotebookToolbar
         kernelStatus={kernelStatus}
         envSource={envSource}
