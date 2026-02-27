@@ -97,6 +97,16 @@ fn shorten_path(path: &std::path::Path) -> String {
     path.display().to_string()
 }
 
+/// Truncate an error message for display, replacing newlines with spaces.
+fn truncate_error(msg: &str, max_len: usize) -> String {
+    let single_line = msg.replace('\n', " ");
+    if single_line.len() <= max_len {
+        single_line
+    } else {
+        format!("{}...", &single_line[..max_len - 3])
+    }
+}
+
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -1217,9 +1227,29 @@ async fn pool_command(command: PoolCommands) -> Result<()> {
                     println!("UV environments:");
                     println!("  Available: {}", stats.uv_available);
                     println!("  Warming:   {}", stats.uv_warming);
+                    if let Some(ref err) = stats.uv_error {
+                        println!("  ERROR:     {}", truncate_error(&err.message, 60));
+                        if let Some(ref pkg) = err.failed_package {
+                            println!("  Failed package: {}", pkg);
+                        }
+                        println!(
+                            "  Failures:  {} (retry in {}s)",
+                            err.consecutive_failures, err.retry_in_secs
+                        );
+                    }
                     println!("Conda environments:");
                     println!("  Available: {}", stats.conda_available);
                     println!("  Warming:   {}", stats.conda_warming);
+                    if let Some(ref err) = stats.conda_error {
+                        println!("  ERROR:     {}", truncate_error(&err.message, 60));
+                        if let Some(ref pkg) = err.failed_package {
+                            println!("  Failed package: {}", pkg);
+                        }
+                        println!(
+                            "  Failures:  {} (retry in {}s)",
+                            err.consecutive_failures, err.retry_in_secs
+                        );
+                    }
                 }
             }
             Err(e) => {

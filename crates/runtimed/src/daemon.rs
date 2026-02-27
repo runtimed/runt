@@ -26,11 +26,12 @@ use crate::blob_server;
 use crate::blob_store::BlobStore;
 use crate::connection::{self, Handshake};
 use crate::notebook_sync_server::NotebookRooms;
-use crate::protocol::{BlobRequest, BlobResponse, Request, Response};
+use crate::protocol::{BlobRequest, BlobResponse, DaemonBroadcast, Request, Response};
 use crate::settings_doc::SettingsDoc;
 use crate::singleton::{DaemonInfo, DaemonLock};
 use crate::{
-    default_blob_store_dir, default_cache_dir, default_socket_path, EnvType, PoolStats, PooledEnv,
+    default_blob_store_dir, default_cache_dir, default_socket_path, EnvType, PoolError, PoolStats,
+    PooledEnv,
 };
 
 /// Configuration for the pool daemon.
@@ -75,6 +76,79 @@ struct PoolEntry {
     created_at: Instant,
 }
 
+/// Failure tracking for exponential backoff.
+#[derive(Debug, Clone, Default)]
+struct FailureState {
+    /// Number of consecutive failures.
+    consecutive_failures: u32,
+    /// Time of last failure.
+    last_failure: Option<Instant>,
+    /// Last error message (for logging/status).
+    last_error: Option<String>,
+    /// Failed package name if identified.
+    failed_package: Option<String>,
+}
+
+/// Result of parsing a package installation error.
+#[derive(Debug, Clone)]
+struct PackageInstallError {
+    /// The package that failed (if identifiable).
+    failed_package: Option<String>,
+    /// Full error message from uv.
+    error_message: String,
+}
+
+/// Parse UV stderr to identify the failed package.
+///
+/// UV outputs errors in various formats. This function tries to extract
+/// the package name that caused the failure.
+fn parse_uv_error(stderr: &str) -> Option<PackageInstallError> {
+    // Pattern 1: "No solution found when resolving dependencies:
+    //   ╰─▶ Because foo was not found..."
+    // Pattern 2: "error: Package `foo` not found"
+    // Pattern 3: "error: Failed to download `foo`"
+    // Pattern 4: "No matching distribution found for foo"
+
+    let stderr_lower = stderr.to_lowercase();
+
+    // Look for "package `name`" or "package 'name'" pattern
+    let pkg_patterns = [
+        (r"package `([^`]+)`", '`'),
+        (r"package '([^']+)'", '\''),
+        (r"because ([a-z0-9_-]+) was not found", ' '),
+        (r"no matching distribution found for ([a-z0-9_-]+)", ' '),
+        (r"failed to download `([^`]+)`", '`'),
+        (r"failed to download '([^']+)'", '\''),
+    ];
+
+    for (pattern, _) in &pkg_patterns {
+        if let Ok(re) = regex::Regex::new(pattern) {
+            if let Some(caps) = re.captures(&stderr_lower) {
+                if let Some(pkg) = caps.get(1) {
+                    let package_name = pkg.as_str().to_string();
+                    // Skip if it's a core package name we're definitely installing
+                    if package_name != "ipykernel" && package_name != "ipywidgets" {
+                        return Some(PackageInstallError {
+                            failed_package: Some(package_name),
+                            error_message: stderr.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // If we couldn't identify the specific package, return a generic error
+    if stderr.contains("error") || stderr.contains("failed") || stderr.contains("not found") {
+        return Some(PackageInstallError {
+            failed_package: None,
+            error_message: stderr.to_string(),
+        });
+    }
+
+    None
+}
+
 /// Internal pool state.
 struct Pool {
     /// Available environments ready for use.
@@ -85,6 +159,8 @@ struct Pool {
     target: usize,
     /// Maximum age in seconds.
     max_age_secs: u64,
+    /// Failure tracking for exponential backoff.
+    failure_state: FailureState,
 }
 
 impl Pool {
@@ -94,6 +170,7 @@ impl Pool {
             warming: 0,
             target,
             max_age_secs,
+            failure_state: FailureState::default(),
         }
     }
 
@@ -126,18 +203,69 @@ impl Pool {
         None
     }
 
-    /// Add an environment to the pool.
+    /// Add an environment to the pool (success case).
     fn add(&mut self, env: PooledEnv) {
         self.available.push_back(PoolEntry {
             env,
             created_at: Instant::now(),
         });
         self.warming = self.warming.saturating_sub(1);
+        // Reset failure state on success
+        self.failure_state = FailureState::default();
     }
 
-    /// Mark that warming failed.
+    /// Mark that warming failed (legacy, no error details).
     fn warming_failed(&mut self) {
         self.warming = self.warming.saturating_sub(1);
+        self.failure_state.consecutive_failures += 1;
+        self.failure_state.last_failure = Some(Instant::now());
+    }
+
+    /// Mark that warming failed with error details.
+    fn warming_failed_with_error(&mut self, error: Option<PackageInstallError>) {
+        self.warming = self.warming.saturating_sub(1);
+        self.failure_state.consecutive_failures += 1;
+        self.failure_state.last_failure = Some(Instant::now());
+
+        if let Some(err) = error {
+            self.failure_state.last_error = Some(err.error_message);
+            self.failure_state.failed_package = err.failed_package;
+        }
+    }
+
+    /// Reset failure state (called on settings change).
+    fn reset_failure_state(&mut self) {
+        self.failure_state = FailureState::default();
+    }
+
+    /// Calculate backoff delay based on consecutive failures.
+    ///
+    /// Returns Duration::ZERO if no failures, otherwise exponential backoff:
+    /// 30s, 60s, 120s, 240s, max 300s (5 min).
+    fn backoff_delay(&self) -> std::time::Duration {
+        if self.failure_state.consecutive_failures == 0 {
+            return std::time::Duration::ZERO;
+        }
+
+        // Exponential backoff: 30s * 2^(failures-1), capped at 300s
+        let base_secs = 30u64;
+        let exponent = self
+            .failure_state
+            .consecutive_failures
+            .saturating_sub(1)
+            .min(4);
+        let multiplier = 2u64.pow(exponent);
+        let delay_secs = (base_secs * multiplier).min(300);
+
+        std::time::Duration::from_secs(delay_secs)
+    }
+
+    /// Check if enough time has passed since last failure to retry.
+    fn should_retry(&self) -> bool {
+        match self.failure_state.last_failure {
+            Some(last) => last.elapsed() >= self.backoff_delay(),
+            None => true,
+        }
     }
 
     /// Calculate deficit (how many more we need).
@@ -155,6 +283,34 @@ impl Pool {
     fn stats(&self) -> (usize, usize) {
         (self.available.len(), self.warming)
     }
+
+    /// Get error info for status reporting.
+    fn get_error(&self) -> Option<PoolError> {
+        if self.failure_state.consecutive_failures == 0 {
+            return None;
+        }
+
+        let retry_in_secs = self
+            .failure_state
+            .last_failure
+            .map(|last| {
+                self.backoff_delay()
+                    .saturating_sub(last.elapsed())
+                    .as_secs()
+            })
+            .unwrap_or(0);
+
+        Some(PoolError {
+            message: self
+                .failure_state
+                .last_error
+                .clone()
+                .unwrap_or_else(|| "Unknown error".to_string()),
+            failed_package: self.failure_state.failed_package.clone(),
+            consecutive_failures: self.failure_state.consecutive_failures,
+            retry_in_secs,
+        })
+    }
 }
 
 /// The pool daemon state.
@@ -171,6 +327,8 @@ pub struct Daemon {
     settings: Arc<RwLock<SettingsDoc>>,
     /// Broadcast channel to notify sync connections of settings changes.
     settings_changed: tokio::sync::broadcast::Sender<()>,
+    /// Broadcast channel to notify clients of pool state changes (errors, recovery).
+    pool_state_changed: tokio::sync::broadcast::Sender<DaemonBroadcast>,
     /// Content-addressed blob store.
     blob_store: Arc<BlobStore>,
     /// HTTP port for the blob server (set after startup).
@@ -206,6 +364,7 @@ impl Daemon {
         }
 
         let (settings_changed, _) = tokio::sync::broadcast::channel(16);
+        let (pool_state_changed, _) = tokio::sync::broadcast::channel(16);
 
         let blob_store = Arc::new(BlobStore::new(config.blob_store_dir.clone()));
 
@@ -218,6 +377,7 @@ impl Daemon {
             _lock: lock,
             settings: Arc::new(RwLock::new(settings)),
             settings_changed,
+            pool_state_changed,
             blob_store,
             blob_port: Mutex::new(None),
             notebook_rooms: Arc::new(Mutex::new(HashMap::new())),
@@ -513,6 +673,37 @@ impl Daemon {
                             if changed {
                                 info!("[settings-watch] Applied external settings.json changes");
                                 let _ = self.settings_changed.send(());
+
+                                // Reset pool failure states so they retry immediately
+                                // with the new settings (user may have fixed a typo)
+                                let mut had_errors = false;
+                                {
+                                    let mut uv_pool = self.uv_pool.lock().await;
+                                    if uv_pool.failure_state.consecutive_failures > 0 {
+                                        info!(
+                                            "[settings-watch] Resetting UV pool backoff (was {} failures)",
+                                            uv_pool.failure_state.consecutive_failures
+                                        );
+                                        uv_pool.reset_failure_state();
+                                        had_errors = true;
+                                    }
+                                }
+                                {
+                                    let mut conda_pool = self.conda_pool.lock().await;
+                                    if conda_pool.failure_state.consecutive_failures > 0 {
+                                        info!(
+                                            "[settings-watch] Resetting Conda pool backoff (was {} failures)",
+                                            conda_pool.failure_state.consecutive_failures
+                                        );
+                                        conda_pool.reset_failure_state();
+                                        had_errors = true;
+                                    }
+                                }
+
+                                // Broadcast cleared state if we had errors
+                                if had_errors {
+                                    self.broadcast_pool_state().await;
+                                }
                             }
                         }
                         Err(errs) => {
@@ -677,7 +868,66 @@ impl Daemon {
                 .await
             }
             Handshake::Blob => self.handle_blob_connection(stream).await,
+            Handshake::PoolStateSubscribe => self.handle_pool_state_subscription(stream).await,
         }
+    }
+
+    /// Handle a pool state subscription connection.
+    ///
+    /// Sends the current pool state immediately, then forwards all broadcasts
+    /// until the client disconnects or the daemon shuts down.
+    async fn handle_pool_state_subscription<S>(self: Arc<Self>, mut stream: S) -> anyhow::Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        info!("[runtimed] Pool state subscriber connected");
+
+        // Subscribe to pool state changes
+        let mut rx = self.pool_state_changed.subscribe();
+
+        // Send current state immediately
+        let current_state = DaemonBroadcast::PoolState {
+            uv_error: self.uv_pool.lock().await.get_error(),
+            conda_error: self.conda_pool.lock().await.get_error(),
+        };
+        connection::send_json_frame(&mut stream, &current_state).await?;
+
+        // Forward broadcasts until disconnect or shutdown
+        loop {
+            tokio::select! {
+                result = rx.recv() => {
+                    match result {
+                        Ok(broadcast) => {
+                            if connection::send_json_frame(&mut stream, &broadcast).await.is_err() {
+                                break; // Client disconnected
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            warn!("[runtimed] Pool state subscriber lagged {} messages", n);
+                            // Send current state to catch up
+                            let state = DaemonBroadcast::PoolState {
+                                uv_error: self.uv_pool.lock().await.get_error(),
+                                conda_error: self.conda_pool.lock().await.get_error(),
+                            };
+                            if connection::send_json_frame(&mut stream, &state).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            break; // Sender dropped (daemon shutting down)
+                        }
+                    }
+                }
+                _ = self.shutdown_notify.notified() => {
+                    if *self.shutdown.lock().await {
+                        break;
+                    }
+                }
+            }
+        }
+
+        info!("[runtimed] Pool state subscriber disconnected");
+        Ok(())
     }
 
     /// Handle a pool channel connection (framed JSON request/response).
@@ -814,14 +1064,24 @@ impl Daemon {
             }
 
             Request::Status => {
-                let (uv_available, uv_warming) = self.uv_pool.lock().await.stats();
-                let (conda_available, conda_warming) = self.conda_pool.lock().await.stats();
+                let (uv_available, uv_warming, uv_error) = {
+                    let pool = self.uv_pool.lock().await;
+                    let (avail, warm) = pool.stats();
+                    (avail, warm, pool.get_error())
+                };
+                let (conda_available, conda_warming, conda_error) = {
+                    let pool = self.conda_pool.lock().await;
+                    let (avail, warm) = pool.stats();
+                    (avail, warm, pool.get_error())
+                };
                 Response::Stats {
                     stats: PoolStats {
                         uv_available,
                         uv_warming,
                         conda_available,
                         conda_warming,
+                        uv_error,
+                        conda_error,
                     },
                 }
             }
@@ -958,19 +1218,47 @@ impl Daemon {
                 break;
             }
 
-            let deficit = {
+            let (deficit, should_retry, backoff_info) = {
                 let mut pool = self.uv_pool.lock().await;
                 let d = pool.deficit();
-                if d > 0 {
+                let retry = pool.should_retry();
+                let info = if pool.failure_state.consecutive_failures > 0 {
+                    Some((
+                        pool.failure_state.consecutive_failures,
+                        pool.backoff_delay().as_secs(),
+                        pool.failure_state.failed_package.clone(),
+                    ))
+                } else {
+                    None
+                };
+
+                if d > 0 && retry {
                     pool.mark_warming(d);
                 }
-                d
+                (d, retry, info)
             };
 
             if deficit > 0 {
-                info!("[runtimed] Creating {} UV environments", deficit);
-                for _ in 0..deficit {
-                    self.create_uv_env().await;
+                if should_retry {
+                    info!("[runtimed] Creating {} UV environments", deficit);
+                    for _ in 0..deficit {
+                        self.create_uv_env().await;
+                    }
+                } else if let Some((failures, backoff_secs, failed_pkg)) = backoff_info {
+                    // In backoff period - log why we're waiting
+                    if let Some(pkg) = failed_pkg {
+                        warn!(
+                            "[runtimed] UV pool in backoff: {} consecutive failures installing '{}', \
+                             waiting {}s before retry. Check uv.default_packages in settings.",
+                            failures, pkg, backoff_secs
+                        );
+                    } else {
+                        warn!(
+                            "[runtimed] UV pool in backoff: {} consecutive failures, \
+                             waiting {}s before retry",
+                            failures, backoff_secs
+                        );
+                    }
                 }
             }
 
@@ -1296,6 +1584,23 @@ print("warmup complete")
         self.create_conda_env().await;
     }
 
+    /// Broadcast current pool state to all subscribed clients.
+    ///
+    /// Called when pool error state changes (new error, error cleared, etc.).
+    async fn broadcast_pool_state(&self) {
+        let uv_error = self.uv_pool.lock().await.get_error();
+        let conda_error = self.conda_pool.lock().await.get_error();
+
+        // Only broadcast if there's something to report or if we're clearing errors
+        let broadcast = DaemonBroadcast::PoolState {
+            uv_error,
+            conda_error,
+        };
+
+        // Send to all subscribers (ignore errors if no subscribers)
+        let _ = self.pool_state_changed.send(broadcast);
+    }
+
     /// Check if uv is available on PATH.
     async fn check_uv_available(&self) -> bool {
         tokio::process::Command::new("uv")
@@ -1380,7 +1685,7 @@ print("warmup complete")
             "--python".to_string(),
             python_path.to_string_lossy().to_string(),
         ];
-        install_args.extend(install_packages);
+        install_args.extend(install_packages.clone());
 
         let install_result = tokio::time::timeout(
             std::time::Duration::from_secs(120),
@@ -1388,22 +1693,82 @@ print("warmup complete")
                 .args(&install_args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .status(),
+                .output(),
         )
         .await;
 
         match install_result {
-            Ok(Ok(status)) if status.success() => {}
-            Ok(Ok(_)) | Ok(Err(_)) => {
-                error!("[runtimed] Failed to install ipykernel");
+            Ok(Ok(output)) if output.status.success() => {}
+            Ok(Ok(output)) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let parsed_error = parse_uv_error(&stderr);
+
+                if let Some(ref err) = parsed_error {
+                    if let Some(pkg) = &err.failed_package {
+                        // Check if this is a user-specified package (not ipykernel/ipywidgets)
+                        let is_user_package = install_packages
+                            .iter()
+                            .skip(2) // Skip ipykernel and ipywidgets
+                            .any(|p| p == pkg);
+
+                        if is_user_package {
+                            error!(
+                                "[runtimed] Failed to install user package '{}' from default_packages setting. \
+                                 Check uv.default_packages in settings for typos.",
+                                pkg
+                            );
+                        } else {
+                            error!(
+                                "[runtimed] Failed to install package '{}': {}",
+                                pkg,
+                                stderr.lines().take(3).collect::<Vec<_>>().join(" ")
+                            );
+                        }
+                    } else {
+                        error!(
+                            "[runtimed] Package installation failed: {}",
+                            stderr.lines().take(5).collect::<Vec<_>>().join(" ")
+                        );
+                    }
+                } else {
+                    error!(
+                        "[runtimed] Package installation failed: {}",
+                        stderr.lines().take(5).collect::<Vec<_>>().join(" ")
+                    );
+                }
+
                 tokio::fs::remove_dir_all(&venv_path).await.ok();
-                self.uv_pool.lock().await.warming_failed();
+                self.uv_pool
+                    .lock()
+                    .await
+                    .warming_failed_with_error(parsed_error);
+                self.broadcast_pool_state().await;
+                return;
+            }
+            Ok(Err(e)) => {
+                error!("[runtimed] Failed to run uv pip install: {}", e);
+                tokio::fs::remove_dir_all(&venv_path).await.ok();
+                self.uv_pool
+                    .lock()
+                    .await
+                    .warming_failed_with_error(Some(PackageInstallError {
+                        failed_package: None,
+                        error_message: e.to_string(),
+                    }));
+                self.broadcast_pool_state().await;
                 return;
             }
             Err(_) => {
-                error!("[runtimed] Timeout installing packages");
+                error!("[runtimed] Timeout installing packages (120s)");
                 tokio::fs::remove_dir_all(&venv_path).await.ok();
-                self.uv_pool.lock().await.warming_failed();
+                self.uv_pool
+                    .lock()
+                    .await
+                    .warming_failed_with_error(Some(PackageInstallError {
+                        failed_package: None,
+                        error_message: "Timeout after 120 seconds".to_string(),
+                    }));
+                self.broadcast_pool_state().await;
                 return;
             }
         }
@@ -1441,12 +1806,23 @@ print("warmup complete")
 
         info!("[runtimed] UV environment ready at {:?}", venv_path);
 
-        // Add to pool
-        self.uv_pool.lock().await.add(PooledEnv {
-            env_type: EnvType::Uv,
-            venv_path,
-            python_path,
-        });
+        // Add to pool and check if we're clearing a previous error state
+        let had_errors = {
+            let mut pool = self.uv_pool.lock().await;
+            let had = pool.failure_state.consecutive_failures > 0;
+            pool.add(PooledEnv {
+                env_type: EnvType::Uv,
+                venv_path,
+                python_path,
+            });
+            had
+        };
+
+        // Broadcast cleared state if we recovered from errors
+        if had_errors {
+            info!("[runtimed] UV pool recovered from error state");
+            self.broadcast_pool_state().await;
+        }
     }
 }
 
@@ -1634,5 +2010,155 @@ mod tests {
     fn test_env_type_display() {
         assert_eq!(format!("{}", EnvType::Uv), "uv");
         assert_eq!(format!("{}", EnvType::Conda), "conda");
+    }
+
+    // =========================================================================
+    // Backoff and error handling tests
+    // =========================================================================
+
+    #[test]
+    fn test_pool_backoff_exponential() {
+        let mut pool = Pool::new(3, 3600);
+
+        // No failures = no backoff
+        assert_eq!(pool.backoff_delay(), std::time::Duration::ZERO);
+        assert!(pool.should_retry());
+
+        // First failure = 30s backoff
+        pool.warming_failed();
+        assert_eq!(pool.backoff_delay(), std::time::Duration::from_secs(30));
+        assert_eq!(pool.failure_state.consecutive_failures, 1);
+
+        // Second failure = 60s
+        pool.warming_failed();
+        assert_eq!(pool.backoff_delay(), std::time::Duration::from_secs(60));
+        assert_eq!(pool.failure_state.consecutive_failures, 2);
+
+        // Third = 120s
+        pool.warming_failed();
+        assert_eq!(pool.backoff_delay(), std::time::Duration::from_secs(120));
+
+        // Fourth = 240s
+        pool.warming_failed();
+        assert_eq!(pool.backoff_delay(), std::time::Duration::from_secs(240));
+
+        // Fifth and beyond = max 300s (5 min)
+        pool.warming_failed();
+        assert_eq!(pool.backoff_delay(), std::time::Duration::from_secs(300));
+
+        // Even more failures should stay at max
+        for _ in 0..10 {
+            pool.warming_failed();
+        }
+        assert_eq!(pool.backoff_delay(), std::time::Duration::from_secs(300));
+    }
+
+    #[test]
+    fn test_pool_reset_on_success() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut pool = Pool::new(3, 3600);
+
+        // Simulate some failures
+        pool.warming_failed_with_error(Some(PackageInstallError {
+            failed_package: Some("bad-pkg".to_string()),
+            error_message: "not found".to_string(),
+        }));
+        pool.warming_failed();
+        assert_eq!(pool.failure_state.consecutive_failures, 2);
+        assert!(pool.failure_state.last_error.is_some());
+
+        // Adding an env should reset failure state
+        let env = create_test_env(&temp_dir, "env1");
+        pool.add(env);
+        assert_eq!(pool.failure_state.consecutive_failures, 0);
+        assert!(pool.failure_state.last_error.is_none());
+        assert!(pool.failure_state.failed_package.is_none());
+    }
+
+    #[test]
+    fn test_pool_reset_failure_state() {
+        let mut pool = Pool::new(3, 3600);
+
+        pool.warming_failed_with_error(Some(PackageInstallError {
+            failed_package: Some("scitkit-learn".to_string()),
+            error_message: "Package not found".to_string(),
+        }));
+        assert_eq!(pool.failure_state.consecutive_failures, 1);
+
+        pool.reset_failure_state();
+        assert_eq!(pool.failure_state.consecutive_failures, 0);
+        assert!(pool.failure_state.last_error.is_none());
+        assert!(pool.failure_state.failed_package.is_none());
+        assert!(pool.failure_state.last_failure.is_none());
+    }
+
+    #[test]
+    fn test_pool_get_error() {
+        let mut pool = Pool::new(3, 3600);
+
+        // No error initially
+        assert!(pool.get_error().is_none());
+
+        // After failure, should have error
+        pool.warming_failed_with_error(Some(PackageInstallError {
+            failed_package: Some("scitkit-learn".to_string()),
+            error_message: "Package scitkit-learn not found".to_string(),
+        }));
+
+        let err = pool.get_error().unwrap();
+        assert_eq!(err.failed_package, Some("scitkit-learn".to_string()));
+        assert_eq!(err.consecutive_failures, 1);
+        assert!(err.message.contains("scitkit-learn"));
+    }
+
+    #[test]
+    fn test_parse_uv_error_package_not_found() {
+        let stderr = r#"error: No solution found when resolving dependencies:
+  ╰─▶ Because scitkit-learn was not found in the package registry and you require scitkit-learn, we can conclude that your requirements are unsatisfiable."#;
+
+        let result = parse_uv_error(stderr);
+        assert!(result.is_some());
+        let err = result.unwrap();
+        assert_eq!(err.failed_package, Some("scitkit-learn".to_string()));
+    }
+
+    #[test]
+    fn test_parse_uv_error_backtick_format() {
+        let stderr = "error: Package `nonexistent-pkg` not found in registry";
+
+        let result = parse_uv_error(stderr);
+        assert!(result.is_some());
+        let err = result.unwrap();
+        assert_eq!(err.failed_package, Some("nonexistent-pkg".to_string()));
+    }
+
+    #[test]
+    fn test_parse_uv_error_no_matching_distribution() {
+        let stderr = "error: No matching distribution found for bad-package-name";
+
+        let result = parse_uv_error(stderr);
+        assert!(result.is_some());
+        let err = result.unwrap();
+        assert_eq!(err.failed_package, Some("bad-package-name".to_string()));
+    }
+
+    #[test]
+    fn test_parse_uv_error_generic_error() {
+        let stderr = "error: Failed to resolve dependencies";
+
+        let result = parse_uv_error(stderr);
+        assert!(result.is_some());
+        let err = result.unwrap();
+        // Generic error without specific package
+        assert!(err.failed_package.is_none());
+        assert!(err.error_message.contains("error"));
+    }
+
+    #[test]
+    fn test_parse_uv_error_no_error() {
+        let stderr = "Successfully installed packages";
+
+        let result = parse_uv_error(stderr);
+        assert!(result.is_none());
     }
 }

@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EnvType, PoolStats, PooledEnv};
+use crate::{EnvType, PoolError, PoolStats, PooledEnv};
 
 /// Requests that clients can send to the daemon.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -303,6 +303,26 @@ pub enum NotebookBroadcast {
     },
 }
 
+// =============================================================================
+// Daemon Broadcast Protocol (Global daemon state)
+// =============================================================================
+
+/// Broadcast messages for global daemon state (not per-notebook).
+///
+/// These are sent to all connected clients when daemon-wide state changes,
+/// such as pool errors due to invalid default packages in settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum DaemonBroadcast {
+    /// Pool state changed (error occurred, error cleared, etc.)
+    PoolState {
+        /// Error info for UV pool (None if healthy).
+        uv_error: Option<PoolError>,
+        /// Error info for Conda pool (None if healthy).
+        conda_error: Option<PoolError>,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -429,6 +449,8 @@ mod tests {
             uv_warming: 1,
             conda_available: 2,
             conda_warming: 0,
+            uv_error: None,
+            conda_error: None,
         };
         let resp = Response::Stats {
             stats: stats.clone(),

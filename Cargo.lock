@@ -5159,6 +5159,7 @@ dependencies = [
  "rattler_repodata_gateway",
  "rattler_solve",
  "rattler_virtual_packages",
+ "regex",
  "reqwest 0.12.28",
  "reqwest-middleware",
  "runt-trust",
