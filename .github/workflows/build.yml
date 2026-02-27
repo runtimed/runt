@@ -290,6 +290,8 @@ jobs:
       - name: Run E2E smoke test
         timeout-minutes: 5
         run: |
+          mkdir -p e2e-logs
+
           # Start Xvfb
           Xvfb :99 -screen 0 1920x1080x24 2>/dev/null &
           export DISPLAY=:99
@@ -300,8 +302,8 @@ jobs:
           DRIVER_PID=$!
           sleep 3
 
-          # Run the smoke test
-          pnpm test:e2e || FAIL=1
+          # Run the smoke test (capture output)
+          pnpm test:e2e 2>&1 | tee e2e-logs/test-output.log || FAIL=1
 
           # Cleanup
           kill $DRIVER_PID 2>/dev/null || true
@@ -313,6 +315,18 @@ jobs:
           CONDUCTOR_WORKSPACE_PATH: ${{ github.workspace }}
           NO_AT_BRIDGE: 1
           LIBGL_ALWAYS_SOFTWARE: 1
+          RUST_LOG: info,notebook=debug,runtimed=debug
+
+      - name: Collect daemon logs
+        if: always()
+        run: |
+          mkdir -p e2e-logs
+          # Find and copy daemon logs from worktree cache
+          find ~/.cache/runt/worktrees -name "runtimed.log" -exec cp {} e2e-logs/ \; 2>/dev/null || true
+          find ~/.cache/runt/worktrees -name "daemon.json" -exec cp {} e2e-logs/ \; 2>/dev/null || true
+          # Also capture any app logs
+          ls -la ~/.cache/runt/worktrees/*/  2>/dev/null || true
+          echo "=== Daemon log ===" && cat e2e-logs/runtimed.log 2>/dev/null || echo "No daemon log found"
 
       - name: Upload failure screenshots
         if: failure()
@@ -320,4 +334,12 @@ jobs:
         with:
           name: e2e-screenshots
           path: e2e-screenshots/failures/
+          retention-days: 7
+
+      - name: Upload daemon logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-daemon-logs
+          path: e2e-logs/
           retention-days: 7
