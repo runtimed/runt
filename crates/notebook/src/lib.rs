@@ -4292,14 +4292,15 @@ pub fn run(
                 // Load user's preferred Python environment type
                 let app_settings = settings::load_settings();
 
-                // If daemon_execution is enabled, wait for daemon sync to complete (with timeout)
-                // before deciding whether to skip local auto-launch
+                // If daemon_execution is enabled, wait for daemon sync to complete
+                // Don't fall back to local mode - if daemon fails, show error state instead
                 if app_settings.daemon_execution {
                     log::info!("[autolaunch] Daemon execution enabled, waiting for daemon sync...");
 
-                    // Wait up to 5 seconds for daemon sync to complete
+                    // Wait up to 10 seconds for daemon sync to complete
+                    // This needs to be long enough for large notebooks with many cells
                     let sync_timeout = tokio::time::timeout(
-                        std::time::Duration::from_secs(5),
+                        std::time::Duration::from_secs(10),
                         async {
                             while !daemon_sync_complete_for_autolaunch.load(Ordering::SeqCst) {
                                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -4311,11 +4312,17 @@ pub fn run(
                     let sync_wait_ms = autolaunch_start.elapsed().as_millis();
 
                     if sync_timeout.is_err() {
-                        log::warn!(
-                            "[autolaunch] Daemon sync timed out after {}ms, falling back to local auto-launch",
+                        // Daemon sync timed out - emit error event for frontend to display
+                        log::error!(
+                            "[autolaunch] Daemon sync timed out after {}ms. Daemon execution is enabled but daemon is not available.",
                             sync_wait_ms
                         );
-                        // Continue to local auto-launch
+                        let _ = app_for_autolaunch.emit("daemon:unavailable", serde_json::json!({
+                            "reason": "sync_timeout",
+                            "message": "Daemon sync timed out. The runtime daemon may not be running.",
+                            "guidance": "Run 'cargo xtask dev-daemon' in another terminal, or disable daemon mode in settings."
+                        }));
+                        return;
                     } else if daemon_sync_success_for_autolaunch.load(Ordering::SeqCst) {
                         // Daemon sync succeeded - let daemon handle auto-launch
                         log::info!(
@@ -4324,12 +4331,17 @@ pub fn run(
                         );
                         return;
                     } else {
-                        // Daemon sync completed but failed - fall back to local auto-launch
-                        log::warn!(
-                            "[autolaunch] Daemon sync failed after {}ms, falling back to local auto-launch",
+                        // Daemon sync completed but failed - emit error event
+                        log::error!(
+                            "[autolaunch] Daemon sync failed after {}ms. Daemon execution is enabled but connection failed.",
                             sync_wait_ms
                         );
-                        // Continue to local auto-launch
+                        let _ = app_for_autolaunch.emit("daemon:unavailable", serde_json::json!({
+                            "reason": "sync_failed",
+                            "message": "Failed to connect to runtime daemon.",
+                            "guidance": "Run 'cargo xtask dev-daemon' in another terminal, or disable daemon mode in settings."
+                        }));
+                        return;
                     }
                 }
 

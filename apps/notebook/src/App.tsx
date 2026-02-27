@@ -12,6 +12,7 @@ import { WidgetView } from "@/components/widgets/widget-view";
 import { useSyncedSettings, useSyncedTheme } from "@/hooks/useSyncedSettings";
 import { ErrorBoundary } from "@/lib/error-boundary";
 import { CondaDependencyHeader } from "./components/CondaDependencyHeader";
+import { DaemonUnavailableBanner } from "./components/DaemonUnavailableBanner";
 import { DebugBanner } from "./components/DebugBanner";
 import { DenoDependencyHeader } from "./components/DenoDependencyHeader";
 import { DependencyHeader } from "./components/DependencyHeader";
@@ -118,6 +119,12 @@ function AppContent() {
   const [showIsolationTest, setShowIsolationTest] = useState(false);
   const [trustDialogOpen, setTrustDialogOpen] = useState(false);
   const [clearingDeps, setClearingDeps] = useState(false);
+
+  // Daemon unavailable state - shown when daemon mode is enabled but daemon is not running
+  const [daemonUnavailable, setDaemonUnavailable] = useState<{
+    message: string;
+    guidance: string;
+  } | null>(null);
 
   // Trust verification for notebook dependencies
   const {
@@ -682,6 +689,25 @@ function AppContent() {
     };
   }, [cloneNotebook]);
 
+  // Listen for daemon unavailable event (when daemon mode is enabled but daemon fails to start)
+  useEffect(() => {
+    const unlistenPromise = listen<{
+      reason: string;
+      message: string;
+      guidance: string;
+    }>("daemon:unavailable", (event) => {
+      console.error("[daemon] Daemon unavailable:", event.payload);
+      setDaemonUnavailable({
+        message: event.payload.message,
+        guidance: event.payload.guidance,
+      });
+    });
+
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, []);
+
   // Kernel menu: Run All Cells
   useEffect(() => {
     const unlistenPromise = listen("menu:run-all", () => {
@@ -755,6 +781,13 @@ function AppContent() {
           daemonVersion={daemonInfo?.version}
           socketPath={daemonInfo?.socket_path}
           isDevMode={daemonInfo?.is_dev_mode}
+        />
+      )}
+      {daemonUnavailable && (
+        <DaemonUnavailableBanner
+          message={daemonUnavailable.message}
+          guidance={daemonUnavailable.guidance}
+          onDismiss={() => setDaemonUnavailable(null)}
         />
       )}
       <NotebookToolbar
