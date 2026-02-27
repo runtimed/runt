@@ -3701,21 +3701,30 @@ async fn get_synced_settings() -> Result<runtimed::settings_doc::SyncedSettings,
 #[tauri::command]
 async fn get_daemon_state() -> Result<runtimed::daemon_state_client::SyncedDaemonState, String> {
     let socket_path = runtimed::default_socket_path();
-    match runtimed::daemon_state_client::DaemonStateClient::connect(socket_path).await {
-        Ok(mut client) => match client.recv().await {
-            Ok(state) => {
-                log::info!("[daemon-state] get_daemon_state: {:?}", state);
-                Ok(state)
+    log::info!(
+        "[daemon-state] get_daemon_state connecting to {:?}",
+        socket_path
+    );
+    match runtimed::daemon_state_client::DaemonStateClient::connect(socket_path.clone()).await {
+        Ok(mut client) => {
+            log::info!("[daemon-state] get_daemon_state connected, receiving state...");
+            match client.recv().await {
+                Ok(state) => {
+                    log::info!("[daemon-state] get_daemon_state got: {:?}", state);
+                    Ok(state)
+                }
+                Err(e) => {
+                    log::warn!("[daemon-state] Failed to receive state: {}", e);
+                    Ok(runtimed::daemon_state_client::SyncedDaemonState::default())
+                }
             }
-            Err(e) => {
-                log::warn!("[daemon-state] Failed to receive state: {}", e);
-                // Return empty state on error
-                Ok(runtimed::daemon_state_client::SyncedDaemonState::default())
-            }
-        },
+        }
         Err(e) => {
-            log::info!("[daemon-state] Daemon unavailable: {}", e);
-            // Return empty state when daemon is unavailable
+            log::info!(
+                "[daemon-state] Daemon unavailable at {:?}: {}",
+                socket_path,
+                e
+            );
             Ok(runtimed::daemon_state_client::SyncedDaemonState::default())
         }
     }

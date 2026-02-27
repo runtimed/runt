@@ -26,8 +26,10 @@ export function usePoolState(): PoolState {
     let cancelled = false;
 
     // Fetch initial state immediately (don't wait for events)
+    console.log("[usePoolState] Fetching initial daemon state...");
     invoke<SyncedDaemonState>("get_daemon_state")
       .then((state) => {
+        console.log("[usePoolState] Got initial state:", state);
         if (cancelled) return;
         setUvError(state.uv_error);
         setCondaError(state.conda_error);
@@ -40,6 +42,10 @@ export function usePoolState(): PoolState {
     const unlistenPromise = listen<SyncedDaemonState>(
       "daemon:state",
       (event) => {
+        console.log(
+          "[usePoolState] Received daemon:state event:",
+          event.payload,
+        );
         if (cancelled) return;
         setUvError(event.payload.uv_error);
         setCondaError(event.payload.conda_error);
