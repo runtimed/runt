@@ -19,6 +19,8 @@ interface TrustDialogProps {
   onApprove: () => Promise<boolean>;
   onDecline: () => void;
   loading?: boolean;
+  /** When true, shows daemon-specific messaging about auto-launch */
+  daemonMode?: boolean;
 }
 
 /** Package list item with optional typosquat warning */
@@ -51,6 +53,7 @@ export function TrustDialog({
   onApprove,
   onDecline,
   loading = false,
+  daemonMode = false,
 }: TrustDialogProps) {
   const handleApprove = useCallback(async () => {
     const success = await onApprove();
@@ -98,7 +101,9 @@ export function TrustDialog({
           <DialogDescription>
             {isSignatureInvalid
               ? "This notebook's dependencies have been modified since you last approved them. Review and approve to continue."
-              : "This notebook wants to install packages. Review them before running code."}
+              : daemonMode
+                ? "This notebook wants to install packages. Once approved, the kernel will start automatically."
+                : "This notebook wants to install packages. Review them before running code."}
           </DialogDescription>
         </DialogHeader>
 
@@ -167,7 +172,11 @@ export function TrustDialog({
             disabled={loading}
             data-testid="trust-approve-button"
           >
-            {loading ? "Approving..." : "Trust & Install"}
+            {loading
+              ? "Approving..."
+              : daemonMode
+                ? "Trust & Start"
+                : "Trust & Install"}
           </Button>
         </DialogFooter>
       </DialogContent>

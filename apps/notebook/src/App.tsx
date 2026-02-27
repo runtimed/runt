@@ -86,6 +86,7 @@ function AppContent() {
     defaultCondaPackages,
     setDefaultCondaPackages,
     daemonExecution,
+    setDaemonExecution,
   } = useSyncedSettings();
 
   const {
@@ -777,6 +778,8 @@ function AppContent() {
         onDefaultUvPackagesChange={setDefaultUvPackages}
         defaultCondaPackages={defaultCondaPackages}
         onDefaultCondaPackagesChange={setDefaultCondaPackages}
+        daemonExecution={daemonExecution}
+        onDaemonExecutionChange={setDaemonExecution}
         onSave={save}
         onStartKernel={handleStartKernel}
         onInterruptKernel={interruptKernel}
@@ -899,6 +902,7 @@ function AppContent() {
         onApprove={handleTrustApprove}
         onDecline={handleTrustDecline}
         loading={trustLoading}
+        daemonMode={daemonExecution}
       />
       <NotebookView
         cells={cells}

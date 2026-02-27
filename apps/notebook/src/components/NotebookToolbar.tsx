@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -158,6 +159,9 @@ interface NotebookToolbarProps {
   onDefaultUvPackagesChange?: (packages: string[]) => void;
   defaultCondaPackages?: string[];
   onDefaultCondaPackagesChange?: (packages: string[]) => void;
+  /** Daemon execution mode (experimental) */
+  daemonExecution?: boolean;
+  onDaemonExecutionChange?: (enabled: boolean) => void;
   onSave: () => void;
   onStartKernel: (name: string) => void;
   onInterruptKernel: () => void;
@@ -293,6 +297,8 @@ export function NotebookToolbar({
   onDefaultUvPackagesChange,
   defaultCondaPackages = [],
   onDefaultCondaPackagesChange,
+  daemonExecution = false,
+  onDaemonExecutionChange,
   onSave,
   onStartKernel,
   onInterruptKernel,
@@ -797,6 +803,42 @@ export function NotebookToolbar({
                         />
                       </>
                     )}
+                </div>
+              </div>
+            )}
+
+            {/* Experimental settings */}
+            {onDaemonExecutionChange && (
+              <div className="space-y-2">
+                <div>
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Experimental
+                  </span>
+                  <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                    Beta
+                  </span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="daemon-execution-toggle"
+                    checked={daemonExecution}
+                    onCheckedChange={(checked) =>
+                      onDaemonExecutionChange(checked === true)
+                    }
+                    className="mt-0.5"
+                  />
+                  <label
+                    htmlFor="daemon-execution-toggle"
+                    className="flex-1 cursor-pointer"
+                  >
+                    <span className="text-xs font-medium text-foreground hover:text-primary transition-colors">
+                      Daemon Execution Mode
+                    </span>
+                    <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                      Kernel managed by daemon. Enables multi-window kernel
+                      sharing.
+                    </p>
+                  </label>
                 </div>
               </div>
             )}
