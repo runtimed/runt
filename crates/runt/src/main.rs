@@ -98,12 +98,18 @@ fn shorten_path(path: &std::path::Path) -> String {
 }
 
 /// Truncate an error message for display, replacing newlines with spaces.
+/// Uses char boundaries to avoid panics on non-ASCII text.
 fn truncate_error(msg: &str, max_len: usize) -> String {
     let single_line = msg.replace('\n', " ");
-    if single_line.len() <= max_len {
+    if max_len < 4 {
+        return single_line.chars().take(max_len).collect();
+    }
+    let char_count = single_line.chars().count();
+    if char_count <= max_len {
         single_line
     } else {
-        format!("{}...", &single_line[..max_len - 3])
+        let truncated: String = single_line.chars().take(max_len - 3).collect();
+        format!("{}...", truncated)
     }
 }
 

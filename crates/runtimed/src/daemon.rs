@@ -214,13 +214,6 @@ impl Pool {
         self.failure_state = FailureState::default();
     }
 
-    /// Mark that warming failed (legacy, no error details).
-    fn warming_failed(&mut self) {
-        self.warming = self.warming.saturating_sub(1);
-        self.failure_state.consecutive_failures += 1;
-        self.failure_state.last_failure = Some(Instant::now());
-    }
-
     /// Mark that warming failed with error details.
     fn warming_failed_with_error(&mut self, error: Option<PackageInstallError>) {
         self.warming = self.warming.saturating_sub(1);
@@ -1292,26 +1285,66 @@ impl Daemon {
                 break;
             }
 
-            // Check deficit
-            let deficit = self.conda_pool.lock().await.deficit();
+            let (deficit, should_retry, backoff_info) = {
+                let mut pool = self.conda_pool.lock().await;
+                let d = pool.deficit();
+                let retry = pool.should_retry();
+                let info = if pool.failure_state.consecutive_failures > 0 {
+                    Some((
+                        pool.failure_state.consecutive_failures,
+                        pool.backoff_delay().as_secs(),
+                        pool.failure_state.last_error.clone(),
+                    ))
+                } else {
+                    None
+                };
+
+                if d > 0 && retry {
+                    pool.mark_warming(d);
+                }
+                (d, retry, info)
+            };
 
             if deficit > 0 {
-                info!(
-                    "[runtimed] Conda pool deficit: {}, creating {} envs",
-                    deficit, deficit
-                );
+                if should_retry {
+                    info!(
+                        "[runtimed] Conda pool deficit: {}, creating {} envs",
+                        deficit, deficit
+                    );
 
-                // Mark as warming
-                self.conda_pool.lock().await.mark_warming(deficit);
-
-                // Create environments one at a time (rattler is already efficient)
-                for _ in 0..deficit {
-                    if *self.shutdown.lock().await {
-                        break;
+                    // Create environments one at a time (rattler is already efficient)
+                    for _ in 0..deficit {
+                        if *self.shutdown.lock().await {
+                            break;
+                        }
+                        self.create_conda_env().await;
                     }
-                    self.create_conda_env().await;
+                } else if let Some((failures, backoff_secs, last_error)) = backoff_info {
+                    // In backoff period - log why we're waiting
+                    if let Some(err) = last_error {
+                        warn!(
+                            "[runtimed] Conda pool in backoff: {} consecutive failures ({}), \
+                             waiting {}s before retry. Check conda.default_packages in settings.",
+                            failures,
+                            err.chars().take(80).collect::<String>(),
+                            backoff_secs
+                        );
+                    } else {
+                        warn!(
+                            "[runtimed] Conda pool in backoff: {} consecutive failures, \
+                             waiting {}s before retry",
+                            failures, backoff_secs
+                        );
+                    }
                 }
             }
+
+            // Log status
+            let (available, warming) = self.conda_pool.lock().await.stats();
+            info!(
+                "[runtimed] Conda pool: {}/{} available, {} warming",
+                available, self.config.conda_pool_size, warming
+            );
 
             // Wait before checking again
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
@@ -1341,7 +1374,14 @@ impl Daemon {
         // Ensure cache directory exists
         if let Err(e) = tokio::fs::create_dir_all(&self.config.cache_dir).await {
             error!("[runtimed] Failed to create cache dir: {}", e);
-            self.conda_pool.lock().await.warming_failed();
+            self.conda_pool
+                .lock()
+                .await
+                .warming_failed_with_error(Some(PackageInstallError {
+                    failed_package: None,
+                    error_message: format!("Failed to create cache dir: {}", e),
+                }));
+            self.broadcast_pool_state().await;
             return;
         }
 
@@ -1353,7 +1393,14 @@ impl Daemon {
             Ok(ch) => vec![ch],
             Err(e) => {
                 error!("[runtimed] Failed to parse conda-forge channel: {}", e);
-                self.conda_pool.lock().await.warming_failed();
+                self.conda_pool
+                    .lock()
+                    .await
+                    .warming_failed_with_error(Some(PackageInstallError {
+                        failed_package: None,
+                        error_message: format!("Failed to parse conda-forge channel: {}", e),
+                    }));
+                self.broadcast_pool_state().await;
                 return;
             }
         };
@@ -1388,7 +1435,14 @@ impl Daemon {
             Ok(s) => s,
             Err(e) => {
                 error!("[runtimed] Failed to parse match specs: {}", e);
-                self.conda_pool.lock().await.warming_failed();
+                self.conda_pool
+                    .lock()
+                    .await
+                    .warming_failed_with_error(Some(PackageInstallError {
+                        failed_package: None,
+                        error_message: format!("Failed to parse match specs: {}", e),
+                    }));
+                self.broadcast_pool_state().await;
                 return;
             }
         };
@@ -1401,14 +1455,31 @@ impl Daemon {
                     "[runtimed] Could not determine rattler cache directory: {}",
                     e
                 );
-                self.conda_pool.lock().await.warming_failed();
+                self.conda_pool
+                    .lock()
+                    .await
+                    .warming_failed_with_error(Some(PackageInstallError {
+                        failed_package: None,
+                        error_message: format!(
+                            "Could not determine rattler cache directory: {}",
+                            e
+                        ),
+                    }));
+                self.broadcast_pool_state().await;
                 return;
             }
         };
 
         if let Err(e) = rattler_cache::ensure_cache_dir(&rattler_cache_dir) {
             error!("[runtimed] Could not create rattler cache directory: {}", e);
-            self.conda_pool.lock().await.warming_failed();
+            self.conda_pool
+                .lock()
+                .await
+                .warming_failed_with_error(Some(PackageInstallError {
+                    failed_package: None,
+                    error_message: format!("Could not create rattler cache directory: {}", e),
+                }));
+            self.broadcast_pool_state().await;
             return;
         }
 
@@ -1417,7 +1488,14 @@ impl Daemon {
             Ok(c) => reqwest_middleware::ClientBuilder::new(c).build(),
             Err(e) => {
                 error!("[runtimed] Failed to create HTTP client: {}", e);
-                self.conda_pool.lock().await.warming_failed();
+                self.conda_pool
+                    .lock()
+                    .await
+                    .warming_failed_with_error(Some(PackageInstallError {
+                        failed_package: None,
+                        error_message: format!("Failed to create HTTP client: {}", e),
+                    }));
+                self.broadcast_pool_state().await;
                 return;
             }
         };
@@ -1444,7 +1522,14 @@ impl Daemon {
             Ok(data) => data,
             Err(e) => {
                 error!("[runtimed] Failed to fetch repodata: {}", e);
-                self.conda_pool.lock().await.warming_failed();
+                self.conda_pool
+                    .lock()
+                    .await
+                    .warming_failed_with_error(Some(PackageInstallError {
+                        failed_package: None,
+                        error_message: format!("Failed to fetch repodata: {}", e),
+                    }));
+                self.broadcast_pool_state().await;
                 return;
             }
         };
@@ -1461,7 +1546,14 @@ impl Daemon {
                 .collect::<Vec<_>>(),
             Err(e) => {
                 error!("[runtimed] Failed to detect virtual packages: {}", e);
-                self.conda_pool.lock().await.warming_failed();
+                self.conda_pool
+                    .lock()
+                    .await
+                    .warming_failed_with_error(Some(PackageInstallError {
+                        failed_package: None,
+                        error_message: format!("Failed to detect virtual packages: {}", e),
+                    }));
+                self.broadcast_pool_state().await;
                 return;
             }
         };
@@ -1477,7 +1569,14 @@ impl Daemon {
             Ok(result) => result.records,
             Err(e) => {
                 error!("[runtimed] Failed to solve dependencies: {}", e);
-                self.conda_pool.lock().await.warming_failed();
+                self.conda_pool
+                    .lock()
+                    .await
+                    .warming_failed_with_error(Some(PackageInstallError {
+                        failed_package: None,
+                        error_message: format!("Failed to solve dependencies: {}", e),
+                    }));
+                self.broadcast_pool_state().await;
                 return;
             }
         };
@@ -1497,7 +1596,14 @@ impl Daemon {
         if let Err(e) = install_result {
             error!("[runtimed] Failed to install packages: {}", e);
             tokio::fs::remove_dir_all(&env_path).await.ok();
-            self.conda_pool.lock().await.warming_failed();
+            self.conda_pool
+                .lock()
+                .await
+                .warming_failed_with_error(Some(PackageInstallError {
+                    failed_package: None,
+                    error_message: format!("Failed to install packages: {}", e),
+                }));
+            self.broadcast_pool_state().await;
             return;
         }
 
@@ -1508,27 +1614,44 @@ impl Daemon {
                 python_path
             );
             tokio::fs::remove_dir_all(&env_path).await.ok();
-            self.conda_pool.lock().await.warming_failed();
+            self.conda_pool
+                .lock()
+                .await
+                .warming_failed_with_error(Some(PackageInstallError {
+                    failed_package: None,
+                    error_message: format!("Python not found at {:?} after install", python_path),
+                }));
+            self.broadcast_pool_state().await;
             return;
         }
 
         // Run warmup script
         self.warmup_conda_env(&python_path, &env_path).await;
 
-        // Add to pool
-        let env = PooledEnv {
-            env_type: EnvType::Conda,
-            venv_path: env_path.clone(),
-            python_path,
+        // Add to pool and check if we're clearing a previous error state
+        let had_errors = {
+            let mut pool = self.conda_pool.lock().await;
+            let had = pool.failure_state.consecutive_failures > 0;
+            pool.add(PooledEnv {
+                env_type: EnvType::Conda,
+                venv_path: env_path.clone(),
+                python_path,
+            });
+            had
         };
 
-        self.conda_pool.lock().await.add(env);
         info!(
             "[runtimed] Conda environment ready: {:?} (pool: {}/{})",
             env_path,
             self.conda_pool.lock().await.stats().0,
             self.config.conda_pool_size
         );
+
+        // Broadcast cleared state if we recovered from errors
+        if had_errors {
+            info!("[runtimed] Conda pool recovered from error state");
+            self.broadcast_pool_state().await;
+        }
     }
 
     /// Warm up a conda environment by running Python to trigger .pyc compilation.
@@ -1628,7 +1751,14 @@ print("warmup complete")
         // Ensure cache directory exists
         if let Err(e) = tokio::fs::create_dir_all(&self.config.cache_dir).await {
             error!("[runtimed] Failed to create cache dir: {}", e);
-            self.uv_pool.lock().await.warming_failed();
+            self.uv_pool
+                .lock()
+                .await
+                .warming_failed_with_error(Some(PackageInstallError {
+                    failed_package: None,
+                    error_message: format!("Failed to create cache dir: {}", e),
+                }));
+            self.broadcast_pool_state().await;
             return;
         }
 
@@ -1640,26 +1770,48 @@ print("warmup complete")
                 .arg(&venv_path)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .status(),
+                .output(),
         )
         .await;
 
         match venv_result {
-            Ok(Ok(status)) if status.success() => {}
-            Ok(Ok(_)) => {
-                error!("[runtimed] Failed to create venv");
-                self.uv_pool.lock().await.warming_failed();
+            Ok(Ok(output)) if output.status.success() => {}
+            Ok(Ok(output)) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                error!("[runtimed] Failed to create venv: {}", stderr);
+                self.uv_pool
+                    .lock()
+                    .await
+                    .warming_failed_with_error(Some(PackageInstallError {
+                        failed_package: None,
+                        error_message: format!("Failed to create venv: {}", stderr),
+                    }));
+                self.broadcast_pool_state().await;
                 return;
             }
             Ok(Err(e)) => {
                 error!("[runtimed] Failed to create venv: {}", e);
-                self.uv_pool.lock().await.warming_failed();
+                self.uv_pool
+                    .lock()
+                    .await
+                    .warming_failed_with_error(Some(PackageInstallError {
+                        failed_package: None,
+                        error_message: format!("Failed to create venv: {}", e),
+                    }));
+                self.broadcast_pool_state().await;
                 return;
             }
             Err(_) => {
                 error!("[runtimed] Timeout creating venv");
                 tokio::fs::remove_dir_all(&venv_path).await.ok();
-                self.uv_pool.lock().await.warming_failed();
+                self.uv_pool
+                    .lock()
+                    .await
+                    .warming_failed_with_error(Some(PackageInstallError {
+                        failed_package: None,
+                        error_message: "Timeout creating venv after 60 seconds".to_string(),
+                    }));
+                self.broadcast_pool_state().await;
                 return;
             }
         }
