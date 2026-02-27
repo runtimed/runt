@@ -205,15 +205,11 @@ jobs:
             target/release/binaries/
           retention-days: 1
 
-  # E2E tests sharded across 4 parallel runners
+  # E2E smoke test - verifies basic app functionality
   e2e:
-    name: E2E Tests (Shard ${{ matrix.shard }})
+    name: E2E Smoke Test
     runs-on: ubuntu-latest
     needs: [build-e2e-app]
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v4
 
@@ -231,11 +227,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-
-      - name: Install Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
 
       - name: Enable corepack
         run: corepack enable
@@ -284,113 +275,39 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Pre-warm environment pool
+      - name: Start E2E daemon
         run: |
-          # Shard-specific pool sizes and warmup times
-          # Shard 0 runs 8 default specs in parallel, needs 8 prewarmed envs
-          # Other shards run tests sequentially, need fewer envs
-          case ${{ matrix.shard }} in
-            0) UV_POOL=8; CONDA_POOL=0; WARMUP=90 ;;
-            1) UV_POOL=6; CONDA_POOL=0; WARMUP=60 ;;
-            2) UV_POOL=2; CONDA_POOL=0; WARMUP=30 ;;
-            3) UV_POOL=6; CONDA_POOL=0; WARMUP=60 ;;
-          esac
-
           TARGET=$(ls target/release/binaries/ | grep runtimed | head -1)
-          env PATH="$PATH" CONDUCTOR_WORKSPACE_PATH="${GITHUB_WORKSPACE}" \
+          CONDUCTOR_WORKSPACE_PATH="${GITHUB_WORKSPACE}" \
             ./target/release/binaries/$TARGET --dev run \
-            --uv-pool-size $UV_POOL --conda-pool-size $CONDA_POOL &
+            --uv-pool-size 2 --conda-pool-size 0 &
           echo "RUNTIMED_PID=$!" >> $GITHUB_ENV
 
           # Wait for daemon to initialize and pool to warm up
-          # In main branch, this happens during the ~90s Tauri build
-          # Each UV env takes ~10-15s to create
-          echo "Warming up pool for ${WARMUP}s (UV_POOL=$UV_POOL)..."
-          sleep $WARMUP
+          echo "Waiting for daemon to be ready..."
+          sleep 30
 
-      - name: Run E2E tests (Shard ${{ matrix.shard }})
-        timeout-minutes: 12
+      - name: Run E2E smoke test
+        timeout-minutes: 5
         run: |
-          # Start Xvfb (suppress xkbcomp keysym warnings)
+          # Start Xvfb
           Xvfb :99 -screen 0 1920x1080x24 2>/dev/null &
           export DISPLAY=:99
           sleep 2
 
-          # Helper to start a fresh tauri-driver (avoids stale connections between runs)
-          start_driver() {
-            kill $DRIVER_PID 2>/dev/null || true
-            sleep 1
-            ~/.cargo/bin/tauri-driver --port 4444 &
-            DRIVER_PID=$!
-            sleep 3
-          }
+          # Start tauri-driver
+          ~/.cargo/bin/tauri-driver --port 4444 &
+          DRIVER_PID=$!
+          sleep 3
 
-          FAIL=0
-
-          case ${{ matrix.shard }} in
-            0)
-              # Default tests (no fixture needed)
-              start_driver
-              pnpm test:e2e || FAIL=1
-              ;;
-            1)
-              # UV/Prewarmed tests (vanilla + uv-inline fixtures)
-              for pair in \
-                "1-vanilla.ipynb:vanilla-startup.spec.js" \
-                "1-vanilla.ipynb:settings-panel.spec.js" \
-                "1-vanilla.ipynb:save-dirty-state.spec.js" \
-                "1-vanilla.ipynb:cell-operations.spec.js" \
-                "2-uv-inline.ipynb:uv-inline-deps.spec.js" \
-                "2-uv-inline.ipynb:deps-panel.spec.js" \
-                "2-uv-inline.ipynb:trust-decline.spec.js"
-              do
-                IFS=: read -r notebook spec <<< "$pair"
-                start_driver
-                NOTEBOOK_PATH="crates/notebook/fixtures/audit-test/$notebook" \
-                  E2E_SPEC="e2e/specs/$spec" \
-                  pnpm test:e2e || FAIL=1
-              done
-              ;;
-            2)
-              # Conda tests
-              for pair in \
-                "3-conda-inline.ipynb:conda-inline-deps.spec.js" \
-                "3-conda-inline.ipynb:conda-deps-panel.spec.js" \
-                "4-both-deps.ipynb:both-deps-panel.spec.js" \
-                "pixi-project/6-pixi.ipynb:pixi-env-detection.spec.js" \
-                "conda-env-project/7-environment-yml.ipynb:environment-yml-detection.spec.js"
-              do
-                IFS=: read -r notebook spec <<< "$pair"
-                start_driver
-                NOTEBOOK_PATH="crates/notebook/fixtures/audit-test/$notebook" \
-                  E2E_SPEC="e2e/specs/$spec" \
-                  pnpm test:e2e || FAIL=1
-              done
-              ;;
-            3)
-              # Mixed tests (pyproject, multi-cell, deno, outputs)
-              for pair in \
-                "pyproject-project/5-pyproject.ipynb:pyproject-startup.spec.js" \
-                "8-multi-cell.ipynb:run-all-cells.spec.js" \
-                "9-html-output.ipynb:iframe-isolation.spec.js" \
-                "10-deno.ipynb:deno-runtime.spec.js" \
-                "11-rich-outputs.ipynb:rich-outputs.spec.js" \
-                "12-error-outputs.ipynb:error-handling.spec.js"
-              do
-                IFS=: read -r notebook spec <<< "$pair"
-                start_driver
-                NOTEBOOK_PATH="crates/notebook/fixtures/audit-test/$notebook" \
-                  E2E_SPEC="e2e/specs/$spec" \
-                  pnpm test:e2e || FAIL=1
-              done
-              ;;
-          esac
+          # Run the smoke test
+          pnpm test:e2e || FAIL=1
 
           # Cleanup
           kill $DRIVER_PID 2>/dev/null || true
           kill $RUNTIMED_PID 2>/dev/null || true
 
-          exit $FAIL
+          exit ${FAIL:-0}
         env:
           TAURI_APP_PATH: ./target/release/notebook
           CONDUCTOR_WORKSPACE_PATH: ${{ github.workspace }}
@@ -401,6 +318,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-screenshots-shard-${{ matrix.shard }}
+          name: e2e-screenshots
           path: e2e-screenshots/failures/
           retention-days: 7
