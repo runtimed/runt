@@ -43,7 +43,7 @@ jobs:
       matrix:
         platform:
           - name: Linux
-            runner: ubuntu-latest-m
+            runner: desktop-supreme
             setup: |
               sudo apt-get update
               sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev
@@ -125,7 +125,7 @@ jobs:
   # Build Tauri app once and share with E2E shards
   build-e2e-app:
     name: Build E2E Test App
-    runs-on: ubuntu-latest-m
+    runs-on: desktop-supreme
     steps:
       - uses: actions/checkout@v4
 
@@ -139,7 +139,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ubuntu-latest-m
+          shared-key: desktop-supreme
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -172,7 +172,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin
-          key: cargo-bin-ubuntu-tauri-cli-tauri-driver-${{ hashFiles('rust-toolchain.toml') }}
+          key: cargo-bin-desktop-supreme-tauri-cli-tauri-driver-${{ hashFiles('rust-toolchain.toml') }}
           restore-keys: |
             cargo-bin-ubuntu-tauri-cli-tauri-driver-
 
@@ -208,7 +208,7 @@ jobs:
   # E2E tests sharded across 4 parallel runners
   e2e:
     name: E2E Tests (Shard ${{ matrix.shard }})
-    runs-on: ubuntu-latest-m
+    runs-on: desktop-supreme
     needs: [build-e2e-app]
     strategy:
       fail-fast: false
