@@ -284,7 +284,6 @@ case "${1:-help}" in
   daemon)
     # Show daemon status
     if [ -f "$DAEMON_PID_FILE" ]; then
-      local pid
       pid=$(cat "$DAEMON_PID_FILE")
       if kill -0 "$pid" 2>/dev/null; then
         echo "Daemon running (PID $pid)"
