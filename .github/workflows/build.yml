@@ -286,12 +286,14 @@ jobs:
 
       - name: Pre-warm environment pool
         run: |
-          # Shard-specific pool sizes
+          # Shard-specific pool sizes and warmup times
+          # Shard 0 runs 8 default specs in parallel, needs 8 prewarmed envs
+          # Other shards run tests sequentially, need fewer envs
           case ${{ matrix.shard }} in
-            0) UV_POOL=4; CONDA_POOL=0 ;;
-            1) UV_POOL=6; CONDA_POOL=0 ;;
-            2) UV_POOL=2; CONDA_POOL=0 ;;
-            3) UV_POOL=4; CONDA_POOL=0 ;;
+            0) UV_POOL=8; CONDA_POOL=0; WARMUP=90 ;;
+            1) UV_POOL=6; CONDA_POOL=0; WARMUP=60 ;;
+            2) UV_POOL=2; CONDA_POOL=0; WARMUP=30 ;;
+            3) UV_POOL=6; CONDA_POOL=0; WARMUP=60 ;;
           esac
 
           TARGET=$(ls target/release/binaries/ | grep runtimed | head -1)
@@ -300,9 +302,11 @@ jobs:
             --uv-pool-size $UV_POOL --conda-pool-size $CONDA_POOL &
           echo "RUNTIMED_PID=$!" >> $GITHUB_ENV
 
-          # Wait for daemon to initialize and pool to start warming
-          # In main branch, this happens during the 90s Tauri build
-          sleep 30
+          # Wait for daemon to initialize and pool to warm up
+          # In main branch, this happens during the ~90s Tauri build
+          # Each UV env takes ~10-15s to create
+          echo "Warming up pool for ${WARMUP}s (UV_POOL=$UV_POOL)..."
+          sleep $WARMUP
 
       - name: Run E2E tests (Shard ${{ matrix.shard }})
         timeout-minutes: 12
