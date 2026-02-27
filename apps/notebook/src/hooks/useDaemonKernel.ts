@@ -207,6 +207,45 @@ export function useDaemonKernel({
             }
             break;
           }
+
+          case "comm_sync": {
+            // Initial comm state sync from daemon for multi-window widget reconstruction
+            // Replay all comms as comm_open messages to the widget store
+            const { onCommMessage } = callbacksRef.current;
+            if (onCommMessage && broadcast.comms) {
+              console.log(
+                `[daemon-kernel] Received comm_sync with ${broadcast.comms.length} comms`,
+              );
+              for (const comm of broadcast.comms) {
+                // Synthesize a comm_open message for each active comm
+                const msg: JupyterMessage = {
+                  header: {
+                    msg_id: crypto.randomUUID(),
+                    msg_type: "comm_open",
+                    session: "",
+                    username: "kernel",
+                    date: new Date().toISOString(),
+                    version: "5.3",
+                  },
+                  metadata: {},
+                  content: {
+                    comm_id: comm.comm_id,
+                    target_name: comm.target_name,
+                    data: {
+                      state: comm.state,
+                      buffer_paths: [],
+                    },
+                  },
+                  // Convert buffers if present
+                  buffers: comm.buffers
+                    ? comm.buffers.map((arr) => new Uint8Array(arr).buffer)
+                    : [],
+                };
+                onCommMessage(msg);
+              }
+            }
+            break;
+          }
         }
       },
     );

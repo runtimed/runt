@@ -26,6 +26,7 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use uuid::Uuid;
 
 use crate::blob_store::BlobStore;
+use crate::comm_state::CommState;
 use crate::notebook_doc::NotebookDoc;
 use crate::notebook_sync_server::persist_notebook_bytes;
 use crate::output_store::{self, DEFAULT_INLINE_THRESHOLD};
@@ -242,6 +243,8 @@ pub struct RoomKernel {
     changed_tx: broadcast::Sender<()>,
     /// Blob store for output manifests
     blob_store: Arc<BlobStore>,
+    /// Comm state for widget synchronization across windows
+    comm_state: Arc<CommState>,
 }
 
 /// Commands from iopub/shell handlers for queue state management.
@@ -264,6 +267,7 @@ impl RoomKernel {
         persist_path: PathBuf,
         changed_tx: broadcast::Sender<()>,
         blob_store: Arc<BlobStore>,
+        comm_state: Arc<CommState>,
     ) -> Self {
         Self {
             kernel_type: String::new(),
@@ -288,6 +292,7 @@ impl RoomKernel {
             persist_path,
             changed_tx,
             blob_store,
+            comm_state,
         }
     }
 
@@ -448,6 +453,7 @@ impl RoomKernel {
         let persist_path = self.persist_path.clone();
         let changed_tx = self.changed_tx.clone();
         let blob_store = self.blob_store.clone();
+        let comm_state = self.comm_state.clone();
 
         let iopub_task = tokio::spawn(async move {
             loop {
@@ -704,12 +710,10 @@ impl RoomKernel {
                             }
 
                             // Comm messages for widgets (ipywidgets protocol)
-                            JupyterMessageContent::CommOpen(_)
-                            | JupyterMessageContent::CommMsg(_)
-                            | JupyterMessageContent::CommClose(_) => {
+                            JupyterMessageContent::CommOpen(open) => {
                                 debug!(
-                                    "[kernel-manager] Broadcasting comm message: type={}",
-                                    message.header.msg_type
+                                    "[kernel-manager] Broadcasting comm_open: comm_id={}",
+                                    open.comm_id.0
                                 );
 
                                 // Serialize the content to JSON
@@ -720,10 +724,70 @@ impl RoomKernel {
                                 let buffers: Vec<Vec<u8>> =
                                     message.buffers.iter().map(|b| b.to_vec()).collect();
 
+                                // Track comm state for multi-window sync
+                                let data = serde_json::to_value(&open.data).unwrap_or_default();
+                                comm_state
+                                    .on_comm_open(
+                                        &open.comm_id.0,
+                                        &open.target_name,
+                                        &data,
+                                        buffers.clone(),
+                                    )
+                                    .await;
+
                                 let _ = broadcast_tx.send(NotebookBroadcast::Comm {
                                     msg_type: message.header.msg_type.clone(),
                                     content,
                                     buffers,
+                                });
+                            }
+
+                            JupyterMessageContent::CommMsg(msg) => {
+                                debug!(
+                                    "[kernel-manager] Broadcasting comm_msg: comm_id={}",
+                                    msg.comm_id.0
+                                );
+
+                                // Serialize the content to JSON
+                                let content =
+                                    serde_json::to_value(&message.content).unwrap_or_default();
+
+                                // Extract buffers (Vec<Bytes> -> Vec<Vec<u8>>)
+                                let buffers: Vec<Vec<u8>> =
+                                    message.buffers.iter().map(|b| b.to_vec()).collect();
+
+                                // Track state updates (method="update") for multi-window sync
+                                let data = serde_json::to_value(&msg.data).unwrap_or_default();
+                                if data.get("method").and_then(|m| m.as_str()) == Some("update") {
+                                    if let Some(state) = data.get("state") {
+                                        comm_state.on_comm_update(&msg.comm_id.0, state).await;
+                                    }
+                                }
+
+                                let _ = broadcast_tx.send(NotebookBroadcast::Comm {
+                                    msg_type: message.header.msg_type.clone(),
+                                    content,
+                                    buffers,
+                                });
+                            }
+
+                            JupyterMessageContent::CommClose(close) => {
+                                debug!(
+                                    "[kernel-manager] Broadcasting comm_close: comm_id={}",
+                                    close.comm_id.0
+                                );
+
+                                // Serialize the content to JSON
+                                let content =
+                                    serde_json::to_value(&message.content).unwrap_or_default();
+
+                                // Remove from comm state
+                                comm_state.on_comm_close(&close.comm_id.0).await;
+
+                                let _ = broadcast_tx.send(NotebookBroadcast::Comm {
+                                    msg_type: message.header.msg_type.clone(),
+                                    content,
+                                    buffers: vec![],
                                 });
                             }
 
@@ -1192,7 +1256,8 @@ mod tests {
         let doc = Arc::new(RwLock::new(NotebookDoc::new("test-notebook")));
         let persist_path = PathBuf::from("/tmp/test.automerge");
         let blob_store = Arc::new(BlobStore::new(tmp.path().join("blobs")));
-        let kernel = RoomKernel::new(tx, doc, persist_path, changed_tx, blob_store);
+        let comm_state = Arc::new(CommState::new());
+        let kernel = RoomKernel::new(tx, doc, persist_path, changed_tx, blob_store, comm_state);
 
         assert!(!kernel.is_running());
         assert!(kernel.executing_cell().is_none());

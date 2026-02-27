@@ -35,6 +35,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{broadcast, Mutex, RwLock};
 
 use crate::blob_store::BlobStore;
+use crate::comm_state::CommState;
 use crate::connection::{self, NotebookFrameType};
 use crate::kernel_manager::RoomKernel;
 use crate::notebook_doc::{notebook_doc_filename, NotebookDoc};
@@ -146,6 +147,10 @@ pub struct NotebookRoom {
     /// Timestamp when auto-launch was triggered (for grace period on eviction).
     /// If set, the room won't be evicted for 30 seconds to allow client reconnect.
     pub auto_launch_at: Arc<RwLock<Option<std::time::Instant>>>,
+    /// Comm channel state for widgets.
+    /// Stores active comms so new windows can sync widget models.
+    /// Arc-wrapped so it can be shared with the kernel's iopub task.
+    pub comm_state: Arc<CommState>,
 }
 
 impl NotebookRoom {
@@ -193,6 +198,7 @@ impl NotebookRoom {
             trust_state: Arc::new(RwLock::new(trust_state)),
             notebook_path,
             auto_launch_at: Arc::new(RwLock::new(None)),
+            comm_state: Arc::new(CommState::new()),
         }
     }
 
@@ -221,6 +227,7 @@ impl NotebookRoom {
             trust_state: Arc::new(RwLock::new(trust_state)),
             notebook_path,
             auto_launch_at: Arc::new(RwLock::new(None)),
+            comm_state: Arc::new(CommState::new()),
         }
     }
 
@@ -536,6 +543,24 @@ where
         }
     }
 
+    // Phase 1.5: Send comm state sync for widget reconstruction
+    // New clients need active comm channels to render widgets created before they connected
+    {
+        let comms = room.comm_state.get_all().await;
+        if !comms.is_empty() {
+            info!(
+                "[notebook-sync] Sending comm_sync with {} active comms",
+                comms.len()
+            );
+            connection::send_typed_json_frame(
+                writer,
+                NotebookFrameType::Broadcast,
+                &NotebookBroadcast::CommSync { comms },
+            )
+            .await?;
+        }
+    }
+
     // Phase 2: Exchange messages until sync is complete, then watch for changes
     loop {
         tokio::select! {
@@ -675,6 +700,7 @@ async fn auto_launch_kernel(
         room.persist_path.clone(),
         room.changed_tx.clone(),
         room.blob_store.clone(),
+        room.comm_state.clone(),
     );
 
     // Auto-detect environment source
@@ -812,6 +838,7 @@ async fn handle_notebook_request(
                 room.persist_path.clone(),
                 room.changed_tx.clone(),
                 room.blob_store.clone(),
+                room.comm_state.clone(),
             );
             let notebook_path = notebook_path.map(std::path::PathBuf::from);
 
@@ -987,6 +1014,8 @@ async fn handle_notebook_request(
                 match kernel.shutdown().await {
                     Ok(()) => {
                         *kernel_guard = None;
+                        // Clear comm state - all widgets become invalid when kernel shuts down
+                        room.comm_state.clear().await;
                         NotebookResponse::KernelShuttingDown {}
                     }
                     Err(e) => NotebookResponse::Error {

@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::comm_state::CommSnapshot;
 use crate::{EnvType, PoolError, PoolStats, PooledEnv};
 
 /// Requests that clients can send to the daemon.
@@ -300,6 +301,13 @@ pub enum NotebookBroadcast {
         /// Binary buffers (base64-encoded when serialized to JSON)
         #[serde(default)]
         buffers: Vec<Vec<u8>>,
+    },
+
+    /// Initial comm state sync sent to newly connected clients.
+    /// Contains all active comm channels so new windows can reconstruct widgets.
+    CommSync {
+        /// All active comm snapshots
+        comms: Vec<CommSnapshot>,
     },
 }
 
@@ -619,5 +627,31 @@ mod tests {
         let json = serde_json::to_string(&broadcast).unwrap();
         assert!(json.contains("kernel_status"));
         assert!(json.contains("busy"));
+    }
+
+    #[test]
+    fn test_notebook_broadcast_comm_sync() {
+        let comm = CommSnapshot {
+            comm_id: "widget-1".into(),
+            target_name: "jupyter.widget".into(),
+            state: serde_json::json!({"value": 50}),
+            model_module: Some("@jupyter-widgets/controls".into()),
+            model_name: Some("IntSliderModel".into()),
+            buffers: vec![],
+        };
+        let broadcast = NotebookBroadcast::CommSync { comms: vec![comm] };
+        let json = serde_json::to_string(&broadcast).unwrap();
+        assert!(json.contains("comm_sync"));
+        assert!(json.contains("widget-1"));
+        assert!(json.contains("jupyter.widget"));
+
+        let parsed: NotebookBroadcast = serde_json::from_str(&json).unwrap();
+        match parsed {
+            NotebookBroadcast::CommSync { comms } => {
+                assert_eq!(comms.len(), 1);
+                assert_eq!(comms[0].comm_id, "widget-1");
+            }
+            _ => panic!("unexpected broadcast type"),
+        }
     }
 }
