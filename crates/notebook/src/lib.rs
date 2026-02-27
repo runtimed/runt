@@ -24,7 +24,7 @@ pub use runtime::Runtime;
 use notebook_state::{FrontendCell, NotebookState};
 use runtimed::notebook_doc::CellSnapshot;
 use runtimed::notebook_sync_client::{NotebookSyncClient, NotebookSyncHandle};
-use runtimed::protocol::{NotebookRequest, NotebookResponse};
+use runtimed::protocol::{HistoryEntry, NotebookRequest, NotebookResponse};
 
 use log::{info, warn};
 use nbformat::v4::{Cell, CellId, CellMetadata};
@@ -34,6 +34,14 @@ use serde::{Deserialize, Serialize};
 /// The Option allows graceful fallback when daemon is unavailable.
 /// Uses the split handle pattern - the handle is clonable and doesn't block.
 type SharedNotebookSync = Arc<tokio::sync::Mutex<Option<NotebookSyncHandle>>>;
+
+/// Newtype wrapper for auto-launch-in-progress flag (distinguishes from other AtomicBool states).
+#[allow(dead_code)]
+struct AutoLaunchInProgress(Arc<AtomicBool>);
+
+/// Newtype wrapper for reconnect-in-progress flag (distinguishes from other AtomicBool states).
+struct ReconnectInProgress(Arc<AtomicBool>);
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -1103,6 +1111,41 @@ async fn send_comm_via_daemon(
         .map_err(|e| format!("daemon request failed: {}", e))
 }
 
+/// Get kernel input history via daemon.
+///
+/// Searches the kernel's input history for matching entries.
+/// Returns an error if no kernel is running or the request times out.
+#[tauri::command]
+async fn get_history_via_daemon(
+    pattern: Option<String>,
+    n: i32,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<Vec<HistoryEntry>, String> {
+    info!(
+        "[daemon-kernel] get_history_via_daemon: pattern={:?}, n={}",
+        pattern, n
+    );
+
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    let response = handle
+        .send_request(NotebookRequest::GetHistory {
+            pattern,
+            n,
+            unique: true,
+        })
+        .await
+        .map_err(|e| format!("daemon request failed: {}", e))?;
+
+    match response {
+        NotebookResponse::HistoryResult { entries } => Ok(entries),
+        NotebookResponse::NoKernel {} => Err("No kernel running".to_string()),
+        NotebookResponse::Error { error } => Err(error),
+        _ => Err("Unexpected response from daemon".to_string()),
+    }
+}
+
 /// Reconnect to the daemon after a disconnection.
 ///
 /// Called by the frontend after receiving daemon:disconnected event.
@@ -1111,12 +1154,13 @@ async fn reconnect_to_daemon(
     app: tauri::AppHandle,
     notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
     notebook_sync: tauri::State<'_, SharedNotebookSync>,
-    reconnect_in_progress: tauri::State<'_, Arc<AtomicBool>>,
+    reconnect_in_progress: tauri::State<'_, ReconnectInProgress>,
 ) -> Result<(), String> {
     info!("[daemon-kernel] reconnect_to_daemon");
 
     // Use atomic compare_exchange to ensure only one reconnect runs at a time
     if reconnect_in_progress
+        .0
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
@@ -1125,7 +1169,7 @@ async fn reconnect_to_daemon(
     }
 
     // Helper to reset flag on all exit paths
-    let reset_flag = || reconnect_in_progress.store(false, Ordering::SeqCst);
+    let reset_flag = || reconnect_in_progress.0.store(false, Ordering::SeqCst);
 
     // Check if already connected
     {
@@ -2549,10 +2593,10 @@ pub fn run(
     ));
 
     // Track auto-launch state for frontend to query
-    let auto_launch_in_progress = Arc::new(AtomicBool::new(false));
+    let auto_launch_in_progress = AutoLaunchInProgress(Arc::new(AtomicBool::new(false)));
 
     // Guard against concurrent reconnect attempts
-    let reconnect_in_progress = Arc::new(AtomicBool::new(false));
+    let reconnect_in_progress = ReconnectInProgress(Arc::new(AtomicBool::new(false)));
 
     // Notebook sync client for cross-window state synchronization
     let notebook_sync: SharedNotebookSync = Arc::new(tokio::sync::Mutex::new(None));
@@ -2617,6 +2661,7 @@ pub fn run(
             get_daemon_queue_state,
             run_all_cells_via_daemon,
             send_comm_via_daemon,
+            get_history_via_daemon,
             reconnect_to_daemon,
             refresh_from_automerge,
             debug_get_automerge_state,

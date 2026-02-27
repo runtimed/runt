@@ -185,6 +185,17 @@ pub enum NotebookRequest {
         /// Preserves frontend session/msg_id for proper widget protocol.
         message: serde_json::Value,
     },
+
+    /// Search the kernel's input history.
+    /// Returns matching history entries via HistoryResult response.
+    GetHistory {
+        /// Pattern to search for (glob-style, optional)
+        pattern: Option<String>,
+        /// Maximum number of entries to return
+        n: i32,
+        /// Only return unique entries (deduplicate)
+        unique: bool,
+    },
 }
 
 /// Responses from daemon to notebook app.
@@ -241,6 +252,20 @@ pub enum NotebookResponse {
 
     /// Error response.
     Error { error: String },
+
+    /// History search result.
+    HistoryResult { entries: Vec<HistoryEntry> },
+}
+
+/// A single entry from kernel input history.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryEntry {
+    /// Session number (0 for current session)
+    pub session: i32,
+    /// Line number within the session
+    pub line: i32,
+    /// The source code that was executed
+    pub source: String,
 }
 
 /// Broadcast messages from daemon to all peers in a room.

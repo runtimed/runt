@@ -7,10 +7,6 @@ export interface HistoryEntry {
   source: string;
 }
 
-interface HistoryResult {
-  entries: HistoryEntry[];
-}
-
 // MRU cache for search queries (pattern -> entries)
 // Uses Map iteration order: oldest at start, newest at end
 const MAX_CACHE_SIZE = 20;
@@ -74,16 +70,16 @@ export function useHistorySearch() {
     setError(null);
 
     try {
-      const result = await invoke<HistoryResult>("get_history", {
+      const entries = await invoke<HistoryEntry[]>("get_history_via_daemon", {
         pattern: pattern || null,
         n: 100,
       });
 
       // Only update if this is still the current search (avoid race conditions)
       if (currentSearchRef.current === pattern) {
-        setEntries(result.entries);
+        setEntries(entries);
         // Cache the result
-        setCacheResult(pattern, result.entries);
+        setCacheResult(pattern, entries);
       }
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : String(e);

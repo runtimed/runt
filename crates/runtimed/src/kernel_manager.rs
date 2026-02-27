@@ -17,12 +17,12 @@ use std::sync::{Arc, Mutex as StdMutex};
 use anyhow::Result;
 use bytes::Bytes;
 use jupyter_protocol::{
-    ConnectionInfo, ExecuteRequest, InterruptRequest, JupyterMessage, JupyterMessageContent,
-    KernelInfoRequest, ShutdownRequest,
+    ConnectionInfo, ExecuteRequest, HistoryRequest, InterruptRequest, JupyterMessage,
+    JupyterMessageContent, KernelInfoRequest, ShutdownRequest,
 };
 use log::{debug, error, info, warn};
 use serde::Serialize;
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{broadcast, mpsc, oneshot, RwLock};
 use uuid::Uuid;
 
 use crate::blob_store::BlobStore;
@@ -30,7 +30,7 @@ use crate::comm_state::CommState;
 use crate::notebook_doc::NotebookDoc;
 use crate::notebook_sync_server::persist_notebook_bytes;
 use crate::output_store::{self, DEFAULT_INLINE_THRESHOLD};
-use crate::protocol::NotebookBroadcast;
+use crate::protocol::{HistoryEntry, NotebookBroadcast};
 
 /// Convert a JupyterMessageContent to nbformat-style JSON for storage in Automerge.
 ///
@@ -245,6 +245,8 @@ pub struct RoomKernel {
     blob_store: Arc<BlobStore>,
     /// Comm state for widget synchronization across windows
     comm_state: Arc<CommState>,
+    /// Pending history requests: msg_id → response channel
+    pending_history: Arc<StdMutex<HashMap<String, oneshot::Sender<Vec<HistoryEntry>>>>>,
 }
 
 /// Commands from iopub/shell handlers for queue state management.
@@ -293,6 +295,7 @@ impl RoomKernel {
             changed_tx,
             blob_store,
             comm_state,
+            pending_history: Arc::new(StdMutex::new(HashMap::new())),
         }
     }
 
@@ -844,6 +847,7 @@ impl RoomKernel {
         // Spawn shell reader task
         let shell_broadcast_tx = self.broadcast_tx.clone();
         let shell_cell_id_map = self.cell_id_map.clone();
+        let shell_pending_history = self.pending_history.clone();
 
         let shell_reader_task = tokio::spawn(async move {
             loop {
@@ -862,6 +866,51 @@ impl RoomKernel {
                                         let _ = shell_broadcast_tx.send(
                                             NotebookBroadcast::ExecutionDone { cell_id: cid },
                                         );
+                                    }
+                                }
+                            }
+                            JupyterMessageContent::HistoryReply(ref reply) => {
+                                // Get the parent msg_id to find the pending request
+                                if let Some(ref parent) = msg.parent_header {
+                                    let msg_id = &parent.msg_id;
+                                    if let Ok(mut pending) = shell_pending_history.lock() {
+                                        if let Some(tx) = pending.remove(msg_id) {
+                                            // Convert Jupyter history to our format
+                                            let entries: Vec<HistoryEntry> = reply
+                                                .history
+                                                .iter()
+                                                .map(|item| {
+                                                    // History items are (session, line, input)
+                                                    // where input can be String or (String, String) for input/output
+                                                    match item {
+                                                        jupyter_protocol::HistoryEntry::Input(
+                                                            session,
+                                                            line,
+                                                            source,
+                                                        ) => HistoryEntry {
+                                                            session: *session as i32,
+                                                            line: *line as i32,
+                                                            source: source.clone(),
+                                                        },
+                                                        jupyter_protocol::HistoryEntry::InputOutput(
+                                                            session,
+                                                            line,
+                                                            (source, _output),
+                                                        ) => HistoryEntry {
+                                                            session: *session as i32,
+                                                            line: *line as i32,
+                                                            source: source.clone(),
+                                                        },
+                                                    }
+                                                })
+                                                .collect();
+
+                                            debug!(
+                                                "[kernel-manager] Resolved history request: {} entries",
+                                                entries.len()
+                                            );
+                                            let _ = tx.send(entries);
+                                        }
                                     }
                                 }
                             }
@@ -1125,6 +1174,63 @@ impl RoomKernel {
 
         shell.send(message).await?;
         Ok(())
+    }
+
+    /// Search kernel input history.
+    ///
+    /// Sends a history_request to the kernel and waits for the reply.
+    /// Returns an error if no kernel is running or the request times out.
+    pub async fn get_history(
+        &mut self,
+        pattern: Option<String>,
+        n: i32,
+        unique: bool,
+    ) -> Result<Vec<HistoryEntry>> {
+        let shell = self
+            .shell_writer
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("No kernel running"))?;
+
+        // Create history request
+        let request = HistoryRequest::Search {
+            pattern: pattern.unwrap_or_else(|| "*".to_string()),
+            unique,
+            output: false,
+            raw: true,
+            n,
+        };
+
+        let message: JupyterMessage = request.into();
+        let msg_id = message.header.msg_id.clone();
+
+        // Create response channel
+        let (tx, rx) = oneshot::channel();
+
+        // Register pending request BEFORE sending
+        self.pending_history
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Lock poisoned"))?
+            .insert(msg_id.clone(), tx);
+
+        // Send request
+        shell.send(message).await?;
+        debug!("[kernel-manager] Sent history_request: msg_id={}", msg_id);
+
+        // Wait for response with timeout
+        match tokio::time::timeout(std::time::Duration::from_secs(5), rx).await {
+            Ok(Ok(entries)) => Ok(entries),
+            Ok(Err(_)) => {
+                // Channel closed without response
+                Err(anyhow::anyhow!("History request cancelled"))
+            }
+            Err(_) => {
+                // Timeout - clean up pending request
+                if let Ok(mut pending) = self.pending_history.lock() {
+                    pending.remove(&msg_id);
+                }
+                Err(anyhow::anyhow!("History request timed out"))
+            }
+        }
     }
 
     /// Clear the execution queue.
