@@ -85,8 +85,8 @@ fn cmd_dev(notebook: Option<&str>, attach: bool) {
     if attach {
         println!("Attaching to existing Vite server...");
 
-        // Use CONDUCTOR_PORT if set, otherwise default to 5173
-        let port = env::var("CONDUCTOR_PORT").unwrap_or_else(|_| "5173".to_string());
+        // Use CONDUCTOR_PORT if set, otherwise default to 5174 (Vite's default)
+        let port = env::var("CONDUCTOR_PORT").unwrap_or_else(|_| "5174".to_string());
         println!("Connecting to Vite at http://localhost:{port}");
 
         // Skip beforeDevCommand (Vite is already running) and set devUrl
