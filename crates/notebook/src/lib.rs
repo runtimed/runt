@@ -37,7 +37,9 @@ type SharedNotebookSync = Arc<tokio::sync::Mutex<Option<NotebookSyncHandle>>>;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::{Emitter, Manager, RunEvent};
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+use tauri::RunEvent;
+use tauri::{Emitter, Manager};
 
 #[derive(Serialize)]
 struct KernelspecInfo {
@@ -2913,10 +2915,10 @@ pub fn run(
         .build(tauri::generate_context!())
         .map_err(|e| anyhow::anyhow!("Tauri build error: {}", e))?;
 
-    app.run(move |_app_handle, event| {
+    app.run(move |_app_handle, _event| {
         // Handle file associations (macOS only)
         #[cfg(any(target_os = "macos", target_os = "ios"))]
-        if let RunEvent::Opened { urls } = &event {
+        if let RunEvent::Opened { urls } = &_event {
             for url in urls {
                 let path = match url.scheme() {
                     "file" => url.to_file_path().ok(),
