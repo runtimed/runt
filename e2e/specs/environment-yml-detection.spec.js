@@ -13,11 +13,13 @@ import {
   executeFirstCell,
   waitForAppReady,
   waitForCellOutput,
+  waitForKernelReady,
 } from "../helpers.js";
 
 describe("Environment.yml Detection", () => {
   before(async () => {
     await waitForAppReady();
+    await waitForKernelReady(90000); // conda env may need time to create
     console.log("Page title:", await browser.getTitle());
   });
 

@@ -107,7 +107,7 @@ export async function waitForCellOutput(cell, timeout = 120000) {
     {
       timeout,
       timeoutMsg: `No output appeared within ${timeout / 1000}s`,
-      interval: 1000,
+      interval: 500,
     },
   );
 

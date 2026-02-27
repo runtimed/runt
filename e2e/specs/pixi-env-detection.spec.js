@@ -13,11 +13,13 @@ import {
   executeFirstCell,
   waitForAppReady,
   waitForCellOutput,
+  waitForKernelReady,
 } from "../helpers.js";
 
 describe("Pixi Environment Detection", () => {
   before(async () => {
     await waitForAppReady();
+    await waitForKernelReady(90000); // pixi may need time to create env
     console.log("Page title:", await browser.getTitle());
   });
 

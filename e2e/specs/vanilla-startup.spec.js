@@ -12,11 +12,13 @@ import {
   executeFirstCell,
   waitForAppReady,
   waitForCellOutput,
+  waitForKernelReady,
 } from "../helpers.js";
 
 describe("Vanilla Notebook Startup", () => {
   before(async () => {
     await waitForAppReady();
+    await waitForKernelReady();
     console.log("Page title:", await browser.getTitle());
   });
 

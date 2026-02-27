@@ -7,7 +7,7 @@
 
 import os from "node:os";
 import { browser, expect } from "@wdio/globals";
-import { waitForAppReady } from "../helpers.js";
+import { waitForAppReady, waitForKernelReady } from "../helpers.js";
 
 // macOS uses Cmd (Meta) for shortcuts, Linux uses Ctrl
 const MOD_KEY = os.platform() === "darwin" ? "Meta" : "Control";
@@ -37,6 +37,7 @@ describe("Notebook Execution Happy Path", () => {
 
   before(async () => {
     await waitForAppReady();
+    await waitForKernelReady();
 
     const title = await browser.getTitle();
     console.log("Page title:", title);

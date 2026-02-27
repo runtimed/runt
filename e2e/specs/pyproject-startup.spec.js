@@ -13,11 +13,13 @@ import {
   executeFirstCell,
   waitForAppReady,
   waitForCellOutput,
+  waitForKernelReady,
 } from "../helpers.js";
 
 describe("Pyproject Kernel Startup", () => {
   before(async () => {
     await waitForAppReady();
+    await waitForKernelReady(120000); // pyproject may need time to install deps
     console.log("Page title:", await browser.getTitle());
   });
 
