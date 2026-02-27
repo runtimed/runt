@@ -605,18 +605,71 @@ function AppContent() {
 
   // Listen for daemon startup progress events
   useEffect(() => {
-    const unlistenPromise = listen<DaemonStatus>("daemon:progress", (event) => {
-      const status = event.payload;
-      setDaemonStatus(status);
+    const unlistenProgress = listen<DaemonStatus>(
+      "daemon:progress",
+      (event) => {
+        const status = event.payload;
+        setDaemonStatus(status);
 
-      // Clear status after a short delay when daemon is ready
-      if (status?.status === "ready") {
-        setTimeout(() => setDaemonStatus(null), 1000);
-      }
+        // Clear status after a short delay when daemon is ready
+        if (status?.status === "ready") {
+          setTimeout(() => setDaemonStatus(null), 1000);
+        }
+      },
+    );
+
+    // Listen for daemon disconnection (mid-session)
+    const unlistenDisconnect = listen("daemon:disconnected", () => {
+      setDaemonStatus({
+        status: "failed",
+        error: "Runtime disconnected. Attempting to reconnect...",
+      });
     });
 
+    // Listen for daemon unavailable (startup failure, fires after sync timeout)
+    const unlistenUnavailable = listen<{
+      reason: string;
+      message: string;
+      guidance: string;
+    }>("daemon:unavailable", (event) => {
+      setDaemonStatus({
+        status: "failed",
+        error: `${event.payload.message} ${event.payload.guidance}`,
+      });
+    });
+
+    // Listen for daemon ready (reconnection success)
+    const unlistenReady = listen("daemon:ready", () => {
+      // Clear any error banner when daemon reconnects
+      setDaemonStatus((prev) => (prev?.status === "failed" ? null : prev));
+    });
+
+    // Check daemon status on mount (in case events fired before React was ready)
+    // Small delay to let initial events settle
+    const checkTimeout = setTimeout(() => {
+      invoke<boolean>("is_daemon_connected").then((connected) => {
+        if (!connected) {
+          setDaemonStatus((prev) => {
+            // Only set if no status is already shown
+            if (!prev) {
+              return {
+                status: "failed",
+                error:
+                  "Runtime daemon not available. Run 'cargo xtask dev-daemon' to start it.",
+              };
+            }
+            return prev;
+          });
+        }
+      });
+    }, 500);
+
     return () => {
-      unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
+      clearTimeout(checkTimeout);
+      unlistenProgress.then((unlisten) => unlisten()).catch(() => {});
+      unlistenDisconnect.then((unlisten) => unlisten()).catch(() => {});
+      unlistenUnavailable.then((unlisten) => unlisten()).catch(() => {});
+      unlistenReady.then((unlisten) => unlisten()).catch(() => {});
     };
   }, []);
 

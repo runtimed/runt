@@ -1142,6 +1142,16 @@ async fn get_daemon_kernel_info(
         .map_err(|e| format!("daemon request failed: {}", e))
 }
 
+/// Check if daemon is connected.
+/// Returns true if notebook_sync handle exists (daemon available).
+#[tauri::command]
+async fn is_daemon_connected(
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<bool, String> {
+    let guard = notebook_sync.lock().await;
+    Ok(guard.is_some())
+}
+
 /// Get execution queue state from the daemon.
 #[tauri::command]
 async fn get_daemon_queue_state(
@@ -4087,6 +4097,7 @@ pub fn run(
             interrupt_via_daemon,
             shutdown_kernel_via_daemon,
             get_daemon_kernel_info,
+            is_daemon_connected,
             get_daemon_queue_state,
             run_all_cells_via_daemon,
             send_comm_via_daemon,
