@@ -17,6 +17,7 @@ import { DenoDependencyHeader } from "./components/DenoDependencyHeader";
 import { DependencyHeader } from "./components/DependencyHeader";
 import { NotebookToolbar } from "./components/NotebookToolbar";
 import { NotebookView } from "./components/NotebookView";
+import { PoolErrorBanner } from "./components/PoolErrorBanner";
 import { TrustDialog } from "./components/TrustDialog";
 import { useCondaDependencies } from "./hooks/useCondaDependencies";
 import { useDaemonKernel } from "./hooks/useDaemonKernel";
@@ -27,6 +28,7 @@ import { useExecutionQueue } from "./hooks/useExecutionQueue";
 import { useDaemonInfo, useGitInfo } from "./hooks/useGitInfo";
 import { type MimeBundle, useKernel } from "./hooks/useKernel";
 import { useNotebook } from "./hooks/useNotebook";
+import { usePoolState } from "./hooks/usePoolState";
 import { useTrust } from "./hooks/useTrust";
 import type { JupyterMessage, JupyterOutput } from "./types";
 
@@ -74,6 +76,7 @@ async function sendMessage(message: unknown): Promise<void> {
 function AppContent() {
   const gitInfo = useGitInfo();
   const daemonInfo = useDaemonInfo();
+  const { uvError, condaError } = usePoolState();
 
   const { theme, setTheme } = useSyncedTheme();
   const {
@@ -757,6 +760,7 @@ function AppContent() {
           isDevMode={daemonInfo?.is_dev_mode}
         />
       )}
+      <PoolErrorBanner uvError={uvError} condaError={condaError} />
       <NotebookToolbar
         kernelStatus={kernelStatus}
         kernelErrorMessage={kernelErrorMessage}

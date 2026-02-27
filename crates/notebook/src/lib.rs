@@ -3906,6 +3906,38 @@ async fn run_settings_sync(app: tauri::AppHandle) {
     }
 }
 
+/// Background task that subscribes to pool state broadcasts from the runtimed daemon
+/// and emits Tauri events to all windows when pool errors occur or clear.
+///
+/// Reconnects automatically with backoff if the connection drops.
+async fn run_pool_state_sync(app: tauri::AppHandle) {
+    use tauri::Emitter;
+
+    loop {
+        match runtimed::client::subscribe_pool_state().await {
+            Ok(mut rx) => {
+                log::info!("[pool-state] Subscribed to pool state broadcasts");
+                while let Some(broadcast) = rx.recv().await {
+                    log::info!("[pool-state] Pool state changed: {:?}", broadcast);
+                    if let Err(e) = app.emit("daemon:pool_state", &broadcast) {
+                        log::warn!("[pool-state] Failed to emit: {}", e);
+                    }
+                }
+                log::warn!("[pool-state] Subscription ended, reconnecting...");
+            }
+            Err(e) => {
+                log::info!(
+                    "[pool-state] Cannot connect to daemon: {}. Retrying in 5s.",
+                    e
+                );
+            }
+        }
+
+        // Backoff before reconnecting
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+}
+
 /// Create initial notebook state for a new notebook, detecting project-level config for Python.
 fn create_new_notebook_state(path: &Path, runtime: Runtime) -> NotebookState {
     // Only check project files for Python runtime
@@ -4218,6 +4250,7 @@ pub fn run(
             // The daemon provides centralized prewarming across all notebook windows
             let app_for_daemon = app.handle().clone();
             let app_for_sync = app.handle().clone();
+            let app_for_pool_state = app.handle().clone();
             let app_for_notebook_sync = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 // Get path to bundled runtimed binary (for auto-installation)
@@ -4237,6 +4270,10 @@ pub fn run(
                 // Start settings sync subscription (reconnects automatically)
                 // Spawn as separate task since it runs forever
                 tokio::spawn(run_settings_sync(app_for_sync));
+
+                // Start pool state subscription (reconnects automatically)
+                // This notifies frontends about prewarm pool errors
+                tokio::spawn(run_pool_state_sync(app_for_pool_state));
 
                 // Initialize notebook sync if daemon is available
                 if daemon_available {

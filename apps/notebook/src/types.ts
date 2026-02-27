@@ -180,6 +180,25 @@ export type DaemonBroadcast =
       buffers: number[][]; // Binary buffers as byte arrays
     };
 
+// =============================================================================
+// Pool State Types (Daemon prewarm pool error tracking)
+// =============================================================================
+
+/** Error information from daemon prewarm pool */
+export interface PoolError {
+  message: string;
+  failed_package: string | null;
+  consecutive_failures: number;
+  retry_in_secs: number;
+}
+
+/** Broadcast event for pool state changes (global daemon state, not per-notebook) */
+export interface PoolStateBroadcast {
+  event: "pool_state";
+  uv_error: PoolError | null;
+  conda_error: PoolError | null;
+}
+
 /** Response types from daemon notebook requests */
 export type DaemonNotebookResponse =
   | { result: "kernel_launched"; kernel_type: string; env_source: string }

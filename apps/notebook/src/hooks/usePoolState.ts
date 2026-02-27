@@ -1,0 +1,43 @@
+import { listen } from "@tauri-apps/api/event";
+import { useEffect, useState } from "react";
+import type { PoolError, PoolStateBroadcast } from "../types";
+
+export interface PoolState {
+  uvError: PoolError | null;
+  condaError: PoolError | null;
+}
+
+/**
+ * Hook to subscribe to daemon pool state broadcasts.
+ *
+ * Returns the current UV and Conda pool error state. When the daemon
+ * broadcasts a pool state change (error occurred or cleared), the state
+ * updates automatically.
+ *
+ * The hook auto-clears errors when the daemon reports success, so there's
+ * no need for manual dismiss - it reflects the actual daemon state.
+ */
+export function usePoolState(): PoolState {
+  const [uvError, setUvError] = useState<PoolError | null>(null);
+  const [condaError, setCondaError] = useState<PoolError | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const unlistenPromise = listen<PoolStateBroadcast>(
+      "daemon:pool_state",
+      (event) => {
+        if (cancelled) return;
+        setUvError(event.payload.uv_error);
+        setCondaError(event.payload.conda_error);
+      },
+    );
+
+    return () => {
+      cancelled = true;
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  return { uvError, condaError };
+}
