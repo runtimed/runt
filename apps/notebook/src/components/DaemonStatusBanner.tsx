@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2, X } from "lucide-react";
+import { AlertTriangle, Loader2, RefreshCw, X } from "lucide-react";
 
 /**
  * Status of the daemon during startup or operation.
@@ -17,6 +17,7 @@ export type DaemonStatus =
 interface DaemonStatusBannerProps {
   status: DaemonStatus;
   onDismiss?: () => void;
+  onRetry?: () => void;
 }
 
 /**
@@ -24,48 +25,61 @@ interface DaemonStatusBannerProps {
  *
  * Shows different visual states:
  * - Blue/info with spinner: Installing, upgrading, starting, waiting
- * - Red/error: Failed state with dismissible error message
+ * - Amber/warning: Failed state with retry button
  * - Hidden: Ready state or null
  */
 export function DaemonStatusBanner({
   status,
   onDismiss,
+  onRetry,
 }: DaemonStatusBannerProps) {
   // Don't show banner for ready or null state
   if (!status || status.status === "ready") {
     return null;
   }
 
-  // Failed state - red banner with error message
+  // Failed state - amber banner with error message and retry button
   if (status.status === "failed") {
     return (
-      <div className="flex items-center justify-between gap-3 bg-red-600/90 px-3 py-2 text-sm text-white">
-        <div className="flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-          <span className="font-medium">Runtime unavailable</span>
-          <span className="text-red-200">—</span>
-          <span className="text-red-100">{status.error}</span>
+      <div className="flex items-center justify-between gap-2 bg-amber-600/90 px-3 py-1 text-xs text-white">
+        <div className="flex items-center gap-2 min-w-0">
+          <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+          <span className="font-medium flex-shrink-0">Runtime unavailable</span>
+          <span className="text-amber-200 flex-shrink-0">—</span>
+          <span className="text-amber-100 truncate">{status.error}</span>
         </div>
-        {onDismiss && (
-          <button
-            type="button"
-            onClick={onDismiss}
-            className="rounded p-1 hover:bg-red-500/50 transition-colors"
-            aria-label="Dismiss"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="flex items-center gap-1 rounded px-2 py-0.5 hover:bg-amber-500/50 transition-colors"
+            >
+              <RefreshCw className="h-3 w-3" />
+              <span>Retry</span>
+            </button>
+          )}
+          {onDismiss && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="rounded p-0.5 hover:bg-amber-500/50 transition-colors"
+              aria-label="Dismiss"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
       </div>
     );
   }
 
-  // Progress states - blue banner with spinner
+  // Progress states - soft blue banner with spinner
   const message = getProgressMessage(status);
 
   return (
-    <div className="flex items-center gap-2 bg-blue-600/90 px-3 py-2 text-sm text-white">
-      <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+    <div className="flex items-center gap-2 bg-sky-600/90 px-3 py-1 text-xs text-white">
+      <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
       <span>{message}</span>
     </div>
   );

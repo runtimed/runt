@@ -700,6 +700,19 @@ function AppContent() {
       <DaemonStatusBanner
         status={daemonStatus}
         onDismiss={() => setDaemonStatus(null)}
+        onRetry={() => {
+          setDaemonStatus({ status: "checking" });
+          invoke("reconnect_to_daemon")
+            .then(() => {
+              // Success - daemon:ready event will clear the banner
+            })
+            .catch((e) => {
+              setDaemonStatus({
+                status: "failed",
+                error: `Reconnection failed: ${e}`,
+              });
+            });
+        }}
       />
       <NotebookToolbar
         kernelStatus={kernelStatus}
