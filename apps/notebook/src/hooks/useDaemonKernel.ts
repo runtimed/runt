@@ -4,9 +4,6 @@
  * This hook provides an interface to the daemon's kernel management,
  * enabling multi-window kernel sharing. The daemon owns the kernel lifecycle
  * and execution queue, broadcasting outputs to all connected windows.
- *
- * Note: This is separate from useKernel.ts which manages local kernels.
- * Use this when daemon execution is enabled; use useKernel for local execution.
  */
 
 import { invoke } from "@tauri-apps/api/core";

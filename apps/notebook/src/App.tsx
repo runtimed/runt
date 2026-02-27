@@ -12,7 +12,6 @@ import { WidgetView } from "@/components/widgets/widget-view";
 import { useSyncedSettings, useSyncedTheme } from "@/hooks/useSyncedSettings";
 import { ErrorBoundary } from "@/lib/error-boundary";
 import { CondaDependencyHeader } from "./components/CondaDependencyHeader";
-import { DaemonUnavailableBanner } from "./components/DaemonUnavailableBanner";
 import { DebugBanner } from "./components/DebugBanner";
 import { DenoDependencyHeader } from "./components/DenoDependencyHeader";
 import { DependencyHeader } from "./components/DependencyHeader";
@@ -24,12 +23,13 @@ import { useDaemonKernel } from "./hooks/useDaemonKernel";
 import { useDenoDependencies } from "./hooks/useDenoDependencies";
 import { useDependencies } from "./hooks/useDependencies";
 import { useEnvProgress } from "./hooks/useEnvProgress";
-import { useExecutionQueue } from "./hooks/useExecutionQueue";
 import { useDaemonInfo, useGitInfo } from "./hooks/useGitInfo";
-import { type MimeBundle, useKernel } from "./hooks/useKernel";
 import { useNotebook } from "./hooks/useNotebook";
 import { useTrust } from "./hooks/useTrust";
-import type { JupyterMessage, JupyterOutput } from "./types";
+import type { JupyterMessage } from "./types";
+
+/** MIME bundle type for page payloads */
+export type MimeBundle = Record<string, unknown>;
 
 /** Page payload data for a cell */
 export interface CellPagePayload {
@@ -39,13 +39,13 @@ export interface CellPagePayload {
 
 /**
  * Module-level reference for daemon comm sending.
- * Set by AppContent when daemon execution is enabled.
+ * Set by AppContent when daemon kernel is initialized.
  */
 let daemonCommSender: ((message: unknown) => Promise<void>) | null = null;
 
 /**
  * Update the daemon comm sender reference.
- * Called by AppContent when daemon execution mode changes.
+ * Called by AppContent when daemon kernel is initialized.
  */
 export function setDaemonCommSender(
   sender: ((message: unknown) => Promise<void>) | null,
@@ -54,21 +54,18 @@ export function setDaemonCommSender(
 }
 
 /**
- * Send a message to the kernel's shell channel via Tauri.
+ * Send a message to the kernel's shell channel via daemon.
  * Used by the widget store for comm_msg/comm_open/comm_close.
- *
- * When daemon execution is enabled, this routes through the daemon.
- * Otherwise, it sends directly to the local kernel.
  */
 async function sendMessage(message: unknown): Promise<void> {
   try {
     if (daemonCommSender) {
       await daemonCommSender(message);
     } else {
-      await invoke("send_shell_message", { message });
+      console.warn("[widget] sendMessage called but daemon sender not ready");
     }
   } catch (e) {
-    console.error("[widget] send_shell/comm_message failed:", e);
+    console.error("[widget] send_comm_message failed:", e);
   }
 }
 
@@ -86,8 +83,6 @@ function AppContent() {
     setDefaultUvPackages,
     defaultCondaPackages,
     setDefaultCondaPackages,
-    daemonExecution,
-    setDaemonExecution,
   } = useSyncedSettings();
 
   const {
@@ -101,30 +96,16 @@ function AppContent() {
     openNotebook,
     cloneNotebook,
     dirty,
-    appendOutput,
     updateOutputByDisplayId,
     setExecutionCount,
     clearCellOutputs,
     formatCell,
   } = useNotebook();
 
-  // Execution queue - cells are queued and executed in FIFO order by the backend
-  const {
-    queueCell,
-    runAllCells,
-    queuedCellIds: executingCellIds,
-  } = useExecutionQueue();
-
   const [dependencyHeaderOpen, setDependencyHeaderOpen] = useState(false);
   const [showIsolationTest, setShowIsolationTest] = useState(false);
   const [trustDialogOpen, setTrustDialogOpen] = useState(false);
   const [clearingDeps, setClearingDeps] = useState(false);
-
-  // Daemon unavailable state - shown when daemon mode is enabled but daemon is not running
-  const [daemonUnavailable, setDaemonUnavailable] = useState<{
-    message: string;
-    guidance: string;
-  } | null>(null);
 
   // Trust verification for notebook dependencies
   const {
@@ -182,7 +163,6 @@ function AppContent() {
     syncState: condaSyncState,
     syncedWhileRunning: condaSyncedWhileRunning,
     needsKernelRestart: condaNeedsKernelRestart,
-    loadDependencies: loadCondaDependencies,
     addDependency: addCondaDependency,
     removeDependency: removeCondaDependency,
     clearAllDependencies: clearAllCondaDeps,
@@ -213,62 +193,7 @@ function AppContent() {
         (environmentYmlInfo?.has_dependencies ?? false);
 
   // Get widget store handler for routing comm messages
-  const {
-    handleMessage: handleWidgetMessage,
-    store: widgetStore,
-    sendUpdate: sendWidgetUpdate,
-  } = useWidgetStoreRequired();
-
-  const handleOutput = useCallback(
-    (
-      cellId: string,
-      output: JupyterOutput,
-      meta?: { parentMsgId?: string },
-    ) => {
-      const parentMsgId = meta?.parentMsgId;
-      let capturedByOutputWidget = false;
-
-      // ipywidgets OutputModel uses `msg_id` to capture regular IOPub outputs.
-      // Route matching outputs into OutputModel.state.outputs and sync to kernel.
-      if (parentMsgId) {
-        for (const [commId, model] of widgetStore.getSnapshot()) {
-          const isOutputModel =
-            model.modelName === "OutputModel" ||
-            model.modelModule === "@jupyter-widgets/output";
-          if (!isOutputModel) continue;
-
-          const modelMsgId =
-            typeof model.state.msg_id === "string"
-              ? model.state.msg_id
-              : undefined;
-          if (modelMsgId !== parentMsgId) continue;
-
-          const currentOutputs = Array.isArray(model.state.outputs)
-            ? (model.state.outputs as JupyterOutput[])
-            : [];
-          const nextOutputs = [...currentOutputs, output];
-
-          sendWidgetUpdate(commId, { outputs: nextOutputs });
-          capturedByOutputWidget = true;
-        }
-      }
-
-      if (capturedByOutputWidget) {
-        return;
-      }
-
-      appendOutput(cellId, output);
-      // Sync output to Automerge for cross-window sync (only if not captured by widget)
-      // Skip when daemon execution is enabled - daemon broadcasts outputs to all windows
-      if (!daemonExecution) {
-        invoke("sync_append_output", {
-          cellId,
-          outputJson: JSON.stringify(output),
-        }).catch(() => {}); // Fire-and-forget
-      }
-    },
-    [appendOutput, sendWidgetUpdate, widgetStore, daemonExecution],
-  );
+  const { handleMessage: handleWidgetMessage } = useWidgetStoreRequired();
 
   const handleExecutionCount = useCallback(
     (cellId: string, count: number) => {
@@ -277,10 +202,9 @@ function AppContent() {
     [setExecutionCount],
   );
 
-  // Execution completion is handled by the queue via queue:state events
-  // This callback is still called by useKernel but is now a no-op
+  // Execution completion is handled by the daemon queue via broadcast events
   const handleExecutionDone = useCallback((_cellId: string) => {
-    // Queue handles execution tracking via backend events
+    // Daemon queue handles execution tracking via broadcasts
   }, []);
 
   const handleCommMessage = useCallback(
@@ -289,17 +213,6 @@ function AppContent() {
       handleWidgetMessage(msg as Parameters<typeof handleWidgetMessage>[0]);
     },
     [handleWidgetMessage],
-  );
-
-  const handlePagePayload = useCallback(
-    (cellId: string, data: MimeBundle, start: number) => {
-      setPagePayloads((prev) => {
-        const next = new Map(prev);
-        next.set(cellId, { data, start });
-        return next;
-      });
-    },
-    [],
   );
 
   // Clear page payload for a cell (e.g., when dismissed or re-executed)
@@ -311,43 +224,23 @@ function AppContent() {
     });
   }, []);
 
+  // Daemon-owned kernel execution
   const {
-    kernelStatus: localKernelStatus,
-    kernelErrorMessage: localKernelErrorMessage,
-    envSource: localEnvSource,
-    ensureKernelStarted,
-    startKernelWithPyproject,
-    interruptKernel: localInterruptKernel,
-    restartKernel: localRestartKernel,
-    restartAndRunAll: localRestartAndRunAll,
-    listKernelspecs,
-  } = useKernel({
-    onOutput: handleOutput,
-    onExecutionCount: handleExecutionCount,
-    onExecutionDone: handleExecutionDone,
-    onCommMessage: handleCommMessage,
-    onKernelStarted: loadCondaDependencies,
-    onPagePayload: handlePagePayload,
-    onUpdateDisplayData: updateOutputByDisplayId,
-  });
-
-  // Daemon-owned kernel execution (experimental)
-  const {
-    kernelStatus: daemonKernelStatus,
-    kernelInfo: daemonKernelInfo,
-    launchKernel: daemonLaunchKernel,
-    queueCell: daemonQueueCell,
-    clearOutputs: daemonClearOutputs,
-    interruptKernel: daemonInterruptKernel,
-    shutdownKernel: daemonShutdownKernel,
+    kernelStatus,
+    kernelInfo,
+    queueState,
+    launchKernel,
+    queueCell,
+    clearOutputs,
+    interruptKernel,
+    shutdownKernel,
     runAllCells: daemonRunAllCells,
-    sendCommMessage: daemonSendCommMessage,
+    sendCommMessage,
   } = useDaemonKernel({
     // Daemon execution: Automerge is the source of truth for outputs.
     // The daemon writes outputs to Automerge, then broadcasts for immediate UI.
     // We skip broadcast handling to avoid race conditions - Automerge sync
     // arrives shortly after and provides the canonical state.
-    // This prevents duplicate outputs when Automerge sync and broadcast race.
     onOutput: () => {},
     onExecutionCount: handleExecutionCount,
     onExecutionDone: handleExecutionDone,
@@ -356,74 +249,31 @@ function AppContent() {
     onCommMessage: handleCommMessage, // Route comm messages to widget store
   });
 
-  // Update the daemon comm sender when daemon execution mode changes
+  // Derive values from daemon kernel
+  const envSource = kernelInfo.envSource ?? null;
+
+  // Set up daemon comm sender for widget messages
   useEffect(() => {
-    if (daemonExecution) {
-      // Set the daemon comm sender so widget messages route through daemon
-      setDaemonCommSender(async (message: unknown) => {
-        const msg = message as {
-          header: { msg_type: string };
-          content: Record<string, unknown>;
-          buffers?: ArrayBuffer[];
-        };
-        await daemonSendCommMessage(msg);
-      });
-    } else {
-      // Clear daemon sender - messages go directly to local kernel
-      setDaemonCommSender(null);
-    }
+    setDaemonCommSender(async (message: unknown) => {
+      const msg = message as {
+        header: { msg_type: string };
+        content: Record<string, unknown>;
+        buffers?: ArrayBuffer[];
+      };
+      await sendCommMessage(msg);
+    });
 
     return () => {
-      // Cleanup on unmount
       setDaemonCommSender(null);
     };
-  }, [daemonExecution, daemonSendCommMessage]);
+  }, [sendCommMessage]);
 
-  // Choose kernel status/operations based on daemon execution mode
-  const kernelStatus = daemonExecution ? daemonKernelStatus : localKernelStatus;
-  const kernelErrorMessage = daemonExecution ? null : localKernelErrorMessage;
-  const envSource = daemonExecution
-    ? (daemonKernelInfo.envSource ?? null)
-    : localEnvSource;
-  const interruptKernel = daemonExecution
-    ? daemonInterruptKernel
-    : localInterruptKernel;
-  const restartKernel = daemonExecution
-    ? daemonShutdownKernel
-    : localRestartKernel;
-  const restartAndRunAll = daemonExecution
-    ? async () => {
-        const codeCells = cells.filter((c) => c.cell_type === "code");
-
-        // Clear all outputs locally (immediate feedback)
-        for (const cell of codeCells) {
-          clearCellOutputs(cell.id);
-        }
-
-        // Clear outputs via daemon for cross-window sync
-        await Promise.all(codeCells.map((cell) => daemonClearOutputs(cell.id)));
-
-        // Shutdown existing kernel
-        await daemonShutdownKernel();
-
-        // Start kernel - returns false if not started (e.g., trust dialog)
-        const kernelStarted = await tryStartKernel();
-        if (!kernelStarted) {
-          console.log(
-            "[App] restartAndRunAll: kernel not started, skipping run all",
-          );
-          return;
-        }
-
-        // Daemon reads cell sources from Automerge doc and queues them
-        const response = await daemonRunAllCells();
-        if (response.result === "error") {
-          console.error("[App] restartAndRunAll: daemon error", response.error);
-        } else if (response.result === "no_kernel") {
-          console.warn("[App] restartAndRunAll: no kernel available");
-        }
-      }
-    : localRestartAndRunAll;
+  // Get executing cell IDs from daemon queue state (as Set for NotebookView)
+  const executingCellIds = new Set(
+    queueState.executing
+      ? [queueState.executing, ...queueState.queued]
+      : queueState.queued,
+  );
 
   // When kernel is running and we know the env source, use it to determine panel type.
   // This handles: both-deps (backend picks based on preference), pixi (auto-detected, no metadata).
@@ -462,32 +312,61 @@ function AppContent() {
     if (!info) return false;
 
     if (info.status === "trusted" || info.status === "no_dependencies") {
-      // Trusted - start kernel
-      if (daemonExecution) {
-        // Launch kernel via daemon - "auto" triggers project file detection
-        const response = await daemonLaunchKernel(
-          runtime === "deno" ? "deno" : "python",
-          "auto",
-        );
-        if (response.result === "error") {
-          console.error("[App] tryStartKernel: daemon error", response.error);
-          return false;
-        }
-        return true;
+      // Trusted - launch kernel via daemon ("auto" triggers project file detection)
+      const response = await launchKernel(
+        runtime === "deno" ? "deno" : "python",
+        "auto",
+      );
+      if (response.result === "error") {
+        console.error("[App] tryStartKernel: daemon error", response.error);
+        return false;
       }
-      await ensureKernelStarted();
       return true;
     }
     // Untrusted - show dialog and mark pending start
     pendingKernelStartRef.current = true;
     setTrustDialogOpen(true);
     return false;
+  }, [checkTrust, launchKernel, runtime]);
+
+  // Restart and run all cells
+  const restartAndRunAll = useCallback(async () => {
+    const codeCells = cells.filter((c) => c.cell_type === "code");
+
+    // Clear all outputs locally (immediate feedback)
+    for (const cell of codeCells) {
+      clearCellOutputs(cell.id);
+    }
+
+    // Clear outputs via daemon for cross-window sync
+    await Promise.all(codeCells.map((cell) => clearOutputs(cell.id)));
+
+    // Shutdown existing kernel
+    await shutdownKernel();
+
+    // Start kernel - returns false if not started (e.g., trust dialog)
+    const kernelStarted = await tryStartKernel();
+    if (!kernelStarted) {
+      console.log(
+        "[App] restartAndRunAll: kernel not started, skipping run all",
+      );
+      return;
+    }
+
+    // Daemon reads cell sources from Automerge doc and queues them
+    const response = await daemonRunAllCells();
+    if (response.result === "error") {
+      console.error("[App] restartAndRunAll: daemon error", response.error);
+    } else if (response.result === "no_kernel") {
+      console.warn("[App] restartAndRunAll: no kernel available");
+    }
   }, [
-    checkTrust,
-    ensureKernelStarted,
-    daemonExecution,
-    daemonLaunchKernel,
-    runtime,
+    cells,
+    clearCellOutputs,
+    clearOutputs,
+    shutdownKernel,
+    tryStartKernel,
+    daemonRunAllCells,
   ]);
 
   // Handle trust approval from dialog
@@ -496,23 +375,10 @@ function AppContent() {
     if (success && pendingKernelStartRef.current) {
       pendingKernelStartRef.current = false;
       // Now start the kernel since trust was approved
-      if (daemonExecution) {
-        await daemonLaunchKernel(
-          runtime === "deno" ? "deno" : "python",
-          "auto",
-        );
-      } else {
-        await ensureKernelStarted();
-      }
+      await launchKernel(runtime === "deno" ? "deno" : "python", "auto");
     }
     return success;
-  }, [
-    approveTrust,
-    ensureKernelStarted,
-    daemonExecution,
-    daemonLaunchKernel,
-    runtime,
-  ]);
+  }, [approveTrust, launchKernel, runtime]);
 
   // Handle trust decline from dialog
   const handleTrustDecline = useCallback(() => {
@@ -520,45 +386,40 @@ function AppContent() {
     // User declined - don't start kernel, just close dialog
   }, []);
 
+  // Start kernel explicitly with pyproject.toml (user action from DependencyHeader)
+  const handleStartKernelWithPyproject = useCallback(async () => {
+    const response = await launchKernel("python", "uv:pyproject");
+    if (response.result === "error") {
+      console.error(
+        "[App] handleStartKernelWithPyproject: daemon error",
+        response.error,
+      );
+    }
+  }, [launchKernel]);
+
   const handleExecuteCell = useCallback(
     async (cellId: string) => {
       // Clear outputs immediately so user sees feedback
       clearCellOutputs(cellId);
 
-      if (daemonExecution) {
-        // Daemon execution mode: broadcast clear to other windows, then queue
-        // Await clear to ensure ordering (clear completes before queue)
-        await daemonClearOutputs(cellId);
-        const cell = cells.find((c) => c.id === cellId);
-        if (!cell || cell.cell_type !== "code") return;
+      // Broadcast clear to other windows, then queue
+      await clearOutputs(cellId);
+      const cell = cells.find((c) => c.id === cellId);
+      if (!cell || cell.cell_type !== "code") return;
 
-        // Start kernel via daemon if not running, then queue cell
-        if (kernelStatus === "not_started" || kernelStatus === "not started") {
-          // Launch kernel first, then queue after it's ready
-          await tryStartKernel();
-          daemonQueueCell(cellId, cell.source);
-        } else {
-          // Kernel already running, queue immediately
-          daemonQueueCell(cellId, cell.source);
-        }
-      } else {
-        // Local execution mode: queue via backend execution queue
-        queueCell(cellId);
-        // Then ensure kernel is started (queue processor will wait for it)
-        if (kernelStatus === "not started") {
-          tryStartKernel();
-        }
+      // Start kernel via daemon if not running, then queue cell
+      if (kernelStatus === "not_started") {
+        await tryStartKernel();
       }
+      queueCell(cellId, cell.source);
     },
     [
       clearCellOutputs,
-      queueCell,
+      clearOutputs,
+      cells,
       kernelStatus,
       tryStartKernel,
-      daemonExecution,
-      cells,
-      daemonQueueCell,
-      daemonClearOutputs,
+      queueCell,
     ],
   );
 
@@ -577,54 +438,49 @@ function AppContent() {
     [tryStartKernel],
   );
 
+  // Restart kernel (shutdown then start)
+  const handleRestartKernel = useCallback(async () => {
+    await shutdownKernel();
+    await tryStartKernel();
+  }, [shutdownKernel, tryStartKernel]);
+
   const handleRunAllCells = useCallback(async () => {
-    if (daemonExecution) {
-      // Daemon execution mode: daemon reads cells from synced Automerge doc
-      const codeCells = cells.filter((c) => c.cell_type === "code");
-      if (codeCells.length === 0) return;
+    // Daemon reads cells from synced Automerge doc
+    const codeCells = cells.filter((c) => c.cell_type === "code");
+    if (codeCells.length === 0) return;
 
-      // Clear all outputs first (local for immediate feedback)
-      for (const cell of codeCells) {
-        clearCellOutputs(cell.id);
-      }
+    // Clear all outputs first (local for immediate feedback)
+    for (const cell of codeCells) {
+      clearCellOutputs(cell.id);
+    }
 
-      // Await all daemon clears to ensure ordering before queueing
-      await Promise.all(codeCells.map((cell) => daemonClearOutputs(cell.id)));
+    // Await all daemon clears to ensure ordering before queueing
+    await Promise.all(codeCells.map((cell) => clearOutputs(cell.id)));
 
-      // Start kernel via daemon if not running
-      if (kernelStatus === "not_started" || kernelStatus === "not started") {
-        const started = await tryStartKernel();
-        if (!started) {
-          console.log(
-            "[App] handleRunAllCells: kernel not started, skipping run all",
-          );
-          return;
-        }
-      }
-
-      // Daemon reads cell sources from Automerge doc and queues them
-      const response = await daemonRunAllCells();
-      if (response.result === "error") {
-        console.error("[App] handleRunAllCells: daemon error", response.error);
-      } else if (response.result === "no_kernel") {
-        console.warn("[App] handleRunAllCells: no kernel available");
-      }
-    } else {
-      // Backend clears outputs and emits cells:outputs_cleared before queuing
-      await runAllCells();
-      // Start kernel if not running — queue processor retries until ready
-      if (kernelStatus === "not started") {
-        tryStartKernel();
+    // Start kernel via daemon if not running
+    if (kernelStatus === "not_started") {
+      const started = await tryStartKernel();
+      if (!started) {
+        console.log(
+          "[App] handleRunAllCells: kernel not started, skipping run all",
+        );
+        return;
       }
     }
+
+    // Daemon reads cell sources from Automerge doc and queues them
+    const response = await daemonRunAllCells();
+    if (response.result === "error") {
+      console.error("[App] handleRunAllCells: daemon error", response.error);
+    } else if (response.result === "no_kernel") {
+      console.warn("[App] handleRunAllCells: no kernel available");
+    }
   }, [
-    runAllCells,
     kernelStatus,
     tryStartKernel,
-    daemonExecution,
     cells,
     clearCellOutputs,
-    daemonClearOutputs,
+    clearOutputs,
     daemonRunAllCells,
   ]);
 
@@ -688,25 +544,6 @@ function AppContent() {
       unlistenPromise.then((unlisten) => unlisten());
     };
   }, [cloneNotebook]);
-
-  // Listen for daemon unavailable event (when daemon mode is enabled but daemon fails to start)
-  useEffect(() => {
-    const unlistenPromise = listen<{
-      reason: string;
-      message: string;
-      guidance: string;
-    }>("daemon:unavailable", (event) => {
-      console.error("[daemon] Daemon unavailable:", event.payload);
-      setDaemonUnavailable({
-        message: event.payload.message,
-        guidance: event.payload.guidance,
-      });
-    });
-
-    return () => {
-      unlistenPromise.then((unlisten) => unlisten());
-    };
-  }, []);
 
   // Kernel menu: Run All Cells
   useEffect(() => {
@@ -783,16 +620,8 @@ function AppContent() {
           isDevMode={daemonInfo?.is_dev_mode}
         />
       )}
-      {daemonUnavailable && (
-        <DaemonUnavailableBanner
-          message={daemonUnavailable.message}
-          guidance={daemonUnavailable.guidance}
-          onDismiss={() => setDaemonUnavailable(null)}
-        />
-      )}
       <NotebookToolbar
         kernelStatus={kernelStatus}
-        kernelErrorMessage={kernelErrorMessage}
         envSource={envSource}
         envTypeHint={envTypeHint}
         dirty={dirty}
@@ -811,18 +640,15 @@ function AppContent() {
         onDefaultUvPackagesChange={setDefaultUvPackages}
         defaultCondaPackages={defaultCondaPackages}
         onDefaultCondaPackagesChange={setDefaultCondaPackages}
-        daemonExecution={daemonExecution}
-        onDaemonExecutionChange={setDaemonExecution}
         onSave={save}
         onStartKernel={handleStartKernel}
         onInterruptKernel={interruptKernel}
-        onRestartKernel={restartKernel}
+        onRestartKernel={handleRestartKernel}
         onRunAllCells={handleRunAllCells}
         onRestartAndRunAll={handleRestartAndRunAll}
         onAddCell={handleAddCell}
         onToggleDependencies={() => setDependencyHeaderOpen((prev) => !prev)}
         isDepsOpen={dependencyHeaderOpen}
-        listKernelspecs={listKernelspecs}
       />
       {/* Dual-dependency choice: both UV and conda deps exist, let user pick */}
       {dependencyHeaderOpen &&
@@ -922,7 +748,7 @@ function AppContent() {
           pyprojectInfo={pyprojectInfo}
           pyprojectDeps={pyprojectDeps}
           onImportFromPyproject={importFromPyproject}
-          onUseProjectEnv={startKernelWithPyproject}
+          onUseProjectEnv={handleStartKernelWithPyproject}
           isUsingProjectEnv={envSource === "uv:pyproject"}
         />
       )}
@@ -935,7 +761,7 @@ function AppContent() {
         onApprove={handleTrustApprove}
         onDecline={handleTrustDecline}
         loading={trustLoading}
-        daemonMode={daemonExecution}
+        daemonMode={true}
       />
       <NotebookView
         cells={cells}

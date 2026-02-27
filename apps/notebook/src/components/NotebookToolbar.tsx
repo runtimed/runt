@@ -14,7 +14,6 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -141,7 +140,7 @@ type EnvBadgeVariant = "uv" | "conda" | "pixi";
 
 interface NotebookToolbarProps {
   kernelStatus: string;
-  kernelErrorMessage: string | null;
+  kernelErrorMessage?: string | null;
   envSource: string | null;
   /** Pre-start hint: "uv" | "conda" | "pixi" | null, derived from notebook metadata */
   envTypeHint?: EnvBadgeVariant | null;
@@ -159,9 +158,6 @@ interface NotebookToolbarProps {
   onDefaultUvPackagesChange?: (packages: string[]) => void;
   defaultCondaPackages?: string[];
   onDefaultCondaPackagesChange?: (packages: string[]) => void;
-  /** Daemon execution mode (experimental) */
-  daemonExecution?: boolean;
-  onDaemonExecutionChange?: (enabled: boolean) => void;
   onSave: () => void;
   onStartKernel: (name: string) => void;
   onInterruptKernel: () => void;
@@ -171,7 +167,7 @@ interface NotebookToolbarProps {
   onAddCell: (type: "code" | "markdown") => void;
   onToggleDependencies: () => void;
   isDepsOpen?: boolean;
-  listKernelspecs: () => Promise<KernelspecInfo[]>;
+  listKernelspecs?: () => Promise<KernelspecInfo[]>;
 }
 
 const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
@@ -297,8 +293,6 @@ export function NotebookToolbar({
   onDefaultUvPackagesChange,
   defaultCondaPackages = [],
   onDefaultCondaPackagesChange,
-  daemonExecution = false,
-  onDaemonExecutionChange,
   onSave,
   onStartKernel,
   onInterruptKernel,
@@ -314,10 +308,17 @@ export function NotebookToolbar({
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
-    listKernelspecs().then(setKernelspecs);
+    if (listKernelspecs) {
+      listKernelspecs().then(setKernelspecs);
+    }
   }, [listKernelspecs]);
 
   const handleStartKernel = useCallback(() => {
+    // In daemon mode (no listKernelspecs), just call with empty name - backend auto-selects
+    if (!listKernelspecs) {
+      onStartKernel("");
+      return;
+    }
     // Default to python3 or first available
     const python = kernelspecs.find(
       (k) => k.name === "python3" || k.name === "python",
@@ -326,7 +327,7 @@ export function NotebookToolbar({
     if (spec) {
       onStartKernel(spec.name);
     }
-  }, [kernelspecs, onStartKernel]);
+  }, [kernelspecs, onStartKernel, listKernelspecs]);
 
   const isKernelRunning =
     kernelStatus === "idle" ||
@@ -398,7 +399,7 @@ export function NotebookToolbar({
             <button
               type="button"
               onClick={handleStartKernel}
-              disabled={kernelspecs.length === 0}
+              disabled={listKernelspecs && kernelspecs.length === 0}
               className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
               title="Start kernel"
               data-testid="start-kernel-button"
@@ -803,42 +804,6 @@ export function NotebookToolbar({
                         />
                       </>
                     )}
-                </div>
-              </div>
-            )}
-
-            {/* Experimental settings */}
-            {onDaemonExecutionChange && (
-              <div className="space-y-2">
-                <div>
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                    Experimental
-                  </span>
-                  <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">
-                    Beta
-                  </span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <Checkbox
-                    id="daemon-execution-toggle"
-                    checked={daemonExecution}
-                    onCheckedChange={(checked) =>
-                      onDaemonExecutionChange(checked === true)
-                    }
-                    className="mt-0.5"
-                  />
-                  <label
-                    htmlFor="daemon-execution-toggle"
-                    className="flex-1 cursor-pointer"
-                  >
-                    <span className="text-xs font-medium text-foreground hover:text-primary transition-colors">
-                      Daemon Execution Mode
-                    </span>
-                    <p className="text-[11px] text-muted-foreground/70 mt-0.5">
-                      Kernel managed by daemon. Enables multi-window kernel
-                      sharing.
-                    </p>
-                  </label>
                 </div>
               </div>
             )}

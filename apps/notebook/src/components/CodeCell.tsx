@@ -19,10 +19,9 @@ import {
 import type { SupportedLanguage } from "@/components/editor/languages";
 import { AnsiOutput } from "@/components/outputs/ansi-output";
 import { ErrorBoundary } from "@/lib/error-boundary";
-import type { CellPagePayload } from "../App";
+import type { CellPagePayload, MimeBundle } from "../App";
 import { useCellKeyboardNavigation } from "../hooks/useCellKeyboardNavigation";
 import { useEditorRegistry } from "../hooks/useEditorRegistry";
-import type { MimeBundle } from "../hooks/useKernel";
 import { kernelCompletionExtension } from "../lib/kernel-completion";
 import type { CodeCell as CodeCellType } from "../types";
 
