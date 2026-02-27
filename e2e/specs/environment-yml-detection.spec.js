@@ -11,13 +11,16 @@
 import { browser, expect } from "@wdio/globals";
 import {
   executeFirstCell,
+  isCondaManagedEnv,
   waitForAppReady,
   waitForCellOutput,
+  waitForKernelReady,
 } from "../helpers.js";
 
 describe("Environment.yml Detection", () => {
   before(async () => {
     await waitForAppReady();
+    await waitForKernelReady(90000); // conda env may need time to create
     console.log("Page title:", await browser.getTitle());
   });
 
@@ -29,6 +32,6 @@ describe("Environment.yml Detection", () => {
     console.log("Python executable:", outputText);
 
     // environment.yml detection should launch a conda kernel
-    expect(outputText).toContain("runt/conda-envs");
+    expect(isCondaManagedEnv(outputText)).toBe(true);
   });
 });

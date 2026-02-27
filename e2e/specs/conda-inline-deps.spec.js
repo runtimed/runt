@@ -12,6 +12,7 @@ import { browser, expect } from "@wdio/globals";
 import {
   approveTrustDialog,
   executeFirstCell,
+  isCondaManagedEnv,
   waitForAppReady,
   waitForCellOutput,
 } from "../helpers.js";
@@ -33,6 +34,6 @@ describe("Conda Inline Dependencies", () => {
     console.log("Python executable:", outputText);
 
     // Should be a conda-managed environment
-    expect(outputText).toContain("runt/conda-envs");
+    expect(isCondaManagedEnv(outputText)).toBe(true);
   });
 });

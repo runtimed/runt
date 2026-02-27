@@ -12,6 +12,7 @@ import { browser, expect } from "@wdio/globals";
 import {
   approveTrustDialog,
   executeFirstCell,
+  isCondaManagedEnv,
   typeSlowly,
   waitForAppReady,
   waitForCellOutput,
@@ -33,7 +34,8 @@ describe("Conda Dependencies Panel", () => {
     const outputText = await waitForCellOutput(codeCell, 120000);
     console.log("Python executable:", outputText);
 
-    expect(outputText).toContain("runt/conda-envs");
+    // Should be a Conda-managed environment
+    expect(isCondaManagedEnv(outputText)).toBe(true);
   });
 
   it("should open conda deps panel from toolbar", async () => {

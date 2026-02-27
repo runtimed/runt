@@ -11,13 +11,16 @@
 import { browser, expect } from "@wdio/globals";
 import {
   executeFirstCell,
+  isCondaManagedEnv,
   waitForAppReady,
   waitForCellOutput,
+  waitForKernelReady,
 } from "../helpers.js";
 
 describe("Pixi Environment Detection", () => {
   before(async () => {
     await waitForAppReady();
+    await waitForKernelReady(90000); // pixi may need time to create env
     console.log("Page title:", await browser.getTitle());
   });
 
@@ -29,7 +32,7 @@ describe("Pixi Environment Detection", () => {
     console.log("Python executable:", outputText);
 
     // Pixi auto-detection should launch a conda kernel
-    expect(outputText).toContain("runt/conda-envs");
+    expect(isCondaManagedEnv(outputText)).toBe(true);
     console.log("Pixi test passed: kernel is from conda env");
   });
 });

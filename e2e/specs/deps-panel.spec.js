@@ -12,6 +12,7 @@ import { browser, expect } from "@wdio/globals";
 import {
   approveTrustDialog,
   executeFirstCell,
+  isUvManagedEnv,
   typeSlowly,
   waitForAppReady,
   waitForCellOutput,
@@ -33,7 +34,8 @@ describe("Dependencies Panel", () => {
     const outputText = await waitForCellOutput(codeCell, 120000);
     console.log("Python executable:", outputText);
 
-    expect(outputText).toContain("runt/envs");
+    // Should be a UV-managed environment
+    expect(isUvManagedEnv(outputText)).toBe(true);
   });
 
   it("should open deps panel from toolbar", async () => {
