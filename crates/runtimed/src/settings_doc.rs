@@ -134,8 +134,13 @@ pub struct CondaDefaults {
     pub default_packages: Vec<String>,
 }
 
+/// Default value for daemon_execution setting (enabled by default for new installs).
+fn default_daemon_execution() -> bool {
+    true
+}
+
 /// Snapshot of all synced settings.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema, TS)]
 #[ts(export)]
 pub struct SyncedSettings {
     /// UI theme
@@ -158,11 +163,24 @@ pub struct SyncedSettings {
     #[serde(default)]
     pub conda: CondaDefaults,
 
-    /// Enable daemon-owned kernel execution (experimental).
+    /// Enable daemon-owned kernel execution.
     /// When enabled, the daemon manages kernel lifecycle and execution queue,
     /// enabling multi-window kernel sharing.
-    #[serde(default)]
+    #[serde(default = "default_daemon_execution")]
     pub daemon_execution: bool,
+}
+
+impl Default for SyncedSettings {
+    fn default() -> Self {
+        Self {
+            theme: ThemeMode::default(),
+            default_runtime: Runtime::default(),
+            default_python_env: PythonEnvType::default(),
+            uv: UvDefaults::default(),
+            conda: CondaDefaults::default(),
+            daemon_execution: true, // Enabled by default for new installs
+        }
+    }
 }
 
 /// Generate a JSON Schema string for the settings file.
