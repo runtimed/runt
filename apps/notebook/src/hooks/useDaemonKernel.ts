@@ -18,6 +18,10 @@ import type {
   JupyterMessage,
   JupyterOutput,
 } from "../types";
+import {
+  fetchBlobPortWithRetry,
+  resolveOutputString,
+} from "./useManifestResolver";
 
 /** Kernel status from daemon */
 export type DaemonKernelStatus =
@@ -81,6 +85,9 @@ export function useDaemonKernel({
     envSource?: string;
   }>({});
 
+  // Store blob port in ref for use in event handlers
+  const blobPortRef = useRef<number>(0);
+
   // Store callbacks in refs to avoid effect re-runs
   const callbacksRef = useRef({
     onOutput,
@@ -109,6 +116,18 @@ export function useDaemonKernel({
   useEffect(() => {
     let cancelled = false;
 
+    // Helper to refresh blob port (called on mount, reconnect, and daemon:ready)
+    const refreshBlobPort = () => {
+      fetchBlobPortWithRetry().then((port) => {
+        if (port && !cancelled) {
+          blobPortRef.current = port;
+        }
+      });
+    };
+
+    // Fetch blob port for manifest resolution
+    refreshBlobPort();
+
     const unlistenBroadcast = listen<DaemonBroadcast>(
       "daemon:broadcast",
       (event) => {
@@ -133,13 +152,49 @@ export function useDaemonKernel({
           }
 
           case "output": {
-            try {
-              // Parse output - daemon now sends nbformat shape directly
-              const output = JSON.parse(broadcast.output_json) as JupyterOutput;
-              callbacksRef.current.onOutput(broadcast.cell_id, output);
-            } catch (e) {
-              console.error("[daemon-kernel] Failed to parse output:", e);
-            }
+            // Resolve output (may be blob hash or raw JSON)
+            const cellId = broadcast.cell_id;
+            const outputJson = broadcast.output_json;
+
+            // Helper to resolve with retry if port is unavailable or stale
+            const resolveWithRetry = async (retried = false) => {
+              let port = blobPortRef.current;
+              // If port not yet available, try to fetch it
+              if (!port) {
+                const freshPort = await fetchBlobPortWithRetry();
+                if (freshPort) {
+                  blobPortRef.current = freshPort;
+                  port = freshPort;
+                }
+              }
+              if (!port) {
+                console.error(
+                  "[daemon-kernel] Blob port unavailable, cannot resolve output",
+                );
+                return;
+              }
+              const output = await resolveOutputString(outputJson, port);
+              if (cancelled) return;
+              if (output) {
+                callbacksRef.current.onOutput(cellId, output);
+              } else if (!retried) {
+                // Resolution failed - port may be stale, refresh and retry once
+                console.warn(
+                  "[daemon-kernel] Output resolution failed, refreshing port and retrying",
+                );
+                blobPortRef.current = 0;
+                await resolveWithRetry(true);
+              } else {
+                console.error(
+                  "[daemon-kernel] Failed to resolve output for cell:",
+                  cellId,
+                );
+              }
+            };
+
+            resolveWithRetry().catch((e) => {
+              console.error("[daemon-kernel] Failed to resolve output:", e);
+            });
             break;
           }
 
@@ -308,6 +363,8 @@ export function useDaemonKernel({
       setKernelStatus("not_started");
       setKernelInfo({});
       setQueueState({ executing: null, queued: [] });
+      // Reset blob port so next output triggers fresh fetch
+      blobPortRef.current = 0;
 
       // Attempt to reconnect to the daemon
       console.log("[daemon-kernel] Attempting to reconnect to daemon...");
@@ -316,7 +373,8 @@ export function useDaemonKernel({
         console.log(
           "[daemon-kernel] Reconnected to daemon, fetching kernel info",
         );
-        // After reconnecting, fetch kernel info (kernel may already be running)
+        // After reconnecting, refresh blob port (daemon may have new port) and kernel info
+        refreshBlobPort();
         fetchKernelInfo();
       } catch (e) {
         console.error("[daemon-kernel] Failed to reconnect:", e);
@@ -326,7 +384,10 @@ export function useDaemonKernel({
     // Listen for daemon ready signal
     const unlistenReady = listen("daemon:ready", () => {
       if (cancelled) return;
-      console.log("[daemon-kernel] Daemon ready, fetching kernel info");
+      console.log(
+        "[daemon-kernel] Daemon ready, refreshing blob port and kernel info",
+      );
+      refreshBlobPort();
       fetchKernelInfo();
     });
 

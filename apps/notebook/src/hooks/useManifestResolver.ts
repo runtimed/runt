@@ -15,6 +15,7 @@ interface DisplayDataManifest {
   output_type: "display_data";
   data: Record<string, ContentRef>;
   metadata?: Record<string, unknown>;
+  transient?: { display_id?: string };
 }
 
 interface ExecuteResultManifest {
@@ -22,6 +23,7 @@ interface ExecuteResultManifest {
   data: Record<string, ContentRef>;
   metadata?: Record<string, unknown>;
   execution_count?: number | null;
+  transient?: { display_id?: string };
 }
 
 interface StreamManifest {
@@ -46,7 +48,7 @@ type OutputManifest =
 /**
  * Check if a string looks like a blob hash (hex string).
  */
-function looksLikeBlobHash(s: string): boolean {
+export function looksLikeBlobHash(s: string): boolean {
   // Blob hashes are 64-char hex strings (SHA-256)
   return /^[a-f0-9]{64}$/.test(s);
 }
@@ -96,27 +98,39 @@ async function resolveDataBundle(
 /**
  * Resolve an output manifest to a full Jupyter output.
  */
-async function resolveManifest(
+export async function resolveManifest(
   manifest: OutputManifest,
   blobPort: number,
 ): Promise<JupyterOutput> {
   switch (manifest.output_type) {
     case "display_data": {
       const data = await resolveDataBundle(manifest.data, blobPort);
-      return {
+      const output: JupyterOutput = {
         output_type: "display_data",
         data,
         metadata: manifest.metadata ?? {},
       };
+      // Preserve display_id for update_display_data targeting
+      if (manifest.transient?.display_id) {
+        (output as Record<string, unknown>).display_id =
+          manifest.transient.display_id;
+      }
+      return output;
     }
     case "execute_result": {
       const data = await resolveDataBundle(manifest.data, blobPort);
-      return {
+      const output: JupyterOutput = {
         output_type: "execute_result",
         data,
         metadata: manifest.metadata ?? {},
         execution_count: manifest.execution_count ?? null,
       };
+      // Preserve display_id for update_display_data targeting
+      if (manifest.transient?.display_id) {
+        (output as Record<string, unknown>).display_id =
+          manifest.transient.display_id;
+      }
+      return output;
     }
     case "stream": {
       const text = await resolveContentRef(manifest.text, blobPort);
@@ -145,7 +159,7 @@ async function resolveManifest(
 /**
  * Fetch blob port with retry logic.
  */
-async function fetchBlobPortWithRetry(
+export async function fetchBlobPortWithRetry(
   maxAttempts = 5,
   delayMs = 500,
 ): Promise<number | null> {
@@ -165,6 +179,53 @@ async function fetchBlobPortWithRetry(
     }
   }
   return null;
+}
+
+/**
+ * Resolve an output string to a JupyterOutput.
+ *
+ * The output string may be:
+ * - A blob hash (64-char hex) pointing to an output manifest
+ * - Raw Jupyter output JSON (for backward compatibility)
+ *
+ * This is a standalone function for use outside React hooks (e.g., event handlers).
+ */
+export async function resolveOutputString(
+  outputStr: string,
+  blobPort: number,
+): Promise<JupyterOutput | null> {
+  // If it doesn't look like a blob hash, try parsing as raw JSON
+  if (!looksLikeBlobHash(outputStr)) {
+    try {
+      return JSON.parse(outputStr) as JupyterOutput;
+    } catch {
+      console.warn(
+        "[manifest-resolver] Failed to parse output as JSON:",
+        outputStr.substring(0, 100),
+      );
+      return null;
+    }
+  }
+
+  // It's a blob hash - fetch manifest and resolve
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${blobPort}/blob/${outputStr}`,
+    );
+    if (!response.ok) {
+      console.warn(
+        `[manifest-resolver] Failed to fetch manifest ${outputStr}: ${response.status}`,
+      );
+      return null;
+    }
+
+    const manifestJson = await response.text();
+    const manifest = JSON.parse(manifestJson) as OutputManifest;
+    return resolveManifest(manifest, blobPort);
+  } catch (e) {
+    console.warn(`[manifest-resolver] Failed to resolve ${outputStr}:`, e);
+    return null;
+  }
 }
 
 /**
