@@ -13,10 +13,19 @@ fn main() {
 
     match args[0].as_str() {
         "dev" => {
-            let notebook = args.get(1).map(String::as_str);
-            cmd_dev(notebook);
+            let attach = args.iter().any(|a| a == "--attach");
+            let notebook = args
+                .iter()
+                .skip(1)
+                .find(|a| !a.starts_with('-'))
+                .map(String::as_str);
+            cmd_dev(notebook, attach);
         }
-        "build" => cmd_build(),
+        "vite" => cmd_vite(),
+        "build" => {
+            let rust_only = args.iter().any(|a| a == "--rust-only");
+            cmd_build(rust_only);
+        }
         "run" => {
             let notebook = args.get(1).map(String::as_str);
             cmd_run(notebook);
@@ -45,54 +54,106 @@ fn print_help() {
         "Usage: cargo xtask <COMMAND>
 
 Development:
-  dev [notebook.ipynb]  Start hot-reload dev server
-  build                 Quick debug build (no DMG)
-  build-e2e             Debug build with built-in WebDriver server
-  run [notebook.ipynb]  Build and run debug app
+  dev [notebook.ipynb]       Start hot-reload dev server (Vite + Tauri)
+  dev --attach [notebook]    Attach Tauri to existing Vite server
+  vite                       Start Vite server standalone
+  build                      Full debug build (frontend + rust)
+  build --rust-only          Rebuild rust only, reuse existing frontend
+  build-e2e                  Debug build with built-in WebDriver server
+  run [notebook.ipynb]       Run bundled debug binary
 
 Release:
-  build-app             Build .app bundle with icons
-  build-dmg             Build DMG with icons (for CI)
+  build-app                  Build .app bundle with icons
+  build-dmg                  Build DMG with icons (for CI)
 
 Daemon:
-  install-daemon        Build and install runtimed into the running service
-  dev-daemon            Build and run runtimed in per-worktree dev mode
+  install-daemon             Build and install runtimed into the running service
+  dev-daemon                 Build and run runtimed in per-worktree dev mode
 
 Other:
-  icons [source.png]    Generate icon variants
-  help                  Show this help
+  icons [source.png]         Generate icon variants
+  help                       Show this help
 "
     );
 }
 
-fn cmd_dev(notebook: Option<&str>) {
-    println!("Starting dev server with hot reload...");
+fn cmd_dev(notebook: Option<&str>, attach: bool) {
+    // Delete bundled marker since we're building a dev binary
+    let marker = Path::new("./target/debug/.notebook-bundled");
+    let _ = fs::remove_file(marker);
 
-    // Check if CONDUCTOR_PORT is set and override devUrl accordingly
-    let config_override = env::var("CONDUCTOR_PORT").ok().map(|port| {
-        println!("Using CONDUCTOR_PORT={port}");
-        format!(r#"{{"build":{{"devUrl":"http://localhost:{port}"}}}}"#)
-    });
+    if attach {
+        println!("Attaching to existing Vite server...");
 
-    let mut args = vec!["tauri", "dev"];
-    if let Some(ref config) = config_override {
-        args.extend(["--config", config]);
+        // Use CONDUCTOR_PORT if set, otherwise default to 5173
+        let port = env::var("CONDUCTOR_PORT").unwrap_or_else(|_| "5173".to_string());
+        println!("Connecting to Vite at http://localhost:{port}");
+
+        // Skip beforeDevCommand (Vite is already running) and set devUrl
+        let config =
+            format!(r#"{{"build":{{"devUrl":"http://localhost:{port}","beforeDevCommand":""}}}}"#);
+
+        let mut args = vec!["tauri", "dev", "--config", &config, "--", "-p", "notebook"];
+        if let Some(path) = notebook {
+            args.extend(["--", path]);
+        }
+
+        run_cmd_with_rust_log("cargo", &args);
+    } else {
+        println!("Starting dev server with hot reload...");
+
+        // Check if CONDUCTOR_PORT is set and override devUrl accordingly
+        let config_override = env::var("CONDUCTOR_PORT").ok().map(|port| {
+            println!("Using CONDUCTOR_PORT={port}");
+            format!(r#"{{"build":{{"devUrl":"http://localhost:{port}"}}}}"#)
+        });
+
+        let mut args = vec!["tauri", "dev"];
+        if let Some(ref config) = config_override {
+            args.extend(["--config", config]);
+        }
+        args.extend(["--", "-p", "notebook"]);
+        if let Some(path) = notebook {
+            args.extend(["--", path]);
+        }
+
+        run_cmd_with_rust_log("cargo", &args);
     }
-    args.extend(["--", "-p", "notebook"]);
-    if let Some(path) = notebook {
-        args.extend(["--", path]);
-    }
-
-    run_cmd_with_rust_log("cargo", &args);
 }
 
-fn cmd_build() {
+fn cmd_vite() {
+    println!("Starting Vite dev server...");
+    println!("This server will keep running independently of Tauri.");
+    println!("Use `cargo xtask dev --attach` in another terminal to connect.");
+    println!();
+
+    // Use CONDUCTOR_PORT if set
+    if let Ok(port) = env::var("CONDUCTOR_PORT") {
+        println!("Using CONDUCTOR_PORT={port}");
+    }
+
+    // Run pnpm dev for the notebook app
+    run_cmd("pnpm", &["--filter", "notebook", "dev"]);
+}
+
+fn cmd_build(rust_only: bool) {
     // Build runtimed daemon binary for bundling (debug mode for faster builds)
     build_runtimed_daemon(false);
 
-    // pnpm build runs: isolated-renderer + sidecar + notebook
-    println!("Building frontend (isolated-renderer, sidecar, notebook)...");
-    run_cmd("pnpm", &["build"]);
+    if rust_only {
+        // Check that frontend dist exists
+        let dist_dir = Path::new("apps/notebook/dist");
+        if !dist_dir.exists() {
+            eprintln!("Error: No frontend build found at apps/notebook/dist");
+            eprintln!("Run `cargo xtask build` (without --rust-only) first.");
+            exit(1);
+        }
+        println!("Skipping frontend build (--rust-only), reusing existing assets");
+    } else {
+        // pnpm build runs: isolated-renderer + sidecar + notebook
+        println!("Building frontend (isolated-renderer, sidecar, notebook)...");
+        run_cmd("pnpm", &["build"]);
+    }
 
     println!("Building debug binary (no bundle)...");
     run_cmd(
@@ -107,11 +168,30 @@ fn cmd_build() {
         ],
     );
 
+    // Write marker file to indicate this is a bundled build
+    let marker = Path::new("./target/debug/.notebook-bundled");
+    fs::write(marker, "bundled").unwrap_or_else(|e| {
+        eprintln!("Warning: Could not write bundled marker: {e}");
+    });
+
     println!("Build complete: ./target/debug/notebook");
 }
 
 fn cmd_run(notebook: Option<&str>) {
-    cmd_build();
+    let binary = Path::new("./target/debug/notebook");
+    let marker = Path::new("./target/debug/.notebook-bundled");
+
+    if !binary.exists() {
+        eprintln!("Error: No binary found at ./target/debug/notebook");
+        eprintln!("Run `cargo xtask build` first.");
+        exit(1);
+    }
+
+    if !marker.exists() {
+        eprintln!("Error: Binary appears to be a dev build (expects Vite server).");
+        eprintln!("Run `cargo xtask build` for a standalone bundled binary.");
+        exit(1);
+    }
 
     println!("Running notebook app...");
     match notebook {
