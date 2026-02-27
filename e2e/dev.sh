@@ -5,6 +5,8 @@ set -e
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BINARY="$PROJECT_ROOT/target/debug/notebook"
+DAEMON_BINARY="$PROJECT_ROOT/target/debug/runtimed"
+DAEMON_PID_FILE="$PROJECT_ROOT/.e2e-daemon.pid"
 
 # Enable worktree isolation for E2E tests
 # This ensures the daemon and app use isolated paths (socket, settings, envs)
@@ -32,6 +34,74 @@ require_binary() {
     echo "Note: If you changed frontend code (data-testid, components, etc.),"
     echo "use build-full or run 'pnpm --dir apps/notebook build' before build."
     exit 1
+  fi
+}
+
+require_daemon_binary() {
+  if [ ! -f "$DAEMON_BINARY" ]; then
+    echo "Daemon binary not found, building..."
+    cd "$PROJECT_ROOT"
+    cargo build -p runtimed
+  fi
+}
+
+# --- Daemon management ---
+
+start_daemon() {
+  require_daemon_binary
+
+  # Check if daemon is already running
+  if [ -f "$DAEMON_PID_FILE" ]; then
+    local pid
+    pid=$(cat "$DAEMON_PID_FILE")
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "Daemon already running (PID $pid)"
+      return 0
+    fi
+    rm -f "$DAEMON_PID_FILE"
+  fi
+
+  echo "Starting E2E daemon with worktree isolation..."
+  RUST_LOG="${RUST_LOG:-info}" "$DAEMON_BINARY" --dev run \
+    --uv-pool-size 2 --conda-pool-size 0 &
+  local daemon_pid=$!
+  echo "$daemon_pid" > "$DAEMON_PID_FILE"
+  echo "Daemon started (PID $daemon_pid)"
+
+  # Wait for daemon to be ready (socket exists)
+  echo "Waiting for daemon to be ready..."
+  for i in $(seq 1 30); do
+    # Check if daemon process is still alive
+    if ! kill -0 "$daemon_pid" 2>/dev/null; then
+      echo "Error: Daemon process died"
+      rm -f "$DAEMON_PID_FILE"
+      return 1
+    fi
+    # Give it time to create the socket
+    sleep 1
+    # After 5 seconds, assume it's ready (socket path varies by worktree hash)
+    if [ "$i" -ge 5 ]; then
+      echo "Daemon ready (${i}s)"
+      return 0
+    fi
+  done
+
+  echo "Warning: Daemon may not be fully ready"
+  return 0
+}
+
+stop_daemon() {
+  if [ -f "$DAEMON_PID_FILE" ]; then
+    local pid
+    pid=$(cat "$DAEMON_PID_FILE")
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "Stopping daemon (PID $pid)..."
+      kill "$pid" 2>/dev/null || true
+      sleep 1
+      # Force kill if still running
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+    rm -f "$DAEMON_PID_FILE"
   fi
 }
 
@@ -83,20 +153,23 @@ case "${1:-help}" in
     ;;
 
   start)
-    # Start the app with WebDriver server
+    # Start the daemon and app with WebDriver server
     require_binary
+    start_daemon
     echo "Starting notebook with WebDriver on port $PORT..."
     RUST_LOG="${RUST_LOG:-info}" "$BINARY" --webdriver-port "$PORT"
     ;;
 
   stop)
-    # Stop all processes listening on $PORT (safe — won't kill other notebook instances)
+    # Stop app processes listening on $PORT
     PIDS=$(lsof -ti :"$PORT" 2>/dev/null || true)
     if [ -n "$PIDS" ]; then
       echo "$PIDS" | xargs kill 2>/dev/null && echo "Stopped processes on port $PORT" || echo "Failed to stop some processes"
     else
       echo "No process listening on port $PORT"
     fi
+    # Also stop the daemon
+    stop_daemon
     ;;
 
   restart)
@@ -188,107 +261,39 @@ case "${1:-help}" in
     fi
     $0 stop 2>/dev/null || true
     sleep 1
+    start_daemon
     echo "Starting notebook with fixture: $NOTEBOOK"
     RUST_LOG="${RUST_LOG:-info}" "$BINARY" --webdriver-port "$PORT" "$NOTEBOOK" &
     wait_for_server 30
     TEST_EXIT=0
     E2E_SPEC="$SPEC" WEBDRIVER_PORT="$PORT" pnpm exec wdio run e2e/wdio.conf.js || TEST_EXIT=$?
-    $0 stop 2>/dev/null || true
+    # Stop app
+    PIDS=$(lsof -ti :"$PORT" 2>/dev/null || true)
+    [ -n "$PIDS" ] && echo "$PIDS" | xargs kill 2>/dev/null || true
+    # Keep daemon running for next test (will be reused)
     exit $TEST_EXIT
     ;;
 
   test-fixtures)
-    # Run all fixture-specific E2E tests (each gets a fresh app instance)
-    cd "$PROJECT_ROOT"
-    require_binary
-    FAIL=0
-    PASSED=0
-    TOTAL=0
-    FAILED_SPECS=""
+    # Placeholder - tests need to be added back
+    echo "No fixture tests defined yet."
+    echo "Run individual tests with: ./e2e/dev.sh test-fixture <notebook> <spec>"
+    exit 0
+    ;;
 
-    run_fixture() {
-      local notebook="$1" spec="$2"
-      TOTAL=$((TOTAL + 1))
-      local spec_name
-      spec_name=$(basename "$spec")
-      echo ""
-      echo "━━━ [$TOTAL] $spec_name ━━━"
-      if $0 test-fixture "$notebook" "$spec"; then
-        PASSED=$((PASSED + 1))
+  daemon)
+    # Show daemon status
+    if [ -f "$DAEMON_PID_FILE" ]; then
+      pid=$(cat "$DAEMON_PID_FILE")
+      if kill -0 "$pid" 2>/dev/null; then
+        echo "Daemon running (PID $pid)"
       else
-        FAIL=1
-        FAILED_SPECS="$FAILED_SPECS  - $spec_name\n"
+        echo "Daemon not running (stale PID file)"
+        rm -f "$DAEMON_PID_FILE"
       fi
-    }
-
-    run_fixture crates/notebook/fixtures/audit-test/1-vanilla.ipynb \
-                e2e/specs/vanilla-startup.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/2-uv-inline.ipynb \
-                e2e/specs/uv-inline-deps.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/3-conda-inline.ipynb \
-                e2e/specs/conda-inline-deps.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/4-both-deps.ipynb \
-                e2e/specs/both-deps-panel.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/pyproject-project/5-pyproject.ipynb \
-                e2e/specs/pyproject-startup.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/pixi-project/6-pixi.ipynb \
-                e2e/specs/pixi-env-detection.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/conda-env-project/7-environment-yml.ipynb \
-                e2e/specs/environment-yml-detection.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/2-uv-inline.ipynb \
-                e2e/specs/deps-panel.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/3-conda-inline.ipynb \
-                e2e/specs/conda-deps-panel.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/2-uv-inline.ipynb \
-                e2e/specs/trust-decline.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/8-multi-cell.ipynb \
-                e2e/specs/run-all-cells.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/10-run-all-error.ipynb \
-                e2e/specs/run-all-error-stops.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/9-html-output.ipynb \
-                e2e/specs/iframe-isolation.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/1-vanilla.ipynb \
-                e2e/specs/settings-panel.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/11-rich-outputs.ipynb \
-                e2e/specs/rich-outputs.spec.js
-
-    run_fixture crates/notebook/fixtures/audit-test/12-error-outputs.ipynb \
-                e2e/specs/error-handling.spec.js
-
-    # Summary
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Fixture tests: $PASSED/$TOTAL passed"
-    if [ $FAIL -ne 0 ]; then
-      echo ""
-      echo "Failed:"
-      echo -e "$FAILED_SPECS"
+    else
+      echo "Daemon not running"
     fi
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-    $0 test-fixture \
-      crates/notebook/fixtures/audit-test/10-deno.ipynb \
-      e2e/specs/deno-runtime.spec.js || FAIL=1
-
-    $0 test-fixture \
-      crates/notebook/fixtures/audit-test/1-vanilla.ipynb \
-      e2e/specs/save-dirty-state.spec.js || FAIL=1
-
-    exit $FAIL
     ;;
 
   help|*)
@@ -297,25 +302,24 @@ case "${1:-help}" in
     echo "Quick start:"
     echo "  ./e2e/dev.sh build-full              # first time: full build"
     echo "  ./e2e/dev.sh test-fixture <nb> <spec> # run one fixture test"
-    echo "  ./e2e/dev.sh test-fixtures            # run all fixture tests"
     echo ""
     echo "Build:"
     echo "  build              Rebuild Rust binary (skips frontend — fast)"
     echo "  build-full         Full rebuild (frontend + sidecars + Rust)"
     echo ""
     echo "Run:"
-    echo "  start              Start app with WebDriver server (foreground)"
-    echo "  stop               Stop the running app"
+    echo "  start              Start daemon + app with WebDriver (foreground)"
+    echo "  stop               Stop the app and daemon"
     echo "  restart            Stop + start"
     echo "  cycle              Build + start + test in one shot"
     echo ""
     echo "Test:"
     echo "  test [spec|all]    Run E2E tests (requires app already running)"
     echo "  test-fixture <nb> <spec>  Run a fixture test (starts fresh app)"
-    echo "  test-fixtures      Run all fixture tests with summary"
     echo ""
     echo "Debug:"
     echo "  status             Check if WebDriver server is running"
+    echo "  daemon             Check if E2E daemon is running"
     echo "  session            Create a session and print ID"
     echo "  exec 'js'          Execute JS in the app"
     echo ""

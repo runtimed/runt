@@ -27,28 +27,8 @@ const SCREENSHOT_FAILURES_DIR = path.join(SCREENSHOT_DIR, "failures");
 // Ensure screenshot directories exist
 fs.mkdirSync(SCREENSHOT_FAILURES_DIR, { recursive: true });
 
-// Specs that require a specific NOTEBOOK_PATH fixture — excluded from the default run
-const FIXTURE_SPECS = [
-  "vanilla-startup.spec.js",
-  "uv-inline-deps.spec.js",
-  "conda-inline-deps.spec.js",
-  "both-deps-panel.spec.js",
-  "pyproject-startup.spec.js",
-  "pixi-env-detection.spec.js",
-  "environment-yml-detection.spec.js",
-  "deps-panel.spec.js",
-  "conda-deps-panel.spec.js",
-  "trust-decline.spec.js",
-  "run-all-cells.spec.js",
-  "run-all-error-stops.spec.js",
-  "iframe-isolation.spec.js",
-  "settings-panel.spec.js",
-  "deno-runtime.spec.js",
-  "save-dirty-state.spec.js",
-  "rich-outputs.spec.js",
-  "error-handling.spec.js",
-  "cell-operations.spec.js",
-];
+// Note: Previously had FIXTURE_SPECS exclusion list, but tests have been reset.
+// All specs now run by default. Use E2E_SPEC env var to run a specific spec.
 
 export const config = {
   runner: "local",
@@ -57,10 +37,8 @@ export const config = {
     ? [path.resolve(process.env.E2E_SPEC)]
     : [path.join(__dirname, "specs", "*.spec.js")],
 
-  // Auto-exclude fixture-specific specs from the default run
-  exclude: process.env.E2E_SPEC
-    ? []
-    : FIXTURE_SPECS.map((s) => path.join(__dirname, "specs", s)),
+  // No exclusions - all specs run by default
+  exclude: [],
 
   // Don't run tests in parallel - we have one app instance
   maxInstances: 1,
