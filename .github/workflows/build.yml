@@ -210,8 +210,10 @@ jobs:
           # Start runtimed early so the pool fills while the Tauri app builds (~90s).
           # uv-pool-size 6 gives headroom for sequential fixture tests.
           # conda-pool-size 0 because conda fixture tests create inline environments.
-          # Explicitly pass PATH so the background process can find uv.
-          env PATH="$PATH" ./target/release/runtimed run --uv-pool-size 6 --conda-pool-size 0 &
+          # Use --dev mode with CONDUCTOR_WORKSPACE_PATH for isolated worktree paths.
+          # This ensures daemon and app use the same isolated socket/settings.
+          env PATH="$PATH" CONDUCTOR_WORKSPACE_PATH="${GITHUB_WORKSPACE}" \
+            ./target/release/runtimed --dev run --uv-pool-size 6 --conda-pool-size 0 &
           echo "RUNTIMED_PID=$!" >> $GITHUB_ENV
 
       - name: Build Tauri app
@@ -338,6 +340,8 @@ jobs:
           exit $FAIL
         env:
           TAURI_APP_PATH: ./target/release/notebook
+          # Enable worktree isolation so daemon and app use same isolated paths
+          CONDUCTOR_WORKSPACE_PATH: ${{ github.workspace }}
           # Suppress accessibility bus warnings in headless CI
           NO_AT_BRIDGE: 1
           # Use software rendering to suppress GPU/EGL warnings

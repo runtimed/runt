@@ -6,6 +6,12 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BINARY="$PROJECT_ROOT/target/debug/notebook"
 
+# Enable worktree isolation for E2E tests
+# This ensures the daemon and app use isolated paths (socket, settings, envs)
+# so E2E tests don't interfere with your regular development environment.
+# The daemon and app will use ~/.cache/runt/worktrees/{hash}/ instead of ~/.cache/runt/
+export CONDUCTOR_WORKSPACE_PATH="$PROJECT_ROOT"
+
 # Source .env for default config (port, etc.)
 if [ -f "$PROJECT_ROOT/e2e/.env" ]; then
   set -a; source "$PROJECT_ROOT/e2e/.env"; set +a
