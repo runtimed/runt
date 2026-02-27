@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 type SharedNotebookSync = Arc<tokio::sync::Mutex<Option<NotebookSyncHandle>>>;
 
 /// Newtype wrapper for auto-launch-in-progress flag (distinguishes from other AtomicBool states).
+#[allow(dead_code)]
 struct AutoLaunchInProgress(Arc<AtomicBool>);
 
 /// Newtype wrapper for reconnect-in-progress flag (distinguishes from other AtomicBool states).
