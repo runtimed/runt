@@ -293,9 +293,27 @@ export function isCondaManagedEnv(path) {
 }
 
 /**
+ * Check if a Python executable path is from a system Python with ipykernel.
+ * In daemon mode, kernels may use system Python (pyenv, homebrew, etc.)
+ * instead of prewarmed environments. This is still "managed" by runt.
+ */
+export function isSystemPythonEnv(path) {
+  // pyenv, homebrew, system Python, or standard Python paths
+  return (
+    path.includes(".pyenv") ||
+    path.includes("/opt/homebrew") ||
+    path.includes("/usr/local") ||
+    path.includes("/usr/bin/python")
+  );
+}
+
+/**
  * Check if a Python executable path is from any runt-managed environment.
- * Combines UV and Conda checks.
+ * In local mode: prewarmed UV or Conda environments
+ * In daemon mode: prewarmed envs OR system Python managed by daemon
  */
 export function isManagedEnv(path) {
-  return isUvManagedEnv(path) || isCondaManagedEnv(path);
+  return (
+    isUvManagedEnv(path) || isCondaManagedEnv(path) || isSystemPythonEnv(path)
+  );
 }
