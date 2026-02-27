@@ -259,13 +259,18 @@ export function useNotebook() {
   // Store blob port promise so event handlers can await it
   const blobPortPromiseRef = useRef<Promise<number | null> | null>(null);
 
-  // Fetch blob port on mount for manifest resolution
-  useEffect(() => {
+  // Helper to refresh blob port (called on mount and daemon:ready)
+  const refreshBlobPort = useCallback(() => {
     blobPortPromiseRef.current = invoke<number>("get_blob_port").catch((e) => {
       console.warn("[notebook] Failed to get blob port:", e);
       return null;
     });
   }, []);
+
+  // Fetch blob port on mount for manifest resolution
+  useEffect(() => {
+    refreshBlobPort();
+  }, [refreshBlobPort]);
 
   const loadCells = useCallback(() => {
     invoke<NotebookCell[]>("load_notebook")
@@ -366,7 +371,11 @@ export function useNotebook() {
     // The backend emits daemon:ready after notebook sync is initialized.
     const unlistenReady = listen("daemon:ready", () => {
       if (!isMounted) return;
-      console.log("[notebook-sync] Daemon ready, requesting Automerge state");
+      console.log(
+        "[notebook-sync] Daemon ready, refreshing blob port and Automerge state",
+      );
+      // Refresh blob port (daemon may have restarted with new port)
+      refreshBlobPort();
       invoke("refresh_from_automerge").catch((e) =>
         console.warn("[notebook-sync] refresh_from_automerge failed:", e),
       );
@@ -383,7 +392,7 @@ export function useNotebook() {
       unlisten.then((fn) => fn());
       unlistenReady.then((fn) => fn());
     };
-  }, []);
+  }, [refreshBlobPort]);
 
   const updateCellSource = useCallback((cellId: string, source: string) => {
     setCells((prev) =>

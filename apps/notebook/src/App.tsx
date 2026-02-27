@@ -640,8 +640,8 @@ function AppContent() {
 
     // Listen for daemon ready (reconnection success)
     const unlistenReady = listen("daemon:ready", () => {
-      // Clear any error banner when daemon reconnects
-      setDaemonStatus((prev) => (prev?.status === "failed" ? null : prev));
+      // Clear any status banner when daemon reconnects (failed, checking, etc.)
+      setDaemonStatus(null);
     });
 
     // Check daemon status on mount (in case events fired before React was ready)
