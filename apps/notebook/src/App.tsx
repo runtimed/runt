@@ -12,6 +12,10 @@ import { WidgetView } from "@/components/widgets/widget-view";
 import { useSyncedSettings, useSyncedTheme } from "@/hooks/useSyncedSettings";
 import { ErrorBoundary } from "@/lib/error-boundary";
 import { CondaDependencyHeader } from "./components/CondaDependencyHeader";
+import {
+  type DaemonStatus,
+  DaemonStatusBanner,
+} from "./components/DaemonStatusBanner";
 import { DebugBanner } from "./components/DebugBanner";
 import { DenoDependencyHeader } from "./components/DenoDependencyHeader";
 import { DependencyHeader } from "./components/DependencyHeader";
@@ -106,6 +110,9 @@ function AppContent() {
   const [showIsolationTest, setShowIsolationTest] = useState(false);
   const [trustDialogOpen, setTrustDialogOpen] = useState(false);
   const [clearingDeps, setClearingDeps] = useState(false);
+
+  // Daemon startup status (installing, starting, failed, etc.)
+  const [daemonStatus, setDaemonStatus] = useState<DaemonStatus>(null);
 
   // Trust verification for notebook dependencies
   const {
@@ -596,6 +603,76 @@ function AppContent() {
     };
   }, []);
 
+  // Listen for daemon startup progress events
+  useEffect(() => {
+    const unlistenProgress = listen<DaemonStatus>(
+      "daemon:progress",
+      (event) => {
+        const status = event.payload;
+        setDaemonStatus(status);
+
+        // Clear status after a short delay when daemon is ready
+        if (status?.status === "ready") {
+          setTimeout(() => setDaemonStatus(null), 1000);
+        }
+      },
+    );
+
+    // Listen for daemon disconnection (mid-session)
+    const unlistenDisconnect = listen("daemon:disconnected", () => {
+      setDaemonStatus({
+        status: "failed",
+        error: "Runtime disconnected. Attempting to reconnect...",
+      });
+    });
+
+    // Listen for daemon unavailable (startup failure, fires after sync timeout)
+    const unlistenUnavailable = listen<{
+      reason: string;
+      message: string;
+      guidance: string;
+    }>("daemon:unavailable", (event) => {
+      setDaemonStatus({
+        status: "failed",
+        error: `${event.payload.message} ${event.payload.guidance}`,
+      });
+    });
+
+    // Listen for daemon ready (reconnection success)
+    const unlistenReady = listen("daemon:ready", () => {
+      // Clear any status banner when daemon reconnects (failed, checking, etc.)
+      setDaemonStatus(null);
+    });
+
+    // Check daemon status on mount (in case events fired before React was ready)
+    // Small delay to let initial events settle
+    const checkTimeout = setTimeout(() => {
+      invoke<boolean>("is_daemon_connected").then((connected) => {
+        if (!connected) {
+          setDaemonStatus((prev) => {
+            // Only set if no status is already shown
+            if (!prev) {
+              return {
+                status: "failed",
+                error:
+                  "Runtime daemon not available. Run 'cargo xtask dev-daemon' to start it.",
+              };
+            }
+            return prev;
+          });
+        }
+      });
+    }, 500);
+
+    return () => {
+      clearTimeout(checkTimeout);
+      unlistenProgress.then((unlisten) => unlisten()).catch(() => {});
+      unlistenDisconnect.then((unlisten) => unlisten()).catch(() => {});
+      unlistenUnavailable.then((unlisten) => unlisten()).catch(() => {});
+      unlistenReady.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, []);
+
   // Cmd+Shift+I to toggle isolation test panel (dev only)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -620,6 +697,23 @@ function AppContent() {
           isDevMode={daemonInfo?.is_dev_mode}
         />
       )}
+      <DaemonStatusBanner
+        status={daemonStatus}
+        onDismiss={() => setDaemonStatus(null)}
+        onRetry={() => {
+          setDaemonStatus({ status: "checking" });
+          invoke("reconnect_to_daemon")
+            .then(() => {
+              // Success - daemon:ready event will clear the banner
+            })
+            .catch((e) => {
+              setDaemonStatus({
+                status: "failed",
+                error: `Reconnection failed: ${e}`,
+              });
+            });
+        }}
+      />
       <NotebookToolbar
         kernelStatus={kernelStatus}
         envSource={envSource}

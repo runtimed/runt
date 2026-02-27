@@ -10,9 +10,34 @@ use std::time::Duration;
 use log::{info, warn};
 use tokio::io::{AsyncRead, AsyncWrite};
 
+use serde::Serialize;
+
 use crate::connection::{self, Handshake};
 use crate::protocol::{Request, Response};
 use crate::{default_socket_path, EnvType, PoolStats, PooledEnv};
+
+/// Progress updates during daemon startup.
+///
+/// Emitted by `ensure_daemon_running` to allow UI feedback during
+/// first-launch installation or daemon restart.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum DaemonProgress {
+    /// Checking if daemon is already running
+    Checking,
+    /// Installing daemon service (first launch)
+    Installing,
+    /// Upgrading daemon to new version
+    Upgrading,
+    /// Starting daemon service
+    Starting,
+    /// Waiting for daemon to become ready
+    WaitingForReady { attempt: u32, max_attempts: u32 },
+    /// Daemon is ready
+    Ready { endpoint: String },
+    /// Daemon failed to start
+    Failed { error: String },
+}
 
 #[cfg(unix)]
 use tokio::net::UnixStream;
@@ -316,14 +341,30 @@ pub async fn try_get_pooled_env(env_type: EnvType) -> Option<PooledEnv> {
 /// - Only checks if the per-worktree daemon is running
 /// - Returns an error with guidance if not running
 ///
+/// The optional `on_progress` callback receives `DaemonProgress` updates
+/// during startup, useful for showing UI feedback.
+///
 /// Returns Ok(endpoint) if daemon is running, Err if it couldn't be started.
-pub async fn ensure_daemon_running(
+pub async fn ensure_daemon_running<F>(
     daemon_binary: Option<std::path::PathBuf>,
-) -> Result<String, EnsureDaemonError> {
+    on_progress: Option<F>,
+) -> Result<String, EnsureDaemonError>
+where
+    F: Fn(DaemonProgress),
+{
     use crate::service::ServiceManager;
     use crate::singleton::get_running_daemon_info;
 
+    // Helper to emit progress if callback is provided
+    let emit = |progress: DaemonProgress| {
+        if let Some(ref cb) = on_progress {
+            cb(progress);
+        }
+    };
+
     let client = PoolClient::default();
+
+    emit(DaemonProgress::Checking);
 
     // In dev mode, skip service management - just check if daemon is running
     if crate::is_dev_mode() {
@@ -331,6 +372,9 @@ pub async fn ensure_daemon_running(
 
         if client.ping().await.is_ok() {
             if let Some(info) = get_running_daemon_info() {
+                emit(DaemonProgress::Ready {
+                    endpoint: info.endpoint.clone(),
+                });
                 info!(
                     "[pool-client] Dev daemon running at {} (worktree: {:?})",
                     info.endpoint, info.worktree_path
@@ -341,6 +385,9 @@ pub async fn ensure_daemon_running(
 
         // Dev daemon not running - provide helpful error
         let socket_path = crate::default_socket_path();
+        emit(DaemonProgress::Failed {
+            error: "Dev daemon not running. Start it with: cargo xtask dev-daemon".to_string(),
+        });
         return Err(EnsureDaemonError::DevDaemonNotRunning(socket_path));
     }
 
@@ -362,22 +409,32 @@ pub async fn ensure_daemon_running(
 
                 if let Some(binary_path) = &daemon_binary {
                     if !binary_path.exists() {
+                        emit(DaemonProgress::Failed {
+                            error: format!("Binary not found: {}", binary_path.display()),
+                        });
                         return Err(EnsureDaemonError::BinaryNotFound(binary_path.clone()));
                     }
 
+                    emit(DaemonProgress::Upgrading);
                     info!("[pool-client] Upgrading daemon...");
-                    manager
-                        .upgrade(binary_path)
-                        .map_err(|e| EnsureDaemonError::UpgradeFailed(e.to_string()))?;
+                    if let Err(e) = manager.upgrade(binary_path) {
+                        emit(DaemonProgress::Failed {
+                            error: format!("Upgrade failed: {}", e),
+                        });
+                        return Err(EnsureDaemonError::UpgradeFailed(e.to_string()));
+                    }
 
                     // Wait for upgraded daemon to be ready
-                    return wait_for_daemon_ready(&client).await;
+                    return wait_for_daemon_ready(&client, &emit).await;
                 } else {
                     // No binary path provided, can't upgrade - just use existing
                     info!("[pool-client] No binary path provided, using existing daemon");
                 }
             }
 
+            emit(DaemonProgress::Ready {
+                endpoint: info.endpoint.clone(),
+            });
             info!("[pool-client] Daemon already running at {}", info.endpoint);
             return Ok(info.endpoint);
         }
@@ -389,37 +446,69 @@ pub async fn ensure_daemon_running(
     if !manager.is_installed() {
         info!("[pool-client] Service not installed, installing...");
 
-        let binary_path = daemon_binary.ok_or(EnsureDaemonError::NoBinaryPath)?;
+        let binary_path = daemon_binary.ok_or_else(|| {
+            emit(DaemonProgress::Failed {
+                error: "No binary path provided for installation".to_string(),
+            });
+            EnsureDaemonError::NoBinaryPath
+        })?;
 
         if !binary_path.exists() {
+            emit(DaemonProgress::Failed {
+                error: format!("Binary not found: {}", binary_path.display()),
+            });
             return Err(EnsureDaemonError::BinaryNotFound(binary_path));
         }
 
-        manager
-            .install(&binary_path)
-            .map_err(|e| EnsureDaemonError::InstallFailed(e.to_string()))?;
+        emit(DaemonProgress::Installing);
+        if let Err(e) = manager.install(&binary_path) {
+            emit(DaemonProgress::Failed {
+                error: format!("Install failed: {}", e),
+            });
+            return Err(EnsureDaemonError::InstallFailed(e.to_string()));
+        }
     }
 
     // Start the service
+    emit(DaemonProgress::Starting);
     info!("[pool-client] Starting service...");
-    manager
-        .start()
-        .map_err(|e| EnsureDaemonError::StartFailed(e.to_string()))?;
+    if let Err(e) = manager.start() {
+        emit(DaemonProgress::Failed {
+            error: format!("Start failed: {}", e),
+        });
+        return Err(EnsureDaemonError::StartFailed(e.to_string()));
+    }
 
     // Wait for daemon to be ready
-    wait_for_daemon_ready(&client).await
+    wait_for_daemon_ready(&client, &emit).await
 }
 
 /// Wait for the daemon to become ready (up to 10 seconds).
-async fn wait_for_daemon_ready(client: &PoolClient) -> Result<String, EnsureDaemonError> {
+async fn wait_for_daemon_ready<F>(
+    client: &PoolClient,
+    emit: &F,
+) -> Result<String, EnsureDaemonError>
+where
+    F: Fn(DaemonProgress),
+{
     use crate::singleton::get_running_daemon_info;
 
+    const MAX_ATTEMPTS: u32 = 20;
+
     info!("[pool-client] Waiting for daemon to be ready...");
-    for i in 0..20 {
+    for i in 0..MAX_ATTEMPTS {
+        emit(DaemonProgress::WaitingForReady {
+            attempt: i + 1,
+            max_attempts: MAX_ATTEMPTS,
+        });
+
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         if client.ping().await.is_ok() {
             if let Some(info) = get_running_daemon_info() {
+                emit(DaemonProgress::Ready {
+                    endpoint: info.endpoint.clone(),
+                });
                 info!(
                     "[pool-client] Daemon ready at {} (waited {}ms)",
                     info.endpoint,
@@ -430,6 +519,9 @@ async fn wait_for_daemon_ready(client: &PoolClient) -> Result<String, EnsureDaem
         }
     }
 
+    emit(DaemonProgress::Failed {
+        error: "Daemon did not become ready within timeout".to_string(),
+    });
     Err(EnsureDaemonError::Timeout)
 }
 
