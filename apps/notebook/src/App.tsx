@@ -21,6 +21,7 @@ import { DenoDependencyHeader } from "./components/DenoDependencyHeader";
 import { DependencyHeader } from "./components/DependencyHeader";
 import { NotebookToolbar } from "./components/NotebookToolbar";
 import { NotebookView } from "./components/NotebookView";
+import { PoolErrorBanner } from "./components/PoolErrorBanner";
 import { TrustDialog } from "./components/TrustDialog";
 import { useCondaDependencies } from "./hooks/useCondaDependencies";
 import { useDaemonKernel } from "./hooks/useDaemonKernel";
@@ -29,6 +30,7 @@ import { useDependencies } from "./hooks/useDependencies";
 import { useEnvProgress } from "./hooks/useEnvProgress";
 import { useDaemonInfo, useGitInfo } from "./hooks/useGitInfo";
 import { useNotebook } from "./hooks/useNotebook";
+import { usePoolState } from "./hooks/usePoolState";
 import { useTrust } from "./hooks/useTrust";
 import type { JupyterMessage } from "./types";
 
@@ -312,6 +314,9 @@ function AppContent() {
 
   // Environment preparation progress
   const envProgress = useEnvProgress();
+
+  // Prewarm pool state (errors from invalid default packages)
+  const poolState = usePoolState();
 
   // Check trust and start kernel if trusted, otherwise show dialog.
   // Returns true if kernel was started, false if trust dialog opened or error.
@@ -733,6 +738,11 @@ function AppContent() {
               });
             });
         }}
+      />
+      <PoolErrorBanner
+        uvError={poolState.uvError}
+        condaError={poolState.condaError}
+        onDismiss={poolState.dismiss}
       />
       <NotebookToolbar
         kernelStatus={kernelStatus}

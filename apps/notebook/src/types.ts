@@ -102,6 +102,31 @@ export type EnvProgressEvent = EnvProgressPhase & {
   env_type: "conda" | "uv";
 };
 
+// =============================================================================
+// Pool State Types (prewarm pool error display)
+// =============================================================================
+
+/** Error information for a prewarm pool that is failing to create environments */
+export interface PoolError {
+  /** Human-readable error message */
+  message: string;
+  /** Package that failed to install (if identified from error output) */
+  failed_package?: string;
+  /** Number of consecutive failures */
+  consecutive_failures: number;
+  /** Seconds until next retry (0 if retry is imminent) */
+  retry_in_secs: number;
+}
+
+/** Pool state broadcast from daemon - sent when prewarm pool errors occur or clear */
+export interface PoolStateEvent {
+  event: "pool_state";
+  /** UV pool error (null if healthy) */
+  uv_error: PoolError | null;
+  /** Conda pool error (null if healthy) */
+  conda_error: PoolError | null;
+}
+
 // pixi.toml detection info
 export interface PixiInfo {
   path: string;
