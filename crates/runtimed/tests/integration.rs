@@ -22,6 +22,7 @@ fn test_config(temp_dir: &TempDir) -> DaemonConfig {
         conda_pool_size: 0,
         max_age_secs: 3600,
         lock_dir: Some(temp_dir.path().to_path_buf()),
+        room_eviction_delay_secs: 0, // Immediate eviction for tests
     }
 }
 
@@ -140,6 +141,7 @@ async fn test_singleton_prevents_second_daemon() {
         conda_pool_size: 0,
         max_age_secs: 3600,
         lock_dir: Some(temp_dir.path().to_path_buf()),
+        room_eviction_delay_secs: 0,
     };
 
     let result = Daemon::new(config2);

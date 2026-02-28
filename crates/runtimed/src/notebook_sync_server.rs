@@ -486,6 +486,9 @@ where
         connection::send_json_frame(&mut writer, &caps).await?;
     }
 
+    // Capture eviction delay before daemon is moved into sync loop
+    let eviction_delay_secs = daemon.config().room_eviction_delay_secs;
+
     let result = if use_typed_frames {
         run_sync_loop_v2(&mut reader, &mut writer, &room, daemon).await
     } else {
@@ -499,7 +502,7 @@ where
         // 1. Grace period during auto-launch (client may reconnect)
         // 2. Kernel running with no peers (idle timeout)
         // Without this, rooms with kernels would leak forever.
-        let eviction_delay = std::time::Duration::from_secs(30);
+        let eviction_delay = std::time::Duration::from_secs(eviction_delay_secs);
         let rooms_for_eviction = rooms.clone();
         let room_for_eviction = room.clone();
         let notebook_id_for_eviction = notebook_id.clone();

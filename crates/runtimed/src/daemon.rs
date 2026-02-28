@@ -53,6 +53,9 @@ pub struct DaemonConfig {
     pub max_age_secs: u64,
     /// Optional custom directory for lock files (used in tests).
     pub lock_dir: Option<PathBuf>,
+    /// Delay (in seconds) before evicting a room after all peers disconnect.
+    /// Default is 30 seconds to allow for reconnection during auto-launch.
+    pub room_eviction_delay_secs: u64,
 }
 
 impl Default for DaemonConfig {
@@ -66,6 +69,7 @@ impl Default for DaemonConfig {
             conda_pool_size: 3,
             max_age_secs: 172800, // 2 days
             lock_dir: None,
+            room_eviction_delay_secs: 30, // Grace period for reconnection
         }
     }
 }
@@ -375,6 +379,11 @@ impl Daemon {
             blob_port: Mutex::new(None),
             notebook_rooms: Arc::new(Mutex::new(HashMap::new())),
         }))
+    }
+
+    /// Get the daemon configuration.
+    pub fn config(&self) -> &DaemonConfig {
+        &self.config
     }
 
     /// Run the daemon server.
