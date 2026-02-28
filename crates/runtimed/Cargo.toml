@@ -87,3 +87,4 @@ windows-sys = { version = "0.52", features = ["Win32_Storage_FileSystem", "Win32
 
 [dev-dependencies]
 tempfile = "3"
+nbformat = "1.2.0"

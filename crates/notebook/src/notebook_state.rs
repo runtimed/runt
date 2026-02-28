@@ -669,6 +669,14 @@ pub fn snapshot_from_nbformat(metadata: &nbformat::v4::Metadata) -> NotebookMeta
             })
             .map(|dd| DenoMetadata {
                 permissions: dd.permissions,
+                import_map: dd.import_map,
+                config: dd.config,
+                // Only record if non-default (default is true)
+                flexible_npm_imports: if dd.flexible_npm_imports {
+                    None
+                } else {
+                    Some(false)
+                },
             });
 
         RuntMetadata {
@@ -728,9 +736,22 @@ pub fn merge_snapshot_into_nbformat(
             additional: existing_li_additional,
         });
 
-    // Replace runt namespace in additional
-    if let Ok(runt_value) = serde_json::to_value(&snapshot.runt) {
-        metadata.additional.insert("runt".to_string(), runt_value);
+    // Deep-merge runt namespace to preserve unknown fields (e.g. trust_signature)
+    if let Ok(mut new_runt) = serde_json::to_value(&snapshot.runt) {
+        if let Some(existing_runt) = metadata.additional.get("runt") {
+            // Merge: start with existing, overwrite with new snapshot fields
+            if let (Some(existing_obj), Some(new_obj)) =
+                (existing_runt.as_object(), new_runt.as_object_mut())
+            {
+                for (k, v) in existing_obj {
+                    // Only keep existing keys that aren't in the new snapshot
+                    if !new_obj.contains_key(k) {
+                        new_obj.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        metadata.additional.insert("runt".to_string(), new_runt);
     }
 }
 

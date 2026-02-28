@@ -84,6 +84,19 @@ pub struct DenoMetadata {
     /// Deno permission flags (e.g. `["--allow-read", "--allow-write"]`).
     #[serde(default)]
     pub permissions: Vec<String>,
+
+    /// Path to import_map.json (relative to notebook or absolute).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub import_map: Option<String>,
+
+    /// Path to deno.json config file (relative to notebook or absolute).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<String>,
+
+    /// When true (default), npm: imports auto-install packages.
+    /// When false, uses packages from the project's node_modules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flexible_npm_imports: Option<bool>,
 }
 
 // ── Notebook-level metadata snapshot ─────────────────────────────────
@@ -222,9 +235,22 @@ impl NotebookMetadataSnapshot {
             }
         }
 
-        // Replace runt namespace
-        if let Ok(v) = serde_json::to_value(&self.runt) {
-            obj.insert("runt".to_string(), v);
+        // Deep-merge runt namespace to preserve unknown fields (e.g. trust_signature)
+        if let Ok(mut new_runt) = serde_json::to_value(&self.runt) {
+            if let Some(existing_runt) = obj.get("runt") {
+                // Merge: start with new snapshot, preserve existing keys not in snapshot
+                if let (Some(existing_obj), Some(new_obj)) =
+                    (existing_runt.as_object(), new_runt.as_object_mut())
+                {
+                    for (k, v) in existing_obj {
+                        // Only keep existing keys that aren't in the new snapshot
+                        if !new_obj.contains_key(k) {
+                            new_obj.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
+            }
+            obj.insert("runt".to_string(), new_runt);
         }
     }
 }
@@ -268,6 +294,9 @@ impl RuntMetadata {
             conda: None,
             deno: Some(DenoMetadata {
                 permissions: Vec::new(),
+                import_map: None,
+                config: None,
+                flexible_npm_imports: None,
             }),
         }
     }

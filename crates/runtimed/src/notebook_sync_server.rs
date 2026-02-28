@@ -39,6 +39,7 @@ use crate::comm_state::CommState;
 use crate::connection::{self, NotebookFrameType};
 use crate::kernel_manager::RoomKernel;
 use crate::notebook_doc::{notebook_doc_filename, NotebookDoc};
+use crate::notebook_metadata::NOTEBOOK_METADATA_KEY;
 use crate::protocol::{NotebookBroadcast, NotebookRequest, NotebookResponse};
 
 /// Trust state for a notebook room.
@@ -1749,16 +1750,35 @@ async fn save_notebook_to_disk(room: &NotebookRoom) -> Result<(), String> {
     let notebook_path = &room.notebook_path;
 
     // Read existing .ipynb to preserve unknown metadata and cell metadata
-    let existing: Option<serde_json::Value> = tokio::fs::read_to_string(notebook_path)
-        .await
-        .ok()
-        .and_then(|content| serde_json::from_str(&content).ok());
+    // Distinguish between file-not-found (ok, create new) and parse errors (warn, continue)
+    let existing: Option<serde_json::Value> = match tokio::fs::read_to_string(notebook_path).await {
+        Ok(content) => match serde_json::from_str(&content) {
+            Ok(value) => Some(value),
+            Err(e) => {
+                warn!(
+                    "[notebook-sync] Existing notebook at {:?} has invalid JSON ({}), \
+                     will overwrite without preserving metadata",
+                    notebook_path, e
+                );
+                None
+            }
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => {
+            warn!(
+                "[notebook-sync] Failed to read existing notebook {:?}: {}, \
+                 will create new without preserving metadata",
+                notebook_path, e
+            );
+            None
+        }
+    };
 
     // Read cells and metadata from the Automerge doc
     let (cells, metadata_json) = {
         let doc = room.doc.read().await;
         let cells = doc.get_cells();
-        let metadata_json = doc.get_metadata("notebook_metadata");
+        let metadata_json = doc.get_metadata(NOTEBOOK_METADATA_KEY);
         (cells, metadata_json)
     };
 
@@ -1847,11 +1867,13 @@ async fn save_notebook_to_disk(room: &NotebookRoom) -> Result<(), String> {
     }
 
     // Build the final notebook JSON
-    let nbformat_minor = existing
+    // Cell IDs were introduced in nbformat 4.5, so ensure minor >= 5
+    let existing_minor = existing
         .as_ref()
         .and_then(|nb| nb.get("nbformat_minor"))
-        .cloned()
-        .unwrap_or(serde_json::json!(5));
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5);
+    let nbformat_minor = std::cmp::max(existing_minor, 5);
 
     let cell_count = nb_cells.len();
     let notebook_json = serde_json::json!({
@@ -1902,7 +1924,27 @@ async fn resolve_cell_output(output_str: &str, blob_store: &BlobStore) -> serde_
         serde_json::json!({"output_type": "stream", "name": "stderr", "text": ["[output could not be resolved]"]})
     } else {
         // Raw JSON output
-        serde_json::from_str(output_str).unwrap_or(serde_json::json!({}))
+        // TODO: investigate when this can happen - raw output should always be valid JSON from kernel
+        match serde_json::from_str(output_str) {
+            Ok(value) => value,
+            Err(e) => {
+                let preview = if output_str.len() > 100 {
+                    format!("{}...", &output_str[..100])
+                } else {
+                    output_str.to_string()
+                };
+                warn!(
+                    "[notebook-sync] Invalid JSON in raw output ({}): {}",
+                    e, preview
+                );
+                // Return valid nbformat stream output instead of invalid {}
+                serde_json::json!({
+                    "output_type": "stream",
+                    "name": "stderr",
+                    "text": ["[invalid output JSON]"]
+                })
+            }
+        }
     }
 }
 
@@ -2191,5 +2233,218 @@ mod tests {
         .unwrap();
         // runt.uv should be checked first, so we get "uv:inline"
         assert_eq!(check_inline_deps(&path), Some("uv:inline".to_string()));
+    }
+
+    // ── Integration tests for save_notebook_to_disk ────────────────────────
+
+    /// Create a test room with a notebook_path pointing to a file in temp dir.
+    fn test_room_with_path(
+        tmp: &tempfile::TempDir,
+        notebook_filename: &str,
+    ) -> (NotebookRoom, PathBuf) {
+        let notebook_path = tmp.path().join(notebook_filename);
+        let blob_store = test_blob_store(tmp);
+        let notebook_id = notebook_path.to_string_lossy().to_string();
+
+        let doc = crate::notebook_doc::NotebookDoc::new(&notebook_id);
+        let (changed_tx, _) = broadcast::channel(16);
+        let (kernel_broadcast_tx, _) = broadcast::channel(64);
+
+        let room = NotebookRoom {
+            doc: Arc::new(RwLock::new(doc)),
+            changed_tx,
+            kernel_broadcast_tx,
+            persist_path: tmp.path().join("doc.automerge"),
+            active_peers: AtomicUsize::new(0),
+            kernel: Arc::new(Mutex::new(None)),
+            blob_store,
+            trust_state: Arc::new(RwLock::new(TrustState {
+                status: runt_trust::TrustStatus::Untrusted,
+                info: runt_trust::TrustInfo {
+                    status: runt_trust::TrustStatus::Untrusted,
+                    uv_dependencies: vec![],
+                    conda_dependencies: vec![],
+                    conda_channels: vec![],
+                },
+                pending_launch: false,
+            })),
+            notebook_path: notebook_path.clone(),
+            auto_launch_at: Arc::new(RwLock::new(None)),
+            comm_state: Arc::new(crate::comm_state::CommState::new()),
+        };
+
+        (room, notebook_path)
+    }
+
+    #[tokio::test]
+    async fn test_save_notebook_to_disk_creates_valid_nbformat() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let (room, notebook_path) = test_room_with_path(&tmp, "test.ipynb");
+
+        // Add cells to the doc
+        {
+            let mut doc = room.doc.write().await;
+            doc.add_cell(0, "cell1", "code").unwrap();
+            doc.update_source("cell1", "print('hello')").unwrap();
+            doc.add_cell(1, "cell2", "markdown").unwrap();
+            doc.update_source("cell2", "# Title").unwrap();
+        }
+
+        // Save to disk
+        save_notebook_to_disk(&room).await.unwrap();
+
+        // Read and validate with nbformat
+        let content = std::fs::read_to_string(&notebook_path).unwrap();
+        let notebook: nbformat::v4::Notebook =
+            serde_json::from_str(&content).expect("Saved notebook should be valid nbformat");
+
+        assert_eq!(notebook.cells.len(), 2);
+        assert_eq!(notebook.nbformat, 4);
+        assert!(
+            notebook.nbformat_minor >= 5,
+            "Cell IDs require nbformat_minor >= 5"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_save_notebook_to_disk_preserves_unknown_metadata() {
+        use std::io::Write;
+        let tmp = tempfile::TempDir::new().unwrap();
+        let (room, notebook_path) = test_room_with_path(&tmp, "metadata.ipynb");
+
+        // Create existing file with unknown metadata fields
+        {
+            let mut f = std::fs::File::create(&notebook_path).unwrap();
+            writeln!(
+                f,
+                r#"{{
+                    "nbformat": 4,
+                    "nbformat_minor": 5,
+                    "metadata": {{
+                        "custom_extension": {{"key": "value"}},
+                        "jupyter": {{"source_hidden": true}},
+                        "runt": {{"trust_signature": "abc123", "schema_version": "1"}}
+                    }},
+                    "cells": []
+                }}"#
+            )
+            .unwrap();
+        }
+
+        // Add a cell and save
+        {
+            let mut doc = room.doc.write().await;
+            doc.add_cell(0, "cell1", "code").unwrap();
+            doc.update_source("cell1", "x = 1").unwrap();
+        }
+
+        save_notebook_to_disk(&room).await.unwrap();
+
+        // Verify unknown metadata is preserved
+        let content = std::fs::read_to_string(&notebook_path).unwrap();
+        let saved: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let metadata = saved.get("metadata").unwrap();
+
+        // custom_extension should be preserved
+        assert!(
+            metadata.get("custom_extension").is_some(),
+            "custom_extension should be preserved"
+        );
+        assert_eq!(
+            metadata.get("custom_extension").unwrap().get("key"),
+            Some(&serde_json::json!("value"))
+        );
+
+        // jupyter should be preserved
+        assert!(
+            metadata.get("jupyter").is_some(),
+            "jupyter metadata should be preserved"
+        );
+
+        // trust_signature in runt should be preserved (deep-merge)
+        let runt = metadata.get("runt").unwrap();
+        assert_eq!(
+            runt.get("trust_signature"),
+            Some(&serde_json::json!("abc123")),
+            "trust_signature should be preserved via deep-merge"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_save_notebook_to_disk_enforces_nbformat_minor_5() {
+        use std::io::Write;
+        let tmp = tempfile::TempDir::new().unwrap();
+        let (room, notebook_path) = test_room_with_path(&tmp, "old_minor.ipynb");
+
+        // Create existing file with old nbformat_minor
+        {
+            let mut f = std::fs::File::create(&notebook_path).unwrap();
+            writeln!(
+                f,
+                r#"{{
+                    "nbformat": 4,
+                    "nbformat_minor": 2,
+                    "metadata": {{}},
+                    "cells": []
+                }}"#
+            )
+            .unwrap();
+        }
+
+        // Add a cell with an id and save
+        {
+            let mut doc = room.doc.write().await;
+            doc.add_cell(0, "cell-with-id", "code").unwrap();
+        }
+
+        save_notebook_to_disk(&room).await.unwrap();
+
+        // Verify nbformat_minor is upgraded to 5
+        let content = std::fs::read_to_string(&notebook_path).unwrap();
+        let saved: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        assert_eq!(
+            saved.get("nbformat_minor"),
+            Some(&serde_json::json!(5)),
+            "nbformat_minor should be upgraded to 5 when writing cell IDs"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_save_notebook_to_disk_with_outputs() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let (room, notebook_path) = test_room_with_path(&tmp, "outputs.ipynb");
+
+        // Add a cell with a raw output
+        {
+            let mut doc = room.doc.write().await;
+            doc.add_cell(0, "cell1", "code").unwrap();
+            doc.update_source("cell1", "print('hello')").unwrap();
+            // Add raw JSON output (stream type)
+            let output = r#"{"output_type": "stream", "name": "stdout", "text": ["hello\n"]}"#;
+            doc.set_outputs("cell1", &[output.to_string()]).unwrap();
+            doc.set_execution_count("cell1", "1").unwrap();
+        }
+
+        save_notebook_to_disk(&room).await.unwrap();
+
+        // Read and validate
+        let content = std::fs::read_to_string(&notebook_path).unwrap();
+        let notebook: nbformat::v4::Notebook =
+            serde_json::from_str(&content).expect("Should be valid nbformat with outputs");
+
+        assert_eq!(notebook.cells.len(), 1);
+        if let nbformat::v4::Cell::Code { outputs, .. } = &notebook.cells[0] {
+            assert_eq!(outputs.len(), 1, "Should have one output");
+            // Verify it's a stream output (nbformat types may vary)
+            match &outputs[0] {
+                nbformat::v4::Output::Stream { name, .. } => {
+                    assert_eq!(name, "stdout");
+                }
+                _ => panic!("Expected stream output"),
+            }
+        } else {
+            panic!("Expected code cell");
+        }
     }
 }
