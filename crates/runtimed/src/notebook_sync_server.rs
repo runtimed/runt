@@ -1044,7 +1044,11 @@ async fn auto_launch_kernel(
         }
     };
 
-    // For inline deps, prepare a cached environment
+    // For inline deps, prepare a cached environment with rich progress
+    let progress_handler: std::sync::Arc<dyn kernel_env::ProgressHandler> = std::sync::Arc::new(
+        crate::inline_env::BroadcastProgressHandler::new(room.kernel_broadcast_tx.clone()),
+    );
+
     let (pooled_env, inline_deps) = if env_source == "uv:inline" {
         if let Some(deps) = notebook_path_opt
             .as_ref()
@@ -1054,7 +1058,7 @@ async fn auto_launch_kernel(
                 "[notebook-sync] Preparing cached UV env for inline deps: {:?}",
                 deps
             );
-            match crate::inline_env::prepare_uv_inline_env(&deps).await {
+            match crate::inline_env::prepare_uv_inline_env(&deps, progress_handler.clone()).await {
                 Ok(prepared) => {
                     info!(
                         "[notebook-sync] Using cached inline env at {:?}",
@@ -1094,14 +1098,13 @@ async fn auto_launch_kernel(
                 "[notebook-sync] Preparing cached Conda env for inline deps: {:?} (channels: {:?})",
                 deps, channels
             );
-            // Broadcast progress so the frontend knows we're installing
-            let _ = room
-                .kernel_broadcast_tx
-                .send(NotebookBroadcast::KernelStatus {
-                    status: "installing conda dependencies...".to_string(),
-                    cell_id: None,
-                });
-            match crate::inline_env::prepare_conda_inline_env(&deps, &channels).await {
+            match crate::inline_env::prepare_conda_inline_env(
+                &deps,
+                &channels,
+                progress_handler.clone(),
+            )
+            .await
+            {
                 Ok(prepared) => {
                     info!(
                         "[notebook-sync] Using cached conda inline env at {:?}",
@@ -1342,7 +1345,12 @@ async fn handle_notebook_request(
                 }
             };
 
-            // For inline deps, prepare a cached environment
+            // For inline deps, prepare a cached environment with rich progress
+            let launch_progress_handler: std::sync::Arc<dyn kernel_env::ProgressHandler> =
+                std::sync::Arc::new(crate::inline_env::BroadcastProgressHandler::new(
+                    room.kernel_broadcast_tx.clone(),
+                ));
+
             let (pooled_env, inline_deps) = if resolved_env_source == "uv:inline" {
                 if let Some(deps) = notebook_path
                     .as_ref()
@@ -1352,7 +1360,12 @@ async fn handle_notebook_request(
                         "[notebook-sync] LaunchKernel: Preparing cached UV env for inline deps: {:?}",
                         deps
                     );
-                    match crate::inline_env::prepare_uv_inline_env(&deps).await {
+                    match crate::inline_env::prepare_uv_inline_env(
+                        &deps,
+                        launch_progress_handler.clone(),
+                    )
+                    .await
+                    {
                         Ok(prepared) => {
                             info!(
                                 "[notebook-sync] LaunchKernel: Using cached inline env at {:?}",
@@ -1387,14 +1400,13 @@ async fn handle_notebook_request(
                         "[notebook-sync] LaunchKernel: Preparing cached Conda env for inline deps: {:?} (channels: {:?})",
                         deps, channels
                     );
-                    // Broadcast progress so the frontend knows we're installing
-                    let _ = room
-                        .kernel_broadcast_tx
-                        .send(NotebookBroadcast::KernelStatus {
-                            status: "installing conda dependencies...".to_string(),
-                            cell_id: None,
-                        });
-                    match crate::inline_env::prepare_conda_inline_env(&deps, &channels).await {
+                    match crate::inline_env::prepare_conda_inline_env(
+                        &deps,
+                        &channels,
+                        launch_progress_handler.clone(),
+                    )
+                    .await
+                    {
                         Ok(prepared) => {
                             info!(
                                 "[notebook-sync] LaunchKernel: Using cached conda inline env at {:?}",

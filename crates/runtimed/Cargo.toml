@@ -68,6 +68,9 @@ runt-trust = { path = "../runt-trust" }
 # Shared kernel launching and tool bootstrapping
 kernel-launch = { path = "../kernel-launch" }
 
+# Shared environment management (UV + Conda) with progress reporting
+kernel-env = { path = "../kernel-env" }
+
 # JSON Schema generation
 schemars = { workspace = true }
 
