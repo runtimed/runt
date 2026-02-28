@@ -971,39 +971,53 @@ async fn handle_notebook_request(
                     env_source.clone()
                 };
 
-            // Acquire prewarmed environment from pool if using prewarmed source
-            let pooled_env = match resolved_env_source.as_str() {
-                "uv:prewarmed" => match daemon.take_uv_env().await {
-                    Some(env) => {
-                        info!(
-                            "[notebook-sync] LaunchKernel: acquired UV env from pool: {:?}",
-                            env.python_path
-                        );
-                        Some(env)
-                    }
-                    None => {
-                        warn!(
-                                "[notebook-sync] LaunchKernel: UV pool empty, falling back to kernelspec"
+            // Deno kernels don't need pooled environments
+            let pooled_env = if kernel_type == "deno" {
+                info!("[notebook-sync] LaunchKernel: Deno kernel (no pooled env)");
+                None
+            } else {
+                // Python kernels require pooled environment
+                match resolved_env_source.as_str() {
+                    "uv:prewarmed" => match daemon.take_uv_env().await {
+                        Some(env) => {
+                            info!(
+                                "[notebook-sync] LaunchKernel: acquired UV env from pool: {:?}",
+                                env.python_path
                             );
-                        None
-                    }
-                },
-                "conda:prewarmed" => match daemon.take_conda_env().await {
-                    Some(env) => {
-                        info!(
-                            "[notebook-sync] LaunchKernel: acquired Conda env from pool: {:?}",
-                            env.python_path
-                        );
-                        Some(env)
-                    }
-                    None => {
-                        warn!(
-                                "[notebook-sync] LaunchKernel: Conda pool empty, falling back to kernelspec"
+                            Some(env)
+                        }
+                        None => {
+                            return NotebookResponse::Error {
+                                error: "UV pool empty - no environment available".to_string(),
+                            };
+                        }
+                    },
+                    "conda:prewarmed" => match daemon.take_conda_env().await {
+                        Some(env) => {
+                            info!(
+                                "[notebook-sync] LaunchKernel: acquired Conda env from pool: {:?}",
+                                env.python_path
                             );
-                        None
+                            Some(env)
+                        }
+                        None => {
+                            return NotebookResponse::Error {
+                                error: "Conda pool empty - no environment available".to_string(),
+                            };
+                        }
+                    },
+                    _ => {
+                        // For inline/project sources, use UV pool as default
+                        match daemon.take_uv_env().await {
+                            Some(env) => Some(env),
+                            None => {
+                                return NotebookResponse::Error {
+                                    error: "No environment available".to_string(),
+                                };
+                            }
+                        }
                     }
-                },
-                _ => None,
+                }
             };
 
             match kernel
