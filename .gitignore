@@ -51,6 +51,9 @@ crates/notebook/fixtures/**/uv.lock
 # E2E test screenshots
 e2e-screenshots/
 
+# E2E daemon PID file
+.e2e-daemon.pid
+
 # Generated Tauri icons (keep source + build-required files)
 # Ignore platform-specific icons not needed for macOS/Linux/Windows build
 crates/notebook/icons/64x64.png
