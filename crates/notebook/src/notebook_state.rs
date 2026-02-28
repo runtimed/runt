@@ -661,10 +661,8 @@ pub fn snapshot_from_nbformat(metadata: &nbformat::v4::Metadata) -> NotebookMeta
             .additional
             .get("conda")
             .and_then(|v| serde_json::from_value::<CondaInlineMetadata>(v.clone()).ok());
-        let deno = metadata.additional.get("deno").and_then(|_| {
-            Some(DenoMetadata {
-                permissions: vec![],
-            })
+        let deno = metadata.additional.get("deno").map(|_| DenoMetadata {
+            permissions: vec![],
         });
 
         RuntMetadata {
