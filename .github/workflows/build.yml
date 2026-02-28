@@ -417,6 +417,7 @@ jobs:
       - name: Run kernel launch fixture tests
         timeout-minutes: 15
         run: |
+          set -o pipefail
           mkdir -p e2e-logs
 
           # Start Xvfb
@@ -447,28 +448,30 @@ jobs:
             DRIVER_PID=$!
             sleep 3
 
-            # Run test
+            # Run test and capture exit code
+            local exit_code=0
             NOTEBOOK_PATH="$notebook" E2E_SPEC="$spec" \
-              pnpm test:e2e 2>&1 | tee -a e2e-logs/fixtures-output.log || FAIL=1
+              pnpm test:e2e 2>&1 | tee -a e2e-logs/fixtures-output.log || exit_code=$?
 
             # Cleanup
             kill $DRIVER_PID 2>/dev/null || true
             kill $DAEMON_PID 2>/dev/null || true
             sleep 2
 
-            echo "=== $name complete ==="
+            echo "=== $name complete (exit: $exit_code) ==="
+            return $exit_code
           }
 
           # Run each fixture test
           run_fixture_test \
             "crates/notebook/fixtures/audit-test/1-vanilla.ipynb" \
             "e2e/specs/prewarmed-uv.spec.js" \
-            "Prewarmed Pool Test"
+            "Prewarmed Pool Test" || FAIL=1
 
           run_fixture_test \
             "crates/notebook/fixtures/audit-test/10-deno.ipynb" \
             "e2e/specs/deno.spec.js" \
-            "Deno Kernel Test"
+            "Deno Kernel Test" || FAIL=1
 
           exit $FAIL
         env:

@@ -24,8 +24,8 @@ describe("Deno Kernel", () => {
     // Execute the first cell which logs "deno:ok" and version
     const cell = await executeFirstCell();
 
-    // Wait for output
-    const output = await waitForCellOutput(cell, 30000);
+    // Wait for output (60s - CI can be slow)
+    const output = await waitForCellOutput(cell, 60000);
 
     // Verify Deno executed the code
     expect(output).toContain("deno:ok");
