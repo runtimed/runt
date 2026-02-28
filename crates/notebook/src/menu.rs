@@ -1,11 +1,19 @@
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Wry};
 
+pub struct BundledSampleNotebook {
+    pub id: &'static str,
+    pub title: &'static str,
+    pub file_name: &'static str,
+    pub contents: &'static str,
+}
+
 // Menu item IDs for new notebook types
 pub const MENU_NEW_NOTEBOOK: &str = "new_notebook";
 pub const MENU_NEW_PYTHON_NOTEBOOK: &str = "new_python_notebook";
 pub const MENU_NEW_DENO_NOTEBOOK: &str = "new_deno_notebook";
 pub const MENU_OPEN: &str = "open";
+pub const MENU_OPEN_SAMPLE_PREFIX: &str = "open_sample:";
 pub const MENU_SAVE: &str = "save";
 pub const MENU_CLONE_NOTEBOOK: &str = "clone_notebook";
 
@@ -20,6 +28,38 @@ pub const MENU_RESTART_AND_RUN_ALL: &str = "restart_and_run_all";
 
 // Menu item IDs for CLI installation
 pub const MENU_INSTALL_CLI: &str = "install_cli";
+
+pub const BUNDLED_SAMPLE_NOTEBOOKS: &[BundledSampleNotebook] = &[
+    BundledSampleNotebook {
+        id: "markdown-and-math",
+        title: "Meet Markdown and Math",
+        file_name: "meet-markdown-and-math.ipynb",
+        contents: include_str!("../resources/sample-notebooks/meet-markdown-and-math.ipynb"),
+    },
+    BundledSampleNotebook {
+        id: "pandas-to-geojson",
+        title: "Go from Pandas to GeoJSON",
+        file_name: "pandas-to-geojson.ipynb",
+        contents: include_str!("../resources/sample-notebooks/pandas-to-geojson.ipynb"),
+    },
+    BundledSampleNotebook {
+        id: "download-stats",
+        title: "Glean the Download Statistics for nteract Desktop",
+        file_name: "download-stats.ipynb",
+        contents: include_str!("../resources/sample-notebooks/download-stats.ipynb"),
+    },
+];
+
+pub fn sample_menu_item_id(sample_id: &str) -> String {
+    format!("{MENU_OPEN_SAMPLE_PREFIX}{sample_id}")
+}
+
+pub fn sample_for_menu_item_id(menu_id: &str) -> Option<&'static BundledSampleNotebook> {
+    let sample_id = menu_id.strip_prefix(MENU_OPEN_SAMPLE_PREFIX)?;
+    BUNDLED_SAMPLE_NOTEBOOKS
+        .iter()
+        .find(|sample| sample.id == sample_id)
+}
 
 /// Build the application menu bar
 pub fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
@@ -80,13 +120,28 @@ pub fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     )?)?;
     file_menu.append(&new_notebook_submenu)?;
 
-    file_menu.append(&MenuItem::with_id(
+    let open_submenu = Submenu::new(app, "Open", true)?;
+    open_submenu.append(&MenuItem::with_id(
         app,
         MENU_OPEN,
         "Open...",
         true,
         Some("CmdOrCtrl+O"),
     )?)?;
+    open_submenu.append(&PredefinedMenuItem::separator(app)?)?;
+
+    let sample_submenu = Submenu::new(app, "Sample Notebooks", true)?;
+    for sample in BUNDLED_SAMPLE_NOTEBOOKS {
+        sample_submenu.append(&MenuItem::with_id(
+            app,
+            sample_menu_item_id(sample.id),
+            sample.title,
+            true,
+            None::<&str>,
+        )?)?;
+    }
+    open_submenu.append(&sample_submenu)?;
+    file_menu.append(&open_submenu)?;
     file_menu.append(&PredefinedMenuItem::separator(app)?)?;
     file_menu.append(&MenuItem::with_id(
         app,
@@ -165,4 +220,48 @@ pub fn create_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     menu.append(&window_menu)?;
 
     Ok(menu)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sample_for_menu_item_id, sample_menu_item_id, BUNDLED_SAMPLE_NOTEBOOKS};
+    use std::collections::HashSet;
+
+    #[test]
+    fn bundled_sample_ids_are_unique() {
+        let mut ids = HashSet::new();
+        for sample in BUNDLED_SAMPLE_NOTEBOOKS {
+            assert!(ids.insert(sample.id), "duplicate sample id: {}", sample.id);
+        }
+    }
+
+    #[test]
+    fn bundled_sample_file_names_are_unique() {
+        let mut names = HashSet::new();
+        for sample in BUNDLED_SAMPLE_NOTEBOOKS {
+            assert!(
+                names.insert(sample.file_name),
+                "duplicate sample file name: {}",
+                sample.file_name
+            );
+            assert!(sample.file_name.ends_with(".ipynb"));
+        }
+    }
+
+    #[test]
+    fn sample_menu_ids_round_trip() {
+        for sample in BUNDLED_SAMPLE_NOTEBOOKS {
+            let menu_id = sample_menu_item_id(sample.id);
+            let resolved = sample_for_menu_item_id(&menu_id).expect("sample should resolve");
+            assert_eq!(resolved.id, sample.id);
+        }
+    }
+
+    #[test]
+    fn bundled_samples_are_valid_notebooks() {
+        for sample in BUNDLED_SAMPLE_NOTEBOOKS {
+            nbformat::parse_notebook(sample.contents)
+                .unwrap_or_else(|e| panic!("{} should parse: {}", sample.file_name, e));
+        }
+    }
 }
