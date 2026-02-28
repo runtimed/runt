@@ -29,6 +29,7 @@ use runtimed::protocol::{CompletionItem, HistoryEntry, NotebookRequest, Notebook
 use log::{debug, info, warn};
 use nbformat::v4::{Cell, CellId, CellMetadata};
 use serde::{Deserialize, Serialize};
+use std::ffi::OsStr;
 
 /// Shared notebook sync handle for cross-window state synchronization.
 /// The Option allows graceful fallback when daemon is unavailable.
@@ -347,6 +348,30 @@ async fn initialize_notebook_sync(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::next_available_sample_path;
+    use tempfile::TempDir;
+
+    #[test]
+    fn next_available_sample_path_reuses_original_name_when_available() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let path = next_available_sample_path(temp_dir.path(), "example.ipynb");
+        assert_eq!(path, temp_dir.path().join("example.ipynb"));
+    }
+
+    #[test]
+    fn next_available_sample_path_adds_suffix_for_collisions() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let original = temp_dir.path().join("example.ipynb");
+        std::fs::write(&original, "{}").expect("create existing file");
+
+        let path = next_available_sample_path(temp_dir.path(), "example.ipynb");
+
+        assert_eq!(path, temp_dir.path().join("example-2.ipynb"));
+    }
 }
 
 /// Get the path to the bundled runtimed binary.
@@ -792,12 +817,67 @@ async fn clone_notebook_to_path(
 /// Open a notebook file in a new window (spawns new process)
 #[tauri::command]
 async fn open_notebook_in_new_window(path: String) -> Result<(), String> {
+    spawn_notebook_window_for_path(Path::new(&path))
+}
+
+fn spawn_notebook_window_for_path(path: &Path) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     std::process::Command::new(exe)
-        .arg(&path)
+        .arg(path)
         .spawn()
         .map_err(|e| format!("Failed to open notebook: {}", e))?;
     Ok(())
+}
+
+fn next_available_sample_path(base_dir: &Path, file_name: &str) -> PathBuf {
+    let file_path = Path::new(file_name);
+    let stem = file_path
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .unwrap_or("sample-notebook");
+    let ext = file_path.extension().and_then(OsStr::to_str);
+
+    let mut candidate = base_dir.join(file_name);
+    let mut index = 2;
+
+    while candidate.exists() {
+        let next_name = match ext {
+            Some(ext) => format!("{stem}-{index}.{ext}"),
+            None => format!("{stem}-{index}"),
+        };
+        candidate = base_dir.join(next_name);
+        index += 1;
+    }
+
+    candidate
+}
+
+fn materialize_sample_notebook(
+    app: &tauri::AppHandle,
+    sample: &crate::menu::BundledSampleNotebook,
+) -> Result<PathBuf, String> {
+    let base_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|e| format!("Failed to resolve app data directory: {}", e))?
+        .join("sample-notebooks");
+
+    std::fs::create_dir_all(&base_dir)
+        .map_err(|e| format!("Failed to create sample notebook directory: {}", e))?;
+
+    let destination = next_available_sample_path(&base_dir, sample.file_name);
+    std::fs::write(&destination, sample.contents)
+        .map_err(|e| format!("Failed to write sample notebook: {}", e))?;
+
+    Ok(destination)
+}
+
+fn open_bundled_sample_notebook(
+    app: &tauri::AppHandle,
+    sample: &crate::menu::BundledSampleNotebook,
+) -> Result<(), String> {
+    let path = materialize_sample_notebook(app, sample)?;
+    spawn_notebook_window_for_path(&path)
 }
 
 #[tauri::command]
@@ -2926,7 +3006,8 @@ pub fn run(
             Ok(())
         })
         .on_menu_event(|app, event| {
-            match event.id().as_ref() {
+            let menu_id = event.id().as_ref();
+            match menu_id {
                 crate::menu::MENU_NEW_NOTEBOOK => {
                     // Spawn notebook using the user's default runtime preference
                     let runtime = settings::load_settings().default_runtime;
@@ -3008,7 +3089,28 @@ pub fn run(
                         }
                     }
                 }
-                _ => {}
+                _ => {
+                    if let Some(sample) = crate::menu::sample_for_menu_item_id(menu_id) {
+                        if let Err(e) = open_bundled_sample_notebook(app, sample) {
+                            log::error!(
+                                "[sample_notebooks] Failed to open sample {}: {}",
+                                sample.id,
+                                e
+                            );
+                            let app_handle = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let _ = tauri_plugin_dialog::DialogExt::dialog(&app_handle)
+                                    .message(format!(
+                                        "Failed to open sample notebook '{}': {}",
+                                        sample.title, e
+                                    ))
+                                    .title("Sample Notebook Error")
+                                    .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+                                    .blocking_show();
+                            });
+                        }
+                    }
+                }
             }
         })
         .build(tauri::generate_context!())

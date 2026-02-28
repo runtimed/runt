@@ -96,6 +96,8 @@ Determines which runtime is used when creating a new notebook with **Cmd+N** (or
 Valid values: `"python"`, `"deno"`
 
 You can always create a notebook with a specific runtime using the **File > New Notebook As...** submenu.
+You can open an existing notebook from the file picker using **File > Open > Open...**.
+Bundled example notebooks are available under **File > Open > Sample Notebooks**.
 
 ## Default Python Environment
 
