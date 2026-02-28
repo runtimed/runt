@@ -234,23 +234,22 @@ async fn initialize_notebook_sync(
         }
 
         // Also push notebook metadata to Automerge doc
-        {
+        let metadata_json = {
             let state = notebook_state.lock().map_err(|e| e.to_string())?;
             let snapshot = notebook_state::snapshot_from_nbformat(&state.notebook.metadata);
-            let metadata_json = serde_json::to_string(&snapshot)
-                .map_err(|e| format!("serialize metadata: {}", e))?;
-            info!(
-                "[notebook-sync] Pushing metadata to Automerge doc for {}",
-                notebook_id
-            );
-            handle
-                .set_metadata(
-                    runtimed::notebook_metadata::NOTEBOOK_METADATA_KEY,
-                    &metadata_json,
-                )
-                .await
-                .map_err(|e| format!("set_metadata: {}", e))?;
-        }
+            serde_json::to_string(&snapshot).map_err(|e| format!("serialize metadata: {}", e))?
+        };
+        info!(
+            "[notebook-sync] Pushing metadata to Automerge doc for {}",
+            notebook_id
+        );
+        handle
+            .set_metadata(
+                runtimed::notebook_metadata::NOTEBOOK_METADATA_KEY,
+                &metadata_json,
+            )
+            .await
+            .map_err(|e| format!("set_metadata: {}", e))?;
     } else {
         info!(
             "[notebook-sync] Joining existing room with {} cells",
