@@ -21,20 +21,15 @@ describe("Deno Kernel", () => {
   });
 
   it("should execute TypeScript and show output", async () => {
-    // Execute the first cell which logs "deno:ok" and version
+    // Execute the first cell which logs "deno:ok"
     const cell = await executeFirstCell();
 
     // Wait for output (60s - CI can be slow)
     const output = await waitForCellOutput(cell, 60000);
-    console.log("Deno output received:", JSON.stringify(output));
 
-    // Verify Deno produced some output (kernel is working)
-    expect(output).toBeTruthy();
-    expect(output.length).toBeGreaterThan(0);
-    // If we got "deno:ok" that's the expected output
-    // If not, we at least verify the kernel ran
-    if (output.includes("deno:ok")) {
-      expect(output).toContain("version:");
-    }
+    // Verify Deno executed the TypeScript code
+    // (Multiple console.log calls may render as separate stream outputs,
+    // so we just check that "deno:ok" appears)
+    expect(output).toContain("deno:ok");
   });
 });
