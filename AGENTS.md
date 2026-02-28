@@ -62,6 +62,7 @@ The `.context/` directory is gitignored and used for per-worktree state that sho
 ## Contributing Guidelines
 
 See the `contributing/` directory for detailed guides:
+- `contributing/architecture.md` - Runtime architecture principles (daemon, state, sync)
 - `contributing/development.md` - Development workflow and build commands
 - `contributing/e2e.md` - End-to-end testing guide
 - `contributing/environments.md` - Environment management architecture
