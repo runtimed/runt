@@ -1393,6 +1393,8 @@ async fn run_sync_task<S>(
     // Use a short poll interval to check for incoming data
     let mut poll_interval = interval(Duration::from_millis(50));
     let mut loop_count = 0u64;
+    // Track last metadata to only send updates when it actually changes
+    let mut last_metadata: Option<String> = client.get_metadata(NOTEBOOK_METADATA_KEY);
 
     loop {
         loop_count += 1;
@@ -1463,11 +1465,15 @@ async fn run_sync_task<S>(
                     client.recv_frame_any()
                 ).await {
                     Ok(Ok(Some(ReceivedFrame::Changes(cells)))) => {
-                        // Got changes from another peer — include metadata
-                        let notebook_metadata = client.get_metadata(NOTEBOOK_METADATA_KEY);
+                        // Got changes from another peer — only include metadata if it changed
+                        let current_metadata = client.get_metadata(NOTEBOOK_METADATA_KEY);
+                        let metadata_changed = current_metadata != last_metadata;
+                        if metadata_changed {
+                            last_metadata = current_metadata.clone();
+                        }
                         let update = SyncUpdate {
                             cells,
-                            notebook_metadata,
+                            notebook_metadata: if metadata_changed { current_metadata } else { None },
                         };
                         if changes_tx.send(update).await.is_err() {
                             info!(

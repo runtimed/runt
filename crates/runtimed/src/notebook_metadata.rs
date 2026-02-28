@@ -199,11 +199,22 @@ impl NotebookMetadataSnapshot {
             }
         }
 
-        // Replace language_info
+        // Merge language_info (preserve fields we don't track, like codemirror_mode)
         match &self.language_info {
             Some(li) => {
                 if let Ok(v) = serde_json::to_value(li) {
-                    obj.insert("language_info".to_string(), v);
+                    if let Some(existing) = obj.get_mut("language_info") {
+                        // Deep-merge: update tracked fields, keep the rest
+                        if let Some(existing_obj) = existing.as_object_mut() {
+                            if let Some(new_obj) = v.as_object() {
+                                for (k, val) in new_obj {
+                                    existing_obj.insert(k.clone(), val.clone());
+                                }
+                            }
+                        }
+                    } else {
+                        obj.insert("language_info".to_string(), v);
+                    }
                 }
             }
             None => {

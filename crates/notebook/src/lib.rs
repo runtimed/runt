@@ -454,7 +454,8 @@ async fn push_metadata_to_sync(
         }
     };
 
-    if let Some(handle) = notebook_sync.lock().await.as_ref() {
+    let handle = notebook_sync.lock().await.clone();
+    if let Some(handle) = handle {
         if let Err(e) = handle
             .set_metadata(
                 runtimed::notebook_metadata::NOTEBOOK_METADATA_KEY,
@@ -808,38 +809,37 @@ async fn save_notebook(
     push_metadata_to_sync(&state, &notebook_sync).await;
 
     // Try daemon save first (daemon merges metadata + cells from Automerge doc)
-    let daemon_saved = {
-        let guard = notebook_sync.lock().await;
-        if let Some(ref handle) = *guard {
-            match handle
-                .send_request(NotebookRequest::SaveNotebook {
-                    format_cells: false, // Already formatted above
-                })
-                .await
-            {
-                Ok(NotebookResponse::NotebookSaved {}) => {
-                    info!("[save] Notebook saved via daemon");
-                    true
-                }
-                Ok(NotebookResponse::Error { error }) => {
-                    warn!(
-                        "[save] Daemon save failed: {}, falling back to local",
-                        error
-                    );
-                    false
-                }
-                Ok(_) => {
-                    warn!("[save] Unexpected daemon response, falling back to local");
-                    false
-                }
-                Err(e) => {
-                    warn!("[save] Daemon request failed: {}, falling back to local", e);
-                    false
-                }
+    // Clone handle out of the mutex to avoid holding lock across await
+    let sync_handle = notebook_sync.lock().await.clone();
+    let daemon_saved = if let Some(handle) = sync_handle {
+        match handle
+            .send_request(NotebookRequest::SaveNotebook {
+                format_cells: false, // Already formatted above
+            })
+            .await
+        {
+            Ok(NotebookResponse::NotebookSaved {}) => {
+                info!("[save] Notebook saved via daemon");
+                true
             }
-        } else {
-            false
+            Ok(NotebookResponse::Error { error }) => {
+                warn!(
+                    "[save] Daemon save failed: {}, falling back to local",
+                    error
+                );
+                false
+            }
+            Ok(_) => {
+                warn!("[save] Unexpected daemon response, falling back to local");
+                false
+            }
+            Err(e) => {
+                warn!("[save] Daemon request failed: {}, falling back to local", e);
+                false
+            }
         }
+    } else {
+        false
     };
 
     // Fallback: save locally if daemon save didn't work

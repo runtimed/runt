@@ -638,7 +638,7 @@ pub fn snapshot_from_nbformat(metadata: &nbformat::v4::Metadata) -> NotebookMeta
         .as_ref()
         .map(|li| LanguageInfoSnapshot {
             name: li.name.clone(),
-            version: None, // nbformat LanguageInfo doesn't always have version
+            version: li.version.clone(),
         });
 
     let runt = if let Some(runt_value) = metadata.additional.get("runt") {
@@ -661,9 +661,15 @@ pub fn snapshot_from_nbformat(metadata: &nbformat::v4::Metadata) -> NotebookMeta
             .additional
             .get("conda")
             .and_then(|v| serde_json::from_value::<CondaInlineMetadata>(v.clone()).ok());
-        let deno = metadata.additional.get("deno").map(|_| DenoMetadata {
-            permissions: vec![],
-        });
+        let deno = metadata
+            .additional
+            .get("deno")
+            .and_then(|v| {
+                serde_json::from_value::<crate::deno_env::DenoDependencies>(v.clone()).ok()
+            })
+            .map(|dd| DenoMetadata {
+                permissions: dd.permissions,
+            });
 
         RuntMetadata {
             schema_version: "1".to_string(),
@@ -690,7 +696,12 @@ pub fn merge_snapshot_into_nbformat(
     snapshot: &NotebookMetadataSnapshot,
     metadata: &mut nbformat::v4::Metadata,
 ) {
-    // Replace kernelspec
+    // Replace kernelspec, preserving existing additional fields
+    let existing_ks_additional = metadata
+        .kernelspec
+        .as_ref()
+        .map(|ks| ks.additional.clone())
+        .unwrap_or_default();
     metadata.kernelspec = snapshot
         .kernelspec
         .as_ref()
@@ -698,18 +709,23 @@ pub fn merge_snapshot_into_nbformat(
             name: ks.name.clone(),
             display_name: ks.display_name.clone(),
             language: ks.language.clone(),
-            additional: std::collections::HashMap::new(),
+            additional: existing_ks_additional,
         });
 
-    // Replace language_info
+    // Replace language_info, preserving existing codemirror_mode and additional
+    let (existing_cm_mode, existing_li_additional) = metadata
+        .language_info
+        .as_ref()
+        .map(|li| (li.codemirror_mode.clone(), li.additional.clone()))
+        .unwrap_or_default();
     metadata.language_info = snapshot
         .language_info
         .as_ref()
         .map(|li| nbformat::v4::LanguageInfo {
             name: li.name.clone(),
             version: li.version.clone(),
-            codemirror_mode: None,
-            additional: std::collections::HashMap::new(),
+            codemirror_mode: existing_cm_mode,
+            additional: existing_li_additional,
         });
 
     // Replace runt namespace in additional

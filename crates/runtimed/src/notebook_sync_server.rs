@@ -1695,7 +1695,7 @@ async fn handle_notebook_request(
             match save_notebook_to_disk(room).await {
                 Ok(()) => NotebookResponse::NotebookSaved {},
                 Err(e) => NotebookResponse::Error {
-                    error: format!("Failed to save notebook: {}", e),
+                    error: format!("Failed to save notebook: {e}"),
                 },
             }
         }
@@ -1713,7 +1713,8 @@ async fn save_notebook_to_disk(room: &NotebookRoom) -> Result<(), String> {
     let notebook_path = &room.notebook_path;
 
     // Read existing .ipynb to preserve unknown metadata and cell metadata
-    let existing: Option<serde_json::Value> = std::fs::read_to_string(notebook_path)
+    let existing: Option<serde_json::Value> = tokio::fs::read_to_string(notebook_path)
+        .await
         .ok()
         .and_then(|content| serde_json::from_str(&content).ok());
 
@@ -1816,6 +1817,7 @@ async fn save_notebook_to_disk(room: &NotebookRoom) -> Result<(), String> {
         .cloned()
         .unwrap_or(serde_json::json!(5));
 
+    let cell_count = nb_cells.len();
     let notebook_json = serde_json::json!({
         "nbformat": 4,
         "nbformat_minor": nbformat_minor,
@@ -1825,17 +1827,17 @@ async fn save_notebook_to_disk(room: &NotebookRoom) -> Result<(), String> {
 
     // Serialize with trailing newline (nbformat convention)
     let content = serde_json::to_string_pretty(&notebook_json)
-        .map_err(|e| format!("Failed to serialize notebook: {}", e))?;
-    let content_with_newline = format!("{}\n", content);
+        .map_err(|e| format!("Failed to serialize notebook: {e}"))?;
+    let content_with_newline = format!("{content}\n");
 
-    // Write to disk
-    std::fs::write(notebook_path, content_with_newline)
-        .map_err(|e| format!("Failed to write notebook: {}", e))?;
+    // Write to disk (async to avoid blocking the runtime)
+    tokio::fs::write(notebook_path, content_with_newline)
+        .await
+        .map_err(|e| format!("Failed to write notebook: {e}"))?;
 
     info!(
         "[notebook-sync] Saved notebook to disk: {:?} ({} cells)",
-        notebook_path,
-        nb_cells.len()
+        notebook_path, cell_count
     );
 
     Ok(())
