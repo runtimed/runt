@@ -944,10 +944,18 @@ async fn auto_launch_kernel(
                     );
                     prewarmed.to_string()
                 };
-                let pooled_env = match acquire_pool_env_for_source(&env_source, &daemon, room).await
-                {
-                    Some(env) => env,
-                    None => return, // Error already broadcast
+                // For project-based sources (uv:pyproject), we don't need a pooled env -
+                // the kernel manager uses `uv run` directly in the project directory
+                let pooled_env = if env_source == "uv:pyproject" {
+                    info!(
+                        "[notebook-sync] Auto-launch: uv:pyproject uses uv run, no pool env needed"
+                    );
+                    None
+                } else {
+                    match acquire_pool_env_for_source(&env_source, &daemon, room).await {
+                        Some(env) => env,
+                        None => return, // Error already broadcast
+                    }
                 };
                 ("python", env_source, pooled_env)
             }
@@ -1145,8 +1153,15 @@ async fn handle_notebook_request(
                             };
                         }
                     },
+                    "uv:pyproject" => {
+                        // Project-based source uses `uv run` directly, no pooled env needed
+                        info!(
+                            "[notebook-sync] LaunchKernel: uv:pyproject uses uv run, no pool env"
+                        );
+                        None
+                    }
                     other => {
-                        // For inline/project sources, route to correct pool based on prefix
+                        // For inline sources, route to correct pool based on prefix
                         if other.starts_with("conda:") {
                             match daemon.take_conda_env().await {
                                 Some(env) => Some(env),

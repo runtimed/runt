@@ -435,20 +435,51 @@ impl RoomKernel {
         // Build kernel command based on kernel type
         let mut cmd = match kernel_type {
             "python" => {
-                // Python kernels require a pooled environment
-                let pooled_env = env.ok_or_else(|| {
-                    anyhow::anyhow!("Python kernel requires a pooled environment")
-                })?;
-                info!(
-                    "[kernel-manager] Starting Python kernel from env at {:?}",
-                    pooled_env.python_path
-                );
-                let mut cmd = tokio::process::Command::new(&pooled_env.python_path);
-                cmd.args(["-Xfrozen_modules=off", "-m", "ipykernel_launcher", "-f"]);
-                cmd.arg(&connection_file_path);
-                cmd.stdout(Stdio::null());
-                cmd.stderr(Stdio::null());
-                cmd
+                // Branch on env_source for different Python environment types
+                match env_source {
+                    "uv:pyproject" => {
+                        // Use `uv run` in the project directory with ipykernel
+                        let uv_path = kernel_launch::tools::get_uv_path().await?;
+                        info!(
+                            "[kernel-manager] Starting Python kernel with uv run (env_source: {})",
+                            env_source
+                        );
+                        let mut cmd = tokio::process::Command::new(&uv_path);
+                        cmd.args([
+                            "run",
+                            "--with",
+                            "ipykernel",
+                            "python",
+                            "-Xfrozen_modules=off",
+                            "-m",
+                            "ipykernel_launcher",
+                            "-f",
+                        ]);
+                        cmd.arg(&connection_file_path);
+                        cmd.stdout(Stdio::null());
+                        cmd.stderr(Stdio::null());
+                        cmd
+                    }
+                    _ => {
+                        // Prewarmed or inline deps - use pooled environment
+                        let pooled_env = env.ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Python kernel requires a pooled environment for env_source: {}",
+                                env_source
+                            )
+                        })?;
+                        info!(
+                            "[kernel-manager] Starting Python kernel from env at {:?}",
+                            pooled_env.python_path
+                        );
+                        let mut cmd = tokio::process::Command::new(&pooled_env.python_path);
+                        cmd.args(["-Xfrozen_modules=off", "-m", "ipykernel_launcher", "-f"]);
+                        cmd.arg(&connection_file_path);
+                        cmd.stdout(Stdio::null());
+                        cmd.stderr(Stdio::null());
+                        cmd
+                    }
+                }
             }
             "deno" => {
                 // Deno kernels use our bootstrapped deno binary

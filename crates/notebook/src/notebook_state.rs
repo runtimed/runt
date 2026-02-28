@@ -177,10 +177,18 @@ impl NotebookState {
 
         additional.insert("runt".to_string(), runt_meta);
 
+        // Set Python kernelspec (new_empty defaults to Python)
+        let kernelspec = Some(nbformat::v4::KernelSpec {
+            name: "python3".to_string(),
+            display_name: "Python 3".to_string(),
+            language: Some("python".to_string()),
+            additional: std::collections::HashMap::new(),
+        });
+
         NotebookState {
             notebook: Notebook {
                 metadata: nbformat::v4::Metadata {
-                    kernelspec: None,
+                    kernelspec,
                     language_info: None,
                     authors: None,
                     additional,
@@ -261,10 +269,33 @@ impl NotebookState {
 
         additional.insert("runt".to_string(), runt_meta);
 
+        // Set standard Jupyter kernelspec based on runtime
+        // This is critical for daemon detection of kernel type
+        let kernelspec = match &runtime {
+            Runtime::Python => Some(nbformat::v4::KernelSpec {
+                name: "python3".to_string(),
+                display_name: "Python 3".to_string(),
+                language: Some("python".to_string()),
+                additional: std::collections::HashMap::new(),
+            }),
+            Runtime::Deno => Some(nbformat::v4::KernelSpec {
+                name: "deno".to_string(),
+                display_name: "Deno".to_string(),
+                language: Some("typescript".to_string()),
+                additional: std::collections::HashMap::new(),
+            }),
+            Runtime::Other(s) => Some(nbformat::v4::KernelSpec {
+                name: s.clone(),
+                display_name: s.clone(),
+                language: None,
+                additional: std::collections::HashMap::new(),
+            }),
+        };
+
         NotebookState {
             notebook: Notebook {
                 metadata: nbformat::v4::Metadata {
-                    kernelspec: None,
+                    kernelspec,
                     language_info: None,
                     authors: None,
                     additional,
@@ -313,10 +344,18 @@ impl NotebookState {
             }),
         );
 
+        // Python kernelspec for conda from environment.yml
+        let kernelspec = Some(nbformat::v4::KernelSpec {
+            name: "python3".to_string(),
+            display_name: "Python 3".to_string(),
+            language: Some("python".to_string()),
+            additional: std::collections::HashMap::new(),
+        });
+
         NotebookState {
             notebook: Notebook {
                 metadata: nbformat::v4::Metadata {
-                    kernelspec: None,
+                    kernelspec,
                     language_info: None,
                     authors: None,
                     additional,
@@ -357,10 +396,18 @@ impl NotebookState {
             }),
         );
 
+        // Python kernelspec for UV from pyproject.toml
+        let kernelspec = Some(nbformat::v4::KernelSpec {
+            name: "python3".to_string(),
+            display_name: "Python 3".to_string(),
+            language: Some("python".to_string()),
+            additional: std::collections::HashMap::new(),
+        });
+
         NotebookState {
             notebook: Notebook {
                 metadata: nbformat::v4::Metadata {
-                    kernelspec: None,
+                    kernelspec,
                     language_info: None,
                     authors: None,
                     additional,
