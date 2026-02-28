@@ -353,14 +353,14 @@ impl RoomKernel {
 
     /// Launch a kernel for this room.
     ///
-    /// If `env` is provided (prewarmed pool environment), launches using that environment's
-    /// Python directly. Otherwise, falls back to kernelspec discovery.
+    /// Launches a kernel using the provided pooled environment.
+    /// The environment must be provided - there is no fallback to kernelspec discovery.
     pub async fn launch(
         &mut self,
         kernel_type: &str,
         env_source: &str,
         notebook_path: Option<&std::path::Path>,
-        env: Option<PooledEnv>,
+        env: PooledEnv,
     ) -> Result<()> {
         // Shutdown existing kernel if any (but don't broadcast shutdown for fresh kernel)
         if self.is_running() {
@@ -425,32 +425,16 @@ impl RoomKernel {
             dirs::home_dir().unwrap_or_else(std::env::temp_dir)
         };
 
-        // Build kernel command based on whether we have a prewarmed environment
-        let mut cmd = if let Some(ref pooled_env) = env {
-            // Use prewarmed environment's Python directly
-            info!(
-                "[kernel-manager] Starting kernel from prewarmed env at {:?}",
-                pooled_env.python_path
-            );
-            let mut cmd = tokio::process::Command::new(&pooled_env.python_path);
-            cmd.args(["-Xfrozen_modules=off", "-m", "ipykernel_launcher", "-f"]);
-            cmd.arg(&connection_file_path);
-            cmd.stdout(Stdio::null());
-            cmd.stderr(Stdio::null());
-            cmd
-        } else {
-            // Fall back to kernelspec discovery
-            info!(
-                "[kernel-manager] Starting kernel {} via kernelspec at {:?}",
-                kernelspec_name, connection_file_path
-            );
-            let kernelspec = runtimelib::find_kernelspec(kernelspec_name).await?;
-            kernelspec.command(
-                &connection_file_path,
-                Some(Stdio::null()),
-                Some(Stdio::null()),
-            )?
-        };
+        // Build kernel command using the pooled environment
+        info!(
+            "[kernel-manager] Starting kernel from pooled env at {:?}",
+            env.python_path
+        );
+        let mut cmd = tokio::process::Command::new(&env.python_path);
+        cmd.args(["-Xfrozen_modules=off", "-m", "ipykernel_launcher", "-f"]);
+        cmd.arg(&connection_file_path);
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::null());
         cmd.current_dir(&cwd);
 
         #[cfg(unix)]

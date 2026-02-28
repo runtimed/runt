@@ -40,12 +40,6 @@ export type JupyterOutput =
       traceback: string[];
     };
 
-export interface KernelspecInfo {
-  name: string;
-  display_name: string;
-  language: string;
-}
-
 export interface JupyterMessage {
   header: {
     msg_id: string;

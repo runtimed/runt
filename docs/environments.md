@@ -48,7 +48,7 @@ The dependency panel shows pixi dependencies and offers an "Import to notebook" 
 
 ## Deno Notebooks
 
-For Deno/TypeScript notebooks, Runt detects `deno.json` or `deno.jsonc` configuration files. Deno manages its own dependencies through import maps and URL imports, so the environment setup is simpler — Runt just needs Deno installed.
+For Deno/TypeScript notebooks, Runt detects `deno.json` or `deno.jsonc` configuration files. Deno manages its own dependencies through import maps and URL imports, so the environment setup is simpler. If Deno is not found on your PATH, Runt automatically bootstraps it from conda-forge using rattler.
 
 ## User Preferences
 

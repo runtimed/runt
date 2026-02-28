@@ -49,13 +49,6 @@ use std::sync::{Arc, Mutex};
 use tauri::RunEvent;
 use tauri::{Emitter, Manager};
 
-#[derive(Serialize)]
-struct KernelspecInfo {
-    name: String,
-    display_name: String,
-    language: String,
-}
-
 /// Git information for debug banner display.
 #[derive(Serialize)]
 struct GitInfo {
@@ -1297,32 +1290,6 @@ fn debug_get_local_state(
         .collect();
 
     Ok(json_cells)
-}
-
-#[tauri::command]
-async fn get_preferred_kernelspec(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-) -> Result<Option<String>, String> {
-    let state = state.lock().map_err(|e| e.to_string())?;
-    Ok(state
-        .notebook
-        .metadata
-        .kernelspec
-        .as_ref()
-        .map(|k| k.name.clone()))
-}
-
-#[tauri::command]
-async fn list_kernelspecs() -> Result<Vec<KernelspecInfo>, String> {
-    let specs = runtimelib::list_kernelspecs().await;
-    Ok(specs
-        .into_iter()
-        .map(|s| KernelspecInfo {
-            name: s.kernel_name,
-            display_name: s.kernelspec.display_name,
-            language: s.kernelspec.language,
-        })
-        .collect())
 }
 
 // ============================================================================
@@ -2666,9 +2633,6 @@ pub fn run(
             refresh_from_automerge,
             debug_get_automerge_state,
             debug_get_local_state,
-            // Kernelspec discovery (used by UI)
-            get_preferred_kernelspec,
-            list_kernelspecs,
             // UV dependency management
             check_uv_available,
             get_notebook_dependencies,

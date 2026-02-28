@@ -13,7 +13,7 @@ import {
   Sun,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -23,7 +23,6 @@ import type { ThemeMode } from "@/hooks/useSyncedSettings";
 import { isKnownPythonEnv, isKnownRuntime } from "@/hooks/useSyncedSettings";
 import { cn } from "@/lib/utils";
 import type { EnvProgressState } from "../hooks/useEnvProgress";
-import type { KernelspecInfo } from "../types";
 
 /** Deno logo icon (from tabler icons) */
 function DenoIcon({ className }: { className?: string }) {
@@ -167,7 +166,6 @@ interface NotebookToolbarProps {
   onAddCell: (type: "code" | "markdown") => void;
   onToggleDependencies: () => void;
   isDepsOpen?: boolean;
-  listKernelspecs?: () => Promise<KernelspecInfo[]>;
 }
 
 const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
@@ -302,32 +300,13 @@ export function NotebookToolbar({
   onAddCell,
   onToggleDependencies,
   isDepsOpen = false,
-  listKernelspecs,
 }: NotebookToolbarProps) {
-  const [kernelspecs, setKernelspecs] = useState<KernelspecInfo[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  useEffect(() => {
-    if (listKernelspecs) {
-      listKernelspecs().then(setKernelspecs);
-    }
-  }, [listKernelspecs]);
-
   const handleStartKernel = useCallback(() => {
-    // In daemon mode (no listKernelspecs), just call with empty name - backend auto-selects
-    if (!listKernelspecs) {
-      onStartKernel("");
-      return;
-    }
-    // Default to python3 or first available
-    const python = kernelspecs.find(
-      (k) => k.name === "python3" || k.name === "python",
-    );
-    const spec = python ?? kernelspecs[0];
-    if (spec) {
-      onStartKernel(spec.name);
-    }
-  }, [kernelspecs, onStartKernel, listKernelspecs]);
+    // Backend auto-selects kernel based on notebook content and settings
+    onStartKernel("");
+  }, [onStartKernel]);
 
   const isKernelRunning =
     kernelStatus === "idle" ||
@@ -399,7 +378,6 @@ export function NotebookToolbar({
             <button
               type="button"
               onClick={handleStartKernel}
-              disabled={listKernelspecs && kernelspecs.length === 0}
               className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
               title="Start kernel"
               data-testid="start-kernel-button"

@@ -2017,6 +2017,320 @@ print("warmup complete")
             self.broadcast_pool_state().await;
         }
     }
+
+    /// Create a UV environment on-demand (when pool is empty).
+    ///
+    /// Unlike `create_uv_env`, this doesn't add to the pool or update pool state.
+    /// Returns the environment directly for immediate use.
+    pub async fn create_uv_env_on_demand(&self) -> anyhow::Result<PooledEnv> {
+        let temp_id = format!("runtimed-uv-ondemand-{}", uuid::Uuid::new_v4());
+        let venv_path = self.config.cache_dir.join(&temp_id);
+
+        #[cfg(target_os = "windows")]
+        let python_path = venv_path.join("Scripts").join("python.exe");
+        #[cfg(not(target_os = "windows"))]
+        let python_path = venv_path.join("bin").join("python");
+
+        info!(
+            "[runtimed] Creating UV environment on-demand at {:?}",
+            venv_path
+        );
+
+        // Ensure cache directory exists
+        tokio::fs::create_dir_all(&self.config.cache_dir).await?;
+
+        // Create venv (60 second timeout)
+        let venv_result = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            tokio::process::Command::new("uv")
+                .arg("venv")
+                .arg(&venv_path)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output(),
+        )
+        .await;
+
+        match venv_result {
+            Ok(Ok(output)) if output.status.success() => {}
+            Ok(Ok(output)) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                anyhow::bail!("Failed to create venv: {}", stderr);
+            }
+            Ok(Err(e)) => {
+                anyhow::bail!("Failed to create venv: {}", e);
+            }
+            Err(_) => {
+                tokio::fs::remove_dir_all(&venv_path).await.ok();
+                anyhow::bail!("Timeout creating venv after 60 seconds");
+            }
+        }
+
+        // Build install args: ipykernel + ipywidgets + default packages from settings
+        let mut install_packages = vec!["ipykernel".to_string(), "ipywidgets".to_string()];
+
+        // Read default uv packages from synced settings
+        {
+            let settings = self.settings.read().await;
+            let synced = settings.get_all();
+            let extra = synced.uv.default_packages;
+            if !extra.is_empty() {
+                info!("[runtimed] Including default uv packages: {:?}", extra);
+                install_packages.extend(extra);
+            }
+        }
+
+        // Install packages (120 second timeout)
+        let mut install_args = vec![
+            "pip".to_string(),
+            "install".to_string(),
+            "--python".to_string(),
+            python_path.to_string_lossy().to_string(),
+        ];
+        install_args.extend(install_packages);
+
+        let install_result = tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            tokio::process::Command::new("uv")
+                .args(&install_args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output(),
+        )
+        .await;
+
+        match install_result {
+            Ok(Ok(output)) if output.status.success() => {}
+            Ok(Ok(output)) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                tokio::fs::remove_dir_all(&venv_path).await.ok();
+                anyhow::bail!("Failed to install packages: {}", stderr);
+            }
+            Ok(Err(e)) => {
+                tokio::fs::remove_dir_all(&venv_path).await.ok();
+                anyhow::bail!("Failed to run uv pip install: {}", e);
+            }
+            Err(_) => {
+                tokio::fs::remove_dir_all(&venv_path).await.ok();
+                anyhow::bail!("Timeout installing packages (120s)");
+            }
+        }
+
+        // Warm up the environment (30 second timeout)
+        let warmup_script = r#"
+import ipykernel
+import IPython
+import ipywidgets
+from ipykernel.kernelbase import Kernel
+from ipykernel.ipkernel import IPythonKernel
+print("warmup complete")
+"#;
+
+        let warmup_result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            tokio::process::Command::new(&python_path)
+                .args(["-c", warmup_script])
+                .output(),
+        )
+        .await;
+
+        match warmup_result {
+            Ok(Ok(output)) if output.status.success() => {
+                // Create marker file
+                tokio::fs::write(venv_path.join(".warmed"), "").await.ok();
+            }
+            Ok(_) => {
+                warn!("[runtimed] On-demand warmup script failed, continuing anyway");
+            }
+            Err(_) => {
+                warn!("[runtimed] On-demand warmup script timed out, continuing anyway");
+            }
+        }
+
+        info!(
+            "[runtimed] UV environment ready on-demand at {:?}",
+            venv_path
+        );
+
+        Ok(PooledEnv {
+            env_type: EnvType::Uv,
+            venv_path,
+            python_path,
+        })
+    }
+
+    /// Create a Conda environment on-demand (when pool is empty).
+    ///
+    /// Unlike `create_conda_env`, this doesn't add to the pool or update pool state.
+    /// Returns the environment directly for immediate use.
+    pub async fn create_conda_env_on_demand(&self) -> anyhow::Result<PooledEnv> {
+        use rattler::{default_cache_dir, install::Installer, package_cache::PackageCache};
+        use rattler_conda_types::{
+            Channel, ChannelConfig, GenericVirtualPackage, MatchSpec, ParseMatchSpecOptions,
+            Platform,
+        };
+        use rattler_repodata_gateway::Gateway;
+        use rattler_solve::{resolvo, SolverImpl, SolverTask};
+
+        let temp_id = format!("runtimed-conda-ondemand-{}", uuid::Uuid::new_v4());
+        let env_path = self.config.cache_dir.join(&temp_id);
+
+        #[cfg(target_os = "windows")]
+        let python_path = env_path.join("python.exe");
+        #[cfg(not(target_os = "windows"))]
+        let python_path = env_path.join("bin").join("python");
+
+        info!(
+            "[runtimed] Creating Conda environment on-demand at {:?}",
+            env_path
+        );
+
+        // Ensure cache directory exists
+        tokio::fs::create_dir_all(&self.config.cache_dir).await?;
+
+        // Setup channel configuration
+        let channel_config = ChannelConfig::default_with_root_dir(self.config.cache_dir.clone());
+
+        // Parse channels
+        let channels = vec![Channel::from_str("conda-forge", &channel_config)?];
+
+        // Read default conda packages from synced settings
+        let extra_conda_packages: Vec<String> = {
+            let settings = self.settings.read().await;
+            let synced = settings.get_all();
+            synced.conda.default_packages
+        };
+
+        if !extra_conda_packages.is_empty() {
+            info!(
+                "[runtimed] Including default conda packages: {:?}",
+                extra_conda_packages
+            );
+        }
+
+        // Build specs: python + ipykernel + ipywidgets + default packages
+        let match_spec_options = ParseMatchSpecOptions::strict();
+        let mut specs = vec![
+            MatchSpec::from_str("python>=3.9", match_spec_options)?,
+            MatchSpec::from_str("ipykernel", match_spec_options)?,
+            MatchSpec::from_str("ipywidgets", match_spec_options)?,
+        ];
+        for pkg in &extra_conda_packages {
+            specs.push(MatchSpec::from_str(pkg, match_spec_options)?);
+        }
+
+        // Find rattler cache directory
+        let rattler_cache_dir = default_cache_dir()?;
+
+        // Create download client
+        let download_client =
+            reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
+
+        // Create gateway for fetching repodata
+        let gateway = Gateway::builder()
+            .with_cache_dir(rattler_cache_dir.join(rattler_cache::REPODATA_CACHE_DIR))
+            .with_package_cache(PackageCache::new(
+                rattler_cache_dir.join(rattler_cache::PACKAGE_CACHE_DIR),
+            ))
+            .with_client(download_client.clone())
+            .finish();
+
+        // Detect current platform
+        let install_platform = Platform::current();
+        let platforms = vec![install_platform, Platform::NoArch];
+
+        info!("[runtimed] Fetching conda repodata from conda-forge (on-demand)...");
+
+        // Get repodata
+        let repo_data = gateway
+            .query(channels.clone(), platforms.clone(), specs.clone())
+            .recursive(true)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to fetch repodata: {}", e))?;
+
+        info!("[runtimed] Repodata fetched, solving dependencies (on-demand)...");
+
+        // Detect virtual packages for solving
+        let virtual_packages = rattler_virtual_packages::VirtualPackage::detect(
+            &rattler_virtual_packages::VirtualPackageOverrides::default(),
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to detect virtual packages: {}", e))?
+        .iter()
+        .map(|vpkg| GenericVirtualPackage::from(vpkg.clone()))
+        .collect::<Vec<_>>();
+
+        // Solve dependencies
+        let solver_task = SolverTask {
+            virtual_packages,
+            specs,
+            ..SolverTask::from_iter(&repo_data)
+        };
+
+        let required_packages = resolvo::Solver
+            .solve(solver_task)
+            .map_err(|e| anyhow::anyhow!("Failed to solve dependencies: {}", e))?
+            .records;
+
+        info!(
+            "[runtimed] Solved: {} packages to install (on-demand)",
+            required_packages.len()
+        );
+
+        // Install packages
+        Installer::new()
+            .with_download_client(download_client)
+            .with_target_platform(install_platform)
+            .install(&env_path, required_packages)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to install packages: {}", e))?;
+
+        // Verify python exists
+        if !python_path.exists() {
+            tokio::fs::remove_dir_all(&env_path).await.ok();
+            anyhow::bail!("Python not found at {:?} after install", python_path);
+        }
+
+        // Warm up the environment
+        let warmup_script = r#"
+import ipykernel
+import IPython
+import ipywidgets
+from ipykernel.kernelbase import Kernel
+from ipykernel.ipkernel import IPythonKernel
+print("warmup complete")
+"#;
+
+        let warmup_result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            tokio::process::Command::new(&python_path)
+                .args(["-c", warmup_script])
+                .output(),
+        )
+        .await;
+
+        match warmup_result {
+            Ok(Ok(output)) if output.status.success() => {
+                tokio::fs::write(env_path.join(".warmed"), "").await.ok();
+            }
+            Ok(_) => {
+                warn!("[runtimed] On-demand conda warmup failed, continuing anyway");
+            }
+            Err(_) => {
+                warn!("[runtimed] On-demand conda warmup timed out, continuing anyway");
+            }
+        }
+
+        info!(
+            "[runtimed] Conda environment ready on-demand at {:?}",
+            env_path
+        );
+
+        Ok(PooledEnv {
+            env_type: EnvType::Conda,
+            venv_path: env_path,
+            python_path,
+        })
+    }
 }
 
 #[cfg(test)]
