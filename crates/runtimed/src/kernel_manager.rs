@@ -31,6 +31,7 @@ use crate::notebook_doc::NotebookDoc;
 use crate::notebook_sync_server::persist_notebook_bytes;
 use crate::output_store::{self, DEFAULT_INLINE_THRESHOLD};
 use crate::protocol::{HistoryEntry, NotebookBroadcast};
+use crate::PooledEnv;
 
 /// Convert a JupyterMessageContent to nbformat-style JSON for storage in Automerge.
 ///
@@ -340,12 +341,14 @@ impl RoomKernel {
 
     /// Launch a kernel for this room.
     ///
-    /// Currently launches via kernelspec. Future: integrate with prewarmed pool.
+    /// If `env` is provided (prewarmed pool environment), launches using that environment's
+    /// Python directly. Otherwise, falls back to kernelspec discovery.
     pub async fn launch(
         &mut self,
         kernel_type: &str,
         env_source: &str,
         notebook_path: Option<&std::path::Path>,
+        env: Option<PooledEnv>,
     ) -> Result<()> {
         // Shutdown existing kernel if any (but don't broadcast shutdown for fresh kernel)
         if self.is_running() {
@@ -362,14 +365,12 @@ impl RoomKernel {
             cell_id: None,
         });
 
-        // Find kernelspec
+        // Determine kernel name for connection info
         let kernelspec_name = match kernel_type {
             "python" => "python3",
             "deno" => "deno",
             _ => kernel_type,
         };
-
-        let kernelspec = runtimelib::find_kernelspec(kernelspec_name).await?;
 
         // Reserve ports
         let ip = std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -402,11 +403,6 @@ impl RoomKernel {
         )
         .await?;
 
-        info!(
-            "[kernel-manager] Starting kernel {} at {:?}",
-            kernelspec_name, connection_file_path
-        );
-
         // Determine working directory
         let cwd = if let Some(path) = notebook_path {
             path.parent()
@@ -417,12 +413,32 @@ impl RoomKernel {
             dirs::home_dir().unwrap_or_else(std::env::temp_dir)
         };
 
-        // Launch kernel process
-        let mut cmd = kernelspec.command(
-            &connection_file_path,
-            Some(Stdio::null()),
-            Some(Stdio::null()),
-        )?;
+        // Build kernel command based on whether we have a prewarmed environment
+        let mut cmd = if let Some(ref pooled_env) = env {
+            // Use prewarmed environment's Python directly
+            info!(
+                "[kernel-manager] Starting kernel from prewarmed env at {:?}",
+                pooled_env.python_path
+            );
+            let mut cmd = tokio::process::Command::new(&pooled_env.python_path);
+            cmd.args(["-Xfrozen_modules=off", "-m", "ipykernel_launcher", "-f"]);
+            cmd.arg(&connection_file_path);
+            cmd.stdout(Stdio::null());
+            cmd.stderr(Stdio::null());
+            cmd
+        } else {
+            // Fall back to kernelspec discovery
+            info!(
+                "[kernel-manager] Starting kernel {} via kernelspec at {:?}",
+                kernelspec_name, connection_file_path
+            );
+            let kernelspec = runtimelib::find_kernelspec(kernelspec_name).await?;
+            kernelspec.command(
+                &connection_file_path,
+                Some(Stdio::null()),
+                Some(Stdio::null()),
+            )?
+        };
         cmd.current_dir(&cwd);
 
         #[cfg(unix)]

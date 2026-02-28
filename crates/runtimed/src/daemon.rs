@@ -857,6 +857,7 @@ impl Daemon {
                     notebook_id,
                     use_typed_frames,
                     default_python_env,
+                    self.clone(),
                 )
                 .await
             }
@@ -987,6 +988,46 @@ impl Daemon {
         }
 
         Ok(())
+    }
+
+    /// Take a UV environment from the pool for kernel launching.
+    ///
+    /// Returns `Some(PooledEnv)` if an environment is available, `None` otherwise.
+    /// Automatically triggers replenishment when an environment is taken.
+    pub async fn take_uv_env(self: &Arc<Self>) -> Option<PooledEnv> {
+        let env = self.uv_pool.lock().await.take();
+        if let Some(ref e) = env {
+            info!(
+                "[runtimed] Took UV env for kernel launch: {:?}",
+                e.venv_path
+            );
+            // Spawn replenishment
+            let daemon = self.clone();
+            tokio::spawn(async move {
+                daemon.create_uv_env().await;
+            });
+        }
+        env
+    }
+
+    /// Take a Conda environment from the pool for kernel launching.
+    ///
+    /// Returns `Some(PooledEnv)` if an environment is available, `None` otherwise.
+    /// Automatically triggers replenishment when an environment is taken.
+    pub async fn take_conda_env(self: &Arc<Self>) -> Option<PooledEnv> {
+        let env = self.conda_pool.lock().await.take();
+        if let Some(ref e) = env {
+            info!(
+                "[runtimed] Took Conda env for kernel launch: {:?}",
+                e.venv_path
+            );
+            // Spawn replenishment
+            let daemon = self.clone();
+            tokio::spawn(async move {
+                daemon.replenish_conda_env().await;
+            });
+        }
+        env
     }
 
     /// Handle a single request.
