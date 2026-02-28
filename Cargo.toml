@@ -4,6 +4,7 @@ members = [
     "crates/runt",
     "crates/runt-trust",
     "crates/kernel-launch",
+    "crates/kernel-env",
     "crates/notebook",
     "crates/tauri-jupyter",
     "crates/xtask",
