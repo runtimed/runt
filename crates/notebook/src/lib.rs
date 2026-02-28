@@ -2532,6 +2532,33 @@ fn spawn_new_notebook(runtime: Runtime) {
     }
 }
 
+/// Ensure ~/notebooks directory exists and return its path.
+fn ensure_notebooks_directory() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
+    let notebooks_dir = home.join("notebooks");
+    match std::fs::create_dir(&notebooks_dir) {
+        Ok(()) => Ok(notebooks_dir),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            // Only return the path if it's actually a directory
+            if notebooks_dir.is_dir() {
+                Ok(notebooks_dir)
+            } else {
+                Err(format!(
+                    "~/notebooks exists but is not a directory: {}",
+                    notebooks_dir.display()
+                ))
+            }
+        }
+        Err(e) => Err(format!("Failed to create ~/notebooks directory: {}", e)),
+    }
+}
+
+/// Get the default directory for saving new notebooks.
+#[tauri::command]
+async fn get_default_save_directory() -> Result<String, String> {
+    ensure_notebooks_directory().map(|p| p.to_string_lossy().to_string())
+}
+
 /// Background task that subscribes to settings changes from the runtimed daemon
 /// and emits Tauri events to all windows when settings change.
 ///
@@ -2772,6 +2799,7 @@ pub fn run(
             get_notebook_path,
             save_notebook,
             save_notebook_as,
+            get_default_save_directory,
             clone_notebook_to_path,
             open_notebook_in_new_window,
             // Cell operations
@@ -2854,6 +2882,11 @@ pub fn run(
         .setup(move |app| {
             let setup_start = std::time::Instant::now();
             log::info!("[startup] App setup starting");
+
+            // Ensure ~/notebooks directory exists for new notebook saves and kernel CWD
+            let notebooks_dir = ensure_notebooks_directory()
+                .map_err(Box::<dyn std::error::Error>::from)?;
+            log::info!("[startup] Notebooks directory: {}", notebooks_dir.display());
 
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title(&window_title);

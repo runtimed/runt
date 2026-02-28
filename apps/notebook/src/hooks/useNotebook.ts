@@ -461,10 +461,13 @@ export function useNotebook() {
         // Save to existing path
         await invoke("save_notebook");
       } else {
+        // Get default directory from backend (~/notebooks)
+        const defaultDir = await invoke<string>("get_default_save_directory");
+
         // Show Save As dialog
         const filePath = await saveDialog({
           filters: [{ name: "Jupyter Notebook", extensions: ["ipynb"] }],
-          defaultPath: "Untitled.ipynb",
+          defaultPath: `${defaultDir}/Untitled.ipynb`,
         });
 
         if (!filePath) {
@@ -503,10 +506,13 @@ export function useNotebook() {
 
   const cloneNotebook = useCallback(async () => {
     try {
+      // Get default directory from backend (~/notebooks)
+      const defaultDir = await invoke<string>("get_default_save_directory");
+
       // Show Save dialog for the clone
       const filePath = await saveDialog({
         filters: [{ name: "Jupyter Notebook", extensions: ["ipynb"] }],
-        defaultPath: "Untitled-Clone.ipynb",
+        defaultPath: `${defaultDir}/Untitled-Clone.ipynb`,
       });
 
       if (!filePath) {
