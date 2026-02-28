@@ -140,6 +140,31 @@ fn check_inline_deps(notebook_path: &Path) -> Option<String> {
     None
 }
 
+/// Extract inline conda dependencies from a notebook file.
+/// Returns the list of dependency strings if conda deps are present.
+#[allow(dead_code)] // TODO: Use for conda:inline support
+fn get_inline_conda_deps(notebook_path: &Path) -> Option<Vec<String>> {
+    let content = std::fs::read_to_string(notebook_path).ok()?;
+    let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let metadata_value = nb.get("metadata")?;
+
+    let metadata: std::collections::HashMap<String, serde_json::Value> =
+        serde_json::from_value(metadata_value.clone()).ok()?;
+
+    if let Some(conda) = runt_trust::get_conda_metadata(&metadata) {
+        if let Some(deps) = conda.get("dependencies").and_then(|d| d.as_array()) {
+            let dep_strings: Vec<String> = deps
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect();
+            if !dep_strings.is_empty() {
+                return Some(dep_strings);
+            }
+        }
+    }
+    None
+}
+
 /// Extract inline UV dependencies from a notebook file.
 /// Returns the list of dependency strings if UV deps are present.
 fn get_inline_uv_deps(notebook_path: &Path) -> Option<Vec<String>> {
@@ -1013,13 +1038,45 @@ async fn auto_launch_kernel(
         }
     };
 
-    // Extract inline UV deps if needed
-    let inline_deps = if env_source == "uv:inline" {
-        notebook_path_opt
+    // For uv:inline, prepare a cached environment with the deps
+    let (pooled_env, inline_deps) = if env_source == "uv:inline" {
+        if let Some(deps) = notebook_path_opt
             .as_ref()
             .and_then(|path| get_inline_uv_deps(path))
+        {
+            info!(
+                "[notebook-sync] Preparing cached UV env for inline deps: {:?}",
+                deps
+            );
+            match crate::inline_env::prepare_uv_inline_env(&deps).await {
+                Ok(prepared) => {
+                    info!(
+                        "[notebook-sync] Using cached inline env at {:?}",
+                        prepared.python_path
+                    );
+                    let env = Some(crate::PooledEnv {
+                        env_type: crate::EnvType::Uv,
+                        venv_path: prepared.env_path,
+                        python_path: prepared.python_path,
+                    });
+                    (env, Some(deps))
+                }
+                Err(e) => {
+                    error!("[notebook-sync] Failed to prepare inline env: {}", e);
+                    let _ = room
+                        .kernel_broadcast_tx
+                        .send(NotebookBroadcast::KernelStatus {
+                            status: format!("error: Failed to prepare environment: {}", e),
+                            cell_id: None,
+                        });
+                    return;
+                }
+            }
+        } else {
+            (pooled_env, None)
+        }
     } else {
-        None
+        (pooled_env, None)
     };
 
     match kernel
@@ -1232,13 +1289,40 @@ async fn handle_notebook_request(
                 }
             };
 
-            // Extract inline UV deps if needed
-            let inline_deps = if resolved_env_source == "uv:inline" {
-                notebook_path
+            // For uv:inline, prepare a cached environment with the deps
+            let (pooled_env, inline_deps) = if resolved_env_source == "uv:inline" {
+                if let Some(deps) = notebook_path
                     .as_ref()
                     .and_then(|path| get_inline_uv_deps(path))
+                {
+                    info!(
+                        "[notebook-sync] LaunchKernel: Preparing cached UV env for inline deps: {:?}",
+                        deps
+                    );
+                    match crate::inline_env::prepare_uv_inline_env(&deps).await {
+                        Ok(prepared) => {
+                            info!(
+                                "[notebook-sync] LaunchKernel: Using cached inline env at {:?}",
+                                prepared.python_path
+                            );
+                            let env = Some(crate::PooledEnv {
+                                env_type: crate::EnvType::Uv,
+                                venv_path: prepared.env_path,
+                                python_path: prepared.python_path,
+                            });
+                            (env, Some(deps))
+                        }
+                        Err(e) => {
+                            return NotebookResponse::Error {
+                                error: format!("Failed to prepare inline environment: {}", e),
+                            };
+                        }
+                    }
+                } else {
+                    (pooled_env, None)
+                }
             } else {
-                None
+                (pooled_env, None)
             };
 
             match kernel

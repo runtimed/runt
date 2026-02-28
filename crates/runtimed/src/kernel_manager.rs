@@ -363,13 +363,16 @@ impl RoomKernel {
     /// If `env` is provided (prewarmed pool environment), launches using that environment's
     /// Python directly. For `uv:inline` sources, uses `uv run --with` with the provided deps.
     /// For `uv:pyproject`, uses `uv run` in the project directory.
+    ///
+    /// Note: `conda:inline` currently falls back to prewarmed pool (inline deps not installed).
+    /// TODO: Implement on-demand conda env creation for conda:inline deps.
     pub async fn launch(
         &mut self,
         kernel_type: &str,
         env_source: &str,
         notebook_path: Option<&std::path::Path>,
         env: Option<PooledEnv>,
-        inline_deps: Option<Vec<String>>,
+        _inline_deps: Option<Vec<String>>,
     ) -> Result<()> {
         // Shutdown existing kernel if any (but don't broadcast shutdown for fresh kernel)
         if self.is_running() {
@@ -440,28 +443,18 @@ impl RoomKernel {
                 // Branch on env_source for different Python environment types
                 match env_source {
                     "uv:inline" => {
-                        // Use `uv run --with` for inline dependencies
-                        let uv_path = kernel_launch::tools::get_uv_path().await?;
-                        let deps = inline_deps.unwrap_or_default();
+                        // Use prepared cached environment with inline deps
+                        let pooled_env = env.ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "uv:inline requires a prepared environment (was it created?)"
+                            )
+                        })?;
                         info!(
-                            "[kernel-manager] Starting Python kernel with uv run --with {:?}",
-                            deps
+                            "[kernel-manager] Starting Python kernel with cached inline env at {:?}",
+                            pooled_env.python_path
                         );
-                        let mut cmd = tokio::process::Command::new(&uv_path);
-                        cmd.arg("run");
-                        // Add ipykernel first
-                        cmd.args(["--with", "ipykernel"]);
-                        // Add each inline dependency
-                        for dep in &deps {
-                            cmd.args(["--with", dep]);
-                        }
-                        cmd.args([
-                            "python",
-                            "-Xfrozen_modules=off",
-                            "-m",
-                            "ipykernel_launcher",
-                            "-f",
-                        ]);
+                        let mut cmd = tokio::process::Command::new(&pooled_env.python_path);
+                        cmd.args(["-Xfrozen_modules=off", "-m", "ipykernel_launcher", "-f"]);
                         cmd.arg(&connection_file_path);
                         cmd.stdout(Stdio::null());
                         cmd.stderr(Stdio::null());

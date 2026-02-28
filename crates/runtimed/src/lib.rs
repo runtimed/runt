@@ -19,6 +19,7 @@ pub mod client;
 pub mod comm_state;
 pub mod connection;
 pub mod daemon;
+pub mod inline_env;
 pub mod kernel_manager;
 pub mod notebook_doc;
 pub mod notebook_sync_client;
