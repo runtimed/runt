@@ -112,6 +112,8 @@ pub async fn prepare_conda_inline_env(
 
 /// Extract channels from conda metadata in a notebook file.
 /// Returns the list of channel strings, or defaults to ["conda-forge"].
+// TODO(automerge-metadata): Read from NotebookMetadataSnapshot.runt.conda.channels
+// instead of re-reading the .ipynb from disk.
 pub fn get_inline_conda_channels(notebook_path: &std::path::Path) -> Vec<String> {
     let content = match std::fs::read_to_string(notebook_path) {
         Ok(c) => c,

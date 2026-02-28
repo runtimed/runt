@@ -1,3 +1,7 @@
+// TODO(automerge-metadata): Trust writes now sync to the Automerge doc via
+// push_metadata_to_sync, but the daemon still reads trust from disk at room
+// creation time (verify_trust_from_file). Once the daemon reads trust from
+// the Automerge doc, consider refreshing trust state via metadata_updated events.
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
 

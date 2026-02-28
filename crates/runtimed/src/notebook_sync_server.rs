@@ -55,6 +55,10 @@ pub struct TrustState {
 /// Detect the kernel type from a notebook's kernelspec metadata.
 /// Returns "python" or "deno" based on the notebook's encoded kernelspec.
 /// This is the #1 priority - the notebook's kernelspec determines the runtime.
+// TODO(automerge-metadata): Read kernelspec from the room's Automerge doc via
+// NotebookMetadataSnapshot instead of re-reading the .ipynb from disk.
+// Requires refactoring auto_launch_kernel to pass the doc's metadata snapshot
+// instead of calling these file-path-based helpers.
 fn detect_notebook_kernel_type(notebook_path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(notebook_path).ok()?;
     let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -104,6 +108,8 @@ fn detect_notebook_kernel_type(notebook_path: &Path) -> Option<String> {
 ///
 /// Priority: Deno is checked first, then UV deps, then conda deps.
 /// Uses runt_trust helpers to check both new (runt.*) and legacy paths.
+// TODO(automerge-metadata): Read runt.uv, runt.conda, runt.deno from the room's
+// NotebookMetadataSnapshot instead of re-reading the .ipynb from disk.
 fn check_inline_deps(notebook_path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(notebook_path).ok()?;
     let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -143,6 +149,7 @@ fn check_inline_deps(notebook_path: &Path) -> Option<String> {
 
 /// Extract inline conda dependencies from a notebook file.
 /// Returns the list of dependency strings if conda deps are present.
+// TODO(automerge-metadata): Read from NotebookMetadataSnapshot.runt.conda.
 fn get_inline_conda_deps(notebook_path: &Path) -> Option<Vec<String>> {
     let content = std::fs::read_to_string(notebook_path).ok()?;
     let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -167,6 +174,7 @@ fn get_inline_conda_deps(notebook_path: &Path) -> Option<Vec<String>> {
 
 /// Extract inline UV dependencies from a notebook file.
 /// Returns the list of dependency strings if UV deps are present.
+// TODO(automerge-metadata): Read from NotebookMetadataSnapshot.runt.uv.
 fn get_inline_uv_deps(notebook_path: &Path) -> Option<Vec<String>> {
     let content = std::fs::read_to_string(notebook_path).ok()?;
     let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -191,6 +199,9 @@ fn get_inline_uv_deps(notebook_path: &Path) -> Option<Vec<String>> {
 
 /// Verify trust status of a notebook by reading its file.
 /// Returns TrustState with the verification result.
+// TODO(automerge-metadata): Read trust_signature from NotebookMetadataSnapshot.runt
+// instead of re-reading the .ipynb file. The snapshot already includes
+// trust_signature — just need to wire it into room creation.
 fn verify_trust_from_file(notebook_path: &Path) -> TrustState {
     // Read and parse the notebook file
     let metadata = match std::fs::read_to_string(notebook_path) {
@@ -265,6 +276,9 @@ impl NotebookRoom {
     /// sessions from accumulating.
     ///
     /// Any existing persisted doc is deleted to avoid clutter.
+    // TODO(automerge-metadata): The Automerge doc now stores metadata via
+    // NotebookMetadataSnapshot. Populate trust state from the doc after the
+    // first client syncs metadata, instead of calling verify_trust_from_file.
     pub fn new_fresh(notebook_id: &str, docs_dir: &Path, blob_store: Arc<BlobStore>) -> Self {
         let filename = notebook_doc_filename(notebook_id);
         let persist_path = docs_dir.join(&filename);
@@ -825,6 +839,11 @@ async fn acquire_pool_env_for_source(
 
 /// Auto-launch kernel for a trusted notebook when first peer connects.
 /// This is similar to handle_notebook_request(LaunchKernel) but without a request/response.
+// TODO(automerge-metadata): This function calls detect_notebook_kernel_type,
+// check_inline_deps, get_inline_uv_deps, get_inline_conda_deps, and
+// get_inline_conda_channels — all of which re-read the .ipynb from disk.
+// The Automerge doc now stores NotebookMetadataSnapshot. Refactor to read the
+// snapshot from room.doc at the top and extract kernelspec/deps from it.
 async fn auto_launch_kernel(
     room: &NotebookRoom,
     notebook_id: &str,
