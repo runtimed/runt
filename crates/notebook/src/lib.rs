@@ -26,7 +26,7 @@ use runtimed::notebook_doc::CellSnapshot;
 use runtimed::notebook_sync_client::{NotebookSyncClient, NotebookSyncHandle};
 use runtimed::protocol::{CompletionItem, HistoryEntry, NotebookRequest, NotebookResponse};
 
-use log::{info, warn};
+use log::{debug, info, warn};
 use nbformat::v4::{Cell, CellId, CellMetadata};
 use serde::{Deserialize, Serialize};
 
@@ -1164,7 +1164,7 @@ async fn complete_via_daemon(
     cursor_pos: usize,
     notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<CompletionResult, String> {
-    info!(
+    debug!(
         "[daemon-kernel] complete_via_daemon: cursor_pos={}",
         cursor_pos
     );

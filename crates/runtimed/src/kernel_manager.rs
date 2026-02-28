@@ -1421,8 +1421,13 @@ impl RoomKernel {
             .map_err(|_| anyhow::anyhow!("Lock poisoned"))?
             .insert(msg_id.clone(), tx);
 
-        // Send request
-        shell.send(message).await?;
+        // Send request; clean up pending entry on failure
+        if let Err(e) = shell.send(message).await {
+            if let Ok(mut pending) = self.pending_completions.lock() {
+                pending.remove(&msg_id);
+            }
+            return Err(e.into());
+        }
         debug!("[kernel-manager] Sent complete_request: msg_id={}", msg_id);
 
         // Wait for response with timeout
