@@ -615,6 +615,125 @@ impl NotebookState {
     }
 }
 
+// ── Conversions between nbformat Metadata and NotebookMetadataSnapshot ──
+
+use runtimed::notebook_metadata::{
+    CondaInlineMetadata, DenoMetadata, KernelspecSnapshot, LanguageInfoSnapshot,
+    NotebookMetadataSnapshot, RuntMetadata, UvInlineMetadata,
+};
+
+/// Extract a `NotebookMetadataSnapshot` from nbformat metadata.
+///
+/// Reads `kernelspec`, `language_info`, and `runt` from the nbformat struct.
+/// Falls back to legacy `uv`/`conda` top-level keys if `runt` is absent.
+pub fn snapshot_from_nbformat(metadata: &nbformat::v4::Metadata) -> NotebookMetadataSnapshot {
+    let kernelspec = metadata.kernelspec.as_ref().map(|ks| KernelspecSnapshot {
+        name: ks.name.clone(),
+        display_name: ks.display_name.clone(),
+        language: ks.language.clone(),
+    });
+
+    let language_info = metadata
+        .language_info
+        .as_ref()
+        .map(|li| LanguageInfoSnapshot {
+            name: li.name.clone(),
+            version: li.version.clone(),
+        });
+
+    let runt = if let Some(runt_value) = metadata.additional.get("runt") {
+        serde_json::from_value::<RuntMetadata>(runt_value.clone()).unwrap_or_else(|_| {
+            RuntMetadata {
+                schema_version: "1".to_string(),
+                env_id: None,
+                uv: None,
+                conda: None,
+                deno: None,
+            }
+        })
+    } else {
+        // Fallback: legacy top-level uv/conda keys
+        let uv = metadata
+            .additional
+            .get("uv")
+            .and_then(|v| serde_json::from_value::<UvInlineMetadata>(v.clone()).ok());
+        let conda = metadata
+            .additional
+            .get("conda")
+            .and_then(|v| serde_json::from_value::<CondaInlineMetadata>(v.clone()).ok());
+        let deno = metadata
+            .additional
+            .get("deno")
+            .and_then(|v| {
+                serde_json::from_value::<crate::deno_env::DenoDependencies>(v.clone()).ok()
+            })
+            .map(|dd| DenoMetadata {
+                permissions: dd.permissions,
+            });
+
+        RuntMetadata {
+            schema_version: "1".to_string(),
+            env_id: None,
+            uv,
+            conda,
+            deno,
+        }
+    };
+
+    NotebookMetadataSnapshot {
+        kernelspec,
+        language_info,
+        runt,
+    }
+}
+
+/// Merge a `NotebookMetadataSnapshot` back into nbformat metadata.
+///
+/// Replaces `kernelspec`, `language_info`, and `metadata.additional["runt"]`
+/// while preserving all other keys in `additional` (e.g. `jupyter`, `deno`
+/// top-level config, custom extensions).
+pub fn merge_snapshot_into_nbformat(
+    snapshot: &NotebookMetadataSnapshot,
+    metadata: &mut nbformat::v4::Metadata,
+) {
+    // Replace kernelspec, preserving existing additional fields
+    let existing_ks_additional = metadata
+        .kernelspec
+        .as_ref()
+        .map(|ks| ks.additional.clone())
+        .unwrap_or_default();
+    metadata.kernelspec = snapshot
+        .kernelspec
+        .as_ref()
+        .map(|ks| nbformat::v4::KernelSpec {
+            name: ks.name.clone(),
+            display_name: ks.display_name.clone(),
+            language: ks.language.clone(),
+            additional: existing_ks_additional,
+        });
+
+    // Replace language_info, preserving existing codemirror_mode and additional
+    let (existing_cm_mode, existing_li_additional) = metadata
+        .language_info
+        .as_ref()
+        .map(|li| (li.codemirror_mode.clone(), li.additional.clone()))
+        .unwrap_or_default();
+    metadata.language_info = snapshot
+        .language_info
+        .as_ref()
+        .map(|li| nbformat::v4::LanguageInfo {
+            name: li.name.clone(),
+            version: li.version.clone(),
+            codemirror_mode: existing_cm_mode,
+            additional: existing_li_additional,
+        });
+
+    // Replace runt namespace in additional
+    if let Ok(runt_value) = serde_json::to_value(&snapshot.runt) {
+        metadata.additional.insert("runt".to_string(), runt_value);
+    }
+}
+
 fn empty_cell_metadata() -> CellMetadata {
     CellMetadata {
         id: None,

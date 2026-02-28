@@ -1689,6 +1689,184 @@ async fn handle_notebook_request(
                 NotebookResponse::NoKernel {}
             }
         }
+
+        NotebookRequest::SaveNotebook { format_cells: _ } => {
+            // TODO: format_cells support (requires ruff/deno formatter access)
+            match save_notebook_to_disk(room).await {
+                Ok(()) => NotebookResponse::NotebookSaved {},
+                Err(e) => NotebookResponse::Error {
+                    error: format!("Failed to save notebook: {e}"),
+                },
+            }
+        }
+    }
+}
+
+/// Save the notebook from the Automerge doc to disk as .ipynb.
+///
+/// 1. Read existing .ipynb from disk (if it exists) to preserve unknown metadata
+/// 2. Read cells and metadata from the Automerge doc
+/// 3. Merge metadata: replace kernelspec, language_info, runt; preserve everything else
+/// 4. Reconstruct cells: source and outputs from Automerge, cell metadata from existing file
+/// 5. Write the merged notebook to disk
+async fn save_notebook_to_disk(room: &NotebookRoom) -> Result<(), String> {
+    let notebook_path = &room.notebook_path;
+
+    // Read existing .ipynb to preserve unknown metadata and cell metadata
+    let existing: Option<serde_json::Value> = tokio::fs::read_to_string(notebook_path)
+        .await
+        .ok()
+        .and_then(|content| serde_json::from_str(&content).ok());
+
+    // Read cells and metadata from the Automerge doc
+    let (cells, metadata_json) = {
+        let doc = room.doc.read().await;
+        let cells = doc.get_cells();
+        let metadata_json = doc.get_metadata("notebook_metadata");
+        (cells, metadata_json)
+    };
+
+    // Build existing cell metadata index (cell_id -> cell metadata from .ipynb)
+    let existing_cell_metadata: HashMap<String, serde_json::Value> = existing
+        .as_ref()
+        .and_then(|nb| nb.get("cells"))
+        .and_then(|c| c.as_array())
+        .map(|cells_arr| {
+            cells_arr
+                .iter()
+                .filter_map(|cell| {
+                    let id = cell.get("id").and_then(|v| v.as_str())?;
+                    let meta = cell
+                        .get("metadata")
+                        .cloned()
+                        .unwrap_or(serde_json::json!({}));
+                    Some((id.to_string(), meta))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Reconstruct cells as JSON
+    let mut nb_cells = Vec::new();
+    for cell in &cells {
+        let cell_meta = existing_cell_metadata
+            .get(&cell.id)
+            .cloned()
+            .unwrap_or(serde_json::json!({}));
+
+        // Parse source into multiline array format (split_inclusive('\n'))
+        let source_lines: Vec<String> = if cell.source.is_empty() {
+            vec![]
+        } else {
+            let mut lines = Vec::new();
+            let mut remaining = cell.source.as_str();
+            while let Some(pos) = remaining.find('\n') {
+                lines.push(remaining[..=pos].to_string());
+                remaining = &remaining[pos + 1..];
+            }
+            if !remaining.is_empty() {
+                lines.push(remaining.to_string());
+            }
+            lines
+        };
+
+        let mut cell_json = serde_json::json!({
+            "id": cell.id,
+            "cell_type": cell.cell_type,
+            "source": source_lines,
+            "metadata": cell_meta,
+        });
+
+        if cell.cell_type == "code" {
+            // Resolve outputs (may be manifest hashes or raw JSON)
+            let mut resolved_outputs = Vec::new();
+            for output_str in &cell.outputs {
+                let output_value = resolve_cell_output(output_str, &room.blob_store).await;
+                resolved_outputs.push(output_value);
+            }
+            cell_json["outputs"] = serde_json::Value::Array(resolved_outputs);
+
+            // Parse execution_count
+            let exec_count: serde_json::Value =
+                serde_json::from_str(&cell.execution_count).unwrap_or(serde_json::Value::Null);
+            cell_json["execution_count"] = exec_count;
+        }
+
+        nb_cells.push(cell_json);
+    }
+
+    // Build metadata by merging synced snapshot onto existing
+    let mut metadata = existing
+        .as_ref()
+        .and_then(|nb| nb.get("metadata"))
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
+
+    if let Some(ref meta_json) = metadata_json {
+        if let Ok(snapshot) =
+            serde_json::from_str::<crate::notebook_metadata::NotebookMetadataSnapshot>(meta_json)
+        {
+            snapshot.merge_into_metadata_value(&mut metadata);
+        }
+    }
+
+    // Build the final notebook JSON
+    let nbformat_minor = existing
+        .as_ref()
+        .and_then(|nb| nb.get("nbformat_minor"))
+        .cloned()
+        .unwrap_or(serde_json::json!(5));
+
+    let cell_count = nb_cells.len();
+    let notebook_json = serde_json::json!({
+        "nbformat": 4,
+        "nbformat_minor": nbformat_minor,
+        "metadata": metadata,
+        "cells": nb_cells,
+    });
+
+    // Serialize with trailing newline (nbformat convention)
+    let content = serde_json::to_string_pretty(&notebook_json)
+        .map_err(|e| format!("Failed to serialize notebook: {e}"))?;
+    let content_with_newline = format!("{content}\n");
+
+    // Write to disk (async to avoid blocking the runtime)
+    tokio::fs::write(notebook_path, content_with_newline)
+        .await
+        .map_err(|e| format!("Failed to write notebook: {e}"))?;
+
+    info!(
+        "[notebook-sync] Saved notebook to disk: {:?} ({} cells)",
+        notebook_path, cell_count
+    );
+
+    Ok(())
+}
+
+/// Resolve a single cell output — handles both manifest hashes and raw JSON.
+async fn resolve_cell_output(output_str: &str, blob_store: &BlobStore) -> serde_json::Value {
+    // Check if it's a manifest hash (64-char hex string)
+    if output_str.len() == 64 && output_str.chars().all(|c| c.is_ascii_hexdigit()) {
+        // Try to fetch manifest from blob store
+        if let Ok(Some(manifest_bytes)) = blob_store.get(output_str).await {
+            if let Ok(manifest_json) = String::from_utf8(manifest_bytes) {
+                // Resolve the manifest to full Jupyter output
+                if let Ok(resolved) =
+                    crate::output_store::resolve_manifest(&manifest_json, blob_store).await
+                {
+                    return resolved;
+                }
+            }
+        }
+        // If resolution fails, return empty output
+        warn!(
+            "[notebook-sync] Failed to resolve output manifest: {}",
+            &output_str[..8]
+        );
+        serde_json::json!({"output_type": "stream", "name": "stderr", "text": ["[output could not be resolved]"]})
+    } else {
+        // Raw JSON output
+        serde_json::from_str(output_str).unwrap_or(serde_json::json!({}))
     }
 }
 

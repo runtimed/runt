@@ -203,8 +203,8 @@ async fn initialize_notebook_sync(
         socket_path.display()
     );
 
-    // Connect using the split pattern - returns handle, receiver, broadcast receiver, and initial cells
-    let (handle, mut receiver, mut broadcast_receiver, initial_cells) =
+    // Connect using the split pattern - returns handle, receiver, broadcast receiver, initial cells, and initial metadata
+    let (handle, mut receiver, mut broadcast_receiver, initial_cells, initial_metadata) =
         NotebookSyncClient::connect_split(socket_path, notebook_id.clone())
             .await
             .map_err(|e| format!("sync connect: {}", e))?;
@@ -232,6 +232,24 @@ async fn initialize_notebook_sync(
                     .map_err(|e| format!("update_source: {}", e))?;
             }
         }
+
+        // Also push notebook metadata to Automerge doc
+        let metadata_json = {
+            let state = notebook_state.lock().map_err(|e| e.to_string())?;
+            let snapshot = notebook_state::snapshot_from_nbformat(&state.notebook.metadata);
+            serde_json::to_string(&snapshot).map_err(|e| format!("serialize metadata: {}", e))?
+        };
+        info!(
+            "[notebook-sync] Pushing metadata to Automerge doc for {}",
+            notebook_id
+        );
+        handle
+            .set_metadata(
+                runtimed::notebook_metadata::NOTEBOOK_METADATA_KEY,
+                &metadata_json,
+            )
+            .await
+            .map_err(|e| format!("set_metadata: {}", e))?;
     } else {
         info!(
             "[notebook-sync] Joining existing room with {} cells",
@@ -249,6 +267,30 @@ async fn initialize_notebook_sync(
                 "[notebook-sync] Updated local state with {} cells from Automerge",
                 state.notebook.cells.len()
             );
+
+            // Also merge metadata from Automerge doc into local state
+            if let Some(ref metadata_json) = initial_metadata {
+                match serde_json::from_str::<runtimed::notebook_metadata::NotebookMetadataSnapshot>(
+                    metadata_json,
+                ) {
+                    Ok(snapshot) => {
+                        notebook_state::merge_snapshot_into_nbformat(
+                            &snapshot,
+                            &mut state.notebook.metadata,
+                        );
+                        info!(
+                            "[notebook-sync] Merged metadata from Automerge for {}",
+                            notebook_id
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            "[notebook-sync] Failed to deserialize metadata from Automerge: {}",
+                            e
+                        );
+                    }
+                }
+            }
         }
         // Emit Automerge state to frontend (for immediate UI update)
         if let Err(e) = app.emit("notebook:updated", &initial_cells) {
@@ -272,20 +314,49 @@ async fn initialize_notebook_sync(
     // The receiver is separate from the handle, so it doesn't block commands
     let app_clone = app.clone();
     let notebook_id_for_receiver = notebook_id.clone();
+    let notebook_state_for_receiver = notebook_state.clone();
     tokio::spawn(async move {
         info!(
             "[notebook-sync] Starting receiver loop for {}",
             notebook_id_for_receiver
         );
-        while let Some(cells) = receiver.recv().await {
+        while let Some(update) = receiver.recv().await {
             info!(
                 "[notebook-sync] Received {} cells from peer for {}",
-                cells.len(),
+                update.cells.len(),
                 notebook_id_for_receiver
             );
-            // Emit event for frontend to reconcile state
-            if let Err(e) = app_clone.emit("notebook:updated", &cells) {
+            // Emit cell changes for frontend to reconcile state
+            if let Err(e) = app_clone.emit("notebook:updated", &update.cells) {
                 warn!("[notebook-sync] Failed to emit notebook:updated: {}", e);
+            }
+
+            // If metadata changed, merge into local state and notify frontend
+            if let Some(ref metadata_json) = update.notebook_metadata {
+                match serde_json::from_str::<runtimed::notebook_metadata::NotebookMetadataSnapshot>(
+                    metadata_json,
+                ) {
+                    Ok(snapshot) => {
+                        if let Ok(mut state) = notebook_state_for_receiver.lock() {
+                            notebook_state::merge_snapshot_into_nbformat(
+                                &snapshot,
+                                &mut state.notebook.metadata,
+                            );
+                        }
+                        if let Err(e) = app_clone.emit("notebook:metadata_updated", metadata_json) {
+                            warn!(
+                                "[notebook-sync] Failed to emit notebook:metadata_updated: {}",
+                                e
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            "[notebook-sync] Failed to deserialize metadata from peer: {}",
+                            e
+                        );
+                    }
+                }
             }
         }
         info!(
@@ -349,6 +420,55 @@ async fn initialize_notebook_sync(
     }
 
     Ok(())
+}
+
+/// Push the current notebook metadata to the Automerge doc via the sync handle.
+///
+/// Call this after any mutation to `notebook.metadata` so that the daemon
+/// and other windows receive the updated metadata through Automerge sync.
+async fn push_metadata_to_sync(
+    notebook_state: &Arc<Mutex<NotebookState>>,
+    notebook_sync: &SharedNotebookSync,
+) {
+    let metadata_json = {
+        let state = match notebook_state.lock() {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(
+                    "[notebook-sync] Failed to lock state for metadata push: {}",
+                    e
+                );
+                return;
+            }
+        };
+        let snapshot = notebook_state::snapshot_from_nbformat(&state.notebook.metadata);
+        match serde_json::to_string(&snapshot) {
+            Ok(json) => json,
+            Err(e) => {
+                warn!(
+                    "[notebook-sync] Failed to serialize metadata snapshot: {}",
+                    e
+                );
+                return;
+            }
+        }
+    };
+
+    let handle = notebook_sync.lock().await.clone();
+    if let Some(handle) = handle {
+        if let Err(e) = handle
+            .set_metadata(
+                runtimed::notebook_metadata::NOTEBOOK_METADATA_KEY,
+                &metadata_json,
+            )
+            .await
+        {
+            warn!(
+                "[notebook-sync] Failed to push metadata to Automerge: {}",
+                e
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -619,9 +739,13 @@ async fn get_notebook_path(
 
 /// Format all code cells in the notebook and save.
 /// Formatting is best-effort - cells that fail to format are saved as-is.
+///
+/// Save path: daemon writes .ipynb to disk (merging synced metadata with
+/// existing file content). Falls back to local save if daemon is unavailable.
 #[tauri::command]
 async fn save_notebook(
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     // First pass: collect cells to format (release lock for async formatting)
@@ -681,11 +805,55 @@ async fn save_notebook(
         // Formatting errors are silently ignored - save with original code
     }
 
-    // Now save
-    let mut nb = state.lock().map_err(|e| e.to_string())?;
-    let content = nb.serialize()?;
-    std::fs::write(&path, &content).map_err(|e| e.to_string())?;
-    nb.dirty = false;
+    // Ensure latest metadata is pushed to daemon before saving
+    push_metadata_to_sync(&state, &notebook_sync).await;
+
+    // Try daemon save first (daemon merges metadata + cells from Automerge doc)
+    // Clone handle out of the mutex to avoid holding lock across await
+    let sync_handle = notebook_sync.lock().await.clone();
+    let daemon_saved = if let Some(handle) = sync_handle {
+        match handle
+            .send_request(NotebookRequest::SaveNotebook {
+                format_cells: false, // Already formatted above
+            })
+            .await
+        {
+            Ok(NotebookResponse::NotebookSaved {}) => {
+                info!("[save] Notebook saved via daemon");
+                true
+            }
+            Ok(NotebookResponse::Error { error }) => {
+                warn!(
+                    "[save] Daemon save failed: {}, falling back to local",
+                    error
+                );
+                false
+            }
+            Ok(_) => {
+                warn!("[save] Unexpected daemon response, falling back to local");
+                false
+            }
+            Err(e) => {
+                warn!("[save] Daemon request failed: {}, falling back to local", e);
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    // Fallback: save locally if daemon save didn't work
+    if !daemon_saved {
+        let nb = state.lock().map_err(|e| e.to_string())?;
+        let content = nb.serialize()?;
+        std::fs::write(&path, &content).map_err(|e| e.to_string())?;
+    }
+
+    // Mark as clean
+    {
+        let mut nb = state.lock().map_err(|e| e.to_string())?;
+        nb.dirty = false;
+    }
     Ok(())
 }
 
@@ -1489,16 +1657,18 @@ async fn set_notebook_dependencies(
     dependencies: Vec<String>,
     requires_python: Option<String>,
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<(), String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-
-    let deps = uv_env::NotebookDependencies {
-        dependencies,
-        requires_python,
-    };
-    uv_env::set_dependencies(&mut state.notebook.metadata, &deps);
-    state.dirty = true;
-
+    {
+        let mut state = state.lock().map_err(|e| e.to_string())?;
+        let deps = uv_env::NotebookDependencies {
+            dependencies,
+            requires_python,
+        };
+        uv_env::set_dependencies(&mut state.notebook.metadata, &deps);
+        state.dirty = true;
+    }
+    push_metadata_to_sync(&state, &notebook_sync).await;
     Ok(())
 }
 
@@ -1507,41 +1677,48 @@ async fn set_notebook_dependencies(
 async fn add_dependency(
     package: String,
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<(), String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
+    let changed = {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
 
-    // Get existing deps or create new
-    let existing = uv_env::extract_dependencies(&state.notebook.metadata);
-    let mut deps = existing
-        .as_ref()
-        .map(|d| d.dependencies.clone())
-        .unwrap_or_default();
+        // Get existing deps or create new
+        let existing = uv_env::extract_dependencies(&s.notebook.metadata);
+        let mut deps = existing
+            .as_ref()
+            .map(|d| d.dependencies.clone())
+            .unwrap_or_default();
 
-    // Check if already exists (by package name, ignoring version specifiers)
-    let pkg_name = package
-        .split(&['>', '<', '=', '!', '~', '['][..])
-        .next()
-        .unwrap_or(&package);
-    let already_exists = deps.iter().any(|d| {
-        let existing_name = d
+        // Check if already exists (by package name, ignoring version specifiers)
+        let pkg_name = package
             .split(&['>', '<', '=', '!', '~', '['][..])
             .next()
-            .unwrap_or(d);
-        existing_name.eq_ignore_ascii_case(pkg_name)
-    });
+            .unwrap_or(&package);
+        let already_exists = deps.iter().any(|d| {
+            let existing_name = d
+                .split(&['>', '<', '=', '!', '~', '['][..])
+                .next()
+                .unwrap_or(d);
+            existing_name.eq_ignore_ascii_case(pkg_name)
+        });
 
-    if !already_exists {
-        deps.push(package);
-
-        let requires_python = existing.and_then(|d| d.requires_python);
-        let new_deps = uv_env::NotebookDependencies {
-            dependencies: deps,
-            requires_python,
-        };
-        uv_env::set_dependencies(&mut state.notebook.metadata, &new_deps);
-        state.dirty = true;
+        if !already_exists {
+            deps.push(package);
+            let requires_python = existing.and_then(|d| d.requires_python);
+            let new_deps = uv_env::NotebookDependencies {
+                dependencies: deps,
+                requires_python,
+            };
+            uv_env::set_dependencies(&mut s.notebook.metadata, &new_deps);
+            s.dirty = true;
+            true
+        } else {
+            false
+        }
+    };
+    if changed {
+        push_metadata_to_sync(&state, &notebook_sync).await;
     }
-
     Ok(())
 }
 
@@ -1550,36 +1727,36 @@ async fn add_dependency(
 async fn remove_dependency(
     package: String,
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<(), String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-
-    let existing = uv_env::extract_dependencies(&state.notebook.metadata);
-    if let Some(existing) = existing {
-        // Remove by package name (ignoring version specifiers)
-        let pkg_name = package
-            .split(&['>', '<', '=', '!', '~', '['][..])
-            .next()
-            .unwrap_or(&package);
-        let deps: Vec<String> = existing
-            .dependencies
-            .into_iter()
-            .filter(|d| {
-                let existing_name = d
-                    .split(&['>', '<', '=', '!', '~', '['][..])
-                    .next()
-                    .unwrap_or(d);
-                !existing_name.eq_ignore_ascii_case(pkg_name)
-            })
-            .collect();
-
-        let new_deps = uv_env::NotebookDependencies {
-            dependencies: deps,
-            requires_python: existing.requires_python,
-        };
-        uv_env::set_dependencies(&mut state.notebook.metadata, &new_deps);
-        state.dirty = true;
+    {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        let existing = uv_env::extract_dependencies(&s.notebook.metadata);
+        if let Some(existing) = existing {
+            let pkg_name = package
+                .split(&['>', '<', '=', '!', '~', '['][..])
+                .next()
+                .unwrap_or(&package);
+            let deps: Vec<String> = existing
+                .dependencies
+                .into_iter()
+                .filter(|d| {
+                    let existing_name = d
+                        .split(&['>', '<', '=', '!', '~', '['][..])
+                        .next()
+                        .unwrap_or(d);
+                    !existing_name.eq_ignore_ascii_case(pkg_name)
+                })
+                .collect();
+            let new_deps = uv_env::NotebookDependencies {
+                dependencies: deps,
+                requires_python: existing.requires_python,
+            };
+            uv_env::set_dependencies(&mut s.notebook.metadata, &new_deps);
+            s.dirty = true;
+        }
     }
-
+    push_metadata_to_sync(&state, &notebook_sync).await;
     Ok(())
 }
 
@@ -1591,6 +1768,7 @@ async fn remove_dependency(
 async fn clear_dependency_section(
     section: String,
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<(), String> {
     if section != "uv" && section != "conda" {
         return Err(format!(
@@ -1599,25 +1777,25 @@ async fn clear_dependency_section(
         ));
     }
 
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-
-    // Remove from new nested path and legacy path
-    match section.as_str() {
-        "uv" => {
-            if uv_env::has_uv_config(&state.notebook.metadata) {
-                uv_env::remove_uv_config(&mut state.notebook.metadata);
-                state.dirty = true;
+    {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        match section.as_str() {
+            "uv" => {
+                if uv_env::has_uv_config(&s.notebook.metadata) {
+                    uv_env::remove_uv_config(&mut s.notebook.metadata);
+                    s.dirty = true;
+                }
             }
-        }
-        "conda" => {
-            if conda_env::has_conda_config(&state.notebook.metadata) {
-                conda_env::remove_conda_config(&mut state.notebook.metadata);
-                state.dirty = true;
+            "conda" => {
+                if conda_env::has_conda_config(&s.notebook.metadata) {
+                    conda_env::remove_conda_config(&mut s.notebook.metadata);
+                    s.dirty = true;
+                }
             }
+            _ => {}
         }
-        _ => {}
     }
-
+    push_metadata_to_sync(&state, &notebook_sync).await;
     Ok(())
 }
 
@@ -1654,18 +1832,20 @@ async fn set_conda_dependencies(
     channels: Vec<String>,
     python: Option<String>,
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<(), String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-
-    let deps = conda_env::CondaDependencies {
-        dependencies,
-        channels,
-        python,
-        env_id: None,
-    };
-    conda_env::set_dependencies(&mut state.notebook.metadata, &deps);
-    state.dirty = true;
-
+    {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        let deps = conda_env::CondaDependencies {
+            dependencies,
+            channels,
+            python,
+            env_id: None,
+        };
+        conda_env::set_dependencies(&mut s.notebook.metadata, &deps);
+        s.dirty = true;
+    }
+    push_metadata_to_sync(&state, &notebook_sync).await;
     Ok(())
 }
 
@@ -1674,47 +1854,52 @@ async fn set_conda_dependencies(
 async fn add_conda_dependency(
     package: String,
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<(), String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
+    let changed = {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
 
-    // Get existing deps or create new
-    let existing = conda_env::extract_dependencies(&state.notebook.metadata);
-    let mut deps = existing
-        .as_ref()
-        .map(|d| d.dependencies.clone())
-        .unwrap_or_default();
-    let channels = existing
-        .as_ref()
-        .map(|d| d.channels.clone())
-        .unwrap_or_default();
-    let python = existing.as_ref().and_then(|d| d.python.clone());
+        let existing = conda_env::extract_dependencies(&s.notebook.metadata);
+        let mut deps = existing
+            .as_ref()
+            .map(|d| d.dependencies.clone())
+            .unwrap_or_default();
+        let channels = existing
+            .as_ref()
+            .map(|d| d.channels.clone())
+            .unwrap_or_default();
+        let python = existing.as_ref().and_then(|d| d.python.clone());
 
-    // Check if already exists (by package name, ignoring version specifiers)
-    let pkg_name = package
-        .split(&['>', '<', '=', '!', '~', '['][..])
-        .next()
-        .unwrap_or(&package);
-    let already_exists = deps.iter().any(|d| {
-        let existing_name = d
+        let pkg_name = package
             .split(&['>', '<', '=', '!', '~', '['][..])
             .next()
-            .unwrap_or(d);
-        existing_name.eq_ignore_ascii_case(pkg_name)
-    });
+            .unwrap_or(&package);
+        let already_exists = deps.iter().any(|d| {
+            let existing_name = d
+                .split(&['>', '<', '=', '!', '~', '['][..])
+                .next()
+                .unwrap_or(d);
+            existing_name.eq_ignore_ascii_case(pkg_name)
+        });
 
-    if !already_exists {
-        deps.push(package);
-
-        let new_deps = conda_env::CondaDependencies {
-            dependencies: deps,
-            channels,
-            python,
-            env_id: None,
-        };
-        conda_env::set_dependencies(&mut state.notebook.metadata, &new_deps);
-        state.dirty = true;
+        if !already_exists {
+            deps.push(package);
+            let new_deps = conda_env::CondaDependencies {
+                dependencies: deps,
+                channels,
+                python,
+                env_id: None,
+            };
+            conda_env::set_dependencies(&mut s.notebook.metadata, &new_deps);
+            s.dirty = true;
+            true
+        } else {
+            false
+        }
+    };
+    if changed {
+        push_metadata_to_sync(&state, &notebook_sync).await;
     }
-
     Ok(())
 }
 
@@ -1723,38 +1908,38 @@ async fn add_conda_dependency(
 async fn remove_conda_dependency(
     package: String,
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<(), String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-
-    let existing = conda_env::extract_dependencies(&state.notebook.metadata);
-    if let Some(existing) = existing {
-        // Remove by package name (ignoring version specifiers)
-        let pkg_name = package
-            .split(&['>', '<', '=', '!', '~', '['][..])
-            .next()
-            .unwrap_or(&package);
-        let deps: Vec<String> = existing
-            .dependencies
-            .into_iter()
-            .filter(|d| {
-                let existing_name = d
-                    .split(&['>', '<', '=', '!', '~', '['][..])
-                    .next()
-                    .unwrap_or(d);
-                !existing_name.eq_ignore_ascii_case(pkg_name)
-            })
-            .collect();
-
-        let new_deps = conda_env::CondaDependencies {
-            dependencies: deps,
-            channels: existing.channels,
-            python: existing.python,
-            env_id: existing.env_id,
-        };
-        conda_env::set_dependencies(&mut state.notebook.metadata, &new_deps);
-        state.dirty = true;
+    {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        let existing = conda_env::extract_dependencies(&s.notebook.metadata);
+        if let Some(existing) = existing {
+            let pkg_name = package
+                .split(&['>', '<', '=', '!', '~', '['][..])
+                .next()
+                .unwrap_or(&package);
+            let deps: Vec<String> = existing
+                .dependencies
+                .into_iter()
+                .filter(|d| {
+                    let existing_name = d
+                        .split(&['>', '<', '=', '!', '~', '['][..])
+                        .next()
+                        .unwrap_or(d);
+                    !existing_name.eq_ignore_ascii_case(pkg_name)
+                })
+                .collect();
+            let new_deps = conda_env::CondaDependencies {
+                dependencies: deps,
+                channels: existing.channels,
+                python: existing.python,
+                env_id: existing.env_id,
+            };
+            conda_env::set_dependencies(&mut s.notebook.metadata, &new_deps);
+            s.dirty = true;
+        }
     }
-
+    push_metadata_to_sync(&state, &notebook_sync).await;
     Ok(())
 }
 
@@ -1849,10 +2034,11 @@ async fn get_pyproject_dependencies(
 #[tauri::command]
 async fn import_pyproject_dependencies(
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<(), String> {
     let notebook_path = {
-        let state = state.lock().map_err(|e| e.to_string())?;
-        state.path.clone()
+        let s = state.lock().map_err(|e| e.to_string())?;
+        s.path.clone()
     };
 
     let Some(notebook_path) = notebook_path else {
@@ -1865,23 +2051,21 @@ async fn import_pyproject_dependencies(
 
     let config = pyproject::parse_pyproject(&pyproject_path).map_err(|e| e.to_string())?;
 
-    // Merge pyproject deps into notebook metadata
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-
-    let all_deps = pyproject::get_all_dependencies(&config);
-
-    let deps = uv_env::NotebookDependencies {
-        dependencies: all_deps.clone(),
-        requires_python: config.requires_python,
-    };
-    uv_env::set_dependencies(&mut state.notebook.metadata, &deps);
-    state.dirty = true;
-
-    info!(
-        "Imported {} dependencies from pyproject.toml into notebook",
-        all_deps.len()
-    );
-
+    {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        let all_deps = pyproject::get_all_dependencies(&config);
+        let deps = uv_env::NotebookDependencies {
+            dependencies: all_deps.clone(),
+            requires_python: config.requires_python,
+        };
+        uv_env::set_dependencies(&mut s.notebook.metadata, &deps);
+        s.dirty = true;
+        info!(
+            "Imported {} dependencies from pyproject.toml into notebook",
+            all_deps.len()
+        );
+    }
+    push_metadata_to_sync(&state, &notebook_sync).await;
     Ok(())
 }
 
@@ -1907,33 +2091,37 @@ async fn verify_notebook_trust(
 #[tauri::command]
 async fn approve_notebook_trust(
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<(), String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
+    {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
 
-    // Compute signature over current dependencies
-    let signature = trust::sign_notebook_dependencies(&state.notebook.metadata.additional)?;
+        // Compute signature over current dependencies
+        let signature = trust::sign_notebook_dependencies(&s.notebook.metadata.additional)?;
 
-    // Get or create the runt metadata section
-    let runt_value = state
-        .notebook
-        .metadata
-        .additional
-        .entry("runt".to_string())
-        .or_insert_with(|| serde_json::json!({}));
+        // Get or create the runt metadata section
+        let runt_value = s
+            .notebook
+            .metadata
+            .additional
+            .entry("runt".to_string())
+            .or_insert_with(|| serde_json::json!({}));
 
-    // Add/update the trust signature
-    if let Some(obj) = runt_value.as_object_mut() {
-        obj.insert(
-            "trust_signature".to_string(),
-            serde_json::Value::String(signature),
-        );
-        obj.insert(
-            "trust_timestamp".to_string(),
-            serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-        );
+        // Add/update the trust signature
+        if let Some(obj) = runt_value.as_object_mut() {
+            obj.insert(
+                "trust_signature".to_string(),
+                serde_json::Value::String(signature),
+            );
+            obj.insert(
+                "trust_timestamp".to_string(),
+                serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+            );
+        }
+
+        s.dirty = true;
     }
-
-    state.dirty = true;
+    push_metadata_to_sync(&state, &notebook_sync).await;
     Ok(())
 }
 
@@ -2122,10 +2310,11 @@ async fn get_environment_yml_dependencies(
 #[tauri::command]
 async fn import_pixi_dependencies(
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<(), String> {
     let notebook_path = {
-        let state = state.lock().map_err(|e| e.to_string())?;
-        state.path.clone()
+        let s = state.lock().map_err(|e| e.to_string())?;
+        s.path.clone()
     };
 
     let Some(notebook_path) = notebook_path else {
@@ -2139,23 +2328,22 @@ async fn import_pixi_dependencies(
     let config = pixi::parse_pixi_toml(&pixi_path).map_err(|e| e.to_string())?;
     let conda_deps = pixi::convert_to_conda_dependencies(&config);
 
-    // Merge pixi deps into notebook conda metadata
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-
-    let deps = conda_env::CondaDependencies {
-        dependencies: conda_deps.dependencies.clone(),
-        channels: conda_deps.channels,
-        python: conda_deps.python,
-        env_id: None,
-    };
-    conda_env::set_dependencies(&mut state.notebook.metadata, &deps);
-    state.dirty = true;
-
-    info!(
-        "Imported {} dependencies from pixi.toml into notebook conda metadata",
-        conda_deps.dependencies.len()
-    );
-
+    {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        let deps = conda_env::CondaDependencies {
+            dependencies: conda_deps.dependencies.clone(),
+            channels: conda_deps.channels,
+            python: conda_deps.python,
+            env_id: None,
+        };
+        conda_env::set_dependencies(&mut s.notebook.metadata, &deps);
+        s.dirty = true;
+        info!(
+            "Imported {} dependencies from pixi.toml into notebook conda metadata",
+            conda_deps.dependencies.len()
+        );
+    }
+    push_metadata_to_sync(&state, &notebook_sync).await;
     Ok(())
 }
 
@@ -2224,22 +2412,21 @@ async fn get_deno_permissions(
 async fn set_deno_permissions(
     permissions: Vec<String>,
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<(), String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-
-    // Preserve existing settings when updating permissions
-    let mut deno_deps =
-        deno_env::extract_deno_metadata(&state.notebook.metadata).unwrap_or_default();
-    deno_deps.permissions = permissions;
-
-    let deno_value = serde_json::to_value(&deno_deps).map_err(|e| e.to_string())?;
-    state
-        .notebook
-        .metadata
-        .additional
-        .insert("deno".to_string(), deno_value);
-    state.dirty = true;
-
+    {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        let mut deno_deps =
+            deno_env::extract_deno_metadata(&s.notebook.metadata).unwrap_or_default();
+        deno_deps.permissions = permissions;
+        let deno_value = serde_json::to_value(&deno_deps).map_err(|e| e.to_string())?;
+        s.notebook
+            .metadata
+            .additional
+            .insert("deno".to_string(), deno_value);
+        s.dirty = true;
+    }
+    push_metadata_to_sync(&state, &notebook_sync).await;
     Ok(())
 }
 
@@ -2258,22 +2445,21 @@ async fn get_deno_flexible_npm_imports(
 async fn set_deno_flexible_npm_imports(
     enabled: bool,
     state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
 ) -> Result<(), String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-
-    // Preserve existing settings when updating flexible_npm_imports
-    let mut deno_deps =
-        deno_env::extract_deno_metadata(&state.notebook.metadata).unwrap_or_default();
-    deno_deps.flexible_npm_imports = enabled;
-
-    let deno_value = serde_json::to_value(&deno_deps).map_err(|e| e.to_string())?;
-    state
-        .notebook
-        .metadata
-        .additional
-        .insert("deno".to_string(), deno_value);
-    state.dirty = true;
-
+    {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        let mut deno_deps =
+            deno_env::extract_deno_metadata(&s.notebook.metadata).unwrap_or_default();
+        deno_deps.flexible_npm_imports = enabled;
+        let deno_value = serde_json::to_value(&deno_deps).map_err(|e| e.to_string())?;
+        s.notebook
+            .metadata
+            .additional
+            .insert("deno".to_string(), deno_value);
+        s.dirty = true;
+    }
+    push_metadata_to_sync(&state, &notebook_sync).await;
     Ok(())
 }
 

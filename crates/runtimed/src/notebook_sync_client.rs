@@ -19,11 +19,15 @@ use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjType, ReadDoc};
 use futures::FutureExt;
 use log::{info, warn};
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::connection::{self, Handshake, NotebookFrameType, ProtocolCapabilities, PROTOCOL_V2};
-use crate::notebook_doc::{get_cells_from_doc, CellSnapshot};
+use crate::notebook_doc::{
+    get_cells_from_doc, get_metadata_from_doc, set_metadata_in_doc, CellSnapshot,
+};
+use crate::notebook_metadata::NOTEBOOK_METADATA_KEY;
 use crate::protocol::{NotebookBroadcast, NotebookRequest, NotebookResponse};
 
 /// Error type for notebook sync client operations.
@@ -82,6 +86,17 @@ enum SyncCommand {
     },
     GetCells {
         reply: oneshot::Sender<Vec<CellSnapshot>>,
+    },
+    /// Set a metadata value in the Automerge doc and sync to daemon.
+    SetMetadata {
+        key: String,
+        value: String,
+        reply: oneshot::Sender<Result<(), NotebookSyncError>>,
+    },
+    /// Read a metadata value from the local Automerge doc replica.
+    GetMetadata {
+        key: String,
+        reply: oneshot::Sender<Option<String>>,
     },
     /// Send a request to the daemon and wait for a response.
     /// Only works with v2 protocol; returns error on v1.
@@ -229,6 +244,35 @@ impl NotebookSyncHandle {
             .map_err(|_| NotebookSyncError::ChannelClosed)?
     }
 
+    /// Set a metadata value in the Automerge doc and sync to daemon.
+    pub async fn set_metadata(&self, key: &str, value: &str) -> Result<(), NotebookSyncError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(SyncCommand::SetMetadata {
+                key: key.to_string(),
+                value: value.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?;
+        reply_rx
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?
+    }
+
+    /// Read a metadata value from the local Automerge doc replica.
+    pub async fn get_metadata(&self, key: &str) -> Result<Option<String>, NotebookSyncError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(SyncCommand::GetMetadata {
+                key: key.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| NotebookSyncError::ChannelClosed)?;
+        reply_rx.await.map_err(|_| NotebookSyncError::ChannelClosed)
+    }
+
     /// Send a request to the daemon and wait for a response.
     ///
     /// This only works with v2 protocol. If the daemon is running v1,
@@ -253,17 +297,29 @@ impl NotebookSyncHandle {
 
 /// Receiver for incoming changes from other peers.
 ///
+/// An update received from the Automerge sync protocol.
+///
+/// Contains cells (always present after any sync) and optionally the
+/// notebook metadata snapshot if it changed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncUpdate {
+    /// Current cell state after applying the sync message.
+    pub cells: Vec<CellSnapshot>,
+    /// JSON-serialized `NotebookMetadataSnapshot`, present when metadata changed.
+    pub notebook_metadata: Option<String>,
+}
+
 /// This is separate from the handle to allow receiving changes independently
 /// of sending commands. Call `recv()` to wait for the next batch of changes.
 pub struct NotebookSyncReceiver {
-    rx: mpsc::Receiver<Vec<CellSnapshot>>,
+    rx: mpsc::Receiver<SyncUpdate>,
 }
 
 impl NotebookSyncReceiver {
-    /// Wait for the next batch of changes from other peers.
+    /// Wait for the next sync update from other peers.
     ///
     /// Returns `None` if the sync task has stopped.
-    pub async fn recv(&mut self) -> Option<Vec<CellSnapshot>> {
+    pub async fn recv(&mut self) -> Option<SyncUpdate> {
         self.rx.recv().await
     }
 }
@@ -346,6 +402,7 @@ impl NotebookSyncClient<tokio::net::UnixStream> {
             NotebookSyncReceiver,
             NotebookBroadcastReceiver,
             Vec<CellSnapshot>,
+            Option<String>,
         ),
         NotebookSyncError,
     > {
@@ -378,6 +435,7 @@ impl NotebookSyncClient<tokio::net::windows::named_pipe::NamedPipeClient> {
             NotebookSyncReceiver,
             NotebookBroadcastReceiver,
             Vec<CellSnapshot>,
+            Option<String>,
         ),
         NotebookSyncError,
     > {
@@ -604,7 +662,19 @@ where
         self.get_cells().into_iter().find(|c| c.id == cell_id)
     }
 
+    /// Read a metadata value from the local Automerge doc replica.
+    pub fn get_metadata(&self, key: &str) -> Option<String> {
+        get_metadata_from_doc(&self.doc, key)
+    }
+
     // ── Write operations (mutate local + sync) ──────────────────────
+
+    /// Set a metadata value and sync to daemon.
+    pub async fn set_metadata(&mut self, key: &str, value: &str) -> Result<(), NotebookSyncError> {
+        set_metadata_in_doc(&mut self.doc, key, value)
+            .map_err(|e| NotebookSyncError::SyncError(format!("set_metadata: {}", e)))?;
+        self.sync_to_daemon().await
+    }
 
     /// Add a new cell at the given index and sync to daemon.
     pub async fn add_cell(
@@ -1204,9 +1274,10 @@ where
     ///
     /// Returns:
     /// - `NotebookSyncHandle`: Clonable handle for sending commands
-    /// - `NotebookSyncReceiver`: Receiver for changes from other peers
+    /// - `NotebookSyncReceiver`: Receiver for sync updates from other peers
     /// - `NotebookBroadcastReceiver`: Receiver for kernel broadcast events
     /// - `Vec<CellSnapshot>`: Initial cells after sync
+    /// - `Option<String>`: Initial notebook metadata JSON (if present)
     ///
     /// The client is consumed and a background task is spawned to process
     /// both commands and incoming changes concurrently.
@@ -1217,16 +1288,18 @@ where
         NotebookSyncReceiver,
         NotebookBroadcastReceiver,
         Vec<CellSnapshot>,
+        Option<String>,
     ) {
         let initial_cells = self.get_cells();
+        let initial_metadata = self.get_metadata(NOTEBOOK_METADATA_KEY);
         let notebook_id = self.notebook_id.clone();
         let pending_broadcasts = self.pending_broadcasts.clone();
 
         // Channel for commands from handles
         let (cmd_tx, cmd_rx) = mpsc::channel::<SyncCommand>(32);
 
-        // Channel for changes to receivers
-        let (changes_tx, changes_rx) = mpsc::channel::<Vec<CellSnapshot>>(32);
+        // Channel for sync updates to receivers
+        let (changes_tx, changes_rx) = mpsc::channel::<SyncUpdate>(32);
 
         // Channel for kernel broadcasts
         let (broadcast_tx, broadcast_rx) = mpsc::channel::<NotebookBroadcast>(64);
@@ -1290,7 +1363,13 @@ where
         let receiver = NotebookSyncReceiver { rx: changes_rx };
         let broadcast_receiver = NotebookBroadcastReceiver { rx: broadcast_rx };
 
-        (handle, receiver, broadcast_receiver, initial_cells)
+        (
+            handle,
+            receiver,
+            broadcast_receiver,
+            initial_cells,
+            initial_metadata,
+        )
     }
 }
 
@@ -1298,7 +1377,7 @@ where
 async fn run_sync_task<S>(
     mut client: NotebookSyncClient<S>,
     mut cmd_rx: mpsc::Receiver<SyncCommand>,
-    changes_tx: mpsc::Sender<Vec<CellSnapshot>>,
+    changes_tx: mpsc::Sender<SyncUpdate>,
     broadcast_tx: mpsc::Sender<NotebookBroadcast>,
 ) where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -1314,6 +1393,8 @@ async fn run_sync_task<S>(
     // Use a short poll interval to check for incoming data
     let mut poll_interval = interval(Duration::from_millis(50));
     let mut loop_count = 0u64;
+    // Track last metadata to only send updates when it actually changes
+    let mut last_metadata: Option<String> = client.get_metadata(NOTEBOOK_METADATA_KEY);
 
     loop {
         loop_count += 1;
@@ -1351,6 +1432,14 @@ async fn run_sync_task<S>(
                                 let cells = client.get_cells();
                                 let _ = reply.send(cells);
                             }
+                            SyncCommand::SetMetadata { key, value, reply } => {
+                                let result = client.set_metadata(&key, &value).await;
+                                let _ = reply.send(result);
+                            }
+                            SyncCommand::GetMetadata { key, reply } => {
+                                let result = client.get_metadata(&key);
+                                let _ = reply.send(result);
+                            }
                             SyncCommand::SendRequest { request, reply } => {
                                 let result = client.send_request(&request).await;
                                 let _ = reply.send(result);
@@ -1376,8 +1465,17 @@ async fn run_sync_task<S>(
                     client.recv_frame_any()
                 ).await {
                     Ok(Ok(Some(ReceivedFrame::Changes(cells)))) => {
-                        // Got changes from another peer
-                        if changes_tx.send(cells).await.is_err() {
+                        // Got changes from another peer — only include metadata if it changed
+                        let current_metadata = client.get_metadata(NOTEBOOK_METADATA_KEY);
+                        let metadata_changed = current_metadata != last_metadata;
+                        if metadata_changed {
+                            last_metadata = current_metadata.clone();
+                        }
+                        let update = SyncUpdate {
+                            cells,
+                            notebook_metadata: if metadata_changed { current_metadata } else { None },
+                        };
+                        if changes_tx.send(update).await.is_err() {
                             info!(
                                 "[notebook-sync-task] Changes receiver dropped for {}, loop_count={}",
                                 notebook_id, loop_count
