@@ -27,8 +27,14 @@ const SCREENSHOT_FAILURES_DIR = path.join(SCREENSHOT_DIR, "failures");
 // Ensure screenshot directories exist
 fs.mkdirSync(SCREENSHOT_FAILURES_DIR, { recursive: true });
 
-// Note: Previously had FIXTURE_SPECS exclusion list, but tests have been reset.
-// All specs now run by default. Use E2E_SPEC env var to run a specific spec.
+// Fixture specs require NOTEBOOK_PATH to be set and are excluded from the default run.
+// Use ./e2e/dev.sh test-fixture <notebook> <spec> to run them individually.
+const FIXTURE_SPECS = [
+  "deno.spec.js",
+  "prewarmed-uv.spec.js",
+  "uv-inline.spec.js",
+  "uv-pyproject.spec.js",
+];
 
 export const config = {
   runner: "local",
@@ -37,8 +43,10 @@ export const config = {
     ? [path.resolve(process.env.E2E_SPEC)]
     : [path.join(__dirname, "specs", "*.spec.js")],
 
-  // No exclusions - all specs run by default
-  exclude: [],
+  // Exclude fixture specs from default run (they require NOTEBOOK_PATH)
+  exclude: process.env.E2E_SPEC
+    ? []
+    : FIXTURE_SPECS.map((spec) => path.join(__dirname, "specs", spec)),
 
   // Don't run tests in parallel - we have one app instance
   maxInstances: 1,
