@@ -1,6 +1,10 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
-import type { EnvProgressEvent, EnvProgressPhase } from "../types";
+import type {
+  DaemonBroadcast,
+  EnvProgressEvent,
+  EnvProgressPhase,
+} from "../types";
 
 export interface EnvProgressState {
   /** Whether environment preparation is currently active */
@@ -87,6 +91,15 @@ function getStatusText(event: EnvProgressEvent): string {
     }
     case "install_complete":
       return "Installation complete";
+    case "creating_venv":
+      return "Creating virtual environment...";
+    case "installing_packages": {
+      const e = event as Extract<
+        EnvProgressPhase,
+        { phase: "installing_packages" }
+      >;
+      return `Installing ${e.packages.length} packages...`;
+    }
     case "ready":
       return "Environment ready";
     case "error": {
@@ -132,10 +145,9 @@ export function useEnvProgress() {
   useEffect(() => {
     let cancelled = false;
 
-    const unlisten = listen<EnvProgressEvent>("env:progress", (event) => {
+    const processEvent = (payload: EnvProgressEvent) => {
       if (cancelled) return;
 
-      const payload = event.payload;
       const phase = payload.phase;
       // Only "ready" and "cache_hit" are terminal success states
       // "error" is terminal but we keep error visible
@@ -193,11 +205,31 @@ export function useEnvProgress() {
         bytesPerSecond,
         currentPackage,
       }));
+    };
+
+    // Listen for direct env:progress events (from notebook process)
+    const unlisten = listen<EnvProgressEvent>("env:progress", (event) => {
+      processEvent(event.payload);
     });
+
+    // Also listen for daemon:broadcast events with env_progress
+    // (from daemon-managed environment preparation during kernel launch)
+    const unlistenBroadcast = listen<DaemonBroadcast>(
+      "daemon:broadcast",
+      (event) => {
+        const broadcast = event.payload;
+        if (broadcast.event === "env_progress") {
+          // The daemon broadcast has the same shape as EnvProgressEvent
+          // (env_type + flattened phase fields) plus the "event" tag
+          processEvent(broadcast as unknown as EnvProgressEvent);
+        }
+      },
+    );
 
     return () => {
       cancelled = true;
       unlisten.then((fn) => fn());
+      unlistenBroadcast.then((fn) => fn());
     };
   }, []);
 

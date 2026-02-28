@@ -306,6 +306,10 @@ export function useDaemonKernel({
             break;
           }
 
+          case "env_progress":
+            // Handled by useEnvProgress hook's own daemon:broadcast listener
+            break;
+
           default: {
             // Log unknown events to help debug unexpected broadcast types
             console.log(
