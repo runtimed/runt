@@ -1218,6 +1218,24 @@ async fn handle_notebook_request(
                 NotebookResponse::NoKernel {}
             }
         }
+
+        NotebookRequest::Complete { code, cursor_pos } => {
+            let mut kernel_guard = room.kernel.lock().await;
+            if let Some(ref mut kernel) = *kernel_guard {
+                match kernel.complete(code, cursor_pos).await {
+                    Ok((items, cursor_start, cursor_end)) => NotebookResponse::CompletionResult {
+                        items,
+                        cursor_start,
+                        cursor_end,
+                    },
+                    Err(e) => NotebookResponse::Error {
+                        error: format!("Failed to get completions: {}", e),
+                    },
+                }
+            } else {
+                NotebookResponse::NoKernel {}
+            }
+        }
     }
 }
 
