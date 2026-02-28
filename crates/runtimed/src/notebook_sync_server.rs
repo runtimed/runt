@@ -30,7 +30,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use automerge::sync;
-use log::{info, warn};
+use log::{error, info, warn};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{broadcast, Mutex, RwLock};
 
@@ -51,10 +51,57 @@ pub struct TrustState {
     pub pending_launch: bool,
 }
 
-/// Check if a notebook file has inline dependencies in its metadata.
-/// Returns the appropriate env_source if found ("uv:inline" or "conda:inline").
+/// Detect the kernel type from a notebook's kernelspec metadata.
+/// Returns "python" or "deno" based on the notebook's encoded kernelspec.
+/// This is the #1 priority - the notebook's kernelspec determines the runtime.
+fn detect_notebook_kernel_type(notebook_path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(notebook_path).ok()?;
+    let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let metadata = nb.get("metadata")?;
+
+    // Check kernelspec.name first (most reliable)
+    if let Some(kernelspec) = metadata.get("kernelspec") {
+        if let Some(name) = kernelspec.get("name").and_then(|n| n.as_str()) {
+            let name_lower = name.to_lowercase();
+            if name_lower.contains("deno") {
+                return Some("deno".to_string());
+            }
+            if name_lower.contains("python") {
+                return Some("python".to_string());
+            }
+        }
+        // Also check language field
+        if let Some(lang) = kernelspec.get("language").and_then(|l| l.as_str()) {
+            let lang_lower = lang.to_lowercase();
+            if lang_lower == "typescript" || lang_lower == "javascript" {
+                return Some("deno".to_string());
+            }
+            if lang_lower == "python" {
+                return Some("python".to_string());
+            }
+        }
+    }
+
+    // Fallback: check language_info.name
+    if let Some(lang_info) = metadata.get("language_info") {
+        if let Some(name) = lang_info.get("name").and_then(|n| n.as_str()) {
+            let name_lower = name.to_lowercase();
+            if name_lower == "typescript" || name_lower == "javascript" || name_lower == "deno" {
+                return Some("deno".to_string());
+            }
+            if name_lower == "python" {
+                return Some("python".to_string());
+            }
+        }
+    }
+
+    None // Unknown kernel type
+}
+
+/// Check if a notebook file has inline dependencies or Deno config in its metadata.
+/// Returns the appropriate env_source if found ("uv:inline", "conda:inline", or "deno").
 ///
-/// Priority: UV deps are checked first, then conda deps.
+/// Priority: Deno is checked first, then UV deps, then conda deps.
 /// Uses runt_trust helpers to check both new (runt.*) and legacy paths.
 fn check_inline_deps(notebook_path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(notebook_path).ok()?;
@@ -65,7 +112,14 @@ fn check_inline_deps(notebook_path: &Path) -> Option<String> {
     let metadata: std::collections::HashMap<String, serde_json::Value> =
         serde_json::from_value(metadata_value.clone()).ok()?;
 
-    // Check UV dependencies first (runt.uv then legacy uv)
+    // Check for Deno config first (runt.deno)
+    if let Some(runt) = metadata.get("runt") {
+        if runt.get("deno").is_some() {
+            return Some("deno".to_string());
+        }
+    }
+
+    // Check UV dependencies (runt.uv then legacy uv)
     if let Some(uv) = runt_trust::get_uv_metadata(&metadata) {
         if let Some(deps) = uv.get("dependencies").and_then(|d| d.as_array()) {
             if !deps.is_empty() {
@@ -83,6 +137,55 @@ fn check_inline_deps(notebook_path: &Path) -> Option<String> {
         }
     }
 
+    None
+}
+
+/// Extract inline conda dependencies from a notebook file.
+/// Returns the list of dependency strings if conda deps are present.
+#[allow(dead_code)] // TODO: Use for conda:inline support
+fn get_inline_conda_deps(notebook_path: &Path) -> Option<Vec<String>> {
+    let content = std::fs::read_to_string(notebook_path).ok()?;
+    let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let metadata_value = nb.get("metadata")?;
+
+    let metadata: std::collections::HashMap<String, serde_json::Value> =
+        serde_json::from_value(metadata_value.clone()).ok()?;
+
+    if let Some(conda) = runt_trust::get_conda_metadata(&metadata) {
+        if let Some(deps) = conda.get("dependencies").and_then(|d| d.as_array()) {
+            let dep_strings: Vec<String> = deps
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect();
+            if !dep_strings.is_empty() {
+                return Some(dep_strings);
+            }
+        }
+    }
+    None
+}
+
+/// Extract inline UV dependencies from a notebook file.
+/// Returns the list of dependency strings if UV deps are present.
+fn get_inline_uv_deps(notebook_path: &Path) -> Option<Vec<String>> {
+    let content = std::fs::read_to_string(notebook_path).ok()?;
+    let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let metadata_value = nb.get("metadata")?;
+
+    let metadata: std::collections::HashMap<String, serde_json::Value> =
+        serde_json::from_value(metadata_value.clone()).ok()?;
+
+    if let Some(uv) = runt_trust::get_uv_metadata(&metadata) {
+        if let Some(deps) = uv.get("dependencies").and_then(|d| d.as_array()) {
+            let dep_strings: Vec<String> = deps
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect();
+            if !dep_strings.is_empty() {
+                return Some(dep_strings);
+            }
+        }
+    }
     None
 }
 
@@ -301,6 +404,7 @@ pub async fn handle_notebook_sync_connection<R, W>(
     rooms: NotebookRooms,
     notebook_id: String,
     use_typed_frames: bool,
+    default_runtime: crate::runtime::Runtime,
     default_python_env: crate::settings_doc::PythonEnvType,
     daemon: std::sync::Arc<crate::daemon::Daemon>,
 ) -> anyhow::Result<()>
@@ -357,6 +461,7 @@ where
                 auto_launch_kernel(
                     &room_clone,
                     &notebook_id_clone,
+                    default_runtime,
                     default_python_env,
                     daemon_clone,
                 )
@@ -666,11 +771,64 @@ where
     }
 }
 
+/// Acquire a pooled environment from the appropriate pool based on env_source.
+/// Returns None and broadcasts error if pool is empty.
+async fn acquire_pool_env_for_source(
+    env_source: &str,
+    daemon: &std::sync::Arc<crate::daemon::Daemon>,
+    room: &NotebookRoom,
+) -> Option<Option<crate::PooledEnv>> {
+    // Route to appropriate pool based on source prefix
+    if env_source.starts_with("conda:") {
+        match daemon.take_conda_env().await {
+            Some(env) => {
+                info!(
+                    "[notebook-sync] Acquired Conda env from pool: {:?}",
+                    env.python_path
+                );
+                Some(Some(env))
+            }
+            None => {
+                error!("[notebook-sync] Conda pool empty, cannot launch");
+                let _ = room
+                    .kernel_broadcast_tx
+                    .send(NotebookBroadcast::KernelStatus {
+                        status: "error: Conda pool empty".to_string(),
+                        cell_id: None,
+                    });
+                None // Signal caller to return early
+            }
+        }
+    } else {
+        // UV pool for uv:* sources and as default
+        match daemon.take_uv_env().await {
+            Some(env) => {
+                info!(
+                    "[notebook-sync] Acquired UV env from pool: {:?}",
+                    env.python_path
+                );
+                Some(Some(env))
+            }
+            None => {
+                error!("[notebook-sync] UV pool empty, cannot launch");
+                let _ = room
+                    .kernel_broadcast_tx
+                    .send(NotebookBroadcast::KernelStatus {
+                        status: "error: UV pool empty".to_string(),
+                        cell_id: None,
+                    });
+                None // Signal caller to return early
+            }
+        }
+    }
+}
+
 /// Auto-launch kernel for a trusted notebook when first peer connects.
 /// This is similar to handle_notebook_request(LaunchKernel) but without a request/response.
 async fn auto_launch_kernel(
     room: &NotebookRoom,
     notebook_id: &str,
+    default_runtime: crate::runtime::Runtime,
     default_python_env: crate::settings_doc::PythonEnvType,
     daemon: std::sync::Arc<crate::daemon::Daemon>,
 ) {
@@ -718,86 +876,216 @@ async fn auto_launch_kernel(
         room.comm_state.clone(),
     );
 
-    // Auto-detect environment source
-    // Priority 1: Check inline deps in notebook metadata (only for existing files)
-    let env_source = if let Some(ref path) = notebook_path_opt {
-        if let Some(inline_source) = check_inline_deps(path) {
-            info!(
-                "[notebook-sync] Auto-launch: found inline deps -> {}",
-                inline_source
-            );
-            inline_source
-        } else if let Some(detected) = crate::project_file::detect_project_file(path) {
+    // Detection priority:
+    // 1. Notebook's kernelspec (for existing notebooks) - determines python vs deno
+    // 2. For Python: resolve environment (inline deps → project files → prewarmed)
+    // 3. For Deno: just launch Deno (no env resolution needed)
+    // 4. For new notebooks (no kernelspec): use default_runtime setting
+
+    // Step 1: Detect kernel type from notebook's kernelspec
+    let notebook_kernel_type = notebook_path_opt
+        .as_ref()
+        .and_then(|path| detect_notebook_kernel_type(path));
+
+    // Step 2: Check inline deps (for environment source, and runt.deno override)
+    let inline_source = notebook_path_opt
+        .as_ref()
+        .and_then(|path| check_inline_deps(path));
+
+    // Step 3: Check project files (for Python environment resolution)
+    let project_source = notebook_path_opt
+        .as_ref()
+        .and_then(|path| crate::project_file::detect_project_file(path))
+        .map(|detected| {
             info!(
                 "[notebook-sync] Auto-launch: detected project file {:?} -> {}",
                 detected.path,
                 detected.to_env_source()
             );
             detected.to_env_source().to_string()
-        } else {
-            // Use user's preferred environment type for prewarmed
+        });
+
+    // Determine kernel type and environment
+    let (kernel_type, env_source, pooled_env) = match notebook_kernel_type.as_deref() {
+        Some("deno") => {
+            // Notebook is a Deno notebook (per its kernelspec)
+            info!("[notebook-sync] Auto-launch: Deno kernel (notebook kernelspec)");
+            ("deno", "deno".to_string(), None)
+        }
+        Some("python") => {
+            // Notebook is a Python notebook - resolve environment
+            let env_source = if let Some(ref source) = inline_source {
+                // Skip "deno" inline source for Python notebooks (kernelspec takes priority)
+                if source != "deno" {
+                    info!(
+                        "[notebook-sync] Auto-launch: found inline deps -> {}",
+                        source
+                    );
+                    source.clone()
+                } else if let Some(ref proj) = project_source {
+                    info!(
+                        "[notebook-sync] Auto-launch: using project file -> {}",
+                        proj
+                    );
+                    proj.clone()
+                } else {
+                    let prewarmed = match default_python_env {
+                        crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
+                        _ => "uv:prewarmed",
+                    };
+                    prewarmed.to_string()
+                }
+            } else if let Some(ref source) = project_source {
+                info!(
+                    "[notebook-sync] Auto-launch: using project file -> {}",
+                    source
+                );
+                source.clone()
+            } else {
+                let prewarmed = match default_python_env {
+                    crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
+                    _ => "uv:prewarmed",
+                };
+                info!(
+                    "[notebook-sync] Auto-launch: using prewarmed ({})",
+                    prewarmed
+                );
+                prewarmed.to_string()
+            };
+            // For uv:inline and uv:pyproject, we don't need a pooled env -
+            // the kernel manager uses `uv run --with` directly
+            let pooled_env = if env_source == "uv:pyproject" || env_source == "uv:inline" {
+                info!(
+                    "[notebook-sync] Auto-launch: {} uses uv run, no pool env needed",
+                    env_source
+                );
+                None
+            } else {
+                match acquire_pool_env_for_source(&env_source, &daemon, room).await {
+                    Some(env) => env,
+                    None => return, // Error already broadcast
+                }
+            };
+            ("python", env_source, pooled_env)
+        }
+        None => {
+            // New notebook or unknown kernelspec - use default_runtime
+            if inline_source.as_deref() == Some("deno") {
+                // runt.deno config present
+                info!("[notebook-sync] Auto-launch: Deno kernel (runt.deno config)");
+                ("deno", "deno".to_string(), None)
+            } else if matches!(default_runtime, crate::runtime::Runtime::Deno) {
+                // User's default is Deno
+                info!("[notebook-sync] Auto-launch: Deno kernel (default runtime)");
+                ("deno", "deno".to_string(), None)
+            } else {
+                // Default to Python
+                let env_source = if let Some(ref source) = inline_source {
+                    info!(
+                        "[notebook-sync] Auto-launch: found inline deps -> {}",
+                        source
+                    );
+                    source.clone()
+                } else if let Some(ref source) = project_source {
+                    info!(
+                        "[notebook-sync] Auto-launch: using project file -> {}",
+                        source
+                    );
+                    source.clone()
+                } else {
+                    let prewarmed = match default_python_env {
+                        crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
+                        _ => "uv:prewarmed",
+                    };
+                    info!(
+                        "[notebook-sync] Auto-launch: using prewarmed ({})",
+                        prewarmed
+                    );
+                    prewarmed.to_string()
+                };
+                // For uv:inline and uv:pyproject, we don't need a pooled env -
+                // the kernel manager uses `uv run --with` directly
+                let pooled_env = if env_source == "uv:pyproject" || env_source == "uv:inline" {
+                    info!(
+                        "[notebook-sync] Auto-launch: {} uses uv run, no pool env needed",
+                        env_source
+                    );
+                    None
+                } else {
+                    match acquire_pool_env_for_source(&env_source, &daemon, room).await {
+                        Some(env) => env,
+                        None => return, // Error already broadcast
+                    }
+                };
+                ("python", env_source, pooled_env)
+            }
+        }
+        Some(other) => {
+            // Unknown kernel type - default to Python
+            warn!(
+                "[notebook-sync] Unknown kernel type '{}', defaulting to Python",
+                other
+            );
             let prewarmed = match default_python_env {
                 crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
-                _ => "uv:prewarmed", // Default to UV for Uv and Other
+                _ => "uv:prewarmed",
             };
+            let pooled_env = match acquire_pool_env_for_source(prewarmed, &daemon, room).await {
+                Some(env) => env,
+                None => return,
+            };
+            ("python", prewarmed.to_string(), pooled_env)
+        }
+    };
+
+    // For uv:inline, prepare a cached environment with the deps
+    let (pooled_env, inline_deps) = if env_source == "uv:inline" {
+        if let Some(deps) = notebook_path_opt
+            .as_ref()
+            .and_then(|path| get_inline_uv_deps(path))
+        {
             info!(
-                "[notebook-sync] Auto-launch: using prewarmed environment ({})",
-                prewarmed
+                "[notebook-sync] Preparing cached UV env for inline deps: {:?}",
+                deps
             );
-            prewarmed.to_string()
+            match crate::inline_env::prepare_uv_inline_env(&deps).await {
+                Ok(prepared) => {
+                    info!(
+                        "[notebook-sync] Using cached inline env at {:?}",
+                        prepared.python_path
+                    );
+                    let env = Some(crate::PooledEnv {
+                        env_type: crate::EnvType::Uv,
+                        venv_path: prepared.env_path,
+                        python_path: prepared.python_path,
+                    });
+                    (env, Some(deps))
+                }
+                Err(e) => {
+                    error!("[notebook-sync] Failed to prepare inline env: {}", e);
+                    let _ = room
+                        .kernel_broadcast_tx
+                        .send(NotebookBroadcast::KernelStatus {
+                            status: format!("error: Failed to prepare environment: {}", e),
+                            cell_id: None,
+                        });
+                    return;
+                }
+            }
+        } else {
+            (pooled_env, None)
         }
     } else {
-        // New notebook (UUID, no file) - use user's preferred prewarmed env
-        let prewarmed = match default_python_env {
-            crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
-            _ => "uv:prewarmed", // Default to UV for Uv and Other
-        };
-        info!(
-            "[notebook-sync] Auto-launch: new notebook, using prewarmed environment ({})",
-            prewarmed
-        );
-        prewarmed.to_string()
+        (pooled_env, None)
     };
 
-    // Acquire prewarmed environment from pool if using prewarmed source
-    let pooled_env = match env_source.as_str() {
-        "uv:prewarmed" => match daemon.take_uv_env().await {
-            Some(env) => {
-                info!(
-                    "[notebook-sync] Auto-launch: acquired UV env from pool: {:?}",
-                    env.python_path
-                );
-                Some(env)
-            }
-            None => {
-                warn!("[notebook-sync] Auto-launch: UV pool empty, falling back to kernelspec");
-                None
-            }
-        },
-        "conda:prewarmed" => match daemon.take_conda_env().await {
-            Some(env) => {
-                info!(
-                    "[notebook-sync] Auto-launch: acquired Conda env from pool: {:?}",
-                    env.python_path
-                );
-                Some(env)
-            }
-            None => {
-                warn!("[notebook-sync] Auto-launch: Conda pool empty, falling back to kernelspec");
-                None
-            }
-        },
-        _ => None,
-    };
-
-    // Launch kernel (default to python)
-    let kernel_type = "python";
     match kernel
         .launch(
             kernel_type,
             &env_source,
             notebook_path_opt.as_deref(),
             pooled_env,
+            inline_deps,
         )
         .await
     {
@@ -932,39 +1220,109 @@ async fn handle_notebook_request(
                     env_source.clone()
                 };
 
-            // Acquire prewarmed environment from pool if using prewarmed source
-            let pooled_env = match resolved_env_source.as_str() {
-                "uv:prewarmed" => match daemon.take_uv_env().await {
-                    Some(env) => {
-                        info!(
-                            "[notebook-sync] LaunchKernel: acquired UV env from pool: {:?}",
-                            env.python_path
-                        );
-                        Some(env)
-                    }
-                    None => {
-                        warn!(
-                                "[notebook-sync] LaunchKernel: UV pool empty, falling back to kernelspec"
+            // Deno kernels don't need pooled environments
+            let pooled_env = if kernel_type == "deno" {
+                info!("[notebook-sync] LaunchKernel: Deno kernel (no pooled env)");
+                None
+            } else {
+                // Python kernels require pooled environment
+                match resolved_env_source.as_str() {
+                    "uv:prewarmed" => match daemon.take_uv_env().await {
+                        Some(env) => {
+                            info!(
+                                "[notebook-sync] LaunchKernel: acquired UV env from pool: {:?}",
+                                env.python_path
                             );
+                            Some(env)
+                        }
+                        None => {
+                            return NotebookResponse::Error {
+                                error: "UV pool empty - no environment available".to_string(),
+                            };
+                        }
+                    },
+                    "conda:prewarmed" => match daemon.take_conda_env().await {
+                        Some(env) => {
+                            info!(
+                                "[notebook-sync] LaunchKernel: acquired Conda env from pool: {:?}",
+                                env.python_path
+                            );
+                            Some(env)
+                        }
+                        None => {
+                            return NotebookResponse::Error {
+                                error: "Conda pool empty - no environment available".to_string(),
+                            };
+                        }
+                    },
+                    "uv:pyproject" | "uv:inline" => {
+                        // These sources use `uv run` directly, no pooled env needed
+                        info!(
+                            "[notebook-sync] LaunchKernel: {} uses uv run, no pool env",
+                            resolved_env_source
+                        );
                         None
                     }
-                },
-                "conda:prewarmed" => match daemon.take_conda_env().await {
-                    Some(env) => {
-                        info!(
-                            "[notebook-sync] LaunchKernel: acquired Conda env from pool: {:?}",
-                            env.python_path
-                        );
-                        Some(env)
+                    other => {
+                        // For conda inline sources, route to conda pool
+                        if other.starts_with("conda:") {
+                            match daemon.take_conda_env().await {
+                                Some(env) => Some(env),
+                                None => {
+                                    return NotebookResponse::Error {
+                                        error: "Conda pool empty".to_string(),
+                                    };
+                                }
+                            }
+                        } else {
+                            // Prewarmed UV
+                            match daemon.take_uv_env().await {
+                                Some(env) => Some(env),
+                                None => {
+                                    return NotebookResponse::Error {
+                                        error: "UV pool empty".to_string(),
+                                    };
+                                }
+                            }
+                        }
                     }
-                    None => {
-                        warn!(
-                                "[notebook-sync] LaunchKernel: Conda pool empty, falling back to kernelspec"
+                }
+            };
+
+            // For uv:inline, prepare a cached environment with the deps
+            let (pooled_env, inline_deps) = if resolved_env_source == "uv:inline" {
+                if let Some(deps) = notebook_path
+                    .as_ref()
+                    .and_then(|path| get_inline_uv_deps(path))
+                {
+                    info!(
+                        "[notebook-sync] LaunchKernel: Preparing cached UV env for inline deps: {:?}",
+                        deps
+                    );
+                    match crate::inline_env::prepare_uv_inline_env(&deps).await {
+                        Ok(prepared) => {
+                            info!(
+                                "[notebook-sync] LaunchKernel: Using cached inline env at {:?}",
+                                prepared.python_path
                             );
-                        None
+                            let env = Some(crate::PooledEnv {
+                                env_type: crate::EnvType::Uv,
+                                venv_path: prepared.env_path,
+                                python_path: prepared.python_path,
+                            });
+                            (env, Some(deps))
+                        }
+                        Err(e) => {
+                            return NotebookResponse::Error {
+                                error: format!("Failed to prepare inline environment: {}", e),
+                            };
+                        }
                     }
-                },
-                _ => None,
+                } else {
+                    (pooled_env, None)
+                }
+            } else {
+                (pooled_env, None)
             };
 
             match kernel
@@ -973,6 +1331,7 @@ async fn handle_notebook_request(
                     &resolved_env_source,
                     notebook_path.as_deref(),
                     pooled_env,
+                    inline_deps,
                 )
                 .await
             {

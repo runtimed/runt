@@ -2719,6 +2719,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "kernel-launch"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs 5.0.1",
+ "log",
+ "rattler",
+ "rattler_cache",
+ "rattler_conda_types",
+ "rattler_repodata_gateway",
+ "rattler_solve",
+ "rattler_virtual_packages",
+ "reqwest 0.12.28",
+ "reqwest-middleware",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "keyboard-types"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3246,6 +3266,7 @@ dependencies = [
  "hex",
  "hmac",
  "jupyter-protocol",
+ "kernel-launch",
  "log",
  "nbformat",
  "nix",
@@ -5147,6 +5168,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jupyter-protocol",
+ "kernel-launch",
  "libc",
  "log",
  "nix",

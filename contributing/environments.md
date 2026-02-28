@@ -4,20 +4,53 @@ This guide covers how Runt creates and manages Python and Deno environments for 
 
 ## Overview
 
-When a user opens a notebook, Runt needs to provide a kernel with the right packages installed. The system supports multiple environment creation paths depending on the notebook's metadata and surrounding project files.
+When a user opens a notebook, Runt determines what kernel to launch based on a two-stage detection:
+
+1. **Runtime Detection** — Is this a Python or Deno notebook?
+2. **Environment Resolution** — For Python notebooks, what environment should we use?
+
+This design allows Python and Deno notebooks to coexist in the same project directory.
 
 ```
 Notebook opened
   │
-  ├─ Has inline deps? ──────────────── Use UV or Conda with those deps
+  ├─ Check notebook kernelspec ────────── metadata.kernelspec.name
+  │   │
+  │   ├─ "deno" ───────────────────────── Launch Deno kernel (bootstrap via rattler)
+  │   │
+  │   ├─ "python" / "python3" ─────────── Resolve Python environment:
+  │   │   │
+  │   │   ├─ Has inline deps? ─────────── Use UV or Conda with those deps
+  │   │   │
+  │   │   ├─ Closest project file?        (walk up from notebook, stop at .git / home)
+  │   │   │   ├─ pyproject.toml ───────── Use `uv run` (project's .venv)
+  │   │   │   ├─ pixi.toml ────────────── Convert to conda deps, use rattler
+  │   │   │   └─ environment.yml ──────── Use conda with parsed deps
+  │   │   │
+  │   │   └─ Nothing found ────────────── Claim prewarmed env from pool
+  │   │
+  │   └─ Unknown/missing ──────────────── Use default_runtime setting
   │
-  ├─ Closest project file?             (walk up from notebook, stop at .git / home)
-  │   ├─ pyproject.toml ─────────────── Use `uv run` (project's .venv)
-  │   ├─ pixi.toml ──────────────────── Convert to conda deps, use rattler
-  │   └─ environment.yml ────────────── Use conda with parsed deps
-  │
-  └─ Nothing found ────────────────── Claim prewarmed env from pool
+  └─ New notebook ─────────────────────── Use default_runtime setting (Python or Deno)
 ```
+
+## Kernel Launching Architecture
+
+Kernel launching is handled by the `runtimed` daemon, which manages both Python and Deno kernels. The shared `kernel-launch` crate provides tool bootstrapping used by both the notebook app and daemon.
+
+### Tool Bootstrapping
+
+Tools (deno, uv, ruff) are automatically installed from conda-forge if not found on PATH:
+
+```rust
+use kernel_launch::tools;
+
+let deno = tools::get_deno_path().await?;  // PATH or ~/.cache/runt/tools/deno-{hash}/
+let uv = tools::get_uv_path().await?;
+let ruff = tools::get_ruff_path().await?;
+```
+
+This ensures the app works standalone without requiring users to install Python tooling.
 
 ## System Architecture Diagram
 
@@ -367,7 +400,25 @@ The prewarmed pool has a two-tier fallback: try the daemon first (shared across 
 
 ## Detection Priority Chain
 
-The backend decides which environment to use in `start_default_python_kernel_impl` (`crates/notebook/src/lib.rs`):
+Kernel launching uses a two-stage detection: **runtime detection** (Python vs Deno) followed by **environment resolution** (for Python only).
+
+### Stage 1: Runtime Detection
+
+The daemon reads the notebook's kernelspec to determine if it's a Python or Deno notebook:
+
+| Priority | Source | Check | Result |
+|----------|--------|-------|--------|
+| 1 | Notebook metadata | `metadata.kernelspec.name == "deno"` | Launch Deno kernel |
+| 2 | Notebook metadata | `metadata.kernelspec.name` contains "python" | Resolve Python environment |
+| 3 | Notebook metadata | `metadata.kernelspec.language == "typescript"` | Launch Deno kernel |
+| 4 | Notebook metadata | `metadata.language_info.name == "typescript"` | Launch Deno kernel |
+| 5 | User setting | `default_runtime` preference | Python or Deno |
+
+**Key invariant**: The notebook's encoded kernelspec takes priority over project files. A Deno notebook in a directory with `pyproject.toml` will launch a Deno kernel, not a Python kernel.
+
+### Stage 2: Python Environment Resolution
+
+For Python notebooks, the daemon resolves which environment to use:
 
 | Priority | Source | Backend | Environment Type |
 |----------|--------|---------|-----------------|
@@ -379,15 +430,27 @@ For step 2, the walk-up checks for `pyproject.toml`, `pixi.toml`, and `environme
 
 The walk-up stops at `.git` boundaries and the user's home directory, preventing cross-repository project file pollution.
 
-| Project file | Backend | Environment Type |
-|-------------|---------|-----------------|
-| `pyproject.toml` | `uv run --with ipykernel` in project dir | Project `.venv/` |
-| `pixi.toml` | Convert pixi deps to `CondaDependencies`, use rattler | Cached by dep hash |
-| `environment.yml` | Parse deps, use rattler | Cached by dep hash |
+| Project file | Backend | Environment Type | Pool |
+|-------------|---------|-----------------|------|
+| `pyproject.toml` | `uv run --with ipykernel` in project dir | Project `.venv/` | UV |
+| `pixi.toml` | Convert pixi deps to `CondaDependencies`, use rattler | Cached by dep hash | Conda |
+| `environment.yml` | Parse deps, use rattler | Cached by dep hash | Conda |
 
-**Key invariant**: The frontend (`useKernel.ts`) handles inline deps and Deno detection, then defers all project file detection to the backend via `startDefaultKernel()`. This avoids duplicating the detection chain across frontend and backend.
+### Deno Kernel Launching
 
-Deno has a separate chain: `deno.json`/`deno.jsonc` detection triggers the Deno runtime. See `crates/notebook/src/deno_env.rs`.
+Deno kernels do not use environment pools. The daemon:
+
+1. Gets the deno binary path via `kernel_launch::tools::get_deno_path()` (checks PATH first, then bootstraps from conda-forge)
+2. Launches: `deno jupyter --kernel --conn <connection_file>`
+
+**Note**: Deno notebooks do not look for project files. The `deno.json`/`deno.jsonc` detection is only used for Deno-specific configuration, not for determining kernel type.
+
+### New Notebooks
+
+When a user creates a new notebook (File → New), the kernel type is determined by:
+
+- **New → Python Notebook**: Creates notebook with `kernelspec.name: "python3"`, uses `default_python_env` setting (UV or Conda) for the prewarmed pool
+- **New → Deno Notebook**: Creates notebook with `kernelspec.name: "deno"`, launches Deno kernel
 
 ## Content-Addressed Caching
 
@@ -518,6 +581,23 @@ The kernel lifecycle is managed by `useKernel.ts`, which:
 
 ## Key Files
 
+### Shared Kernel Launch Crate
+
+| File | Role |
+|------|------|
+| `crates/kernel-launch/src/lib.rs` | Public API for kernel launching |
+| `crates/kernel-launch/src/tools.rs` | Tool bootstrapping (deno, uv, ruff) via rattler |
+
+### Daemon (Kernel Management)
+
+| File | Role |
+|------|------|
+| `crates/runtimed/src/daemon.rs` | Background daemon pool management, passes settings to handlers |
+| `crates/runtimed/src/notebook_sync_server.rs` | `auto_launch_kernel()` — runtime detection and environment resolution |
+| `crates/runtimed/src/kernel_manager.rs` | `RoomKernel::launch()` — spawns Python or Deno kernel processes |
+
+### Notebook Crate (Tauri Commands)
+
 | File | Role |
 |------|------|
 | `crates/notebook/src/lib.rs` | Tauri commands, `start_default_python_kernel_impl` |
@@ -533,7 +613,11 @@ The kernel lifecycle is managed by `useKernel.ts`, which:
 | `crates/notebook/src/notebook_state.rs` | Notebook metadata and new notebook creation |
 | `crates/notebook/src/settings.rs` | User preferences (default runtime, env type) |
 | `crates/notebook/src/trust.rs` | HMAC trust verification |
-| `crates/runtimed/src/daemon.rs` | Background daemon pool management |
+
+### Frontend
+
+| File | Role |
+|------|------|
 | `apps/notebook/src/hooks/useKernel.ts` | Frontend kernel lifecycle and auto-launch |
 | `apps/notebook/src/hooks/useDependencies.ts` | Frontend UV dep management |
 | `apps/notebook/src/hooks/useCondaDependencies.ts` | Frontend conda dep management |

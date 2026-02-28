@@ -4,7 +4,20 @@ Runt automatically manages Python and Deno environments for your notebooks. You 
 
 ## How It Works
 
-When you open a notebook, Runt looks for dependencies in this order:
+When you open a notebook, Runt uses a two-stage detection:
+
+### Stage 1: Which runtime? (Python or Deno)
+
+Runt checks the notebook's stored kernel type:
+- If the notebook says it's a **Deno notebook** → Deno kernel
+- If the notebook says it's a **Python notebook** → Python kernel (then proceeds to Stage 2)
+- New notebooks use your **default runtime** preference
+
+This means Python and Deno notebooks can coexist in the same project directory — each uses its correct kernel regardless of what project files are nearby.
+
+### Stage 2: Which Python environment?
+
+For Python notebooks, Runt looks for dependencies in this order:
 
 1. **Inline dependencies** stored in the notebook itself
 2. **Closest project file** — Runt walks up from the notebook's directory looking for `pyproject.toml`, `pixi.toml`, or `environment.yml`. The closest match wins, regardless of file type. If the same directory has multiple project files, the tiebreaker is: pyproject.toml > pixi.toml > environment.yml
@@ -48,18 +61,33 @@ The dependency panel shows pixi dependencies and offers an "Import to notebook" 
 
 ## Deno Notebooks
 
-For Deno/TypeScript notebooks, Runt detects `deno.json` or `deno.jsonc` configuration files. Deno manages its own dependencies through import maps and URL imports, so the environment setup is simpler — Runt just needs Deno installed.
+Deno notebooks use the Deno runtime for TypeScript/JavaScript. Unlike Python, Deno manages its own dependencies through import maps and URL imports, so there's no separate environment to create.
+
+**How Deno is obtained:**
+- Runt first checks if `deno` is on your PATH
+- If not found, Runt automatically installs Deno from conda-forge (stored in `~/.cache/runt/tools/`)
+
+This means Deno notebooks work out of the box — you don't need to install Deno manually.
+
+**Project configuration:** If your notebook is near a `deno.json` or `deno.jsonc` file, Deno will use that configuration for import maps and permissions.
 
 ## User Preferences
 
-You can set your preferred default environment type in settings:
+You can configure two default preferences in settings:
 
+### Default Runtime
+Choose what type of kernel new notebooks use:
+- **Python** (default) — standard Python notebooks with ipykernel
+- **Deno** — TypeScript/JavaScript notebooks using the Deno kernel
+
+### Default Python Environment
+Choose which package manager to use for Python notebooks:
 - **UV** (default) — fast, pip-compatible package management
 - **Conda** — supports conda packages (useful for non-Python dependencies like CUDA libraries)
 
 This preference is used when no project files are detected and the notebook has no inline dependencies. When a project file is present, Runt picks the appropriate backend automatically (UV for pyproject.toml, Conda for environment.yml and pixi.toml).
 
-See [Settings](settings.md) for how to change the default.
+See [Settings](settings.md) for how to change these defaults.
 
 ## Trust Dialog
 

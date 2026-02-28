@@ -151,17 +151,31 @@ Runt supports multiple environment backends (UV, Conda) and project file formats
 
 ### Detection Priority Chain
 
-When a notebook has no inline dependencies, `start_default_python_kernel_impl` in `crates/notebook/src/lib.rs` uses **closest-wins** project file detection via `project_file::find_nearest_project_file`:
+Kernel launching uses a two-stage detection:
 
+**Stage 1: Runtime Detection** (Python vs Deno)
+
+The daemon reads the notebook's kernelspec to determine runtime type:
+1. **Notebook kernelspec** — `metadata.kernelspec.name == "deno"` → Deno kernel; contains "python" → Python kernel
+2. **Fallback checks** — `kernelspec.language` or `language_info.name` == "typescript" → Deno
+3. **User setting** — `default_runtime` preference for new/unknown notebooks
+
+**Key invariant**: The notebook's encoded kernelspec takes priority over project files. A Deno notebook in a directory with `pyproject.toml` will launch a Deno kernel, allowing Python and Deno notebooks to coexist in the same project directory.
+
+**Stage 2: Python Environment Resolution**
+
+For Python notebooks, the daemon resolves the environment:
 1. **Inline deps in notebook metadata** (uv or conda) — use those directly
 2. **Closest project file** — single walk-up from the notebook directory, checking for `pyproject.toml`, `pixi.toml`, and `environment.yml` at each level. The first (closest) match wins. Same-directory tiebreaker: pyproject.toml > pixi.toml > environment.yml
-3. **No project file** — use prewarmed env based on user preference
+3. **No project file** — use prewarmed env from pool (UV or Conda based on `default_python_env` setting)
 
 The walk-up stops at `.git` boundaries and the home directory, preventing cross-repository project file pollution.
 
-Deno has a parallel chain: `deno.json`/`deno.jsonc` detection triggers the Deno kernel. It's separate but the same invariant applies.
+**Deno Kernel Launching**
 
-**Key invariant: the frontend defers to the backend for project file detection.** The frontend (`useKernel.ts`) handles inline deps and Deno runtime detection, then calls `startDefaultKernel()` which delegates all project file detection to the backend. This avoids duplicating the detection chain across frontend and backend.
+Deno kernels don't use environment pools. The daemon:
+1. Gets deno via `kernel_launch::tools::get_deno_path()` (PATH first, then bootstrap from conda-forge)
+2. Launches: `deno jupyter --kernel --conn <connection_file>`
 
 ### Environment Source Labels
 
@@ -169,6 +183,25 @@ The backend returns an `env_source` string with the `kernel:lifecycle` event so 
 
 - `"uv:inline"` / `"uv:pyproject"` / `"uv:prewarmed"`
 - `"conda:inline"` / `"conda:env_yml"` / `"conda:pixi"` / `"conda:prewarmed"`
+
+### Inline Dependency Environments
+
+For notebooks with inline UV dependencies (`metadata.runt.uv.dependencies`), the daemon creates **cached environments** in `~/.cache/runt/inline-envs/`. Environments are keyed by a hash of the sorted dependencies, enabling fast reuse:
+
+```
+~/.cache/runt/inline-envs/
+  inline-a1b2c3d4/    # Hash of ["requests"]
+  inline-e5f6g7h8/    # Hash of ["pandas", "numpy"]
+```
+
+**Flow:**
+1. `notebook_sync_server.rs` detects `uv:inline` from trusted notebook metadata
+2. Calls `inline_env::prepare_uv_inline_env(deps)` which returns cached env or creates new one
+3. Kernel launches with the cached env's Python
+
+**Cache hit = instant startup.** First launch with new deps takes time to `uv venv` + `uv pip install`.
+
+**Note:** `conda:inline` is not yet implemented (falls back to prewarmed pool).
 
 ### Adding a New Project File Format
 
@@ -188,6 +221,11 @@ Dependencies are signed with HMAC-SHA256 using a per-machine key at `~/.config/r
 
 | File | Role |
 |------|------|
+| `crates/kernel-launch/src/lib.rs` | Shared kernel launching API |
+| `crates/kernel-launch/src/tools.rs` | Tool bootstrapping (deno, uv, ruff) via rattler |
+| `crates/runtimed/src/notebook_sync_server.rs` | `auto_launch_kernel()` — runtime detection and environment resolution |
+| `crates/runtimed/src/kernel_manager.rs` | `RoomKernel::launch()` — spawns Python or Deno kernel processes |
+| `crates/runtimed/src/inline_env.rs` | Cached environment creation for inline UV deps |
 | `crates/notebook/src/lib.rs` | Tauri commands, kernel launch orchestration |
 | `crates/notebook/src/project_file.rs` | Unified closest-wins project file detection |
 | `crates/notebook/src/kernel.rs` | Kernel process management |
