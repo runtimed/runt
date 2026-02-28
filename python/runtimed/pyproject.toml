@@ -19,9 +19,9 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [tool.maturin]
-manifest-path = "../../crates/runt/Cargo.toml"
+manifest-path = "../../crates/runtimed-py/Cargo.toml"
 python-source = "src"
-bindings = "bin"
+bindings = "pyo3"
 
 [dependency-groups]
 dev = [
