@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   open as openDialog,
   save as saveDialog,
@@ -289,7 +290,8 @@ export function useNotebook() {
 
   // Reload cells when a file is opened via OS file association
   useEffect(() => {
-    const unlisten = listen("notebook:file-opened", () => {
+    const webview = getCurrentWebview();
+    const unlisten = webview.listen("notebook:file-opened", () => {
       loadCells();
     });
     return () => {
@@ -299,7 +301,8 @@ export function useNotebook() {
 
   // Listen for backend-initiated cell source updates (e.g., from formatting)
   useEffect(() => {
-    const unlisten = listen<{ cell_id: string; source: string }>(
+    const webview = getCurrentWebview();
+    const unlisten = webview.listen<{ cell_id: string; source: string }>(
       "cell:source_updated",
       (event) => {
         setCells((prev) =>
@@ -319,7 +322,8 @@ export function useNotebook() {
 
   // Listen for backend-initiated bulk output clearing (run all / restart & run all)
   useEffect(() => {
-    const unlisten = listen<string[]>("cells:outputs_cleared", (event) => {
+    const webview = getCurrentWebview();
+    const unlisten = webview.listen<string[]>("cells:outputs_cleared", (event) => {
       const clearedIds = new Set(event.payload);
       setCells((prev) =>
         prev.map((c) =>
@@ -337,16 +341,12 @@ export function useNotebook() {
   // Listen for cross-window sync updates from the Automerge daemon
   useEffect(() => {
     let isMounted = true;
+    const webview = getCurrentWebview();
 
-    const unlisten = listen<CellSnapshot[]>(
+    const unlisten = webview.listen<CellSnapshot[]>(
       "notebook:updated",
       async (event) => {
         if (!isMounted) return;
-        console.log(
-          "[notebook-sync] Received notebook:updated with",
-          event.payload.length,
-          "cells",
-        );
 
         // Wait for blob port to be available (needed for manifest resolution)
         const blobPort = blobPortPromiseRef.current
@@ -369,11 +369,8 @@ export function useNotebook() {
 
     // Listen for daemon ready signal before requesting Automerge state.
     // The backend emits daemon:ready after notebook sync is initialized.
-    const unlistenReady = listen("daemon:ready", () => {
+    const unlistenReady = webview.listen("daemon:ready", () => {
       if (!isMounted) return;
-      console.log(
-        "[notebook-sync] Daemon ready, refreshing blob port and Automerge state",
-      );
       // Refresh blob port (daemon may have restarted with new port)
       refreshBlobPort();
       invoke("refresh_from_automerge").catch((e) =>

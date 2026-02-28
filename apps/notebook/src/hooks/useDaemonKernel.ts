@@ -8,6 +8,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   DaemonBroadcast,
@@ -112,6 +113,7 @@ export function useDaemonKernel({
   // Listen for daemon broadcasts
   useEffect(() => {
     let cancelled = false;
+    const webview = getCurrentWebview();
 
     // Helper to refresh blob port (called on mount, reconnect, and daemon:ready)
     const refreshBlobPort = () => {
@@ -125,9 +127,7 @@ export function useDaemonKernel({
     // Fetch blob port for manifest resolution
     refreshBlobPort();
 
-    const unlistenBroadcast = listen<DaemonBroadcast>(
-      "daemon:broadcast",
-      (event) => {
+    const unlistenBroadcast = webview.listen<DaemonBroadcast>("daemon:broadcast", (event) => {
         if (cancelled) return;
 
         const broadcast = event.payload;
@@ -313,8 +313,7 @@ export function useDaemonKernel({
             );
           }
         }
-      },
-    );
+      });
 
     // Helper to fetch kernel info with retry for "not_started" status
     // (kernel may still be auto-launching when daemon:ready fires)
@@ -352,11 +351,9 @@ export function useDaemonKernel({
     };
 
     // Listen for daemon disconnection (e.g., daemon restarted)
-    const unlistenDisconnect = listen("daemon:disconnected", async () => {
+    const unlistenDisconnect = webview.listen("daemon:disconnected", async () => {
       if (cancelled) return;
-      console.warn(
-        "[daemon-kernel] Daemon disconnected, resetting kernel state",
-      );
+      console.warn("[daemon-kernel] Daemon disconnected, resetting kernel state");
       setKernelStatus("not_started");
       setKernelInfo({});
       setQueueState({ executing: null, queued: [] });
@@ -379,11 +376,9 @@ export function useDaemonKernel({
     });
 
     // Listen for daemon ready signal
-    const unlistenReady = listen("daemon:ready", () => {
+    const unlistenReady = webview.listen("daemon:ready", () => {
       if (cancelled) return;
-      console.log(
-        "[daemon-kernel] Daemon ready, refreshing blob port and kernel info",
-      );
+      console.log("[daemon-kernel] Daemon ready, refreshing blob port and kernel info");
       refreshBlobPort();
       fetchKernelInfo();
     });
