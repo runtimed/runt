@@ -660,6 +660,24 @@ mod tests {
     }
 
     #[test]
+    fn test_notebook_request_execute_cell() {
+        let req = NotebookRequest::ExecuteCell {
+            cell_id: "cell-456".into(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("execute_cell"));
+        assert!(json.contains("cell-456"));
+
+        let parsed: NotebookRequest = serde_json::from_str(&json).unwrap();
+        match parsed {
+            NotebookRequest::ExecuteCell { cell_id } => {
+                assert_eq!(cell_id, "cell-456");
+            }
+            _ => panic!("unexpected request type"),
+        }
+    }
+
+    #[test]
     fn test_notebook_response_kernel_launched() {
         let resp = NotebookResponse::KernelLaunched {
             kernel_type: "python".into(),

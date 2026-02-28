@@ -239,7 +239,7 @@ function AppContent() {
     kernelInfo,
     queueState,
     launchKernel,
-    queueCell,
+    executeCell,
     clearOutputs,
     interruptKernel,
     shutdownKernel,
@@ -411,16 +411,19 @@ function AppContent() {
       // Clear outputs immediately so user sees feedback
       clearCellOutputs(cellId);
 
-      // Broadcast clear to other windows, then queue
+      // Broadcast clear to other windows
       await clearOutputs(cellId);
+
+      // Check if cell is code (early exit before daemon call)
       const cell = cells.find((c) => c.id === cellId);
       if (!cell || cell.cell_type !== "code") return;
 
-      // Start kernel via daemon if not running, then queue cell
+      // Start kernel via daemon if not running, then execute cell
+      // ExecuteCell reads source from the synced document (document-first execution)
       if (kernelStatus === "not_started") {
         await tryStartKernel();
       }
-      queueCell(cellId, cell.source);
+      executeCell(cellId);
     },
     [
       clearCellOutputs,
@@ -428,7 +431,7 @@ function AppContent() {
       cells,
       kernelStatus,
       tryStartKernel,
-      queueCell,
+      executeCell,
     ],
   );
 

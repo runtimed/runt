@@ -1215,6 +1215,29 @@ async fn queue_cell_via_daemon(
         .map_err(|e| format!("daemon request failed: {}", e))
 }
 
+/// Execute a cell via the daemon (reads source from synced document).
+///
+/// This is the preferred method - ensures execution matches synced document state.
+/// The daemon reads the cell source from the Automerge doc instead of receiving it as a parameter.
+#[tauri::command]
+async fn execute_cell_via_daemon(
+    cell_id: String,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<NotebookResponse, String> {
+    info!(
+        "[daemon-kernel] execute_cell_via_daemon: cell_id={}",
+        cell_id
+    );
+
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    handle
+        .send_request(NotebookRequest::ExecuteCell { cell_id })
+        .await
+        .map_err(|e| format!("daemon request failed: {}", e))
+}
+
 /// Clear outputs for a cell via the daemon.
 #[tauri::command]
 async fn clear_outputs_via_daemon(
@@ -2996,6 +3019,7 @@ pub fn run(
             // Daemon kernel operations (all kernel ops go through daemon)
             launch_kernel_via_daemon,
             queue_cell_via_daemon,
+            execute_cell_via_daemon,
             clear_outputs_via_daemon,
             interrupt_via_daemon,
             shutdown_kernel_via_daemon,
