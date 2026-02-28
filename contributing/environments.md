@@ -515,9 +515,14 @@ Dependencies and environment config are stored in notebook JSON metadata:
 ```json
 {
   "metadata": {
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3",
+      "language": "python"
+    },
     "runt": {
-      "env_id": "uuid",
-      "runtime": "python"
+      "schema_version": "1",
+      "env_id": "uuid"
     },
     "uv": {
       "dependencies": ["pandas", "numpy"],
@@ -535,6 +540,8 @@ Dependencies and environment config are stored in notebook JSON metadata:
   }
 }
 ```
+
+Note: The runtime type (Python vs Deno) is determined by `kernelspec.name`, not by a field in `runt`. The kernelspec is the standard Jupyter metadata field.
 
 `runt.env_id` is the canonical per-notebook identifier used for environment isolation.
 

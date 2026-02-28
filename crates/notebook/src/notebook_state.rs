@@ -156,7 +156,6 @@ impl NotebookState {
                 serde_json::json!({
                     "schema_version": "1",
                     "env_id": env_id,
-                    "runtime": "python",
                     "uv": {
                         "dependencies": Vec::<String>::new(),
                     }
@@ -166,7 +165,6 @@ impl NotebookState {
                 serde_json::json!({
                     "schema_version": "1",
                     "env_id": env_id,
-                    "runtime": "python",
                     "conda": {
                         "dependencies": Vec::<String>::new(),
                         "channels": vec!["conda-forge"],
@@ -223,7 +221,6 @@ impl NotebookState {
                         serde_json::json!({
                             "schema_version": "1",
                             "env_id": env_id,
-                            "runtime": "python",
                             "uv": {
                                 "dependencies": Vec::<String>::new(),
                             }
@@ -233,7 +230,6 @@ impl NotebookState {
                         serde_json::json!({
                             "schema_version": "1",
                             "env_id": env_id,
-                            "runtime": "python",
                             "conda": {
                                 "dependencies": Vec::<String>::new(),
                                 "channels": vec!["conda-forge"],
@@ -254,15 +250,13 @@ impl NotebookState {
                 serde_json::json!({
                     "schema_version": "1",
                     "env_id": env_id,
-                    "runtime": "deno",
                 })
             }
-            Runtime::Other(s) => {
-                // Unknown runtime — store the name but skip env-specific setup
+            Runtime::Other(_) => {
+                // Unknown runtime — just store schema version and env_id
                 serde_json::json!({
                     "schema_version": "1",
                     "env_id": env_id,
-                    "runtime": s,
                 })
             }
         };
@@ -336,7 +330,6 @@ impl NotebookState {
             serde_json::json!({
                 "schema_version": "1",
                 "env_id": env_id,
-                "runtime": "python",
                 "conda": {
                     "dependencies": Vec::<String>::new(),
                     "channels": channels,
@@ -388,7 +381,6 @@ impl NotebookState {
             serde_json::json!({
                 "schema_version": "1",
                 "env_id": env_id,
-                "runtime": "python",
                 "uv": {
                     "dependencies": all_deps,
                     "requires-python": config.requires_python,
@@ -435,16 +427,33 @@ impl NotebookState {
         }
     }
 
-    /// Get the runtime type from notebook metadata
+    /// Get the runtime type from notebook metadata.
+    ///
+    /// Reads from kernelspec.name (the standard Jupyter field), not runt.runtime.
+    /// This matches how the daemon detects kernel type.
     pub fn get_runtime(&self) -> Runtime {
-        self.notebook
-            .metadata
-            .additional
-            .get("runt")
-            .and_then(|v| v.get("runtime"))
-            .and_then(|r| r.as_str())
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(Runtime::Python)
+        // Read from kernelspec.name (standard Jupyter metadata)
+        if let Some(ks) = &self.notebook.metadata.kernelspec {
+            let name = ks.name.to_lowercase();
+            if name == "deno" {
+                return Runtime::Deno;
+            }
+            if name.contains("python") {
+                return Runtime::Python;
+            }
+            // Check language field as fallback
+            if let Some(lang) = &ks.language {
+                let lang = lang.to_lowercase();
+                if lang == "typescript" {
+                    return Runtime::Deno;
+                }
+                if lang == "python" {
+                    return Runtime::Python;
+                }
+            }
+        }
+        // Default to Python if no kernelspec
+        Runtime::Python
     }
 
     pub fn cells_for_frontend(&self) -> Vec<FrontendCell> {
@@ -649,7 +658,10 @@ mod tests {
             .expect("runt namespace should exist");
         let has_env = runt.get("uv").is_some() || runt.get("conda").is_some();
         assert!(has_env);
-        assert_eq!(runt.get("runtime").unwrap(), "python");
+
+        // Runtime is determined by kernelspec, not runt.runtime
+        let ks = state.notebook.metadata.kernelspec.as_ref().unwrap();
+        assert!(ks.name.contains("python"));
     }
 
     #[test]
@@ -657,8 +669,10 @@ mod tests {
         let state = NotebookState::new_empty_with_runtime(Runtime::Deno);
 
         assert!(state.notebook.metadata.additional.contains_key("deno"));
-        let runt = state.notebook.metadata.additional.get("runt").unwrap();
-        assert_eq!(runt.get("runtime").unwrap(), "deno");
+
+        // Runtime is determined by kernelspec, not runt.runtime
+        let ks = state.notebook.metadata.kernelspec.as_ref().unwrap();
+        assert_eq!(ks.name, "deno");
     }
 
     #[test]
