@@ -675,6 +675,58 @@ where
     }
 }
 
+/// Acquire a pooled environment from the appropriate pool based on env_source.
+/// Returns None and broadcasts error if pool is empty.
+async fn acquire_pool_env_for_source(
+    env_source: &str,
+    daemon: &std::sync::Arc<crate::daemon::Daemon>,
+    room: &NotebookRoom,
+) -> Option<Option<crate::PooledEnv>> {
+    // Route to appropriate pool based on source prefix
+    if env_source.starts_with("conda:") {
+        match daemon.take_conda_env().await {
+            Some(env) => {
+                info!(
+                    "[notebook-sync] Acquired Conda env from pool: {:?}",
+                    env.python_path
+                );
+                Some(Some(env))
+            }
+            None => {
+                error!("[notebook-sync] Conda pool empty, cannot launch");
+                let _ = room
+                    .kernel_broadcast_tx
+                    .send(NotebookBroadcast::KernelStatus {
+                        status: "error: Conda pool empty".to_string(),
+                        cell_id: None,
+                    });
+                None // Signal caller to return early
+            }
+        }
+    } else {
+        // UV pool for uv:* sources and as default
+        match daemon.take_uv_env().await {
+            Some(env) => {
+                info!(
+                    "[notebook-sync] Acquired UV env from pool: {:?}",
+                    env.python_path
+                );
+                Some(Some(env))
+            }
+            None => {
+                error!("[notebook-sync] UV pool empty, cannot launch");
+                let _ = room
+                    .kernel_broadcast_tx
+                    .send(NotebookBroadcast::KernelStatus {
+                        status: "error: UV pool empty".to_string(),
+                        cell_id: None,
+                    });
+                None // Signal caller to return early
+            }
+        }
+    }
+}
+
 /// Auto-launch kernel for a trusted notebook when first peer connects.
 /// This is similar to handle_notebook_request(LaunchKernel) but without a request/response.
 async fn auto_launch_kernel(
@@ -728,121 +780,75 @@ async fn auto_launch_kernel(
         room.comm_state.clone(),
     );
 
-    // First check inline deps - this can override default_runtime (e.g., runt.deno)
+    // Detection priority:
+    // 1. Inline deps in notebook metadata (runt.deno, runt.uv, runt.conda)
+    // 2. Project files near notebook (deno.json, pyproject.toml, environment.yml, pixi.toml)
+    // 3. Default runtime setting (only if no project context)
+
+    // Check inline deps first
     let inline_source = notebook_path_opt
         .as_ref()
         .and_then(|path| check_inline_deps(path));
 
+    // Check project files second
+    let project_source = notebook_path_opt
+        .as_ref()
+        .and_then(|path| crate::project_file::detect_project_file(path))
+        .map(|detected| {
+            info!(
+                "[notebook-sync] Auto-launch: detected project file {:?} -> {}",
+                detected.path,
+                detected.to_env_source()
+            );
+            detected.to_env_source().to_string()
+        });
+
     // Determine kernel type and environment
     let (kernel_type, env_source, pooled_env) = if inline_source.as_deref() == Some("deno") {
-        // Notebook has Deno config in metadata - launch Deno kernel
+        // Inline runt.deno config - launch Deno kernel
         info!("[notebook-sync] Auto-launch: Deno kernel (inline runt.deno config)");
         ("deno", "deno".to_string(), None)
+    } else if let Some(ref source) = inline_source {
+        // Inline Python deps (uv or conda)
+        info!(
+            "[notebook-sync] Auto-launch: found inline deps -> {}",
+            source
+        );
+        let pooled_env = match acquire_pool_env_for_source(source, &daemon, room).await {
+            Some(env) => env,
+            None => return, // Error already broadcast
+        };
+        ("python", source.clone(), pooled_env)
+    } else if let Some(ref source) = project_source {
+        // Project file detected - use Python (project files imply Python context)
+        info!(
+            "[notebook-sync] Auto-launch: using project file -> {}",
+            source
+        );
+        let pooled_env = match acquire_pool_env_for_source(source, &daemon, room).await {
+            Some(env) => env,
+            None => return, // Error already broadcast
+        };
+        ("python", source.clone(), pooled_env)
     } else if matches!(default_runtime, crate::runtime::Runtime::Deno) {
-        // User default is Deno - launch Deno kernel
-        info!("[notebook-sync] Auto-launch: Deno kernel (default runtime)");
+        // No project context and default is Deno
+        info!("[notebook-sync] Auto-launch: Deno kernel (default runtime, no project)");
         ("deno", "deno".to_string(), None)
     } else {
-        // Python kernel - detect environment source
-        let env_source = if let Some(source) = inline_source {
-            info!(
-                "[notebook-sync] Auto-launch: found inline deps -> {}",
-                source
-            );
-            source
-        } else if let Some(ref path) = notebook_path_opt {
-            if let Some(detected) = crate::project_file::detect_project_file(path) {
-                info!(
-                    "[notebook-sync] Auto-launch: detected project file {:?} -> {}",
-                    detected.path,
-                    detected.to_env_source()
-                );
-                detected.to_env_source().to_string()
-            } else {
-                // Use user's preferred environment type for prewarmed
-                let prewarmed = match default_python_env {
-                    crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
-                    _ => "uv:prewarmed",
-                };
-                info!(
-                    "[notebook-sync] Auto-launch: using prewarmed environment ({})",
-                    prewarmed
-                );
-                prewarmed.to_string()
-            }
-        } else {
-            // New notebook (UUID, no file) - use user's preferred prewarmed env
-            let prewarmed = match default_python_env {
-                crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
-                _ => "uv:prewarmed",
-            };
-            info!(
-                "[notebook-sync] Auto-launch: new notebook, using prewarmed environment ({})",
-                prewarmed
-            );
-            prewarmed.to_string()
+        // No project context, use prewarmed Python env
+        let prewarmed = match default_python_env {
+            crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
+            _ => "uv:prewarmed",
         };
-
-        // Acquire prewarmed environment from pool
-        let pooled_env = match env_source.as_str() {
-            "uv:prewarmed" => match daemon.take_uv_env().await {
-                Some(env) => {
-                    info!(
-                        "[notebook-sync] Auto-launch: acquired UV env from pool: {:?}",
-                        env.python_path
-                    );
-                    Some(env)
-                }
-                None => {
-                    error!("[notebook-sync] Auto-launch: UV pool empty, cannot launch");
-                    let _ = room
-                        .kernel_broadcast_tx
-                        .send(NotebookBroadcast::KernelStatus {
-                            status: "error: UV pool empty".to_string(),
-                            cell_id: None,
-                        });
-                    return;
-                }
-            },
-            "conda:prewarmed" => match daemon.take_conda_env().await {
-                Some(env) => {
-                    info!(
-                        "[notebook-sync] Auto-launch: acquired Conda env from pool: {:?}",
-                        env.python_path
-                    );
-                    Some(env)
-                }
-                None => {
-                    error!("[notebook-sync] Auto-launch: Conda pool empty, cannot launch");
-                    let _ = room
-                        .kernel_broadcast_tx
-                        .send(NotebookBroadcast::KernelStatus {
-                            status: "error: Conda pool empty".to_string(),
-                            cell_id: None,
-                        });
-                    return;
-                }
-            },
-            _ => {
-                // For non-prewarmed sources (inline, project file), we need a pool env too
-                // Use UV pool as default
-                match daemon.take_uv_env().await {
-                    Some(env) => Some(env),
-                    None => {
-                        error!("[notebook-sync] Auto-launch: no environment available");
-                        let _ = room
-                            .kernel_broadcast_tx
-                            .send(NotebookBroadcast::KernelStatus {
-                                status: "error: no environment available".to_string(),
-                                cell_id: None,
-                            });
-                        return;
-                    }
-                }
-            }
+        info!(
+            "[notebook-sync] Auto-launch: using prewarmed environment ({})",
+            prewarmed
+        );
+        let pooled_env = match acquire_pool_env_for_source(prewarmed, &daemon, room).await {
+            Some(env) => env,
+            None => return, // Error already broadcast
         };
-
-        ("python", env_source, pooled_env)
+        ("python", prewarmed.to_string(), pooled_env)
     };
     match kernel
         .launch(
@@ -1019,14 +1025,25 @@ async fn handle_notebook_request(
                             };
                         }
                     },
-                    _ => {
-                        // For inline/project sources, use UV pool as default
-                        match daemon.take_uv_env().await {
-                            Some(env) => Some(env),
-                            None => {
-                                return NotebookResponse::Error {
-                                    error: "No environment available".to_string(),
-                                };
+                    other => {
+                        // For inline/project sources, route to correct pool based on prefix
+                        if other.starts_with("conda:") {
+                            match daemon.take_conda_env().await {
+                                Some(env) => Some(env),
+                                None => {
+                                    return NotebookResponse::Error {
+                                        error: "Conda pool empty".to_string(),
+                                    };
+                                }
+                            }
+                        } else {
+                            match daemon.take_uv_env().await {
+                                Some(env) => Some(env),
+                                None => {
+                                    return NotebookResponse::Error {
+                                        error: "UV pool empty".to_string(),
+                                    };
+                                }
                             }
                         }
                     }
