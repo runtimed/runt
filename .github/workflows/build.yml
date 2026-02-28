@@ -343,3 +343,160 @@ jobs:
           name: e2e-daemon-logs
           path: e2e-logs/
           retention-days: 7
+
+  # E2E fixture tests - kernel launch scenarios (runs after smoke test passes)
+  e2e-fixtures:
+    name: E2E Kernel Launch Tests
+    runs-on: ubuntu-latest
+    needs: [build-e2e-app, e2e]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            xvfb \
+            webkit2gtk-driver
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Set pnpm store directory
+        run: pnpm config set store-dir ~/.pnpm-store
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Download E2E artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-app-linux
+          path: ./target/release
+
+      - name: Make binaries executable
+        run: |
+          chmod +x target/release/notebook
+          chmod +x target/release/binaries/*
+
+      - name: Cache tauri-driver
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/tauri-driver
+          key: cargo-bin-tauri-driver-v0.1
+          restore-keys: |
+            cargo-bin-tauri-driver-
+
+      - name: Install tauri-driver
+        run: |
+          if ! command -v tauri-driver &> /dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+            source ~/.cargo/env
+            cargo install tauri-driver --locked
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Run kernel launch fixture tests
+        timeout-minutes: 15
+        run: |
+          mkdir -p e2e-logs
+
+          # Start Xvfb
+          Xvfb :99 -screen 0 1920x1080x24 2>/dev/null &
+          export DISPLAY=:99
+          sleep 2
+
+          FAIL=0
+
+          # Helper function to run a fixture test
+          run_fixture_test() {
+            local notebook="$1"
+            local spec="$2"
+            local name="$3"
+
+            echo "=== Running $name ==="
+
+            # Start daemon fresh for each test
+            TARGET=$(ls target/release/binaries/ | grep runtimed | head -1)
+            CONDUCTOR_WORKSPACE_PATH="${GITHUB_WORKSPACE}" \
+              ./target/release/binaries/$TARGET --dev run \
+              --uv-pool-size 2 --conda-pool-size 0 &
+            DAEMON_PID=$!
+            sleep 20
+
+            # Start tauri-driver
+            ~/.cargo/bin/tauri-driver --port 4444 &
+            DRIVER_PID=$!
+            sleep 3
+
+            # Run test
+            NOTEBOOK_PATH="$notebook" E2E_SPEC="$spec" \
+              pnpm test:e2e 2>&1 | tee -a e2e-logs/fixtures-output.log || FAIL=1
+
+            # Cleanup
+            kill $DRIVER_PID 2>/dev/null || true
+            kill $DAEMON_PID 2>/dev/null || true
+            sleep 2
+
+            echo "=== $name complete ==="
+          }
+
+          # Run each fixture test
+          run_fixture_test \
+            "crates/notebook/fixtures/audit-test/1-vanilla.ipynb" \
+            "e2e/specs/prewarmed-uv.spec.js" \
+            "Prewarmed Pool Test"
+
+          run_fixture_test \
+            "crates/notebook/fixtures/audit-test/10-deno.ipynb" \
+            "e2e/specs/deno.spec.js" \
+            "Deno Kernel Test"
+
+          exit $FAIL
+        env:
+          TAURI_APP_PATH: ./target/release/notebook
+          CONDUCTOR_WORKSPACE_PATH: ${{ github.workspace }}
+          NO_AT_BRIDGE: 1
+          LIBGL_ALWAYS_SOFTWARE: 1
+          RUST_LOG: info,notebook=debug,runtimed=debug
+
+      - name: Collect daemon logs
+        if: always()
+        run: |
+          mkdir -p e2e-logs
+          find ~/.cache/runt/worktrees -name "runtimed.log" -exec cp {} e2e-logs/ \; 2>/dev/null || true
+          echo "=== Daemon log ===" && cat e2e-logs/runtimed.log 2>/dev/null || echo "No daemon log found"
+
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-fixture-screenshots
+          path: e2e-screenshots/failures/
+          retention-days: 7
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-fixture-logs
+          path: e2e-logs/
+          retention-days: 7
