@@ -1198,6 +1198,7 @@ async fn launch_kernel_via_daemon(
 ///
 /// The daemon manages the execution queue and broadcasts outputs to all windows.
 #[tauri::command]
+#[allow(deprecated)]
 async fn queue_cell_via_daemon(
     cell_id: String,
     code: String,
