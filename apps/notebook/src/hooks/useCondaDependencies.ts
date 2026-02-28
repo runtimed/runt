@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
 import type { PixiInfo } from "../types";
 
@@ -91,6 +92,16 @@ export function useCondaDependencies() {
       setEnvironmentYmlInfo,
     );
     invoke<PixiInfo | null>("detect_pixi_toml").then(setPixiInfo);
+  }, [loadDependencies]);
+
+  // Re-load when metadata is synced from another window
+  useEffect(() => {
+    const unlisten = listen("notebook:metadata_updated", () => {
+      loadDependencies();
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
   }, [loadDependencies]);
 
   // Load environment.yml deps when we detect one

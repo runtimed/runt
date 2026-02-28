@@ -20,6 +20,7 @@
 //!         [j]: Str                ← JSON-encoded Jupyter output (Phase 5: manifest hash)
 //!   metadata/                     ← Map
 //!     runtime: Str
+//!     notebook_metadata: Str      ← JSON-encoded NotebookMetadataSnapshot
 //! ```
 
 use std::path::Path;
@@ -664,6 +665,50 @@ fn read_str<O: AsRef<automerge::ObjId>, P: Into<automerge::Prop>>(
             },
             _ => None,
         })
+}
+
+/// Read a metadata value from a raw `AutoCommit` document.
+///
+/// This is the free-function counterpart of `NotebookDoc::get_metadata`,
+/// for use by the sync client which holds a raw `AutoCommit` instead of
+/// a `NotebookDoc`.
+pub fn get_metadata_from_doc(doc: &AutoCommit, key: &str) -> Option<String> {
+    let meta_id = doc
+        .get(automerge::ROOT, "metadata")
+        .ok()
+        .flatten()
+        .and_then(|(value, id)| match value {
+            automerge::Value::Object(ObjType::Map) => Some(id),
+            _ => None,
+        })?;
+    read_str(doc, meta_id, key)
+}
+
+/// Set a metadata value in a raw `AutoCommit` document.
+///
+/// Creates the metadata map if it doesn't exist. This is the free-function
+/// counterpart of `NotebookDoc::set_metadata`.
+pub fn set_metadata_in_doc(
+    doc: &mut AutoCommit,
+    key: &str,
+    value: &str,
+) -> Result<(), AutomergeError> {
+    let meta_id = doc
+        .get(automerge::ROOT, "metadata")
+        .ok()
+        .flatten()
+        .and_then(|(v, id)| match v {
+            automerge::Value::Object(ObjType::Map) => Some(id),
+            _ => None,
+        });
+
+    let meta_id = match meta_id {
+        Some(id) => id,
+        None => doc.put_object(automerge::ROOT, "metadata", ObjType::Map)?,
+    };
+
+    doc.put(&meta_id, key, value)?;
+    Ok(())
 }
 
 /// Compute a safe filename for persisting a notebook document.

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
 
 export interface NotebookDependencies {
@@ -85,6 +86,16 @@ export function useDependencies() {
   // Load dependencies on mount
   useEffect(() => {
     loadDependencies();
+  }, [loadDependencies]);
+
+  // Re-load when metadata is synced from another window
+  useEffect(() => {
+    const unlisten = listen("notebook:metadata_updated", () => {
+      loadDependencies();
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
   }, [loadDependencies]);
 
   // Re-sign the notebook after user modifications to keep it trusted

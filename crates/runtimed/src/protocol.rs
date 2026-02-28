@@ -205,6 +205,15 @@ pub enum NotebookRequest {
         /// Cursor position in the code
         cursor_pos: usize,
     },
+
+    /// Save the notebook to disk.
+    /// The daemon reads cells and metadata from the Automerge doc, merges
+    /// with any existing .ipynb on disk (to preserve unknown metadata keys),
+    /// and writes the result.
+    SaveNotebook {
+        /// If true, format code cells before saving (e.g., with ruff).
+        format_cells: bool,
+    },
 }
 
 /// Responses from daemon to notebook app.
@@ -255,6 +264,9 @@ pub enum NotebookResponse {
     AllCellsQueued {
         count: usize, // number of code cells queued
     },
+
+    /// Notebook saved successfully to disk.
+    NotebookSaved {},
 
     /// Generic success.
     Ok {},
