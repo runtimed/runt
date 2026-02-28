@@ -156,7 +156,6 @@ impl NotebookState {
                 serde_json::json!({
                     "schema_version": "1",
                     "env_id": env_id,
-                    "runtime": "python",
                     "uv": {
                         "dependencies": Vec::<String>::new(),
                     }
@@ -166,7 +165,6 @@ impl NotebookState {
                 serde_json::json!({
                     "schema_version": "1",
                     "env_id": env_id,
-                    "runtime": "python",
                     "conda": {
                         "dependencies": Vec::<String>::new(),
                         "channels": vec!["conda-forge"],
@@ -223,7 +221,6 @@ impl NotebookState {
                         serde_json::json!({
                             "schema_version": "1",
                             "env_id": env_id,
-                            "runtime": "python",
                             "uv": {
                                 "dependencies": Vec::<String>::new(),
                             }
@@ -233,7 +230,6 @@ impl NotebookState {
                         serde_json::json!({
                             "schema_version": "1",
                             "env_id": env_id,
-                            "runtime": "python",
                             "conda": {
                                 "dependencies": Vec::<String>::new(),
                                 "channels": vec!["conda-forge"],
@@ -254,15 +250,13 @@ impl NotebookState {
                 serde_json::json!({
                     "schema_version": "1",
                     "env_id": env_id,
-                    "runtime": "deno",
                 })
             }
-            Runtime::Other(s) => {
-                // Unknown runtime — store the name but skip env-specific setup
+            Runtime::Other(_) => {
+                // Unknown runtime — just store schema version and env_id
                 serde_json::json!({
                     "schema_version": "1",
                     "env_id": env_id,
-                    "runtime": s,
                 })
             }
         };
@@ -336,7 +330,6 @@ impl NotebookState {
             serde_json::json!({
                 "schema_version": "1",
                 "env_id": env_id,
-                "runtime": "python",
                 "conda": {
                     "dependencies": Vec::<String>::new(),
                     "channels": channels,
@@ -388,7 +381,6 @@ impl NotebookState {
             serde_json::json!({
                 "schema_version": "1",
                 "env_id": env_id,
-                "runtime": "python",
                 "uv": {
                     "dependencies": all_deps,
                     "requires-python": config.requires_python,
@@ -435,16 +427,48 @@ impl NotebookState {
         }
     }
 
-    /// Get the runtime type from notebook metadata
+    /// Get the runtime type from notebook metadata.
+    ///
+    /// Reads from kernelspec.name (the standard Jupyter field), not runt.runtime.
+    /// This mirrors the daemon's `detect_notebook_kernel_type()` logic so
+    /// notebook-side and daemon-side detection stay consistent.
     pub fn get_runtime(&self) -> Runtime {
-        self.notebook
-            .metadata
-            .additional
-            .get("runt")
-            .and_then(|v| v.get("runtime"))
-            .and_then(|r| r.as_str())
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(Runtime::Python)
+        // Check kernelspec.name first (most reliable)
+        if let Some(ks) = &self.notebook.metadata.kernelspec {
+            let name_lower = ks.name.to_lowercase();
+            if name_lower.contains("deno") {
+                return Runtime::Deno;
+            }
+            if name_lower.contains("python") {
+                return Runtime::Python;
+            }
+            // Check language field
+            if let Some(lang) = &ks.language {
+                let lang_lower = lang.to_lowercase();
+                if lang_lower == "typescript" || lang_lower == "javascript" {
+                    return Runtime::Deno;
+                }
+                if lang_lower == "python" {
+                    return Runtime::Python;
+                }
+            }
+            // Unknown kernelspec - preserve as Other for round-tripping
+            return Runtime::Other(ks.name.clone());
+        }
+
+        // Fallback: check language_info.name
+        if let Some(lang_info) = &self.notebook.metadata.language_info {
+            let name_lower = lang_info.name.to_lowercase();
+            if name_lower == "typescript" || name_lower == "javascript" || name_lower == "deno" {
+                return Runtime::Deno;
+            }
+            if name_lower == "python" {
+                return Runtime::Python;
+            }
+        }
+
+        // Default to Python only if no kernelspec and no language_info
+        Runtime::Python
     }
 
     pub fn cells_for_frontend(&self) -> Vec<FrontendCell> {
@@ -649,7 +673,10 @@ mod tests {
             .expect("runt namespace should exist");
         let has_env = runt.get("uv").is_some() || runt.get("conda").is_some();
         assert!(has_env);
-        assert_eq!(runt.get("runtime").unwrap(), "python");
+
+        // Runtime is determined by kernelspec, not runt.runtime
+        let ks = state.notebook.metadata.kernelspec.as_ref().unwrap();
+        assert!(ks.name.contains("python"));
     }
 
     #[test]
@@ -657,8 +684,10 @@ mod tests {
         let state = NotebookState::new_empty_with_runtime(Runtime::Deno);
 
         assert!(state.notebook.metadata.additional.contains_key("deno"));
-        let runt = state.notebook.metadata.additional.get("runt").unwrap();
-        assert_eq!(runt.get("runtime").unwrap(), "deno");
+
+        // Runtime is determined by kernelspec, not runt.runtime
+        let ks = state.notebook.metadata.kernelspec.as_ref().unwrap();
+        assert_eq!(ks.name, "deno");
     }
 
     #[test]
@@ -670,6 +699,53 @@ mod tests {
     #[test]
     fn test_get_runtime_returns_correct_runtime() {
         let state = NotebookState::new_empty_with_runtime(Runtime::Deno);
+        assert_eq!(state.get_runtime(), Runtime::Deno);
+    }
+
+    #[test]
+    fn test_get_runtime_other_round_trips() {
+        // Unknown runtimes should round-trip through kernelspec
+        let state = NotebookState::new_empty_with_runtime(Runtime::Other("julia".into()));
+        assert_eq!(state.get_runtime(), Runtime::Other("julia".into()));
+    }
+
+    #[test]
+    fn test_get_runtime_contains_deno() {
+        // Should detect deno-variants like "deno-ts" via contains()
+        let mut state = NotebookState::new_empty();
+        state.notebook.metadata.kernelspec = Some(nbformat::v4::KernelSpec {
+            name: "deno-typescript".to_string(),
+            display_name: "Deno TypeScript".to_string(),
+            language: None,
+            additional: std::collections::HashMap::new(),
+        });
+        assert_eq!(state.get_runtime(), Runtime::Deno);
+    }
+
+    #[test]
+    fn test_get_runtime_language_info_fallback() {
+        // Should fall back to language_info.name when kernelspec is missing
+        let mut state = NotebookState::new_empty();
+        state.notebook.metadata.kernelspec = None;
+        state.notebook.metadata.language_info = Some(nbformat::v4::LanguageInfo {
+            name: "typescript".to_string(),
+            version: None,
+            codemirror_mode: None,
+            additional: std::collections::HashMap::new(),
+        });
+        assert_eq!(state.get_runtime(), Runtime::Deno);
+    }
+
+    #[test]
+    fn test_get_runtime_kernelspec_language_fallback() {
+        // Should detect via kernelspec.language when name doesn't match
+        let mut state = NotebookState::new_empty();
+        state.notebook.metadata.kernelspec = Some(nbformat::v4::KernelSpec {
+            name: "custom-kernel".to_string(),
+            display_name: "Custom".to_string(),
+            language: Some("typescript".to_string()),
+            additional: std::collections::HashMap::new(),
+        });
         assert_eq!(state.get_runtime(), Runtime::Deno);
     }
 
