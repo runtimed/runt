@@ -432,31 +432,41 @@ impl RoomKernel {
             dirs::home_dir().unwrap_or_else(std::env::temp_dir)
         };
 
-        // Build kernel command based on whether we have a prewarmed environment
-        let mut cmd = if let Some(ref pooled_env) = env {
-            // Use prewarmed environment's Python directly
-            info!(
-                "[kernel-manager] Starting kernel from prewarmed env at {:?}",
-                pooled_env.python_path
-            );
-            let mut cmd = tokio::process::Command::new(&pooled_env.python_path);
-            cmd.args(["-Xfrozen_modules=off", "-m", "ipykernel_launcher", "-f"]);
-            cmd.arg(&connection_file_path);
-            cmd.stdout(Stdio::null());
-            cmd.stderr(Stdio::null());
-            cmd
-        } else {
-            // Fall back to kernelspec discovery
-            info!(
-                "[kernel-manager] Starting kernel {} via kernelspec at {:?}",
-                kernelspec_name, connection_file_path
-            );
-            let kernelspec = runtimelib::find_kernelspec(kernelspec_name).await?;
-            kernelspec.command(
-                &connection_file_path,
-                Some(Stdio::null()),
-                Some(Stdio::null()),
-            )?
+        // Build kernel command based on kernel type
+        let mut cmd = match kernel_type {
+            "python" => {
+                // Python kernels require a pooled environment
+                let pooled_env = env.ok_or_else(|| {
+                    anyhow::anyhow!("Python kernel requires a pooled environment")
+                })?;
+                info!(
+                    "[kernel-manager] Starting Python kernel from env at {:?}",
+                    pooled_env.python_path
+                );
+                let mut cmd = tokio::process::Command::new(&pooled_env.python_path);
+                cmd.args(["-Xfrozen_modules=off", "-m", "ipykernel_launcher", "-f"]);
+                cmd.arg(&connection_file_path);
+                cmd.stdout(Stdio::null());
+                cmd.stderr(Stdio::null());
+                cmd
+            }
+            "deno" => {
+                // Deno kernels use our bootstrapped deno binary
+                let deno_path = kernel_launch::tools::get_deno_path().await?;
+                info!("[kernel-manager] Starting Deno kernel with {:?}", deno_path);
+                let mut cmd = tokio::process::Command::new(&deno_path);
+                cmd.args(["jupyter", "--kernel", "--conn"]);
+                cmd.arg(&connection_file_path);
+                cmd.stdout(Stdio::null());
+                cmd.stderr(Stdio::null());
+                cmd
+            }
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unsupported kernel type: {}. Supported types: python, deno",
+                    kernel_type
+                ));
+            }
         };
         cmd.current_dir(&cwd);
 

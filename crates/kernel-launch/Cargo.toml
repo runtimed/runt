@@ -1,0 +1,30 @@
+[package]
+name = "kernel-launch"
+version = "0.1.0"
+edition = "2021"
+description = "Shared kernel launching and tool bootstrapping for Runt"
+repository = "https://github.com/runtimed/runt"
+license = "BSD-3-Clause"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+tokio = { workspace = true }
+log = "0.4"
+dirs = "5"
+sha2 = "0.10"
+
+# Conda/rattler for tool bootstrapping
+rattler = "0.39"
+rattler_cache = "0.6"
+rattler_conda_types = "0.43"
+rattler_repodata_gateway = { version = "0.25", features = ["gateway"] }
+rattler_solve = { version = "4.2", features = ["resolvo"] }
+rattler_virtual_packages = "2.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest-middleware = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
