@@ -430,29 +430,44 @@ impl NotebookState {
     /// Get the runtime type from notebook metadata.
     ///
     /// Reads from kernelspec.name (the standard Jupyter field), not runt.runtime.
-    /// This matches how the daemon detects kernel type.
+    /// This mirrors the daemon's `detect_notebook_kernel_type()` logic so
+    /// notebook-side and daemon-side detection stay consistent.
     pub fn get_runtime(&self) -> Runtime {
-        // Read from kernelspec.name (standard Jupyter metadata)
+        // Check kernelspec.name first (most reliable)
         if let Some(ks) = &self.notebook.metadata.kernelspec {
-            let name = ks.name.to_lowercase();
-            if name == "deno" {
+            let name_lower = ks.name.to_lowercase();
+            if name_lower.contains("deno") {
                 return Runtime::Deno;
             }
-            if name.contains("python") {
+            if name_lower.contains("python") {
                 return Runtime::Python;
             }
-            // Check language field as fallback
+            // Check language field
             if let Some(lang) = &ks.language {
-                let lang = lang.to_lowercase();
-                if lang == "typescript" {
+                let lang_lower = lang.to_lowercase();
+                if lang_lower == "typescript" || lang_lower == "javascript" {
                     return Runtime::Deno;
                 }
-                if lang == "python" {
+                if lang_lower == "python" {
                     return Runtime::Python;
                 }
             }
+            // Unknown kernelspec - preserve as Other for round-tripping
+            return Runtime::Other(ks.name.clone());
         }
-        // Default to Python if no kernelspec
+
+        // Fallback: check language_info.name
+        if let Some(lang_info) = &self.notebook.metadata.language_info {
+            let name_lower = lang_info.name.to_lowercase();
+            if name_lower == "typescript" || name_lower == "javascript" || name_lower == "deno" {
+                return Runtime::Deno;
+            }
+            if name_lower == "python" {
+                return Runtime::Python;
+            }
+        }
+
+        // Default to Python only if no kernelspec and no language_info
         Runtime::Python
     }
 
@@ -684,6 +699,53 @@ mod tests {
     #[test]
     fn test_get_runtime_returns_correct_runtime() {
         let state = NotebookState::new_empty_with_runtime(Runtime::Deno);
+        assert_eq!(state.get_runtime(), Runtime::Deno);
+    }
+
+    #[test]
+    fn test_get_runtime_other_round_trips() {
+        // Unknown runtimes should round-trip through kernelspec
+        let state = NotebookState::new_empty_with_runtime(Runtime::Other("julia".into()));
+        assert_eq!(state.get_runtime(), Runtime::Other("julia".into()));
+    }
+
+    #[test]
+    fn test_get_runtime_contains_deno() {
+        // Should detect deno-variants like "deno-ts" via contains()
+        let mut state = NotebookState::new_empty();
+        state.notebook.metadata.kernelspec = Some(nbformat::v4::KernelSpec {
+            name: "deno-typescript".to_string(),
+            display_name: "Deno TypeScript".to_string(),
+            language: None,
+            additional: std::collections::HashMap::new(),
+        });
+        assert_eq!(state.get_runtime(), Runtime::Deno);
+    }
+
+    #[test]
+    fn test_get_runtime_language_info_fallback() {
+        // Should fall back to language_info.name when kernelspec is missing
+        let mut state = NotebookState::new_empty();
+        state.notebook.metadata.kernelspec = None;
+        state.notebook.metadata.language_info = Some(nbformat::v4::LanguageInfo {
+            name: "typescript".to_string(),
+            version: None,
+            codemirror_mode: None,
+            additional: std::collections::HashMap::new(),
+        });
+        assert_eq!(state.get_runtime(), Runtime::Deno);
+    }
+
+    #[test]
+    fn test_get_runtime_kernelspec_language_fallback() {
+        // Should detect via kernelspec.language when name doesn't match
+        let mut state = NotebookState::new_empty();
+        state.notebook.metadata.kernelspec = Some(nbformat::v4::KernelSpec {
+            name: "custom-kernel".to_string(),
+            display_name: "Custom".to_string(),
+            language: Some("typescript".to_string()),
+            additional: std::collections::HashMap::new(),
+        });
         assert_eq!(state.get_runtime(), Runtime::Deno);
     }
 
