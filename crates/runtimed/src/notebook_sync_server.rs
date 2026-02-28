@@ -1265,10 +1265,17 @@ async fn handle_notebook_request(
                         );
                         detected.to_env_source().to_string()
                     }
-                    // Priority 3: Fall back to prewarmed
+                    // Priority 3: Fall back to prewarmed (respecting user's env preference)
                     else {
-                        info!("[notebook-sync] No project file detected, using prewarmed");
-                        "uv:prewarmed".to_string()
+                        let prewarmed = match daemon.default_python_env().await {
+                            crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
+                            _ => "uv:prewarmed",
+                        };
+                        info!(
+                            "[notebook-sync] No project file detected, using prewarmed ({})",
+                            prewarmed
+                        );
+                        prewarmed.to_string()
                     }
                 } else {
                     // Use explicit env_source (e.g., "uv:inline", "conda:inline")

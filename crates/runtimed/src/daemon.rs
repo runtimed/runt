@@ -1033,6 +1033,11 @@ impl Daemon {
         env
     }
 
+    /// Get the user's default Python environment preference.
+    pub async fn default_python_env(&self) -> crate::settings_doc::PythonEnvType {
+        self.settings.read().await.get_all().default_python_env
+    }
+
     /// Handle a single request.
     async fn handle_request(self: Arc<Self>, request: Request) -> Response {
         match request {

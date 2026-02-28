@@ -287,10 +287,14 @@ function AppContent() {
   // When kernel is running and we know the env source, use it to determine panel type.
   // This handles: both-deps (backend picks based on preference), pixi (auto-detected, no metadata).
   // Fall back to metadata-based detection when kernel hasn't started yet.
+  // If the user clears one dep section (e.g. "Use conda" clears UV), the metadata state
+  // takes priority over a stale envSource from a still-running kernel.
   const envType = envSource?.startsWith("conda:")
     ? "conda"
     : envSource?.startsWith("uv:")
-      ? "uv"
+      ? isCondaConfigured && !isUvConfigured
+        ? "conda"
+        : "uv"
       : isUvConfigured && uvAvailable !== false
         ? "uv"
         : isCondaConfigured ||
@@ -316,6 +320,17 @@ function AppContent() {
   // Check trust and start kernel if trusted, otherwise show dialog.
   // Returns true if kernel was started, false if trust dialog opened or error.
   const tryStartKernel = useCallback(async (): Promise<boolean> => {
+    // Flush metadata to disk so the daemon sees current deps/trust state.
+    // Only saves if the notebook already has a file path (no dialog).
+    try {
+      const hasPath = await invoke<boolean>("has_notebook_path");
+      if (hasPath) {
+        await invoke("save_notebook");
+      }
+    } catch (e) {
+      console.warn("[App] tryStartKernel: pre-launch save failed:", e);
+    }
+
     // Re-check trust status (may have changed)
     const info = await checkTrust();
     if (!info) return false;
@@ -782,6 +797,7 @@ function AppContent() {
                     setClearingDeps(true);
                     try {
                       await clearAllCondaDeps();
+                      await save();
                     } finally {
                       setClearingDeps(false);
                     }
@@ -800,6 +816,7 @@ function AppContent() {
                     setClearingDeps(true);
                     try {
                       await clearAllUvDeps();
+                      await save();
                     } finally {
                       setClearingDeps(false);
                     }
