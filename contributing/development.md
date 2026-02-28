@@ -154,6 +154,8 @@ runt daemon logs -f          # Tail logs (uses correct log path in dev mode)
 
 Per-worktree state is stored in `~/.cache/runt/worktrees/{hash}/`.
 
+**For AI agents:** Use `./target/debug/runt` directly to interact with the daemon. See the "Agent Access to Dev Daemon" section in AGENTS.md.
+
 ### Testing Against System Daemon (Production Mode)
 
 When you need to test the full production flow (daemon auto-install, upgrades, etc.):

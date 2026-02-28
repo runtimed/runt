@@ -192,7 +192,11 @@ cargo run -p runt-cli -- daemon flush         # Flush pool and rebuild environme
 # Debug/health checks
 cargo run -p runt-cli -- daemon ping          # Check daemon is responding
 cargo run -p runt-cli -- daemon shutdown      # Shutdown daemon via IPC
+```
 
+**Note:** In Conductor workspaces, use `./target/debug/runt` instead of `cargo run -p runt-cli --` for faster iteration. The debug binary connects to the worktree daemon automatically.
+
+```bash
 # Kernel and notebook inspection
 cargo run -p runt-cli -- ps                   # List all kernels (connection-file + daemon)
 cargo run -p runt-cli -- notebooks            # List open notebooks with kernel info

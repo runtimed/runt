@@ -106,6 +106,52 @@ RUNTIMED_DEV=1 runt daemon status
 
 Per-worktree state is stored in `~/.cache/runt/worktrees/{hash}/`.
 
+### Agent Access to Dev Daemon (Conductor Workspaces)
+
+When working in a Conductor workspace, the following environment variables are set automatically:
+
+| Variable | Purpose | Used By |
+|----------|---------|---------|
+| `CONDUCTOR_WORKSPACE_PATH` | Enables dev mode; daemon state isolated to `~/.cache/runt/worktrees/{hash}/` | `runtimed::is_dev_mode()`, `daemon_base_dir()` |
+| `CONDUCTOR_WORKSPACE_NAME` | Human-readable workspace name for display | `runtimed::get_workspace_name()` |
+| `CONDUCTOR_PORT` | Vite dev server port (avoids conflicts between workspaces) | `cargo xtask dev`, `cargo xtask vite` |
+| `CONDUCTOR_DEFAULT_BRANCH` | Target branch for PRs (usually `main`) | Agent workflows |
+
+**Interacting with the daemon:**
+
+Use `./target/debug/runt` to interact with the worktree daemon. This binary automatically connects to the correct daemon based on `CONDUCTOR_WORKSPACE_PATH`.
+
+```bash
+# Check daemon status and pool info
+./target/debug/runt daemon status
+
+# Tail daemon logs (useful for debugging kernel issues)
+./target/debug/runt daemon logs -f
+
+# List all running kernels
+./target/debug/runt ps
+
+# List open notebooks with kernel and peer info
+./target/debug/runt notebooks
+
+# Flush and rebuild environment pools
+./target/debug/runt daemon flush
+```
+
+**Why `./target/debug/runt`?** The debug binary is built for the current worktree and reads `CONDUCTOR_WORKSPACE_PATH` to connect to the correct daemon. A system-installed `runt` would connect to the system daemon instead.
+
+**Where state lives in dev mode:**
+```
+~/.cache/runt/worktrees/{hash}/
+├── runtimed.sock      # Unix socket for IPC
+├── runtimed.log       # Daemon logs
+├── daemon.json        # PID, version, endpoint info
+├── daemon.lock        # Singleton lock
+├── envs/              # Prewarmed environments
+├── blobs/             # Content-addressed blob store
+└── notebook-docs/     # Automerge notebook docs
+```
+
 ### System Service (Production)
 
 For production use, install the daemon as a system service:
