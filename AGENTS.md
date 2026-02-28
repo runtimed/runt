@@ -177,3 +177,45 @@ Dependencies are signed with HMAC-SHA256 using a per-machine key at `~/.config/r
 | `apps/notebook/src/hooks/useKernel.ts` | Frontend kernel lifecycle and auto-launch |
 | `apps/notebook/src/hooks/useDependencies.ts` | Frontend UV dependency management |
 | `apps/notebook/src/hooks/useCondaDependencies.ts` | Frontend conda dependency management |
+
+## Cursor Cloud specific instructions
+
+### Overview
+
+Runt is a Tauri 2 desktop notebook app (Rust backend + React frontend) with a background daemon (`runtimed`). The update script handles only `pnpm install`; everything else is built on demand.
+
+### Linux system dependencies
+
+The following must be installed once (already present in the VM snapshot):
+
+```
+libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev
+```
+
+### Build & run commands
+
+See `README.md` "Common commands" and `contributing/development.md` for full reference. Key commands:
+
+| Task | Command |
+|------|---------|
+| Install JS deps | `pnpm install` |
+| Build frontend assets | `pnpm build` |
+| Build external binaries | `cargo build -p runtimed -p runt-cli` then copy to `crates/notebook/binaries/` with target-triple suffix |
+| Full bundled build | `cargo xtask build` (requires `cargo-tauri`: `cargo install tauri-cli --locked`) |
+| Rust-only rebuild | `cargo xtask build --rust-only` |
+| Run bundled app | `cargo xtask run [path/to/notebook.ipynb]` |
+| Start dev daemon | `RUNTIMED_DEV=1 cargo xtask dev-daemon` |
+| Hot-reload dev | `RUNTIMED_DEV=1 cargo xtask dev` |
+| Lint (Rust) | `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` |
+| Lint (JS/TS) | `npx @biomejs/biome check apps/notebook/src/ e2e/` |
+| JS tests | `pnpm test:run` |
+| Rust tests | `cargo test` |
+
+### Gotchas for headless Linux (Cloud VM)
+
+- **`cargo-tauri` must be installed** for `cargo xtask build` to work. It is not a workspace dependency; install it with `cargo install tauri-cli --locked`. It will be cached in `~/.cargo/bin/`.
+- **External binaries must be placed manually** before `cargo xtask build` or `cargo build -p notebook`. After building `runtimed` and `runt-cli`, copy them to `crates/notebook/binaries/` with the target-triple suffix (e.g., `runtimed-x86_64-unknown-linux-gnu`). The xtask build command handles this automatically once `cargo-tauri` is installed.
+- **Display required**: The Tauri app needs an X display. The VM has Xvfb on `:1`. Set `DISPLAY=:1` when running the app.
+- **EGL warnings are harmless**: `libEGL warning: DRI3 error` messages appear because there's no GPU. The app still works.
+- **Dev daemon required before app launch**: In dev mode, start `RUNTIMED_DEV=1 cargo xtask dev-daemon` in a background process before running the app. The app will not auto-install the daemon in dev mode.
+- **Daemon logs on Linux**: `~/.cache/runt/runtimed.log` (system) or `~/.cache/runt/worktrees/{hash}/runtimed.log` (dev mode).
