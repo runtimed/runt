@@ -29,7 +29,26 @@ pub const MENU_RESTART_AND_RUN_ALL: &str = "restart_and_run_all";
 // Menu item IDs for CLI installation
 pub const MENU_INSTALL_CLI: &str = "install_cli";
 
-pub const BUNDLED_SAMPLE_NOTEBOOKS: &[BundledSampleNotebook] = &[];
+pub const BUNDLED_SAMPLE_NOTEBOOKS: &[BundledSampleNotebook] = &[
+    BundledSampleNotebook {
+        id: "markdown-and-math",
+        title: "Meet Markdown and Math",
+        file_name: "meet-markdown-and-math.ipynb",
+        contents: include_str!("../resources/sample-notebooks/meet-markdown-and-math.ipynb"),
+    },
+    BundledSampleNotebook {
+        id: "pandas-to-geojson",
+        title: "Go from Pandas to GeoJSON",
+        file_name: "pandas-to-geojson.ipynb",
+        contents: include_str!("../resources/sample-notebooks/pandas-to-geojson.ipynb"),
+    },
+    BundledSampleNotebook {
+        id: "download-stats",
+        title: "Glean the Download Statistics for nteract Desktop",
+        file_name: "download-stats.ipynb",
+        contents: include_str!("../resources/sample-notebooks/download-stats.ipynb"),
+    },
+];
 
 pub fn sample_menu_item_id(sample_id: &str) -> String {
     format!("{MENU_OPEN_SAMPLE_PREFIX}{sample_id}")
