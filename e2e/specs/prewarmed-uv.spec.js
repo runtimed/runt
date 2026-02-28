@@ -7,7 +7,6 @@
  * Fixture: 1-vanilla.ipynb (no inline deps, no project file)
  */
 
-import { browser } from "@wdio/globals";
 import {
   executeFirstCell,
   isManagedEnv,

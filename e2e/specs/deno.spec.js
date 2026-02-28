@@ -7,7 +7,6 @@
  * Fixture: 10-deno.ipynb (has kernelspec.name = "deno")
  */
 
-import { browser } from "@wdio/globals";
 import {
   executeFirstCell,
   waitForCellOutput,
