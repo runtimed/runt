@@ -293,6 +293,7 @@ pub fn get_or_create_room(
 /// The `use_typed_frames` parameter determines the protocol version:
 /// - `false` (v1): Raw Automerge frames (legacy, for old clients)
 /// - `true` (v2): Typed frames with first-byte type indicator
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_notebook_sync_connection<R, W>(
     mut reader: R,
     mut writer: W,
@@ -301,6 +302,7 @@ pub async fn handle_notebook_sync_connection<R, W>(
     notebook_id: String,
     use_typed_frames: bool,
     default_python_env: crate::settings_doc::PythonEnvType,
+    daemon: std::sync::Arc<crate::daemon::Daemon>,
 ) -> anyhow::Result<()>
 where
     R: AsyncRead + Unpin,
@@ -350,8 +352,15 @@ where
             // Spawn auto-launch in background so we don't block sync
             let room_clone = room.clone();
             let notebook_id_clone = notebook_id.clone();
+            let daemon_clone = daemon.clone();
             tokio::spawn(async move {
-                auto_launch_kernel(&room_clone, &notebook_id_clone, default_python_env).await;
+                auto_launch_kernel(
+                    &room_clone,
+                    &notebook_id_clone,
+                    default_python_env,
+                    daemon_clone,
+                )
+                .await;
             });
         } else if !matches!(
             trust_status,
@@ -373,7 +382,7 @@ where
     }
 
     let result = if use_typed_frames {
-        run_sync_loop_v2(&mut reader, &mut writer, &room).await
+        run_sync_loop_v2(&mut reader, &mut writer, &room, daemon).await
     } else {
         run_sync_loop_v1(&mut reader, &mut writer, &room).await
     };
@@ -525,6 +534,7 @@ async fn run_sync_loop_v2<R, W>(
     reader: &mut R,
     writer: &mut W,
     room: &NotebookRoom,
+    daemon: std::sync::Arc<crate::daemon::Daemon>,
 ) -> anyhow::Result<()>
 where
     R: AsyncRead + Unpin,
@@ -604,7 +614,8 @@ where
                             NotebookFrameType::Request => {
                                 // Handle NotebookRequest
                                 let request: NotebookRequest = serde_json::from_slice(&frame.payload)?;
-                                let response = handle_notebook_request(room, request).await;
+                                let response =
+                                    handle_notebook_request(room, request, daemon.clone()).await;
                                 connection::send_typed_json_frame(
                                     writer,
                                     NotebookFrameType::Response,
@@ -661,6 +672,7 @@ async fn auto_launch_kernel(
     room: &NotebookRoom,
     notebook_id: &str,
     default_python_env: crate::settings_doc::PythonEnvType,
+    daemon: std::sync::Arc<crate::daemon::Daemon>,
 ) {
     // Check if room still has peers (protect against race condition where client disconnects
     // before we finish launching)
@@ -747,10 +759,46 @@ async fn auto_launch_kernel(
         prewarmed.to_string()
     };
 
+    // Acquire prewarmed environment from pool if using prewarmed source
+    let pooled_env = match env_source.as_str() {
+        "uv:prewarmed" => match daemon.take_uv_env().await {
+            Some(env) => {
+                info!(
+                    "[notebook-sync] Auto-launch: acquired UV env from pool: {:?}",
+                    env.python_path
+                );
+                Some(env)
+            }
+            None => {
+                warn!("[notebook-sync] Auto-launch: UV pool empty, falling back to kernelspec");
+                None
+            }
+        },
+        "conda:prewarmed" => match daemon.take_conda_env().await {
+            Some(env) => {
+                info!(
+                    "[notebook-sync] Auto-launch: acquired Conda env from pool: {:?}",
+                    env.python_path
+                );
+                Some(env)
+            }
+            None => {
+                warn!("[notebook-sync] Auto-launch: Conda pool empty, falling back to kernelspec");
+                None
+            }
+        },
+        _ => None,
+    };
+
     // Launch kernel (default to python)
     let kernel_type = "python";
     match kernel
-        .launch(kernel_type, &env_source, notebook_path_opt.as_deref())
+        .launch(
+            kernel_type,
+            &env_source,
+            notebook_path_opt.as_deref(),
+            pooled_env,
+        )
         .await
     {
         Ok(()) => {
@@ -813,6 +861,7 @@ async fn auto_launch_kernel(
 async fn handle_notebook_request(
     room: &NotebookRoom,
     request: NotebookRequest,
+    daemon: std::sync::Arc<crate::daemon::Daemon>,
 ) -> NotebookResponse {
     info!("[notebook-sync] Handling request: {:?}", request);
 
@@ -883,8 +932,48 @@ async fn handle_notebook_request(
                     env_source.clone()
                 };
 
+            // Acquire prewarmed environment from pool if using prewarmed source
+            let pooled_env = match resolved_env_source.as_str() {
+                "uv:prewarmed" => match daemon.take_uv_env().await {
+                    Some(env) => {
+                        info!(
+                            "[notebook-sync] LaunchKernel: acquired UV env from pool: {:?}",
+                            env.python_path
+                        );
+                        Some(env)
+                    }
+                    None => {
+                        warn!(
+                                "[notebook-sync] LaunchKernel: UV pool empty, falling back to kernelspec"
+                            );
+                        None
+                    }
+                },
+                "conda:prewarmed" => match daemon.take_conda_env().await {
+                    Some(env) => {
+                        info!(
+                            "[notebook-sync] LaunchKernel: acquired Conda env from pool: {:?}",
+                            env.python_path
+                        );
+                        Some(env)
+                    }
+                    None => {
+                        warn!(
+                                "[notebook-sync] LaunchKernel: Conda pool empty, falling back to kernelspec"
+                            );
+                        None
+                    }
+                },
+                _ => None,
+            };
+
             match kernel
-                .launch(&kernel_type, &resolved_env_source, notebook_path.as_deref())
+                .launch(
+                    &kernel_type,
+                    &resolved_env_source,
+                    notebook_path.as_deref(),
+                    pooled_env,
+                )
                 .await
             {
                 Ok(()) => {
