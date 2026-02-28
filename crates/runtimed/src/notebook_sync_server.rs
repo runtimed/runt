@@ -293,6 +293,7 @@ pub fn get_or_create_room(
 /// The `use_typed_frames` parameter determines the protocol version:
 /// - `false` (v1): Raw Automerge frames (legacy, for old clients)
 /// - `true` (v2): Typed frames with first-byte type indicator
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_notebook_sync_connection<R, W>(
     mut reader: R,
     mut writer: W,
