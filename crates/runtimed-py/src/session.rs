@@ -10,12 +10,12 @@ use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
 
 use runtimed::notebook_sync_client::{
-    NotebookBroadcastReceiver, NotebookSyncClient, NotebookSyncHandle,
+    NotebookBroadcastReceiver, NotebookSyncClient, NotebookSyncHandle, NotebookSyncReceiver,
 };
 use runtimed::protocol::{NotebookBroadcast, NotebookRequest, NotebookResponse};
 
 use crate::error::to_py_err;
-use crate::output::{ExecutionResult, Output};
+use crate::output::{Cell, ExecutionResult, Output};
 
 /// A session for executing code via the runtimed daemon.
 ///
@@ -38,6 +38,9 @@ pub struct Session {
 
 struct SessionState {
     handle: Option<NotebookSyncHandle>,
+    /// Keep the sync receiver alive so the sync task doesn't exit
+    #[allow(dead_code)]
+    sync_rx: Option<NotebookSyncReceiver>,
     broadcast_rx: Option<NotebookBroadcastReceiver>,
     kernel_started: bool,
     env_source: Option<String>,
@@ -51,6 +54,7 @@ impl SessionState {
     fn new() -> Self {
         Self {
             handle: None,
+            sync_rx: None,
             broadcast_rx: None,
             kernel_started: false,
             env_source: None,
@@ -122,7 +126,7 @@ impl Session {
 
             let socket_path = runtimed::default_socket_path();
 
-            let (handle, _sync_rx, broadcast_rx, _cells, _notebook_path) =
+            let (handle, sync_rx, broadcast_rx, _cells, _notebook_path) =
                 NotebookSyncClient::connect_split(socket_path.clone(), self.notebook_id.clone())
                     .await
                     .map_err(to_py_err)?;
@@ -158,6 +162,7 @@ impl Session {
             };
 
             state.handle = Some(handle);
+            state.sync_rx = Some(sync_rx); // Keep alive so sync task doesn't exit
             state.broadcast_rx = Some(broadcast_rx);
             state.blob_base_url = blob_base_url;
             state.blob_store_path = blob_store_path;
@@ -219,20 +224,160 @@ impl Session {
         })
     }
 
-    /// Execute code and return the result.
+    // =========================================================================
+    // Document Operations (write to automerge doc, synced to all clients)
+    // =========================================================================
+
+    /// Create a new cell in the automerge document.
+    ///
+    /// The cell is written to the shared document and synced to all connected
+    /// clients. Use execute_cell() to execute it.
     ///
     /// Args:
-    ///     code: The code to execute.
+    ///     source: The cell source code (default: empty string).
+    ///     cell_type: Cell type - "code", "markdown", or "raw" (default: "code").
+    ///     index: Position to insert the cell (default: append at end).
+    ///
+    /// Returns:
+    ///     The cell ID (str).
+    #[pyo3(signature = (source="", cell_type="code", index=None))]
+    fn create_cell(&self, source: &str, cell_type: &str, index: Option<usize>) -> PyResult<String> {
+        self.connect()?;
+
+        let cell_id = format!("cell-{}", uuid::Uuid::new_v4());
+
+        self.runtime.block_on(async {
+            let state = self.state.lock().await;
+            let handle = state
+                .handle
+                .as_ref()
+                .ok_or_else(|| to_py_err("Not connected"))?;
+
+            // Get current cell count to determine index
+            let cells = handle.get_cells().await.map_err(to_py_err)?;
+            let insert_index = index.unwrap_or(cells.len());
+
+            // Add cell to document
+            handle
+                .add_cell(insert_index, &cell_id, cell_type)
+                .await
+                .map_err(to_py_err)?;
+
+            // Set source if provided
+            if !source.is_empty() {
+                handle
+                    .update_source(&cell_id, source)
+                    .await
+                    .map_err(to_py_err)?;
+            }
+
+            Ok(cell_id)
+        })
+    }
+
+    /// Update a cell's source in the automerge document.
+    ///
+    /// The change is synced to all connected clients.
+    ///
+    /// Args:
+    ///     cell_id: The cell ID.
+    ///     source: The new source code.
+    fn set_source(&self, cell_id: &str, source: &str) -> PyResult<()> {
+        self.runtime.block_on(async {
+            let state = self.state.lock().await;
+            let handle = state
+                .handle
+                .as_ref()
+                .ok_or_else(|| to_py_err("Not connected"))?;
+
+            handle
+                .update_source(cell_id, source)
+                .await
+                .map_err(to_py_err)
+        })
+    }
+
+    /// Get a cell from the automerge document.
+    ///
+    /// Args:
+    ///     cell_id: The cell ID.
+    ///
+    /// Returns:
+    ///     Cell object with id, cell_type, source, and execution_count.
+    ///
+    /// Raises:
+    ///     RuntimedError: If cell not found.
+    fn get_cell(&self, cell_id: &str) -> PyResult<Cell> {
+        self.runtime.block_on(async {
+            let state = self.state.lock().await;
+            let handle = state
+                .handle
+                .as_ref()
+                .ok_or_else(|| to_py_err("Not connected"))?;
+
+            let cells = handle.get_cells().await.map_err(to_py_err)?;
+            cells
+                .into_iter()
+                .find(|c| c.id == cell_id)
+                .map(Cell::from_snapshot)
+                .ok_or_else(|| to_py_err(format!("Cell not found: {}", cell_id)))
+        })
+    }
+
+    /// Get all cells from the automerge document.
+    ///
+    /// Returns:
+    ///     List of Cell objects.
+    fn get_cells(&self) -> PyResult<Vec<Cell>> {
+        self.runtime.block_on(async {
+            let state = self.state.lock().await;
+            let handle = state
+                .handle
+                .as_ref()
+                .ok_or_else(|| to_py_err("Not connected"))?;
+
+            let cells = handle.get_cells().await.map_err(to_py_err)?;
+            Ok(cells.into_iter().map(Cell::from_snapshot).collect())
+        })
+    }
+
+    /// Delete a cell from the automerge document.
+    ///
+    /// Args:
+    ///     cell_id: The cell ID to delete.
+    fn delete_cell(&self, cell_id: &str) -> PyResult<()> {
+        self.runtime.block_on(async {
+            let state = self.state.lock().await;
+            let handle = state
+                .handle
+                .as_ref()
+                .ok_or_else(|| to_py_err("Not connected"))?;
+
+            handle.delete_cell(cell_id).await.map_err(to_py_err)
+        })
+    }
+
+    // =========================================================================
+    // Execution (document-first: reads source from automerge doc)
+    // =========================================================================
+
+    /// Execute a cell by ID.
+    ///
+    /// The daemon reads the cell's source from the automerge document and
+    /// executes it. This ensures all clients see the same code being executed.
+    ///
+    /// Args:
+    ///     cell_id: The cell ID to execute.
     ///     timeout_secs: Maximum time to wait for execution (default: 60).
     ///
     /// Returns:
     ///     ExecutionResult with outputs, success status, and execution count.
     ///
     /// Raises:
-    ///     RuntimedError: If not connected, kernel not started, or timeout.
-    #[pyo3(signature = (code, timeout_secs=60.0))]
-    fn execute(&self, code: &str, timeout_secs: f64) -> PyResult<ExecutionResult> {
-        let cell_id = format!("cell-{}", uuid::Uuid::new_v4());
+    ///     RuntimedError: If not connected, kernel not started, cell not found, or timeout.
+    #[pyo3(signature = (cell_id, timeout_secs=60.0))]
+    fn execute_cell(&self, cell_id: &str, timeout_secs: f64) -> PyResult<ExecutionResult> {
+        let cell_id = cell_id.to_string();
 
         self.runtime.block_on(async {
             let state = self.state.lock().await;
@@ -249,11 +394,10 @@ impl Session {
             let blob_base_url = state.blob_base_url.clone();
             let blob_store_path = state.blob_store_path.clone();
 
-            // Queue the cell
+            // Execute cell (daemon reads source from automerge doc)
             let response = handle
-                .send_request(NotebookRequest::QueueCell {
+                .send_request(NotebookRequest::ExecuteCell {
                     cell_id: cell_id.clone(),
-                    code: code.to_string(),
                 })
                 .await
                 .map_err(to_py_err)?;
@@ -283,6 +427,30 @@ impl Session {
                 ))),
             }
         })
+    }
+
+    /// Convenience method: create a cell, execute it, and return the result.
+    ///
+    /// This is a shortcut that combines create_cell() and execute_cell().
+    /// The cell is written to the automerge document before execution,
+    /// so other connected clients will see it.
+    ///
+    /// Args:
+    ///     code: The code to execute.
+    ///     timeout_secs: Maximum time to wait for execution (default: 60).
+    ///
+    /// Returns:
+    ///     ExecutionResult with outputs, success status, and execution count.
+    ///
+    /// Raises:
+    ///     RuntimedError: If not connected, kernel not started, or timeout.
+    #[pyo3(signature = (code, timeout_secs=60.0))]
+    fn run(&self, code: &str, timeout_secs: f64) -> PyResult<ExecutionResult> {
+        // Create cell in document first
+        let cell_id = self.create_cell(code, "code", None)?;
+
+        // Then execute by ID (daemon reads from doc)
+        self.execute_cell(&cell_id, timeout_secs)
     }
 
     /// Interrupt the currently executing cell.
@@ -406,6 +574,7 @@ impl Session {
 
         loop {
             let mut state = self.state.lock().await;
+
             let broadcast_rx = state
                 .broadcast_rx
                 .as_mut()

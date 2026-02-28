@@ -125,6 +125,54 @@ impl Output {
     }
 }
 
+/// A cell from the automerge document.
+#[pyclass(skip_from_py_object)]
+#[derive(Clone, Debug)]
+pub struct Cell {
+    /// Cell ID
+    #[pyo3(get)]
+    pub id: String,
+
+    /// Cell type: "code", "markdown", or "raw"
+    #[pyo3(get)]
+    pub cell_type: String,
+
+    /// Cell source code/content
+    #[pyo3(get)]
+    pub source: String,
+
+    /// Execution count (None if not executed)
+    #[pyo3(get)]
+    pub execution_count: Option<i64>,
+}
+
+#[pymethods]
+impl Cell {
+    fn __repr__(&self) -> String {
+        let preview: String = self.source.chars().take(30).collect();
+        let ellipsis = if self.source.len() > 30 { "..." } else { "" };
+        format!(
+            "Cell(id={}, type={}, source={:?}{})",
+            self.id, self.cell_type, preview, ellipsis
+        )
+    }
+}
+
+impl Cell {
+    /// Create a Cell from a CellSnapshot.
+    pub fn from_snapshot(snapshot: runtimed::notebook_doc::CellSnapshot) -> Self {
+        // Parse execution_count from JSON string ("5" or "null")
+        let execution_count = snapshot.execution_count.parse::<i64>().ok();
+
+        Self {
+            id: snapshot.id,
+            cell_type: snapshot.cell_type,
+            source: snapshot.source,
+            execution_count,
+        }
+    }
+}
+
 /// Result of executing code.
 #[pyclass(skip_from_py_object)]
 #[derive(Clone, Debug)]

@@ -967,7 +967,16 @@ where
     ///
     /// Returns `Ok(None)` if no frame is available (v1 protocol always returns None).
     /// This is used by the background task to handle all frame types.
+    ///
+    /// Note: This also drains any broadcasts collected during wait_for_response(),
+    /// ensuring they aren't lost when a request/response exchange occurs.
     async fn recv_frame_any(&mut self) -> Result<Option<ReceivedFrame>, NotebookSyncError> {
+        // First, drain any pending broadcasts collected during wait_for_response()
+        if !self.pending_broadcasts.is_empty() {
+            let broadcast = self.pending_broadcasts.remove(0);
+            return Ok(Some(ReceivedFrame::Broadcast(broadcast)));
+        }
+
         if !self.use_typed_frames {
             // v1 protocol: fall back to recv_changes behavior
             match self.recv_changes_v1().await {
@@ -976,9 +985,15 @@ where
                 Err(e) => Err(e),
             }
         } else {
-            // v2 protocol: handle all frame types
-            match connection::recv_typed_frame(&mut self.stream).await? {
-                Some(frame) => match frame.frame_type {
+            // v2 protocol: handle all frame types with timeout to avoid blocking
+            let frame_result = tokio::time::timeout(
+                Duration::from_millis(100),
+                connection::recv_typed_frame(&mut self.stream),
+            )
+            .await;
+
+            match frame_result {
+                Ok(Ok(Some(frame))) => match frame.frame_type {
                     NotebookFrameType::AutomergeSync => {
                         let message = sync::Message::decode(&frame.payload)
                             .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
@@ -1021,7 +1036,12 @@ where
                         Ok(None)
                     }
                 },
-                None => Err(NotebookSyncError::Disconnected),
+                // EOF/disconnect
+                Ok(Ok(None)) => Err(NotebookSyncError::Disconnected),
+                // I/O error
+                Ok(Err(e)) => Err(NotebookSyncError::ConnectionFailed(e)),
+                // Timeout - no data available, return Ok(None) so caller can continue
+                Err(_) => Ok(None),
             }
         }
     }
@@ -1165,8 +1185,13 @@ where
                         // Continue waiting for Response
                     }
                     NotebookFrameType::Broadcast => {
-                        // Ignore broadcasts while waiting for response
-                        // (The background task handles these)
+                        // Collect broadcasts received while waiting for response
+                        // They'll be delivered via recv_frame_any() later
+                        if let Ok(broadcast) =
+                            serde_json::from_slice::<NotebookBroadcast>(&frame.payload)
+                        {
+                            self.pending_broadcasts.push(broadcast);
+                        }
                         continue;
                     }
                     NotebookFrameType::Request => {
@@ -1399,6 +1424,7 @@ async fn run_sync_task<S>(
     loop {
         loop_count += 1;
         tokio::select! {
+            biased;  // Always check commands first
             // Process commands from handles
             cmd_opt = cmd_rx.recv() => {
                 match cmd_opt {
@@ -1485,7 +1511,8 @@ async fn run_sync_task<S>(
                     }
                     Ok(Ok(Some(ReceivedFrame::Broadcast(broadcast)))) => {
                         // Got a broadcast from daemon
-                        if broadcast_tx.send(broadcast).await.is_err() {
+                        let send_result = broadcast_tx.send(broadcast).await;
+                        if send_result.is_err() {
                             info!(
                                 "[notebook-sync-task] Broadcast receiver dropped for {}",
                                 notebook_id

@@ -15,7 +15,7 @@ mod session;
 
 use client::DaemonClient;
 use error::RuntimedError;
-use output::{ExecutionResult, Output};
+use output::{Cell, ExecutionResult, Output};
 use session::Session;
 
 /// Python module for runtimed daemon client.
@@ -26,6 +26,7 @@ fn runtimed(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Session>()?;
 
     // Output types
+    m.add_class::<Cell>()?;
     m.add_class::<ExecutionResult>()?;
     m.add_class::<Output>()?;
 
