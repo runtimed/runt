@@ -24,9 +24,9 @@ pub use runtime::Runtime;
 use notebook_state::{FrontendCell, NotebookState};
 use runtimed::notebook_doc::CellSnapshot;
 use runtimed::notebook_sync_client::{NotebookSyncClient, NotebookSyncHandle};
-use runtimed::protocol::{HistoryEntry, NotebookRequest, NotebookResponse};
+use runtimed::protocol::{CompletionItem, HistoryEntry, NotebookRequest, NotebookResponse};
 
-use log::{info, warn};
+use log::{debug, info, warn};
 use nbformat::v4::{Cell, CellId, CellMetadata};
 use serde::{Deserialize, Serialize};
 
@@ -1140,6 +1140,53 @@ async fn get_history_via_daemon(
 
     match response {
         NotebookResponse::HistoryResult { entries } => Ok(entries),
+        NotebookResponse::NoKernel {} => Err("No kernel running".to_string()),
+        NotebookResponse::Error { error } => Err(error),
+        _ => Err("Unexpected response from daemon".to_string()),
+    }
+}
+
+/// Result type for completion requests (matches frontend interface).
+#[derive(Serialize)]
+struct CompletionResult {
+    items: Vec<CompletionItem>,
+    cursor_start: usize,
+    cursor_end: usize,
+}
+
+/// Get code completions via daemon.
+///
+/// Requests completions from the kernel for the given code at cursor position.
+/// Returns an error if no kernel is running or the request times out.
+#[tauri::command]
+async fn complete_via_daemon(
+    code: String,
+    cursor_pos: usize,
+    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+) -> Result<CompletionResult, String> {
+    debug!(
+        "[daemon-kernel] complete_via_daemon: cursor_pos={}",
+        cursor_pos
+    );
+
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    let response = handle
+        .send_request(NotebookRequest::Complete { code, cursor_pos })
+        .await
+        .map_err(|e| format!("daemon request failed: {}", e))?;
+
+    match response {
+        NotebookResponse::CompletionResult {
+            items,
+            cursor_start,
+            cursor_end,
+        } => Ok(CompletionResult {
+            items,
+            cursor_start,
+            cursor_end,
+        }),
         NotebookResponse::NoKernel {} => Err("No kernel running".to_string()),
         NotebookResponse::Error { error } => Err(error),
         _ => Err("Unexpected response from daemon".to_string()),
@@ -2662,6 +2709,7 @@ pub fn run(
             run_all_cells_via_daemon,
             send_comm_via_daemon,
             get_history_via_daemon,
+            complete_via_daemon,
             reconnect_to_daemon,
             refresh_from_automerge,
             debug_get_automerge_state,

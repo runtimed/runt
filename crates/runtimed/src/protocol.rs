@@ -196,6 +196,15 @@ pub enum NotebookRequest {
         /// Only return unique entries (deduplicate)
         unique: bool,
     },
+
+    /// Request code completions from the kernel.
+    /// Returns matching completions via CompletionResult response.
+    Complete {
+        /// The code to complete
+        code: String,
+        /// Cursor position in the code
+        cursor_pos: usize,
+    },
 }
 
 /// Responses from daemon to notebook app.
@@ -255,6 +264,13 @@ pub enum NotebookResponse {
 
     /// History search result.
     HistoryResult { entries: Vec<HistoryEntry> },
+
+    /// Code completion result.
+    CompletionResult {
+        items: Vec<CompletionItem>,
+        cursor_start: usize,
+        cursor_end: usize,
+    },
 }
 
 /// A single entry from kernel input history.
@@ -266,6 +282,23 @@ pub struct HistoryEntry {
     pub line: i32,
     /// The source code that was executed
     pub source: String,
+}
+
+/// A single completion item (LSP-ready structure).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompletionItem {
+    /// The completion text
+    pub label: String,
+    /// Kind: "function", "variable", "class", "module", etc.
+    /// Populated by LSP later; kernel completions leave this as None.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Short type annotation (e.g. "def read_csv(filepath_or_buffer, ...)")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// Source: "kernel" now, "ruff"/"basedpyright" later.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 /// Broadcast messages from daemon to all peers in a room.

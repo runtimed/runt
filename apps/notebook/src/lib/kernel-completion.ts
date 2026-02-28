@@ -6,8 +6,19 @@ import {
 import type { Extension } from "@codemirror/state";
 import { invoke } from "@tauri-apps/api/core";
 
+/** A single completion item (LSP-ready structure). */
+interface CompletionItem {
+  label: string;
+  /** Kind: "function", "variable", "class", "module", etc. */
+  kind?: string;
+  /** Short type annotation. */
+  detail?: string;
+  /** Source: "kernel" now, "ruff"/"basedpyright" later. */
+  source?: string;
+}
+
 interface KernelCompletionResult {
-  matches: string[];
+  items: CompletionItem[];
   cursor_start: number;
   cursor_end: number;
 }
@@ -27,17 +38,17 @@ async function kernelCompletionSource(
   const cursorPos = context.pos;
 
   try {
-    const result = await invoke<KernelCompletionResult>("complete", {
+    const result = await invoke<KernelCompletionResult>("complete_via_daemon", {
       code,
       cursorPos,
     });
 
-    if (!result.matches || result.matches.length === 0) return null;
+    if (!result.items || result.items.length === 0) return null;
 
     return {
       from: result.cursor_start,
       to: result.cursor_end,
-      options: result.matches.map((label) => ({ label })),
+      options: result.items.map((item) => ({ label: item.label })),
     };
   } catch {
     // Kernel not running or request failed — silently return no completions

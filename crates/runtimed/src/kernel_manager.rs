@@ -17,8 +17,8 @@ use std::sync::{Arc, Mutex as StdMutex};
 use anyhow::Result;
 use bytes::Bytes;
 use jupyter_protocol::{
-    ConnectionInfo, ExecuteRequest, HistoryRequest, InterruptRequest, JupyterMessage,
-    JupyterMessageContent, KernelInfoRequest, ShutdownRequest,
+    CompleteRequest, ConnectionInfo, ExecuteRequest, HistoryRequest, InterruptRequest,
+    JupyterMessage, JupyterMessageContent, KernelInfoRequest, ShutdownRequest,
 };
 use log::{debug, error, info, warn};
 use serde::Serialize;
@@ -30,7 +30,7 @@ use crate::comm_state::CommState;
 use crate::notebook_doc::NotebookDoc;
 use crate::notebook_sync_server::persist_notebook_bytes;
 use crate::output_store::{self, DEFAULT_INLINE_THRESHOLD};
-use crate::protocol::{HistoryEntry, NotebookBroadcast};
+use crate::protocol::{CompletionItem, HistoryEntry, NotebookBroadcast};
 use crate::PooledEnv;
 
 /// Convert a JupyterMessageContent to nbformat-style JSON for storage in Automerge.
@@ -210,6 +210,10 @@ impl std::fmt::Display for KernelStatus {
 
 /// A kernel owned by the daemon for a notebook room.
 ///
+/// Type alias for pending completion response channels.
+type PendingCompletions =
+    Arc<StdMutex<HashMap<String, oneshot::Sender<(Vec<CompletionItem>, usize, usize)>>>>;
+
 /// Unlike the notebook app's `NotebookKernel`, this broadcasts outputs
 /// to all connected peers rather than emitting Tauri events.
 pub struct RoomKernel {
@@ -260,6 +264,8 @@ pub struct RoomKernel {
     comm_state: Arc<CommState>,
     /// Pending history requests: msg_id → response channel
     pending_history: Arc<StdMutex<HashMap<String, oneshot::Sender<Vec<HistoryEntry>>>>>,
+    /// Pending completion requests: msg_id → response channel
+    pending_completions: PendingCompletions,
 }
 
 /// Commands from iopub/shell handlers for queue state management.
@@ -309,6 +315,7 @@ impl RoomKernel {
             blob_store,
             comm_state,
             pending_history: Arc::new(StdMutex::new(HashMap::new())),
+            pending_completions: Arc::new(StdMutex::new(HashMap::new())),
         }
     }
 
@@ -876,6 +883,7 @@ impl RoomKernel {
         let shell_broadcast_tx = self.broadcast_tx.clone();
         let shell_cell_id_map = self.cell_id_map.clone();
         let shell_pending_history = self.pending_history.clone();
+        let shell_pending_completions = self.pending_completions.clone();
         // Additional resources for handling page payloads (IPython ? and ?? help)
         let shell_doc = self.doc.clone();
         let shell_blob_store = self.blob_store.clone();
@@ -1026,6 +1034,37 @@ impl RoomKernel {
                                                 entries.len()
                                             );
                                             let _ = tx.send(entries);
+                                        }
+                                    }
+                                }
+                            }
+                            JupyterMessageContent::CompleteReply(ref reply) => {
+                                // Get the parent msg_id to find the pending request
+                                if let Some(ref parent) = msg.parent_header {
+                                    let msg_id = &parent.msg_id;
+                                    if let Ok(mut pending) = shell_pending_completions.lock() {
+                                        if let Some(tx) = pending.remove(msg_id) {
+                                            // Convert kernel matches to CompletionItem (LSP-ready format)
+                                            let items: Vec<CompletionItem> = reply
+                                                .matches
+                                                .iter()
+                                                .map(|m| CompletionItem {
+                                                    label: m.clone(),
+                                                    kind: None,
+                                                    detail: None,
+                                                    source: Some("kernel".to_string()),
+                                                })
+                                                .collect();
+
+                                            debug!(
+                                                "[kernel-manager] Resolved completion request: {} items",
+                                                items.len()
+                                            );
+                                            let _ = tx.send((
+                                                items,
+                                                reply.cursor_start,
+                                                reply.cursor_end,
+                                            ));
                                         }
                                     }
                                 }
@@ -1349,6 +1388,61 @@ impl RoomKernel {
                     pending.remove(&msg_id);
                 }
                 Err(anyhow::anyhow!("History request timed out"))
+            }
+        }
+    }
+
+    /// Request code completions from the kernel.
+    ///
+    /// Sends a complete_request to the kernel and waits for the reply.
+    /// Returns an error if no kernel is running or the request times out.
+    pub async fn complete(
+        &mut self,
+        code: String,
+        cursor_pos: usize,
+    ) -> Result<(Vec<CompletionItem>, usize, usize)> {
+        let shell = self
+            .shell_writer
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("No kernel running"))?;
+
+        // Create completion request
+        let request = CompleteRequest { code, cursor_pos };
+
+        let message: JupyterMessage = request.into();
+        let msg_id = message.header.msg_id.clone();
+
+        // Create response channel
+        let (tx, rx) = oneshot::channel();
+
+        // Register pending request BEFORE sending
+        self.pending_completions
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Lock poisoned"))?
+            .insert(msg_id.clone(), tx);
+
+        // Send request; clean up pending entry on failure
+        if let Err(e) = shell.send(message).await {
+            if let Ok(mut pending) = self.pending_completions.lock() {
+                pending.remove(&msg_id);
+            }
+            return Err(e.into());
+        }
+        debug!("[kernel-manager] Sent complete_request: msg_id={}", msg_id);
+
+        // Wait for response with timeout
+        match tokio::time::timeout(std::time::Duration::from_secs(5), rx).await {
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(_)) => {
+                // Channel closed without response
+                Err(anyhow::anyhow!("Completion request cancelled"))
+            }
+            Err(_) => {
+                // Timeout - clean up pending request
+                if let Ok(mut pending) = self.pending_completions.lock() {
+                    pending.remove(&msg_id);
+                }
+                Err(anyhow::anyhow!("Completion request timed out"))
             }
         }
     }
