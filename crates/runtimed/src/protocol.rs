@@ -157,7 +157,15 @@ pub enum NotebookRequest {
 
     /// Queue a cell for execution.
     /// Daemon adds to queue and executes when previous cells complete.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use ExecuteCell instead - reads source from synced document"
+    )]
     QueueCell { cell_id: String, code: String },
+
+    /// Execute a cell by reading its source from the automerge doc.
+    /// This is the preferred method - ensures execution matches synced document state.
+    ExecuteCell { cell_id: String },
 
     /// Clear outputs for a cell (before re-execution).
     ClearOutputs { cell_id: String },
@@ -631,6 +639,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_notebook_request_queue_cell() {
         let req = NotebookRequest::QueueCell {
             cell_id: "abc-123".into(),
