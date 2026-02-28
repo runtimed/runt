@@ -485,7 +485,17 @@ fn cmd_dev_daemon() {
 /// If `release` is false, builds in debug mode (faster for development).
 fn build_runtimed_daemon(release: bool) {
     build_external_binary("runtimed", "runtimed", release);
+    ensure_sidecar_ui();
     build_external_binary("runt-cli", "runt", release);
+}
+
+/// Ensure sidecar UI assets exist (required before building runt-cli).
+fn ensure_sidecar_ui() {
+    let sidecar_dist = Path::new("apps/sidecar/dist/index.html");
+    if !sidecar_dist.exists() {
+        println!("Building sidecar UI (required for runt-cli)...");
+        run_cmd("pnpm", &["--dir", "apps/sidecar", "build"]);
+    }
 }
 
 /// Build a binary and copy to binaries/ with target triple suffix for Tauri bundling.
