@@ -39,7 +39,7 @@ use crate::comm_state::CommState;
 use crate::connection::{self, NotebookFrameType};
 use crate::kernel_manager::RoomKernel;
 use crate::notebook_doc::{notebook_doc_filename, NotebookDoc};
-use crate::notebook_metadata::NOTEBOOK_METADATA_KEY;
+use crate::notebook_metadata::{NotebookMetadataSnapshot, NOTEBOOK_METADATA_KEY};
 use crate::protocol::{NotebookBroadcast, NotebookRequest, NotebookResponse};
 
 /// Trust state for a notebook room.
@@ -52,31 +52,21 @@ pub struct TrustState {
     pub pending_launch: bool,
 }
 
-/// Detect the kernel type from a notebook's kernelspec metadata.
-/// Returns "python" or "deno" based on the notebook's encoded kernelspec.
+/// Detect the kernel type from a notebook's metadata snapshot.
+/// Returns "python" or "deno" based on the kernelspec and language_info.
 /// This is the #1 priority - the notebook's kernelspec determines the runtime.
-// TODO(automerge-metadata): Read kernelspec from the room's Automerge doc via
-// NotebookMetadataSnapshot instead of re-reading the .ipynb from disk.
-// Requires refactoring auto_launch_kernel to pass the doc's metadata snapshot
-// instead of calling these file-path-based helpers.
-fn detect_notebook_kernel_type(notebook_path: &Path) -> Option<String> {
-    let content = std::fs::read_to_string(notebook_path).ok()?;
-    let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
-    let metadata = nb.get("metadata")?;
-
+fn detect_notebook_kernel_type(snapshot: &NotebookMetadataSnapshot) -> Option<String> {
     // Check kernelspec.name first (most reliable)
-    if let Some(kernelspec) = metadata.get("kernelspec") {
-        if let Some(name) = kernelspec.get("name").and_then(|n| n.as_str()) {
-            let name_lower = name.to_lowercase();
-            if name_lower.contains("deno") {
-                return Some("deno".to_string());
-            }
-            if name_lower.contains("python") {
-                return Some("python".to_string());
-            }
+    if let Some(ref kernelspec) = snapshot.kernelspec {
+        let name_lower = kernelspec.name.to_lowercase();
+        if name_lower.contains("deno") {
+            return Some("deno".to_string());
+        }
+        if name_lower.contains("python") {
+            return Some("python".to_string());
         }
         // Also check language field
-        if let Some(lang) = kernelspec.get("language").and_then(|l| l.as_str()) {
+        if let Some(ref lang) = kernelspec.language {
             let lang_lower = lang.to_lowercase();
             if lang_lower == "typescript" || lang_lower == "javascript" {
                 return Some("deno".to_string());
@@ -88,120 +78,119 @@ fn detect_notebook_kernel_type(notebook_path: &Path) -> Option<String> {
     }
 
     // Fallback: check language_info.name
-    if let Some(lang_info) = metadata.get("language_info") {
-        if let Some(name) = lang_info.get("name").and_then(|n| n.as_str()) {
-            let name_lower = name.to_lowercase();
-            if name_lower == "typescript" || name_lower == "javascript" || name_lower == "deno" {
-                return Some("deno".to_string());
-            }
-            if name_lower == "python" {
-                return Some("python".to_string());
-            }
+    if let Some(ref lang_info) = snapshot.language_info {
+        let name_lower = lang_info.name.to_lowercase();
+        if name_lower == "typescript" || name_lower == "javascript" || name_lower == "deno" {
+            return Some("deno".to_string());
+        }
+        if name_lower == "python" {
+            return Some("python".to_string());
         }
     }
 
     None // Unknown kernel type
 }
 
-/// Check if a notebook file has inline dependencies or Deno config in its metadata.
+/// Check if a notebook's metadata snapshot has inline dependencies or Deno config.
 /// Returns the appropriate env_source if found ("uv:inline", "conda:inline", or "deno").
 ///
 /// Priority: Deno is checked first, then UV deps, then conda deps.
-/// Uses runt_trust helpers to check both new (runt.*) and legacy paths.
-// TODO(automerge-metadata): Read runt.uv, runt.conda, runt.deno from the room's
-// NotebookMetadataSnapshot instead of re-reading the .ipynb from disk.
-fn check_inline_deps(notebook_path: &Path) -> Option<String> {
-    let content = std::fs::read_to_string(notebook_path).ok()?;
-    let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
-    let metadata_value = nb.get("metadata")?;
-
-    // Convert to HashMap for runt_trust functions
-    let metadata: std::collections::HashMap<String, serde_json::Value> =
-        serde_json::from_value(metadata_value.clone()).ok()?;
-
+fn check_inline_deps(snapshot: &NotebookMetadataSnapshot) -> Option<String> {
     // Check for Deno config first (runt.deno)
-    if let Some(runt) = metadata.get("runt") {
-        if runt.get("deno").is_some() {
-            return Some("deno".to_string());
+    if snapshot.runt.deno.is_some() {
+        return Some("deno".to_string());
+    }
+
+    // Check UV dependencies
+    if let Some(ref uv) = snapshot.runt.uv {
+        if !uv.dependencies.is_empty() {
+            return Some("uv:inline".to_string());
         }
     }
 
-    // Check UV dependencies (runt.uv then legacy uv)
-    if let Some(uv) = runt_trust::get_uv_metadata(&metadata) {
-        if let Some(deps) = uv.get("dependencies").and_then(|d| d.as_array()) {
-            if !deps.is_empty() {
-                return Some("uv:inline".to_string());
-            }
-        }
-    }
-
-    // Check conda dependencies (runt.conda then legacy conda)
-    if let Some(conda) = runt_trust::get_conda_metadata(&metadata) {
-        if let Some(deps) = conda.get("dependencies").and_then(|d| d.as_array()) {
-            if !deps.is_empty() {
-                return Some("conda:inline".to_string());
-            }
+    // Check conda dependencies
+    if let Some(ref conda) = snapshot.runt.conda {
+        if !conda.dependencies.is_empty() {
+            return Some("conda:inline".to_string());
         }
     }
 
     None
 }
 
-/// Extract inline conda dependencies from a notebook file.
+/// Extract inline conda dependencies from a metadata snapshot.
 /// Returns the list of dependency strings if conda deps are present.
-// TODO(automerge-metadata): Read from NotebookMetadataSnapshot.runt.conda.
-fn get_inline_conda_deps(notebook_path: &Path) -> Option<Vec<String>> {
-    let content = std::fs::read_to_string(notebook_path).ok()?;
-    let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
-    let metadata_value = nb.get("metadata")?;
-
-    let metadata: std::collections::HashMap<String, serde_json::Value> =
-        serde_json::from_value(metadata_value.clone()).ok()?;
-
-    if let Some(conda) = runt_trust::get_conda_metadata(&metadata) {
-        if let Some(deps) = conda.get("dependencies").and_then(|d| d.as_array()) {
-            let dep_strings: Vec<String> = deps
-                .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect();
-            if !dep_strings.is_empty() {
-                return Some(dep_strings);
-            }
+fn get_inline_conda_deps(snapshot: &NotebookMetadataSnapshot) -> Option<Vec<String>> {
+    if let Some(ref conda) = snapshot.runt.conda {
+        if !conda.dependencies.is_empty() {
+            return Some(conda.dependencies.clone());
         }
     }
     None
 }
 
-/// Extract inline UV dependencies from a notebook file.
+/// Extract inline UV dependencies from a metadata snapshot.
 /// Returns the list of dependency strings if UV deps are present.
-// TODO(automerge-metadata): Read from NotebookMetadataSnapshot.runt.uv.
-fn get_inline_uv_deps(notebook_path: &Path) -> Option<Vec<String>> {
-    let content = std::fs::read_to_string(notebook_path).ok()?;
-    let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
-    let metadata_value = nb.get("metadata")?;
+fn get_inline_uv_deps(snapshot: &NotebookMetadataSnapshot) -> Option<Vec<String>> {
+    if let Some(ref uv) = snapshot.runt.uv {
+        if !uv.dependencies.is_empty() {
+            return Some(uv.dependencies.clone());
+        }
+    }
+    None
+}
 
-    let metadata: std::collections::HashMap<String, serde_json::Value> =
-        serde_json::from_value(metadata_value.clone()).ok()?;
+/// Extract conda channels from a metadata snapshot.
+/// Returns the list of channel strings, or defaults to ["conda-forge"].
+fn get_inline_conda_channels(snapshot: &NotebookMetadataSnapshot) -> Vec<String> {
+    if let Some(ref conda) = snapshot.runt.conda {
+        if !conda.channels.is_empty() {
+            return conda.channels.clone();
+        }
+    }
+    vec!["conda-forge".to_string()]
+}
 
-    if let Some(uv) = runt_trust::get_uv_metadata(&metadata) {
-        if let Some(deps) = uv.get("dependencies").and_then(|d| d.as_array()) {
-            let dep_strings: Vec<String> = deps
-                .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect();
-            if !dep_strings.is_empty() {
-                return Some(dep_strings);
+/// Resolve the metadata snapshot for a notebook, trying the Automerge doc first
+/// and falling back to disk if the doc doesn't have metadata yet (e.g., before
+/// the first client has synced).
+async fn resolve_metadata_snapshot(
+    room: &NotebookRoom,
+    notebook_path: Option<&Path>,
+) -> Option<NotebookMetadataSnapshot> {
+    // Try reading from the Automerge doc first
+    {
+        let doc = room.doc.read().await;
+        if let Some(meta_json) = doc.get_metadata(NOTEBOOK_METADATA_KEY) {
+            if let Ok(snapshot) = serde_json::from_str::<NotebookMetadataSnapshot>(&meta_json) {
+                info!("[notebook-sync] Resolved metadata snapshot from Automerge doc");
+                return Some(snapshot);
             }
         }
     }
+
+    // Fall back to reading from disk
+    if let Some(path) = notebook_path {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            if let Ok(nb) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(metadata) = nb.get("metadata") {
+                    let snapshot = NotebookMetadataSnapshot::from_metadata_value(metadata);
+                    info!("[notebook-sync] Resolved metadata snapshot from disk (doc not yet populated)");
+                    return Some(snapshot);
+                }
+            }
+        }
+    }
+
     None
 }
 
 /// Verify trust status of a notebook by reading its file.
 /// Returns TrustState with the verification result.
-// TODO(automerge-metadata): Read trust_signature from NotebookMetadataSnapshot.runt
-// instead of re-reading the .ipynb file. The snapshot already includes
-// trust_signature — just need to wire it into room creation.
+///
+/// Note: Trust verification requires the raw metadata HashMap (including
+/// trust_signature) which is not part of NotebookMetadataSnapshot. This
+/// must read from disk until trust_signature is added to the snapshot.
 fn verify_trust_from_file(notebook_path: &Path) -> TrustState {
     // Read and parse the notebook file
     let metadata = match std::fs::read_to_string(notebook_path) {
@@ -276,9 +265,10 @@ impl NotebookRoom {
     /// sessions from accumulating.
     ///
     /// Any existing persisted doc is deleted to avoid clutter.
-    // TODO(automerge-metadata): The Automerge doc now stores metadata via
-    // NotebookMetadataSnapshot. Populate trust state from the doc after the
-    // first client syncs metadata, instead of calling verify_trust_from_file.
+    ///
+    /// Note: Trust state is initialized from disk because the Automerge doc
+    /// starts empty (first client hasn't synced yet). Trust verification
+    /// also requires trust_signature which is not in NotebookMetadataSnapshot.
     pub fn new_fresh(notebook_id: &str, docs_dir: &Path, blob_store: Arc<BlobStore>) -> Self {
         let filename = notebook_doc_filename(notebook_id);
         let persist_path = docs_dir.join(&filename);
@@ -839,11 +829,9 @@ async fn acquire_pool_env_for_source(
 
 /// Auto-launch kernel for a trusted notebook when first peer connects.
 /// This is similar to handle_notebook_request(LaunchKernel) but without a request/response.
-// TODO(automerge-metadata): This function calls detect_notebook_kernel_type,
-// check_inline_deps, get_inline_uv_deps, get_inline_conda_deps, and
-// get_inline_conda_channels — all of which re-read the .ipynb from disk.
-// The Automerge doc now stores NotebookMetadataSnapshot. Refactor to read the
-// snapshot from room.doc at the top and extract kernelspec/deps from it.
+///
+/// Resolves the metadata snapshot from the Automerge doc (if the first client has
+/// already synced) or falls back to reading the .ipynb from disk.
 async fn auto_launch_kernel(
     room: &NotebookRoom,
     notebook_id: &str,
@@ -865,6 +853,9 @@ async fn auto_launch_kernel(
     } else {
         None
     };
+
+    // Resolve metadata snapshot: try Automerge doc first, fall back to disk
+    let metadata_snapshot = resolve_metadata_snapshot(room, notebook_path_opt.as_deref()).await;
 
     let mut kernel_guard = room.kernel.lock().await;
 
@@ -901,15 +892,13 @@ async fn auto_launch_kernel(
     // 3. For Deno: just launch Deno (no env resolution needed)
     // 4. For new notebooks (no kernelspec): use default_runtime setting
 
-    // Step 1: Detect kernel type from notebook's kernelspec
-    let notebook_kernel_type = notebook_path_opt
+    // Step 1: Detect kernel type from metadata snapshot
+    let notebook_kernel_type = metadata_snapshot
         .as_ref()
-        .and_then(|path| detect_notebook_kernel_type(path));
+        .and_then(detect_notebook_kernel_type);
 
     // Step 2: Check inline deps (for environment source, and runt.deno override)
-    let inline_source = notebook_path_opt
-        .as_ref()
-        .and_then(|path| check_inline_deps(path));
+    let inline_source = metadata_snapshot.as_ref().and_then(check_inline_deps);
 
     // Step 3: Check project files (for Python environment resolution)
     let project_source = notebook_path_opt
@@ -1069,10 +1058,7 @@ async fn auto_launch_kernel(
     );
 
     let (pooled_env, inline_deps) = if env_source == "uv:inline" {
-        if let Some(deps) = notebook_path_opt
-            .as_ref()
-            .and_then(|path| get_inline_uv_deps(path))
-        {
+        if let Some(deps) = metadata_snapshot.as_ref().and_then(get_inline_uv_deps) {
             info!(
                 "[notebook-sync] Preparing cached UV env for inline deps: {:?}",
                 deps
@@ -1105,13 +1091,10 @@ async fn auto_launch_kernel(
             (pooled_env, None)
         }
     } else if env_source == "conda:inline" {
-        if let Some(deps) = notebook_path_opt
-            .as_ref()
-            .and_then(|path| get_inline_conda_deps(path))
-        {
-            let channels = notebook_path_opt
+        if let Some(deps) = metadata_snapshot.as_ref().and_then(get_inline_conda_deps) {
+            let channels = metadata_snapshot
                 .as_ref()
-                .map(|path| crate::inline_env::get_inline_conda_channels(path))
+                .map(get_inline_conda_channels)
                 .unwrap_or_else(|| vec!["conda-forge".to_string()]);
             info!(
                 "[notebook-sync] Preparing cached Conda env for inline deps: {:?} (channels: {:?})",
@@ -1260,12 +1243,15 @@ async fn handle_notebook_request(
             );
             let notebook_path = notebook_path.map(std::path::PathBuf::from);
 
+            // Resolve metadata snapshot from Automerge doc (preferred) or disk
+            let metadata_snapshot = resolve_metadata_snapshot(room, notebook_path.as_deref()).await;
+
             // Auto-detect environment if env_source is "auto" or empty
             let resolved_env_source =
                 if env_source == "auto" || env_source.is_empty() || env_source == "prewarmed" {
                     // Priority 1: Check inline deps in notebook metadata
                     if let Some(inline_source) =
-                        notebook_path.as_ref().and_then(|p| check_inline_deps(p))
+                        metadata_snapshot.as_ref().and_then(check_inline_deps)
                     {
                         info!(
                             "[notebook-sync] Found inline deps in notebook metadata -> {}",
@@ -1371,10 +1357,7 @@ async fn handle_notebook_request(
                 ));
 
             let (pooled_env, inline_deps) = if resolved_env_source == "uv:inline" {
-                if let Some(deps) = notebook_path
-                    .as_ref()
-                    .and_then(|path| get_inline_uv_deps(path))
-                {
+                if let Some(deps) = metadata_snapshot.as_ref().and_then(get_inline_uv_deps) {
                     info!(
                         "[notebook-sync] LaunchKernel: Preparing cached UV env for inline deps: {:?}",
                         deps
@@ -1407,13 +1390,10 @@ async fn handle_notebook_request(
                     (pooled_env, None)
                 }
             } else if resolved_env_source == "conda:inline" {
-                if let Some(deps) = notebook_path
-                    .as_ref()
-                    .and_then(|path| get_inline_conda_deps(path))
-                {
-                    let channels = notebook_path
+                if let Some(deps) = metadata_snapshot.as_ref().and_then(get_inline_conda_deps) {
+                    let channels = metadata_snapshot
                         .as_ref()
-                        .map(|path| crate::inline_env::get_inline_conda_channels(path))
+                        .map(get_inline_conda_channels)
                         .unwrap_or_else(|| vec!["conda-forge".to_string()]);
                     info!(
                         "[notebook-sync] LaunchKernel: Preparing cached Conda env for inline deps: {:?} (channels: {:?})",
@@ -2136,138 +2116,133 @@ mod tests {
         assert_eq!(doc.cell_count(), 0, "new_fresh should start with empty doc");
     }
 
+    /// Helper to build a snapshot with UV inline deps.
+    fn snapshot_with_uv(deps: Vec<String>) -> NotebookMetadataSnapshot {
+        NotebookMetadataSnapshot {
+            kernelspec: None,
+            language_info: None,
+            runt: crate::notebook_metadata::RuntMetadata {
+                schema_version: "1".to_string(),
+                env_id: None,
+                uv: Some(crate::notebook_metadata::UvInlineMetadata {
+                    dependencies: deps,
+                    requires_python: None,
+                }),
+                conda: None,
+                deno: None,
+            },
+        }
+    }
+
+    /// Helper to build a snapshot with conda inline deps.
+    fn snapshot_with_conda(deps: Vec<String>) -> NotebookMetadataSnapshot {
+        NotebookMetadataSnapshot {
+            kernelspec: None,
+            language_info: None,
+            runt: crate::notebook_metadata::RuntMetadata {
+                schema_version: "1".to_string(),
+                env_id: None,
+                uv: None,
+                conda: Some(crate::notebook_metadata::CondaInlineMetadata {
+                    dependencies: deps,
+                    channels: vec!["conda-forge".to_string()],
+                    python: None,
+                }),
+                deno: None,
+            },
+        }
+    }
+
+    /// Helper to build an empty snapshot (no deps).
+    fn snapshot_empty() -> NotebookMetadataSnapshot {
+        NotebookMetadataSnapshot {
+            kernelspec: None,
+            language_info: None,
+            runt: crate::notebook_metadata::RuntMetadata {
+                schema_version: "1".to_string(),
+                env_id: None,
+                uv: None,
+                conda: None,
+                deno: None,
+            },
+        }
+    }
+
     #[test]
     fn test_check_inline_deps_uv() {
-        use std::io::Write;
-        let dir = tempfile::tempdir().unwrap();
-
-        // Notebook with UV deps
-        let uv_path = dir.path().join("uv.ipynb");
-        let mut f = std::fs::File::create(&uv_path).unwrap();
-        writeln!(
-            f,
-            r#"{{"metadata": {{"uv": {{"dependencies": ["numpy"]}}}}, "cells": []}}"#
-        )
-        .unwrap();
-        assert_eq!(check_inline_deps(&uv_path), Some("uv:inline".to_string()));
+        let snapshot = snapshot_with_uv(vec!["numpy".to_string()]);
+        assert_eq!(check_inline_deps(&snapshot), Some("uv:inline".to_string()));
     }
 
     #[test]
     fn test_check_inline_deps_conda() {
-        use std::io::Write;
-        let dir = tempfile::tempdir().unwrap();
-
-        // Notebook with conda deps
-        let conda_path = dir.path().join("conda.ipynb");
-        let mut f = std::fs::File::create(&conda_path).unwrap();
-        writeln!(
-            f,
-            r#"{{"metadata": {{"conda": {{"dependencies": ["pandas"]}}}}, "cells": []}}"#
-        )
-        .unwrap();
+        let snapshot = snapshot_with_conda(vec!["pandas".to_string()]);
         assert_eq!(
-            check_inline_deps(&conda_path),
+            check_inline_deps(&snapshot),
             Some("conda:inline".to_string())
         );
     }
 
     #[test]
     fn test_check_inline_deps_empty() {
-        use std::io::Write;
-        let dir = tempfile::tempdir().unwrap();
-
-        // Notebook with no deps
-        let empty_path = dir.path().join("empty.ipynb");
-        let mut f = std::fs::File::create(&empty_path).unwrap();
-        writeln!(f, r#"{{"metadata": {{}}, "cells": []}}"#).unwrap();
-        assert_eq!(check_inline_deps(&empty_path), None);
+        let snapshot = snapshot_empty();
+        assert_eq!(check_inline_deps(&snapshot), None);
     }
 
     #[test]
     fn test_check_inline_deps_empty_array() {
-        use std::io::Write;
-        let dir = tempfile::tempdir().unwrap();
-
-        // Notebook with empty deps array - should return None
-        let path = dir.path().join("empty-array.ipynb");
-        let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(
-            f,
-            r#"{{"metadata": {{"uv": {{"dependencies": []}}}}, "cells": []}}"#
-        )
-        .unwrap();
-        assert_eq!(check_inline_deps(&path), None);
+        // Snapshot with empty deps array - should return None
+        let snapshot = snapshot_with_uv(vec![]);
+        assert_eq!(check_inline_deps(&snapshot), None);
     }
 
     #[test]
     fn test_check_inline_deps_uv_priority() {
-        use std::io::Write;
-        let dir = tempfile::tempdir().unwrap();
-
-        // Notebook with both UV and conda deps - UV takes priority
-        let path = dir.path().join("both.ipynb");
-        let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(
-            f,
-            r#"{{"metadata": {{"uv": {{"dependencies": ["numpy"]}}, "conda": {{"dependencies": ["pandas"]}}}}, "cells": []}}"#
-        )
-        .unwrap();
-        assert_eq!(check_inline_deps(&path), Some("uv:inline".to_string()));
+        // Snapshot with both UV and conda deps - UV takes priority
+        let snapshot = NotebookMetadataSnapshot {
+            kernelspec: None,
+            language_info: None,
+            runt: crate::notebook_metadata::RuntMetadata {
+                schema_version: "1".to_string(),
+                env_id: None,
+                uv: Some(crate::notebook_metadata::UvInlineMetadata {
+                    dependencies: vec!["numpy".to_string()],
+                    requires_python: None,
+                }),
+                conda: Some(crate::notebook_metadata::CondaInlineMetadata {
+                    dependencies: vec!["pandas".to_string()],
+                    channels: vec!["conda-forge".to_string()],
+                    python: None,
+                }),
+                deno: None,
+            },
+        };
+        assert_eq!(check_inline_deps(&snapshot), Some("uv:inline".to_string()));
     }
 
     #[test]
-    fn test_check_inline_deps_nonexistent_file() {
-        let path = std::path::PathBuf::from("/nonexistent/path/to/notebook.ipynb");
-        assert_eq!(check_inline_deps(&path), None);
-    }
-
-    #[test]
-    fn test_check_inline_deps_runt_uv() {
-        use std::io::Write;
-        let dir = tempfile::tempdir().unwrap();
-
-        // Notebook with UV deps under runt namespace
-        let path = dir.path().join("runt-uv.ipynb");
-        let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(
-            f,
-            r#"{{"metadata": {{"runt": {{"uv": {{"dependencies": ["numpy"]}}}}}}, "cells": []}}"#
-        )
-        .unwrap();
-        assert_eq!(check_inline_deps(&path), Some("uv:inline".to_string()));
-    }
-
-    #[test]
-    fn test_check_inline_deps_runt_conda() {
-        use std::io::Write;
-        let dir = tempfile::tempdir().unwrap();
-
-        // Notebook with conda deps under runt namespace
-        let path = dir.path().join("runt-conda.ipynb");
-        let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(
-            f,
-            r#"{{"metadata": {{"runt": {{"conda": {{"dependencies": ["pandas"]}}}}}}, "cells": []}}"#
-        )
-        .unwrap();
-        assert_eq!(check_inline_deps(&path), Some("conda:inline".to_string()));
-    }
-
-    #[test]
-    fn test_check_inline_deps_runt_takes_precedence() {
-        use std::io::Write;
-        let dir = tempfile::tempdir().unwrap();
-
-        // Notebook with both runt.uv and legacy uv - runt should win
-        let path = dir.path().join("mixed.ipynb");
-        let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(
-            f,
-            r#"{{"metadata": {{"runt": {{"uv": {{"dependencies": ["torch"]}}}}, "uv": {{"dependencies": ["numpy"]}}}}, "cells": []}}"#
-        )
-        .unwrap();
-        // runt.uv should be checked first, so we get "uv:inline"
-        assert_eq!(check_inline_deps(&path), Some("uv:inline".to_string()));
+    fn test_check_inline_deps_deno() {
+        // Snapshot with deno config - deno takes priority over everything
+        let snapshot = NotebookMetadataSnapshot {
+            kernelspec: None,
+            language_info: None,
+            runt: crate::notebook_metadata::RuntMetadata {
+                schema_version: "1".to_string(),
+                env_id: None,
+                uv: Some(crate::notebook_metadata::UvInlineMetadata {
+                    dependencies: vec!["numpy".to_string()],
+                    requires_python: None,
+                }),
+                conda: None,
+                deno: Some(crate::notebook_metadata::DenoMetadata {
+                    permissions: vec![],
+                    import_map: None,
+                    config: None,
+                    flexible_npm_imports: None,
+                }),
+            },
+        };
+        assert_eq!(check_inline_deps(&snapshot), Some("deno".to_string()));
     }
 
     // ── Integration tests for save_notebook_to_disk ────────────────────────
