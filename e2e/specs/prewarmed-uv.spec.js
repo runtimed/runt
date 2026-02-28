@@ -10,9 +10,9 @@
 import { browser } from "@wdio/globals";
 import {
   executeFirstCell,
+  isManagedEnv,
   waitForCellOutput,
   waitForKernelReady,
-  isManagedEnv,
 } from "../helpers.js";
 
 describe("Prewarmed Environment Pool", () => {

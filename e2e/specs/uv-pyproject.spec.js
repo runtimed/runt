@@ -11,9 +11,9 @@
 import { browser } from "@wdio/globals";
 import {
   executeFirstCell,
+  typeSlowly,
   waitForCellOutput,
   waitForKernelReady,
-  typeSlowly,
 } from "../helpers.js";
 
 describe("UV pyproject.toml Detection", () => {

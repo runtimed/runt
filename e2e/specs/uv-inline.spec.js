@@ -9,11 +9,11 @@
 
 import { browser } from "@wdio/globals";
 import {
+  approveTrustDialog,
   executeFirstCell,
+  typeSlowly,
   waitForCellOutput,
   waitForKernelReady,
-  approveTrustDialog,
-  typeSlowly,
 } from "../helpers.js";
 
 describe("UV Inline Dependencies", () => {
