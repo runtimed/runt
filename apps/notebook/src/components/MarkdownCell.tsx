@@ -220,6 +220,7 @@ export function MarkdownCell({
             ref={editorRef}
             value={cell.source}
             language="markdown"
+            lineWrapping
             onValueChange={onUpdateSource}
             onBlur={handleBlur}
             keyMap={keyMap}
