@@ -1492,10 +1492,46 @@ async fn handle_notebook_request(
             }
         }
 
+        #[allow(deprecated)]
         NotebookRequest::QueueCell { cell_id, code } => {
             let mut kernel_guard = room.kernel.lock().await;
             if let Some(ref mut kernel) = *kernel_guard {
                 match kernel.queue_cell(cell_id.clone(), code).await {
+                    Ok(()) => NotebookResponse::CellQueued { cell_id },
+                    Err(e) => NotebookResponse::Error {
+                        error: format!("Failed to queue cell: {}", e),
+                    },
+                }
+            } else {
+                NotebookResponse::NoKernel {}
+            }
+        }
+
+        NotebookRequest::ExecuteCell { cell_id } => {
+            let mut kernel_guard = room.kernel.lock().await;
+            if let Some(ref mut kernel) = *kernel_guard {
+                // Read cell source from the automerge document
+                let doc = room.doc.read().await;
+                let cell = match doc.get_cell(&cell_id) {
+                    Some(c) => c,
+                    None => {
+                        return NotebookResponse::Error {
+                            error: format!("Cell not found in document: {}", cell_id),
+                        };
+                    }
+                };
+
+                // Only execute code cells
+                if cell.cell_type != "code" {
+                    return NotebookResponse::Error {
+                        error: format!(
+                            "Cannot execute non-code cell: {} (type: {})",
+                            cell_id, cell.cell_type
+                        ),
+                    };
+                }
+
+                match kernel.queue_cell(cell_id.clone(), cell.source).await {
                     Ok(()) => NotebookResponse::CellQueued { cell_id },
                     Err(e) => NotebookResponse::Error {
                         error: format!("Failed to queue cell: {}", e),
