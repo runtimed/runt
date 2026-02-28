@@ -184,6 +184,25 @@ The backend returns an `env_source` string with the `kernel:lifecycle` event so 
 - `"uv:inline"` / `"uv:pyproject"` / `"uv:prewarmed"`
 - `"conda:inline"` / `"conda:env_yml"` / `"conda:pixi"` / `"conda:prewarmed"`
 
+### Inline Dependency Environments
+
+For notebooks with inline UV dependencies (`metadata.runt.uv.dependencies`), the daemon creates **cached environments** in `~/.cache/runt/inline-envs/`. Environments are keyed by a hash of the sorted dependencies, enabling fast reuse:
+
+```
+~/.cache/runt/inline-envs/
+  inline-a1b2c3d4/    # Hash of ["requests"]
+  inline-e5f6g7h8/    # Hash of ["pandas", "numpy"]
+```
+
+**Flow:**
+1. `notebook_sync_server.rs` detects `uv:inline` from trusted notebook metadata
+2. Calls `inline_env::prepare_uv_inline_env(deps)` which returns cached env or creates new one
+3. Kernel launches with the cached env's Python
+
+**Cache hit = instant startup.** First launch with new deps takes time to `uv venv` + `uv pip install`.
+
+**Note:** `conda:inline` is not yet implemented (falls back to prewarmed pool).
+
 ### Adding a New Project File Format
 
 Follow the pattern established by `environment_yml.rs` and `pixi.rs`:
@@ -206,6 +225,7 @@ Dependencies are signed with HMAC-SHA256 using a per-machine key at `~/.config/r
 | `crates/kernel-launch/src/tools.rs` | Tool bootstrapping (deno, uv, ruff) via rattler |
 | `crates/runtimed/src/notebook_sync_server.rs` | `auto_launch_kernel()` — runtime detection and environment resolution |
 | `crates/runtimed/src/kernel_manager.rs` | `RoomKernel::launch()` — spawns Python or Deno kernel processes |
+| `crates/runtimed/src/inline_env.rs` | Cached environment creation for inline UV deps |
 | `crates/notebook/src/lib.rs` | Tauri commands, kernel launch orchestration |
 | `crates/notebook/src/project_file.rs` | Unified closest-wins project file detection |
 | `crates/notebook/src/kernel.rs` | Kernel process management |
