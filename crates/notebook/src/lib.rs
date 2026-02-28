@@ -2885,7 +2885,7 @@ pub fn run(
 
             // Ensure ~/notebooks directory exists for new notebook saves and kernel CWD
             let notebooks_dir = ensure_notebooks_directory()
-                .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+                .map_err(Box::<dyn std::error::Error>::from)?;
             log::info!("[startup] Notebooks directory: {}", notebooks_dir.display());
 
             if let Some(window) = app.get_webview_window("main") {
