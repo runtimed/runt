@@ -30,6 +30,7 @@ fs.mkdirSync(SCREENSHOT_FAILURES_DIR, { recursive: true });
 // Fixture specs require NOTEBOOK_PATH to be set and are excluded from the default run.
 // Use ./e2e/dev.sh test-fixture <notebook> <spec> to run them individually.
 const FIXTURE_SPECS = [
+  "conda-inline.spec.js",
   "deno.spec.js",
   "prewarmed-uv.spec.js",
   "uv-inline.spec.js",

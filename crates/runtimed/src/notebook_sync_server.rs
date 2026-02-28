@@ -142,7 +142,6 @@ fn check_inline_deps(notebook_path: &Path) -> Option<String> {
 
 /// Extract inline conda dependencies from a notebook file.
 /// Returns the list of dependency strings if conda deps are present.
-#[allow(dead_code)] // TODO: Use for conda:inline support
 fn get_inline_conda_deps(notebook_path: &Path) -> Option<Vec<String>> {
     let content = std::fs::read_to_string(notebook_path).ok()?;
     let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -952,11 +951,14 @@ async fn auto_launch_kernel(
                 );
                 prewarmed.to_string()
             };
-            // For uv:inline and uv:pyproject, we don't need a pooled env -
-            // the kernel manager uses `uv run --with` directly
-            let pooled_env = if env_source == "uv:pyproject" || env_source == "uv:inline" {
+            // For uv:inline, uv:pyproject, and conda:inline we don't need a pooled env -
+            // these sources prepare their own environments
+            let pooled_env = if env_source == "uv:pyproject"
+                || env_source == "uv:inline"
+                || env_source == "conda:inline"
+            {
                 info!(
-                    "[notebook-sync] Auto-launch: {} uses uv run, no pool env needed",
+                    "[notebook-sync] Auto-launch: {} prepares its own env, no pool env needed",
                     env_source
                 );
                 None
@@ -1003,11 +1005,14 @@ async fn auto_launch_kernel(
                     );
                     prewarmed.to_string()
                 };
-                // For uv:inline and uv:pyproject, we don't need a pooled env -
-                // the kernel manager uses `uv run --with` directly
-                let pooled_env = if env_source == "uv:pyproject" || env_source == "uv:inline" {
+                // For uv:inline, uv:pyproject, and conda:inline we don't need a pooled env -
+                // these sources prepare their own environments
+                let pooled_env = if env_source == "uv:pyproject"
+                    || env_source == "uv:inline"
+                    || env_source == "conda:inline"
+                {
                     info!(
-                        "[notebook-sync] Auto-launch: {} uses uv run, no pool env needed",
+                        "[notebook-sync] Auto-launch: {} prepares its own env, no pool env needed",
                         env_source
                     );
                     None
@@ -1038,7 +1043,7 @@ async fn auto_launch_kernel(
         }
     };
 
-    // For uv:inline, prepare a cached environment with the deps
+    // For inline deps, prepare a cached environment
     let (pooled_env, inline_deps) = if env_source == "uv:inline" {
         if let Some(deps) = notebook_path_opt
             .as_ref()
@@ -1067,6 +1072,53 @@ async fn auto_launch_kernel(
                         .kernel_broadcast_tx
                         .send(NotebookBroadcast::KernelStatus {
                             status: format!("error: Failed to prepare environment: {}", e),
+                            cell_id: None,
+                        });
+                    return;
+                }
+            }
+        } else {
+            (pooled_env, None)
+        }
+    } else if env_source == "conda:inline" {
+        if let Some(deps) = notebook_path_opt
+            .as_ref()
+            .and_then(|path| get_inline_conda_deps(path))
+        {
+            let channels = notebook_path_opt
+                .as_ref()
+                .map(|path| crate::inline_env::get_inline_conda_channels(path))
+                .unwrap_or_else(|| vec!["conda-forge".to_string()]);
+            info!(
+                "[notebook-sync] Preparing cached Conda env for inline deps: {:?} (channels: {:?})",
+                deps, channels
+            );
+            // Broadcast progress so the frontend knows we're installing
+            let _ = room
+                .kernel_broadcast_tx
+                .send(NotebookBroadcast::KernelStatus {
+                    status: "installing conda dependencies...".to_string(),
+                    cell_id: None,
+                });
+            match crate::inline_env::prepare_conda_inline_env(&deps, &channels).await {
+                Ok(prepared) => {
+                    info!(
+                        "[notebook-sync] Using cached conda inline env at {:?}",
+                        prepared.python_path
+                    );
+                    let env = Some(crate::PooledEnv {
+                        env_type: crate::EnvType::Conda,
+                        venv_path: prepared.env_path,
+                        python_path: prepared.python_path,
+                    });
+                    (env, Some(deps))
+                }
+                Err(e) => {
+                    error!("[notebook-sync] Failed to prepare conda inline env: {}", e);
+                    let _ = room
+                        .kernel_broadcast_tx
+                        .send(NotebookBroadcast::KernelStatus {
+                            status: format!("error: Failed to prepare conda environment: {}", e),
                             cell_id: None,
                         });
                     return;
@@ -1255,16 +1307,16 @@ async fn handle_notebook_request(
                             };
                         }
                     },
-                    "uv:pyproject" | "uv:inline" => {
-                        // These sources use `uv run` directly, no pooled env needed
+                    "uv:pyproject" | "uv:inline" | "conda:inline" => {
+                        // These sources prepare their own environments, no pooled env needed
                         info!(
-                            "[notebook-sync] LaunchKernel: {} uses uv run, no pool env",
+                            "[notebook-sync] LaunchKernel: {} prepares its own env, no pool env",
                             resolved_env_source
                         );
                         None
                     }
                     other => {
-                        // For conda inline sources, route to conda pool
+                        // For remaining conda sources, route to conda pool
                         if other.starts_with("conda:") {
                             match daemon.take_conda_env().await {
                                 Some(env) => Some(env),
@@ -1289,7 +1341,7 @@ async fn handle_notebook_request(
                 }
             };
 
-            // For uv:inline, prepare a cached environment with the deps
+            // For inline deps, prepare a cached environment
             let (pooled_env, inline_deps) = if resolved_env_source == "uv:inline" {
                 if let Some(deps) = notebook_path
                     .as_ref()
@@ -1315,6 +1367,48 @@ async fn handle_notebook_request(
                         Err(e) => {
                             return NotebookResponse::Error {
                                 error: format!("Failed to prepare inline environment: {}", e),
+                            };
+                        }
+                    }
+                } else {
+                    (pooled_env, None)
+                }
+            } else if resolved_env_source == "conda:inline" {
+                if let Some(deps) = notebook_path
+                    .as_ref()
+                    .and_then(|path| get_inline_conda_deps(path))
+                {
+                    let channels = notebook_path
+                        .as_ref()
+                        .map(|path| crate::inline_env::get_inline_conda_channels(path))
+                        .unwrap_or_else(|| vec!["conda-forge".to_string()]);
+                    info!(
+                        "[notebook-sync] LaunchKernel: Preparing cached Conda env for inline deps: {:?} (channels: {:?})",
+                        deps, channels
+                    );
+                    // Broadcast progress so the frontend knows we're installing
+                    let _ = room
+                        .kernel_broadcast_tx
+                        .send(NotebookBroadcast::KernelStatus {
+                            status: "installing conda dependencies...".to_string(),
+                            cell_id: None,
+                        });
+                    match crate::inline_env::prepare_conda_inline_env(&deps, &channels).await {
+                        Ok(prepared) => {
+                            info!(
+                                "[notebook-sync] LaunchKernel: Using cached conda inline env at {:?}",
+                                prepared.python_path
+                            );
+                            let env = Some(crate::PooledEnv {
+                                env_type: crate::EnvType::Conda,
+                                venv_path: prepared.env_path,
+                                python_path: prepared.python_path,
+                            });
+                            (env, Some(deps))
+                        }
+                        Err(e) => {
+                            return NotebookResponse::Error {
+                                error: format!("Failed to prepare conda inline environment: {}", e),
                             };
                         }
                     }

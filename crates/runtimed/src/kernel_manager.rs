@@ -483,6 +483,24 @@ impl RoomKernel {
                         cmd.stderr(Stdio::null());
                         cmd
                     }
+                    "conda:inline" => {
+                        // Use prepared cached conda environment with inline deps
+                        let pooled_env = env.ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "conda:inline requires a prepared environment (was it created?)"
+                            )
+                        })?;
+                        info!(
+                            "[kernel-manager] Starting Python kernel with cached conda inline env at {:?}",
+                            pooled_env.python_path
+                        );
+                        let mut cmd = tokio::process::Command::new(&pooled_env.python_path);
+                        cmd.args(["-Xfrozen_modules=off", "-m", "ipykernel_launcher", "-f"]);
+                        cmd.arg(&connection_file_path);
+                        cmd.stdout(Stdio::null());
+                        cmd.stderr(Stdio::null());
+                        cmd
+                    }
                     _ => {
                         // Prewarmed - use pooled environment
                         let pooled_env = env.ok_or_else(|| {
