@@ -2493,6 +2493,111 @@ async fn run_settings_sync(app: tauri::AppHandle) {
     }
 }
 
+/// Background task that subscribes to pool state broadcasts from the runtimed daemon
+/// and emits Tauri events when prewarm pool errors occur or clear.
+///
+/// This integrates with the daemon status UI to show users when their default
+/// packages have issues (typos, unavailable packages, etc.).
+#[cfg(unix)]
+async fn run_pool_state_sync(app: tauri::AppHandle) {
+    use tauri::Emitter;
+
+    loop {
+        match runtimed::client::subscribe_pool_state().await {
+            Ok(mut rx) => {
+                log::info!("[pool-state-sync] Connected to daemon pool state");
+
+                while let Some(broadcast) = rx.recv().await {
+                    // Extract error info from the broadcast
+                    let runtimed::protocol::DaemonBroadcast::PoolState {
+                        ref uv_error,
+                        ref conda_error,
+                    } = broadcast;
+
+                    // Log for debugging
+                    if uv_error.is_some() || conda_error.is_some() {
+                        log::info!(
+                            "[pool-state-sync] Pool error state: uv={}, conda={}",
+                            uv_error
+                                .as_ref()
+                                .map(|e| e.failed_package.as_deref().unwrap_or("error"))
+                                .unwrap_or("ok"),
+                            conda_error
+                                .as_ref()
+                                .map(|e| e.failed_package.as_deref().unwrap_or("error"))
+                                .unwrap_or("ok")
+                        );
+                    }
+
+                    // Emit pool state event for the frontend
+                    if let Err(e) = app.emit("daemon:pool_state", &broadcast) {
+                        log::warn!("[pool-state-sync] Failed to emit daemon:pool_state: {}", e);
+                    }
+                }
+
+                log::warn!("[pool-state-sync] Disconnected from daemon");
+            }
+            Err(e) => {
+                log::info!(
+                    "[pool-state-sync] Cannot connect to pool state subscription: {}. Retrying in 5s.",
+                    e
+                );
+            }
+        }
+
+        // Backoff before reconnecting
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+}
+
+#[cfg(windows)]
+async fn run_pool_state_sync(app: tauri::AppHandle) {
+    use tauri::Emitter;
+
+    loop {
+        match runtimed::client::subscribe_pool_state().await {
+            Ok(mut rx) => {
+                log::info!("[pool-state-sync] Connected to daemon pool state");
+
+                while let Some(broadcast) = rx.recv().await {
+                    let runtimed::protocol::DaemonBroadcast::PoolState {
+                        ref uv_error,
+                        ref conda_error,
+                    } = broadcast;
+
+                    if uv_error.is_some() || conda_error.is_some() {
+                        log::info!(
+                            "[pool-state-sync] Pool error state: uv={}, conda={}",
+                            uv_error
+                                .as_ref()
+                                .map(|e| e.failed_package.as_deref().unwrap_or("error"))
+                                .unwrap_or("ok"),
+                            conda_error
+                                .as_ref()
+                                .map(|e| e.failed_package.as_deref().unwrap_or("error"))
+                                .unwrap_or("ok")
+                        );
+                    }
+
+                    if let Err(e) = app.emit("daemon:pool_state", &broadcast) {
+                        log::warn!("[pool-state-sync] Failed to emit daemon:pool_state: {}", e);
+                    }
+                }
+
+                log::warn!("[pool-state-sync] Disconnected from daemon");
+            }
+            Err(e) => {
+                log::info!(
+                    "[pool-state-sync] Cannot connect to pool state subscription: {}. Retrying in 5s.",
+                    e
+                );
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+}
+
 /// Create initial notebook state for a new notebook, detecting project-level config for Python.
 fn create_new_notebook_state(path: &Path, runtime: Runtime) -> NotebookState {
     // Only check project files for Python runtime
@@ -2756,6 +2861,7 @@ pub fn run(
             // The daemon provides centralized prewarming across all notebook windows
             let app_for_daemon = app.handle().clone();
             let app_for_sync = app.handle().clone();
+            let app_for_pool_state = app.handle().clone();
             let app_for_notebook_sync = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 // Get path to bundled runtimed binary (for auto-installation)
@@ -2788,6 +2894,10 @@ pub fn run(
                 // Start settings sync subscription (reconnects automatically)
                 // Spawn as separate task since it runs forever
                 tokio::spawn(run_settings_sync(app_for_sync));
+
+                // Start pool state sync subscription (reconnects automatically)
+                // Emits daemon:pool_state events when prewarm pool errors occur or clear
+                tokio::spawn(run_pool_state_sync(app_for_pool_state));
 
                 // Initialize notebook sync if daemon is available
                 if daemon_available {

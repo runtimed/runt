@@ -15,6 +15,7 @@ import { CondaDependencyHeader } from "./components/CondaDependencyHeader";
 import {
   type DaemonStatus,
   DaemonStatusBanner,
+  type PoolState,
 } from "./components/DaemonStatusBanner";
 import { DebugBanner } from "./components/DebugBanner";
 import { DenoDependencyHeader } from "./components/DenoDependencyHeader";
@@ -113,6 +114,9 @@ function AppContent() {
 
   // Daemon startup status (installing, starting, failed, etc.)
   const [daemonStatus, setDaemonStatus] = useState<DaemonStatus>(null);
+  // Pool state (errors from invalid default packages)
+  const [poolState, setPoolState] = useState<PoolState | null>(null);
+  const [poolErrorDismissed, setPoolErrorDismissed] = useState(false);
   // Track ready timeout so we can cancel it if status changes
   const readyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -664,6 +668,19 @@ function AppContent() {
       setDaemonStatus(null);
     });
 
+    // Listen for pool state changes (errors from invalid default packages)
+    const unlistenPoolState = listen<PoolState>(
+      "daemon:pool_state",
+      (event) => {
+        const state = event.payload;
+        setPoolState(state);
+        // Reset dismissed state if errors clear (so new errors will show)
+        if (!state.uv_error && !state.conda_error) {
+          setPoolErrorDismissed(false);
+        }
+      },
+    );
+
     // Check daemon status on mount (in case events fired before React was ready)
     // Small delay to let initial events settle
     const checkTimeout = setTimeout(() => {
@@ -690,6 +707,7 @@ function AppContent() {
       unlistenDisconnect.then((unlisten) => unlisten()).catch(() => {});
       unlistenUnavailable.then((unlisten) => unlisten()).catch(() => {});
       unlistenReady.then((unlisten) => unlisten()).catch(() => {});
+      unlistenPoolState.then((unlisten) => unlisten()).catch(() => {});
     };
   }, []);
 
@@ -719,6 +737,7 @@ function AppContent() {
       )}
       <DaemonStatusBanner
         status={daemonStatus}
+        poolState={poolErrorDismissed ? null : poolState}
         onDismiss={() => setDaemonStatus(null)}
         onRetry={() => {
           setDaemonStatus({ status: "checking" });
@@ -733,6 +752,7 @@ function AppContent() {
               });
             });
         }}
+        onDismissPoolError={() => setPoolErrorDismissed(true)}
       />
       <NotebookToolbar
         kernelStatus={kernelStatus}
