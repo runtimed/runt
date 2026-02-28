@@ -51,6 +51,53 @@ pub struct TrustState {
     pub pending_launch: bool,
 }
 
+/// Detect the kernel type from a notebook's kernelspec metadata.
+/// Returns "python" or "deno" based on the notebook's encoded kernelspec.
+/// This is the #1 priority - the notebook's kernelspec determines the runtime.
+fn detect_notebook_kernel_type(notebook_path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(notebook_path).ok()?;
+    let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let metadata = nb.get("metadata")?;
+
+    // Check kernelspec.name first (most reliable)
+    if let Some(kernelspec) = metadata.get("kernelspec") {
+        if let Some(name) = kernelspec.get("name").and_then(|n| n.as_str()) {
+            let name_lower = name.to_lowercase();
+            if name_lower.contains("deno") {
+                return Some("deno".to_string());
+            }
+            if name_lower.contains("python") {
+                return Some("python".to_string());
+            }
+        }
+        // Also check language field
+        if let Some(lang) = kernelspec.get("language").and_then(|l| l.as_str()) {
+            let lang_lower = lang.to_lowercase();
+            if lang_lower == "typescript" || lang_lower == "javascript" {
+                return Some("deno".to_string());
+            }
+            if lang_lower == "python" {
+                return Some("python".to_string());
+            }
+        }
+    }
+
+    // Fallback: check language_info.name
+    if let Some(lang_info) = metadata.get("language_info") {
+        if let Some(name) = lang_info.get("name").and_then(|n| n.as_str()) {
+            let name_lower = name.to_lowercase();
+            if name_lower == "typescript" || name_lower == "javascript" || name_lower == "deno" {
+                return Some("deno".to_string());
+            }
+            if name_lower == "python" {
+                return Some("python".to_string());
+            }
+        }
+    }
+
+    None // Unknown kernel type
+}
+
 /// Check if a notebook file has inline dependencies or Deno config in its metadata.
 /// Returns the appropriate env_source if found ("uv:inline", "conda:inline", or "deno").
 ///
@@ -781,16 +828,22 @@ async fn auto_launch_kernel(
     );
 
     // Detection priority:
-    // 1. Inline deps in notebook metadata (runt.deno, runt.uv, runt.conda)
-    // 2. Project files near notebook (deno.json, pyproject.toml, environment.yml, pixi.toml)
-    // 3. Default runtime setting (only if no project context)
+    // 1. Notebook's kernelspec (for existing notebooks) - determines python vs deno
+    // 2. For Python: resolve environment (inline deps → project files → prewarmed)
+    // 3. For Deno: just launch Deno (no env resolution needed)
+    // 4. For new notebooks (no kernelspec): use default_runtime setting
 
-    // Check inline deps first
+    // Step 1: Detect kernel type from notebook's kernelspec
+    let notebook_kernel_type = notebook_path_opt
+        .as_ref()
+        .and_then(|path| detect_notebook_kernel_type(path));
+
+    // Step 2: Check inline deps (for environment source, and runt.deno override)
     let inline_source = notebook_path_opt
         .as_ref()
         .and_then(|path| check_inline_deps(path));
 
-    // Check project files second
+    // Step 3: Check project files (for Python environment resolution)
     let project_source = notebook_path_opt
         .as_ref()
         .and_then(|path| crate::project_file::detect_project_file(path))
@@ -804,52 +857,119 @@ async fn auto_launch_kernel(
         });
 
     // Determine kernel type and environment
-    let (kernel_type, env_source, pooled_env) = if inline_source.as_deref() == Some("deno") {
-        // Inline runt.deno config - launch Deno kernel
-        info!("[notebook-sync] Auto-launch: Deno kernel (inline runt.deno config)");
-        ("deno", "deno".to_string(), None)
-    } else if let Some(ref source) = inline_source {
-        // Inline Python deps (uv or conda)
-        info!(
-            "[notebook-sync] Auto-launch: found inline deps -> {}",
-            source
-        );
-        let pooled_env = match acquire_pool_env_for_source(source, &daemon, room).await {
-            Some(env) => env,
-            None => return, // Error already broadcast
-        };
-        ("python", source.clone(), pooled_env)
-    } else if let Some(ref source) = project_source {
-        // Project file detected - use Python (project files imply Python context)
-        info!(
-            "[notebook-sync] Auto-launch: using project file -> {}",
-            source
-        );
-        let pooled_env = match acquire_pool_env_for_source(source, &daemon, room).await {
-            Some(env) => env,
-            None => return, // Error already broadcast
-        };
-        ("python", source.clone(), pooled_env)
-    } else if matches!(default_runtime, crate::runtime::Runtime::Deno) {
-        // No project context and default is Deno
-        info!("[notebook-sync] Auto-launch: Deno kernel (default runtime, no project)");
-        ("deno", "deno".to_string(), None)
-    } else {
-        // No project context, use prewarmed Python env
-        let prewarmed = match default_python_env {
-            crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
-            _ => "uv:prewarmed",
-        };
-        info!(
-            "[notebook-sync] Auto-launch: using prewarmed environment ({})",
-            prewarmed
-        );
-        let pooled_env = match acquire_pool_env_for_source(prewarmed, &daemon, room).await {
-            Some(env) => env,
-            None => return, // Error already broadcast
-        };
-        ("python", prewarmed.to_string(), pooled_env)
+    let (kernel_type, env_source, pooled_env) = match notebook_kernel_type.as_deref() {
+        Some("deno") => {
+            // Notebook is a Deno notebook (per its kernelspec)
+            info!("[notebook-sync] Auto-launch: Deno kernel (notebook kernelspec)");
+            ("deno", "deno".to_string(), None)
+        }
+        Some("python") => {
+            // Notebook is a Python notebook - resolve environment
+            let env_source = if let Some(ref source) = inline_source {
+                // Skip "deno" inline source for Python notebooks (kernelspec takes priority)
+                if source != "deno" {
+                    info!(
+                        "[notebook-sync] Auto-launch: found inline deps -> {}",
+                        source
+                    );
+                    source.clone()
+                } else if let Some(ref proj) = project_source {
+                    info!(
+                        "[notebook-sync] Auto-launch: using project file -> {}",
+                        proj
+                    );
+                    proj.clone()
+                } else {
+                    let prewarmed = match default_python_env {
+                        crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
+                        _ => "uv:prewarmed",
+                    };
+                    prewarmed.to_string()
+                }
+            } else if let Some(ref source) = project_source {
+                info!(
+                    "[notebook-sync] Auto-launch: using project file -> {}",
+                    source
+                );
+                source.clone()
+            } else {
+                let prewarmed = match default_python_env {
+                    crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
+                    _ => "uv:prewarmed",
+                };
+                info!(
+                    "[notebook-sync] Auto-launch: using prewarmed ({})",
+                    prewarmed
+                );
+                prewarmed.to_string()
+            };
+            let pooled_env = match acquire_pool_env_for_source(&env_source, &daemon, room).await {
+                Some(env) => env,
+                None => return, // Error already broadcast
+            };
+            ("python", env_source, pooled_env)
+        }
+        None => {
+            // New notebook or unknown kernelspec - use default_runtime
+            if inline_source.as_deref() == Some("deno") {
+                // runt.deno config present
+                info!("[notebook-sync] Auto-launch: Deno kernel (runt.deno config)");
+                ("deno", "deno".to_string(), None)
+            } else if matches!(default_runtime, crate::runtime::Runtime::Deno) {
+                // User's default is Deno
+                info!("[notebook-sync] Auto-launch: Deno kernel (default runtime)");
+                ("deno", "deno".to_string(), None)
+            } else {
+                // Default to Python
+                let env_source = if let Some(ref source) = inline_source {
+                    info!(
+                        "[notebook-sync] Auto-launch: found inline deps -> {}",
+                        source
+                    );
+                    source.clone()
+                } else if let Some(ref source) = project_source {
+                    info!(
+                        "[notebook-sync] Auto-launch: using project file -> {}",
+                        source
+                    );
+                    source.clone()
+                } else {
+                    let prewarmed = match default_python_env {
+                        crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
+                        _ => "uv:prewarmed",
+                    };
+                    info!(
+                        "[notebook-sync] Auto-launch: using prewarmed ({})",
+                        prewarmed
+                    );
+                    prewarmed.to_string()
+                };
+                let pooled_env = match acquire_pool_env_for_source(&env_source, &daemon, room).await
+                {
+                    Some(env) => env,
+                    None => return, // Error already broadcast
+                };
+                ("python", env_source, pooled_env)
+            }
+        }
+        Some(other) => {
+            // Unknown kernel type - default to Python
+            warn!(
+                "[notebook-sync] Unknown kernel type '{}', defaulting to Python",
+                other
+            );
+            let prewarmed = match default_python_env {
+                crate::settings_doc::PythonEnvType::Conda => "conda:prewarmed",
+                _ => "uv:prewarmed",
+            };
+            let pooled_env = match acquire_pool_env_for_source(prewarmed, &daemon, room).await {
+                Some(env) => env,
+                None => return,
+            };
+            ("python", prewarmed.to_string(), pooled_env)
+        }
     };
+
     match kernel
         .launch(
             kernel_type,
