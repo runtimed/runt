@@ -16,6 +16,31 @@ npx @biomejs/biome check --fix apps/notebook/src/ e2e/
 
 Do not skip these. There are no pre-commit hooks — you must run them manually.
 
+## Commit and PR Title Standard (Required)
+
+Use the Conventional Commits format for **both**:
+- Every git commit message
+- Every pull request title
+
+Required format:
+```text
+<type>(<optional-scope>)!: <short imperative summary>
+```
+
+Rules:
+- Use lowercase `type` and summary text
+- Keep summaries concise and do not end with a period
+- Use `!` only for breaking changes (and explain details in the commit body or PR description)
+- For PR titles, choose the primary change type represented by the PR
+
+Common types:
+- `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`, `build`, `perf`, `revert`
+
+Examples:
+- `feat(kernel): add environment source labels`
+- `fix(runtimed): handle missing daemon socket`
+- `docs(agents): enforce conventional commit and PR title format`
+
 ## Workspace Description
 
 When working in a worktree, set a human-readable description of what you're working on by writing to `.context/workspace-description`:
