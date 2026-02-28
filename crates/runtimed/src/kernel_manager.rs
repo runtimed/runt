@@ -81,6 +81,18 @@ fn message_content_to_nbformat(content: &JupyterMessageContent) -> Option<serde_
     }
 }
 
+/// Convert a Jupyter Media bundle (from page payload) to nbformat display_data JSON.
+///
+/// Page payloads are used by IPython for `?` and `??` help. This converts
+/// them to display_data outputs so help content appears in cell outputs.
+fn media_to_display_data(media: &jupyter_protocol::Media) -> serde_json::Value {
+    serde_json::json!({
+        "output_type": "display_data",
+        "data": media,
+        "metadata": {}
+    })
+}
+
 /// Check if a string looks like a manifest hash (64-char hex).
 fn is_manifest_hash(s: &str) -> bool {
     s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())
@@ -848,6 +860,11 @@ impl RoomKernel {
         let shell_broadcast_tx = self.broadcast_tx.clone();
         let shell_cell_id_map = self.cell_id_map.clone();
         let shell_pending_history = self.pending_history.clone();
+        // Additional resources for handling page payloads (IPython ? and ?? help)
+        let shell_doc = self.doc.clone();
+        let shell_blob_store = self.blob_store.clone();
+        let shell_persist_path = self.persist_path.clone();
+        let shell_changed_tx = self.changed_tx.clone();
 
         let shell_reader_task = tokio::spawn(async move {
             loop {
@@ -857,17 +874,100 @@ impl RoomKernel {
 
                         match msg.content {
                             JupyterMessageContent::ExecuteReply(ref reply) => {
-                                // Could handle page payloads here if needed
+                                // Get cell_id from msg_id mapping
+                                let cell_id = msg.parent_header.as_ref().and_then(|h| {
+                                    shell_cell_id_map.lock().ok()?.get(&h.msg_id).cloned()
+                                });
+
+                                // Process page payloads - convert to display_data outputs
+                                // This handles IPython's ? and ?? help commands
+                                if let Some(ref cid) = cell_id {
+                                    for payload in &reply.payload {
+                                        if let jupyter_protocol::Payload::Page { data, .. } =
+                                            payload
+                                        {
+                                            // Convert Media to nbformat display_data
+                                            let nbformat_value = media_to_display_data(data);
+
+                                            // Create manifest and store (same pattern as iopub_task)
+                                            let output_ref = match output_store::create_manifest(
+                                                &nbformat_value,
+                                                &shell_blob_store,
+                                                DEFAULT_INLINE_THRESHOLD,
+                                            )
+                                            .await
+                                            {
+                                                Ok(manifest_json) => {
+                                                    match output_store::store_manifest(
+                                                        &manifest_json,
+                                                        &shell_blob_store,
+                                                    )
+                                                    .await
+                                                    {
+                                                        Ok(hash) => hash,
+                                                        Err(e) => {
+                                                            warn!(
+                                                                "[kernel-manager] Failed to store page manifest: {}",
+                                                                e
+                                                            );
+                                                            nbformat_value.to_string()
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    warn!(
+                                                        "[kernel-manager] Failed to create page manifest: {}",
+                                                        e
+                                                    );
+                                                    nbformat_value.to_string()
+                                                }
+                                            };
+
+                                            // Append to Automerge doc
+                                            let persist_bytes = {
+                                                let mut doc_guard = shell_doc.write().await;
+                                                if let Err(e) =
+                                                    doc_guard.append_output(cid, &output_ref)
+                                                {
+                                                    warn!(
+                                                        "[kernel-manager] Failed to append page output to doc: {}",
+                                                        e
+                                                    );
+                                                }
+                                                let bytes = doc_guard.save();
+                                                let _ = shell_changed_tx.send(());
+                                                bytes
+                                            };
+                                            persist_notebook_bytes(
+                                                &persist_bytes,
+                                                &shell_persist_path,
+                                            );
+
+                                            // Broadcast to all windows
+                                            let _ = shell_broadcast_tx.send(
+                                                NotebookBroadcast::Output {
+                                                    cell_id: cid.clone(),
+                                                    output_type: "display_data".to_string(),
+                                                    output_json: output_ref,
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+
+                                // Broadcast execution done for error status
                                 if reply.status != jupyter_protocol::ReplyStatus::Ok {
-                                    let cell_id = msg.parent_header.as_ref().and_then(|h| {
-                                        shell_cell_id_map.lock().ok()?.get(&h.msg_id).cloned()
-                                    });
-                                    if let Some(cid) = cell_id {
+                                    if let Some(ref cid) = cell_id {
                                         let _ = shell_broadcast_tx.send(
-                                            NotebookBroadcast::ExecutionDone { cell_id: cid },
+                                            NotebookBroadcast::ExecutionDone {
+                                                cell_id: cid.clone(),
+                                            },
                                         );
                                     }
                                 }
+
+                                // Note: cell_id_map cleanup happens on cell re-execution, not here.
+                                // Both shell and iopub channels need the mapping, and they race.
                             }
                             JupyterMessageContent::HistoryReply(ref reply) => {
                                 // Get the parent msg_id to find the pending request
@@ -1030,11 +1130,15 @@ impl RoomKernel {
         let message: JupyterMessage = request.into();
         let msg_id = message.header.msg_id.clone();
 
-        // Register msg_id → cell_id BEFORE sending
-        self.cell_id_map
-            .lock()
-            .unwrap()
-            .insert(msg_id.clone(), cell.cell_id.clone());
+        // Register msg_id → cell_id BEFORE sending.
+        // First, remove any old mappings for this cell_id (from previous executions).
+        // This bounds the map to one entry per cell, not per execution, while still
+        // allowing both shell (execute_reply) and iopub (idle status) to use the mapping.
+        {
+            let mut map = self.cell_id_map.lock().unwrap();
+            map.retain(|_, v| v != &cell.cell_id);
+            map.insert(msg_id.clone(), cell.cell_id.clone());
+        }
 
         // Now borrow shell_writer mutably
         let shell = self.shell_writer.as_mut().unwrap();
@@ -1053,10 +1157,10 @@ impl RoomKernel {
             self.executing = None;
             self.status = KernelStatus::Idle;
 
-            // Clean up cell_id_map entries for this cell (prevent unbounded growth)
-            if let Ok(mut map) = self.cell_id_map.lock() {
-                map.retain(|_, v| v != cell_id);
-            }
+            // Note: cell_id_map cleanup happens when a cell is RE-EXECUTED (in
+            // send_execute_request), not here. The shell and iopub channels race,
+            // and both need the mapping. Cleaning up on re-execution bounds the map
+            // to one entry per cell while avoiding the race condition.
 
             // Broadcast done
             let _ = self.broadcast_tx.send(NotebookBroadcast::ExecutionDone {
