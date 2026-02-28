@@ -140,6 +140,30 @@ fn check_inline_deps(notebook_path: &Path) -> Option<String> {
     None
 }
 
+/// Extract inline UV dependencies from a notebook file.
+/// Returns the list of dependency strings if UV deps are present.
+fn get_inline_uv_deps(notebook_path: &Path) -> Option<Vec<String>> {
+    let content = std::fs::read_to_string(notebook_path).ok()?;
+    let nb: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let metadata_value = nb.get("metadata")?;
+
+    let metadata: std::collections::HashMap<String, serde_json::Value> =
+        serde_json::from_value(metadata_value.clone()).ok()?;
+
+    if let Some(uv) = runt_trust::get_uv_metadata(&metadata) {
+        if let Some(deps) = uv.get("dependencies").and_then(|d| d.as_array()) {
+            let dep_strings: Vec<String> = deps
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect();
+            if !dep_strings.is_empty() {
+                return Some(dep_strings);
+            }
+        }
+    }
+    None
+}
+
 /// Verify trust status of a notebook by reading its file.
 /// Returns TrustState with the verification result.
 fn verify_trust_from_file(notebook_path: &Path) -> TrustState {
@@ -903,9 +927,19 @@ async fn auto_launch_kernel(
                 );
                 prewarmed.to_string()
             };
-            let pooled_env = match acquire_pool_env_for_source(&env_source, &daemon, room).await {
-                Some(env) => env,
-                None => return, // Error already broadcast
+            // For uv:inline and uv:pyproject, we don't need a pooled env -
+            // the kernel manager uses `uv run --with` directly
+            let pooled_env = if env_source == "uv:pyproject" || env_source == "uv:inline" {
+                info!(
+                    "[notebook-sync] Auto-launch: {} uses uv run, no pool env needed",
+                    env_source
+                );
+                None
+            } else {
+                match acquire_pool_env_for_source(&env_source, &daemon, room).await {
+                    Some(env) => env,
+                    None => return, // Error already broadcast
+                }
             };
             ("python", env_source, pooled_env)
         }
@@ -944,11 +978,12 @@ async fn auto_launch_kernel(
                     );
                     prewarmed.to_string()
                 };
-                // For project-based sources (uv:pyproject), we don't need a pooled env -
-                // the kernel manager uses `uv run` directly in the project directory
-                let pooled_env = if env_source == "uv:pyproject" {
+                // For uv:inline and uv:pyproject, we don't need a pooled env -
+                // the kernel manager uses `uv run --with` directly
+                let pooled_env = if env_source == "uv:pyproject" || env_source == "uv:inline" {
                     info!(
-                        "[notebook-sync] Auto-launch: uv:pyproject uses uv run, no pool env needed"
+                        "[notebook-sync] Auto-launch: {} uses uv run, no pool env needed",
+                        env_source
                     );
                     None
                 } else {
@@ -978,12 +1013,22 @@ async fn auto_launch_kernel(
         }
     };
 
+    // Extract inline UV deps if needed
+    let inline_deps = if env_source == "uv:inline" {
+        notebook_path_opt
+            .as_ref()
+            .and_then(|path| get_inline_uv_deps(path))
+    } else {
+        None
+    };
+
     match kernel
         .launch(
             kernel_type,
             &env_source,
             notebook_path_opt.as_deref(),
             pooled_env,
+            inline_deps,
         )
         .await
     {
@@ -1153,15 +1198,16 @@ async fn handle_notebook_request(
                             };
                         }
                     },
-                    "uv:pyproject" => {
-                        // Project-based source uses `uv run` directly, no pooled env needed
+                    "uv:pyproject" | "uv:inline" => {
+                        // These sources use `uv run` directly, no pooled env needed
                         info!(
-                            "[notebook-sync] LaunchKernel: uv:pyproject uses uv run, no pool env"
+                            "[notebook-sync] LaunchKernel: {} uses uv run, no pool env",
+                            resolved_env_source
                         );
                         None
                     }
                     other => {
-                        // For inline sources, route to correct pool based on prefix
+                        // For conda inline sources, route to conda pool
                         if other.starts_with("conda:") {
                             match daemon.take_conda_env().await {
                                 Some(env) => Some(env),
@@ -1172,6 +1218,7 @@ async fn handle_notebook_request(
                                 }
                             }
                         } else {
+                            // Prewarmed UV
                             match daemon.take_uv_env().await {
                                 Some(env) => Some(env),
                                 None => {
@@ -1185,12 +1232,22 @@ async fn handle_notebook_request(
                 }
             };
 
+            // Extract inline UV deps if needed
+            let inline_deps = if resolved_env_source == "uv:inline" {
+                notebook_path
+                    .as_ref()
+                    .and_then(|path| get_inline_uv_deps(path))
+            } else {
+                None
+            };
+
             match kernel
                 .launch(
                     &kernel_type,
                     &resolved_env_source,
                     notebook_path.as_deref(),
                     pooled_env,
+                    inline_deps,
                 )
                 .await
             {

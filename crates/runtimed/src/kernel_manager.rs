@@ -361,13 +361,15 @@ impl RoomKernel {
     /// Launch a kernel for this room.
     ///
     /// If `env` is provided (prewarmed pool environment), launches using that environment's
-    /// Python directly. Otherwise, falls back to kernelspec discovery.
+    /// Python directly. For `uv:inline` sources, uses `uv run --with` with the provided deps.
+    /// For `uv:pyproject`, uses `uv run` in the project directory.
     pub async fn launch(
         &mut self,
         kernel_type: &str,
         env_source: &str,
         notebook_path: Option<&std::path::Path>,
         env: Option<PooledEnv>,
+        inline_deps: Option<Vec<String>>,
     ) -> Result<()> {
         // Shutdown existing kernel if any (but don't broadcast shutdown for fresh kernel)
         if self.is_running() {
@@ -437,6 +439,34 @@ impl RoomKernel {
             "python" => {
                 // Branch on env_source for different Python environment types
                 match env_source {
+                    "uv:inline" => {
+                        // Use `uv run --with` for inline dependencies
+                        let uv_path = kernel_launch::tools::get_uv_path().await?;
+                        let deps = inline_deps.unwrap_or_default();
+                        info!(
+                            "[kernel-manager] Starting Python kernel with uv run --with {:?}",
+                            deps
+                        );
+                        let mut cmd = tokio::process::Command::new(&uv_path);
+                        cmd.arg("run");
+                        // Add ipykernel first
+                        cmd.args(["--with", "ipykernel"]);
+                        // Add each inline dependency
+                        for dep in &deps {
+                            cmd.args(["--with", dep]);
+                        }
+                        cmd.args([
+                            "python",
+                            "-Xfrozen_modules=off",
+                            "-m",
+                            "ipykernel_launcher",
+                            "-f",
+                        ]);
+                        cmd.arg(&connection_file_path);
+                        cmd.stdout(Stdio::null());
+                        cmd.stderr(Stdio::null());
+                        cmd
+                    }
                     "uv:pyproject" => {
                         // Use `uv run` in the project directory with ipykernel
                         let uv_path = kernel_launch::tools::get_uv_path().await?;
@@ -461,7 +491,7 @@ impl RoomKernel {
                         cmd
                     }
                     _ => {
-                        // Prewarmed or inline deps - use pooled environment
+                        // Prewarmed - use pooled environment
                         let pooled_env = env.ok_or_else(|| {
                             anyhow::anyhow!(
                                 "Python kernel requires a pooled environment for env_source: {}",
