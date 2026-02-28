@@ -394,9 +394,9 @@ export function useDaemonKernel({
 
     return () => {
       cancelled = true;
-      unlistenBroadcast.then((fn) => fn());
-      unlistenDisconnect.then((fn) => fn());
-      unlistenReady.then((fn) => fn());
+      unlistenBroadcast.then((fn) => fn()).catch(() => {});
+      unlistenDisconnect.then((fn) => fn()).catch(() => {});
+      unlistenReady.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
