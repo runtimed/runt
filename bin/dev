@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Dev shortcut — runs `cargo xtask dev` from anywhere in the repo.
+#
+# Activated automatically via .envrc (direnv) which prepends bin/ to PATH.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+exec cargo xtask dev --manifest-path "$REPO_ROOT/Cargo.toml" "$@"
