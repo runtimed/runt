@@ -495,6 +495,9 @@ async fn download_deno_from_github(version: &str) -> Result<BootstrappedTool> {
             std::fs::set_permissions(&extracted_binary, perms)?;
         }
 
+        // Silence unused warning on Windows where we don't set permissions
+        let _ = &extracted_binary;
+
         // Verify binary exists at expected location
         if !binary_path_clone.exists() {
             return Err(anyhow!(
