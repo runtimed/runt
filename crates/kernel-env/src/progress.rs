@@ -186,6 +186,9 @@ pub struct RattlerReporter {
     current_download: RwLock<Option<String>>,
     /// Last time we emitted a download progress event (throttling).
     last_download_emit: RwLock<Option<Instant>>,
+    /// Per-download cumulative progress (for computing deltas).
+    /// Rattler reports cumulative bytes per download, not deltas.
+    download_progress_by_idx: RwLock<HashMap<usize, u64>>,
 }
 
 impl RattlerReporter {
@@ -203,6 +206,7 @@ impl RattlerReporter {
             package_names: RwLock::new(HashMap::new()),
             current_download: RwLock::new(None),
             last_download_emit: RwLock::new(None),
+            download_progress_by_idx: RwLock::new(HashMap::new()),
         }
     }
 
@@ -315,8 +319,15 @@ impl Reporter for RattlerReporter {
         cache_entry
     }
 
-    fn on_download_progress(&self, _download_idx: usize, progress: u64, total: Option<u64>) {
-        self.bytes_downloaded.fetch_add(progress, Ordering::SeqCst);
+    fn on_download_progress(&self, download_idx: usize, progress: u64, total: Option<u64>) {
+        // Rattler reports cumulative bytes per download, not deltas.
+        // Track per-download progress and compute the delta to avoid overcounting.
+        let delta = {
+            let mut progress_map = self.download_progress_by_idx.write().unwrap();
+            let prev = progress_map.insert(download_idx, progress).unwrap_or(0);
+            progress.saturating_sub(prev)
+        };
+        self.bytes_downloaded.fetch_add(delta, Ordering::SeqCst);
         if let Some(t) = total {
             let current_total = self.bytes_total.load(Ordering::SeqCst);
             if current_total == 0 {
