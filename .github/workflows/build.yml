@@ -164,7 +164,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ui-build-dist
-          path: .
+          path: apps
 
       - name: Install system dependencies
         run: ${{ matrix.platform.setup }}
