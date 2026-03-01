@@ -182,11 +182,20 @@ impl Session {
     /// Args:
     ///     kernel_type: Type of kernel ("python" or "deno"). Defaults to "python".
     ///     env_source: Environment source. Defaults to "uv:prewarmed".
+    ///         Use "auto" to auto-detect from inline deps or project files.
+    ///     notebook_path: Optional path to the notebook file on disk.
+    ///         Used for project file detection (pyproject.toml, pixi.toml,
+    ///         environment.yml) when env_source is "auto".
     ///
     /// If a kernel is already running for this session's notebook_id,
     /// this returns immediately without starting a new one.
-    #[pyo3(signature = (kernel_type="python", env_source="uv:prewarmed"))]
-    fn start_kernel(&self, kernel_type: &str, env_source: &str) -> PyResult<()> {
+    #[pyo3(signature = (kernel_type="python", env_source="uv:prewarmed", notebook_path=None))]
+    fn start_kernel(
+        &self,
+        kernel_type: &str,
+        env_source: &str,
+        notebook_path: Option<&str>,
+    ) -> PyResult<()> {
         // Ensure connected first
         self.connect()?;
 
@@ -202,7 +211,7 @@ impl Session {
                 .send_request(NotebookRequest::LaunchKernel {
                     kernel_type: kernel_type.to_string(),
                     env_source: env_source.to_string(),
-                    notebook_path: None,
+                    notebook_path: notebook_path.map(|p| p.to_string()),
                 })
                 .await
                 .map_err(to_py_err)?;
@@ -449,7 +458,7 @@ impl Session {
             let state = self.runtime.block_on(self.state.lock());
             if !state.kernel_started {
                 drop(state);
-                self.start_kernel("python", "uv:prewarmed")?;
+                self.start_kernel("python", "uv:prewarmed", None)?;
             }
         }
 

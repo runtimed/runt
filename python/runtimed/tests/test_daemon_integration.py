@@ -130,7 +130,7 @@ def daemon_process():
             "--cache-dir", str(cache_dir),
             "--blob-store-dir", str(blob_dir),
             "--uv-pool-size", "2",  # Small pool for tests (need >1 for sequential tests)
-            "--conda-pool-size", "0",  # No conda for speed
+            "--conda-pool-size", "2",  # Need >=2 for conda project file tests (pixi + env_yml)
         ]
 
         print(f"\n[test] Starting daemon: {' '.join(cmd)}", file=sys.stderr)
@@ -165,23 +165,36 @@ def daemon_process():
             print(f"[test] Daemon logs:\n{log_file.read_text()}", file=sys.stderr)
             pytest.fail("Daemon socket did not appear within 30s")
 
-        # Wait for pool to warm up before running tests
-        os.environ["RUNTIMED_SOCKET_PATH"] = str(socket_path)
-        try:
-            client = runtimed.DaemonClient()
-            for i in range(60):
-                try:
-                    status = client.status()
-                    if status.get("uv_available", 0) > 0:
-                        print(f"[test] Pool ready after {i + 1}s (uv_available={status['uv_available']})", file=sys.stderr)
-                        break
-                except Exception:
-                    pass
-                time.sleep(1)
-            else:
-                print("[test] Warning: pool did not warm up within 60s", file=sys.stderr)
-        except Exception as e:
-            print(f"[test] Warning: could not check pool status: {e}", file=sys.stderr)
+        # Wait for pools to warm up before running tests.
+        # We poll the daemon log file for pool-ready messages since
+        # DaemonClient uses default_socket_path() which doesn't respect
+        # RUNTIMED_SOCKET_PATH for CI mode.
+        uv_ready = False
+        conda_ready = False
+        for i in range(120):
+            try:
+                log_contents = log_file.read_text()
+                if not uv_ready and "UV pool:" in log_contents and "available" in log_contents:
+                    # Look for "UV pool: N/N available" where N > 0
+                    for line in log_contents.splitlines():
+                        if "UV pool:" in line and "/2 available" in line:
+                            uv_ready = True
+                            print(f"[test] UV pool ready after {i + 1}s", file=sys.stderr)
+                            break
+                if not conda_ready and "Conda pool:" in log_contents:
+                    for line in log_contents.splitlines():
+                        if "Conda pool:" in line and "/2 available" in line:
+                            conda_ready = True
+                            print(f"[test] Conda pool ready after {i + 1}s", file=sys.stderr)
+                            break
+            except Exception:
+                pass
+            if uv_ready and conda_ready:
+                break
+            time.sleep(1)
+        else:
+            print(f"[test] Warning: pools not fully ready within 120s "
+                  f"(uv={uv_ready}, conda={conda_ready})", file=sys.stderr)
 
         try:
             yield socket_path, proc
@@ -784,6 +797,243 @@ class TestKernelLaunchMetadata:
 
         result = session.run("import sys; print(sys.prefix)")
         assert result.success
+
+
+# ============================================================================
+# Deno kernel tests
+# ============================================================================
+
+
+class TestDenoKernel:
+    """Test Deno kernel launch via daemon bootstrap.
+
+    The daemon bootstraps deno via rattler/conda-forge if not on PATH,
+    then runs `deno jupyter --kernel --conn <file>`. First run may be
+    slow due to deno download; subsequent runs use the cached binary.
+    """
+
+    def test_deno_kernel_launch(self, session):
+        """Deno kernel launches and executes TypeScript."""
+        import json
+
+        snapshot = _deno_kernelspec_metadata()
+        session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+        time.sleep(0.3)
+
+        session.start_kernel(kernel_type="deno", env_source="deno")
+
+        result = session.run("console.log('hello from deno')")
+        assert result.success, f"Deno execution failed: {result.stderr}"
+        assert "hello from deno" in result.stdout
+
+    def test_deno_kernel_typescript_features(self, session):
+        """Deno kernel supports TypeScript features."""
+        import json
+
+        snapshot = _deno_kernelspec_metadata()
+        session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+        time.sleep(0.3)
+
+        session.start_kernel(kernel_type="deno", env_source="deno")
+
+        # TypeScript type annotations and template literals
+        result = session.run(
+            "const greet = (name: string): string => `Hello, ${name}!`;\n"
+            "console.log(greet('integration test'))"
+        )
+        assert result.success, f"TypeScript execution failed: {result.stderr}"
+        assert "Hello, integration test!" in result.stdout
+
+    def test_deno_kernelspec_metadata_round_trip(self, session):
+        """Deno kernelspec in metadata is stored and retrieved correctly."""
+        import json
+
+        snapshot = _deno_kernelspec_metadata()
+        session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+        time.sleep(0.3)
+
+        raw = session.get_metadata(NOTEBOOK_METADATA_KEY)
+        assert raw is not None
+        parsed = json.loads(raw)
+        assert parsed["kernelspec"]["name"] == "deno"
+        assert parsed["kernelspec"]["language"] == "typescript"
+        assert parsed["language_info"]["name"] == "typescript"
+
+
+# ============================================================================
+# Conda inline dependency tests
+# ============================================================================
+
+
+class TestCondaInlineDeps:
+    """Test conda inline dependency environments.
+
+    When notebook metadata contains runt.conda.dependencies, the daemon
+    creates a cached conda environment via rattler. First creation is
+    slow (rattler solve + install); subsequent launches with the same
+    deps hit the cache at ~/.cache/runt/inline-envs/.
+    """
+
+    def test_conda_inline_deps(self, session):
+        """Conda inline deps from metadata launches kernel with deps installed."""
+        import json
+
+        snapshot = _python_kernelspec_metadata(with_conda_deps=["numpy"])
+        session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+        time.sleep(0.3)
+
+        session.start_kernel(kernel_type="python", env_source="conda:inline")
+
+        assert session.env_source == "conda:inline"
+
+        result = session.run("import numpy; print(numpy.__version__)")
+        assert result.success, f"Failed to import numpy: {result.stderr}"
+        assert result.stdout.strip(), "numpy version should not be empty"
+
+    def test_conda_inline_env_has_python(self, session):
+        """Conda inline env has a working Python in a conda prefix."""
+        import json
+
+        snapshot = _python_kernelspec_metadata(with_conda_deps=["numpy"])
+        session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+        time.sleep(0.3)
+
+        session.start_kernel(kernel_type="python", env_source="conda:inline")
+
+        result = session.run("import sys; print(sys.prefix)")
+        assert result.success
+        prefix = result.stdout.strip()
+        assert prefix, "sys.prefix should not be empty"
+        # Should be in the inline-envs cache directory
+        assert "inline" in prefix or "cache" in prefix, (
+            f"Expected conda inline env path, got: {prefix}"
+        )
+
+
+# ============================================================================
+# Project file detection tests
+# ============================================================================
+
+
+# Fixture directory for project file tests
+FIXTURES_DIR = Path(__file__).parent.parent.parent.parent / "crates" / "notebook" / "fixtures" / "audit-test"
+
+
+class TestProjectFileDetection:
+    """Test project file auto-detection via notebook_path walk-up.
+
+    When env_source="auto" and a notebook_path is provided, the daemon
+    walks up from the notebook directory looking for project files
+    (pyproject.toml, pixi.toml, environment.yml). The closest match wins.
+
+    These tests use real fixture notebooks from the repo that have
+    project files alongside them.
+    """
+
+    def test_pyproject_auto_detection(self, session):
+        """notebook_path near pyproject.toml auto-detects uv:pyproject.
+
+        Uses `uv run --with ipykernel` to install deps from the fixture
+        pyproject.toml (pandas>=2.0, numpy).
+        """
+        import json
+
+        notebook_path = str(FIXTURES_DIR / "pyproject-project" / "5-pyproject.ipynb")
+
+        # Set python kernelspec in metadata
+        snapshot = _python_kernelspec_metadata()
+        session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+        time.sleep(0.3)
+
+        session.start_kernel(
+            kernel_type="python",
+            env_source="auto",
+            notebook_path=notebook_path,
+        )
+
+        assert session.env_source == "uv:pyproject"
+
+        # The fixture pyproject.toml declares numpy as a dependency
+        result = session.run("import numpy; print(numpy.__version__)")
+        assert result.success, f"Failed to import numpy from pyproject env: {result.stderr}"
+
+    def test_pixi_auto_detection(self, session):
+        """notebook_path near pixi.toml auto-detects conda:pixi.
+
+        The conda:pixi env_source is detected, and a pooled conda env
+        is used to launch the kernel.
+        """
+        import json
+
+        notebook_path = str(FIXTURES_DIR / "pixi-project" / "6-pixi.ipynb")
+
+        snapshot = _python_kernelspec_metadata()
+        session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+        time.sleep(0.3)
+
+        session.start_kernel(
+            kernel_type="python",
+            env_source="auto",
+            notebook_path=notebook_path,
+        )
+
+        assert session.env_source == "conda:pixi"
+
+        # Kernel should be functional
+        result = session.run("import sys; print(sys.prefix)")
+        assert result.success, f"Kernel failed in pixi env: {result.stderr}"
+
+    def test_environment_yml_auto_detection(self, session):
+        """notebook_path near environment.yml auto-detects conda:env_yml.
+
+        The conda:env_yml env_source is detected, and a pooled conda env
+        is used to launch the kernel.
+        """
+        import json
+
+        notebook_path = str(FIXTURES_DIR / "conda-env-project" / "7-environment-yml.ipynb")
+
+        snapshot = _python_kernelspec_metadata()
+        session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+        time.sleep(0.3)
+
+        session.start_kernel(
+            kernel_type="python",
+            env_source="auto",
+            notebook_path=notebook_path,
+        )
+
+        assert session.env_source == "conda:env_yml"
+
+        result = session.run("import sys; print(sys.prefix)")
+        assert result.success, f"Kernel failed in env_yml env: {result.stderr}"
+
+    def test_no_project_file_falls_back_to_prewarmed(self, session):
+        """When no project file is found, auto falls back to uv:prewarmed."""
+        import json
+        import tempfile
+
+        # Create a temp notebook path with no project files nearby
+        with tempfile.NamedTemporaryFile(suffix=".ipynb", delete=False) as f:
+            notebook_path = f.name
+
+        try:
+            snapshot = _python_kernelspec_metadata()
+            session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+            time.sleep(0.3)
+
+            session.start_kernel(
+                kernel_type="python",
+                env_source="auto",
+                notebook_path=notebook_path,
+            )
+
+            assert session.env_source == "uv:prewarmed"
+
+            result = session.run("import sys; print(sys.prefix)")
+            assert result.success
+        finally:
+            os.unlink(notebook_path)
 
 
 if __name__ == "__main__":
