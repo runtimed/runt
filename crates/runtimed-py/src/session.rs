@@ -372,6 +372,10 @@ impl Session {
     /// The daemon reads the cell's source from the automerge document and
     /// executes it. This ensures all clients see the same code being executed.
     ///
+    /// If a kernel isn't running yet, this will start one automatically.
+    /// If a kernel is already running in the daemon (e.g., started by another
+    /// client), it will reuse that kernel.
+    ///
     /// Args:
     ///     cell_id: The cell ID to execute.
     ///     timeout_secs: Maximum time to wait for execution (default: 60).
@@ -380,17 +384,22 @@ impl Session {
     ///     ExecutionResult with outputs, success status, and execution count.
     ///
     /// Raises:
-    ///     RuntimedError: If not connected, kernel not started, cell not found, or timeout.
+    ///     RuntimedError: If not connected, cell not found, or timeout.
     #[pyo3(signature = (cell_id, timeout_secs=60.0))]
     fn execute_cell(&self, cell_id: &str, timeout_secs: f64) -> PyResult<ExecutionResult> {
         let cell_id = cell_id.to_string();
 
+        // Auto-start kernel if not running (will reuse existing kernel if one is running)
+        {
+            let state = self.runtime.block_on(self.state.lock());
+            if !state.kernel_started {
+                drop(state);
+                self.start_kernel("python", "uv:prewarmed")?;
+            }
+        }
+
         self.runtime.block_on(async {
             let state = self.state.lock().await;
-
-            if !state.kernel_started {
-                return Err(to_py_err("Kernel not started. Call start_kernel() first."));
-            }
 
             let handle = state
                 .handle
