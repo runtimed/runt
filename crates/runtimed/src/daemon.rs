@@ -377,6 +377,13 @@ impl Daemon {
         }))
     }
 
+    /// Get a handle to the shutdown notifier.
+    ///
+    /// Signal handlers can use this to trigger graceful shutdown.
+    pub fn shutdown_notify(&self) -> Arc<Notify> {
+        self.shutdown_notify.clone()
+    }
+
     /// Run the daemon server.
     pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
         // Platform-specific setup
