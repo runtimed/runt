@@ -160,9 +160,6 @@ For production use, install the daemon as a system service:
 ```bash
 # Reinstall daemon with your changes (builds release, stops old, copies, restarts)
 cargo xtask install-daemon
-
-# Or manually:
-runt daemon stop && runt daemon uninstall && runt daemon install
 ```
 
 `cargo xtask dev` and `cargo xtask build` do **not** reinstall the daemon. If you're changing daemon code (settings, sync, environments), you must run `cargo xtask install-daemon` separately to test your changes.

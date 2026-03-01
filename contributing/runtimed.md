@@ -97,22 +97,6 @@ cargo xtask run                   # Run the bundled binary
 
 The `--rust-only` flag skips `pnpm build`, reusing the existing frontend assets in `apps/notebook/dist/`. This is much faster when you're only changing Rust code.
 
-### Manual: Run daemon separately
-
-For debugging daemon-specific code, stop the installed service and run from source:
-
-```bash
-# Stop the installed service first
-cargo run -p runt-cli -- daemon stop
-
-# Run daemon with debug logs
-RUST_LOG=debug cargo run -p runtimed
-
-# In another terminal, test with runt CLI
-cargo run -p runt-cli -- daemon ping
-cargo run -p runt-cli -- daemon status
-```
-
 ### Testing
 
 ```bash
@@ -232,19 +216,17 @@ When shipped as a release build, the daemon installs as a system service that st
 - **Linux**: systemd user service in `~/.config/systemd/user/`
 - **Windows**: Startup folder script
 
-### Managing the Installed Service (for developers)
+### Managing the System Daemon
 
-If you have the app installed and want to run a development version of the daemon instead, you'll need to stop the installed service first.
+These commands manage the **system daemon** (production). For development, use `cargo xtask dev-daemon` instead — it provides per-worktree isolation and doesn't interfere with the system daemon.
 
-**Cross-platform (recommended):**
+**Cross-platform:**
 ```bash
-# Stop the installed daemon
-runt daemon stop
-
 # Check status
 runt daemon status
 
-# Start it later
+# Stop/start the system daemon
+runt daemon stop
 runt daemon start
 
 # View logs
