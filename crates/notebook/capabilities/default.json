@@ -10,6 +10,7 @@
     "core:window:allow-set-theme",
     "dialog:default",
     "process:allow-restart",
-    "updater:default"
+    "updater:default",
+    "window-state:default"
   ]
 }

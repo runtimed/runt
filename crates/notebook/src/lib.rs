@@ -9,6 +9,7 @@ pub mod pixi;
 pub mod project_file;
 pub mod pyproject;
 pub mod runtime;
+pub mod session;
 pub mod settings;
 pub mod shell_env;
 // Re-export tools from kernel-launch crate
@@ -77,9 +78,8 @@ struct ReconnectInProgress(Arc<AtomicBool>);
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-use tauri::RunEvent;
 use tauri::{Emitter, Manager};
+use tauri::{RunEvent, WindowEvent};
 
 #[derive(Serialize)]
 struct KernelspecInfo {
@@ -1105,6 +1105,15 @@ fn create_notebook_window(
     registry: &WindowNotebookRegistry,
     state: NotebookState,
 ) -> Result<String, String> {
+    create_notebook_window_with_label(app, registry, state, None)
+}
+
+fn create_notebook_window_with_label(
+    app: &tauri::AppHandle,
+    registry: &WindowNotebookRegistry,
+    state: NotebookState,
+    custom_label: Option<String>,
+) -> Result<String, String> {
     let title = state
         .path
         .as_ref()
@@ -1112,7 +1121,29 @@ fn create_notebook_window(
         .and_then(|n| n.to_str())
         .unwrap_or("Untitled.ipynb")
         .to_string();
-    let label = format!("notebook-{}", uuid::Uuid::new_v4());
+
+    // Use custom label if provided, otherwise generate a deterministic one
+    let label = custom_label.unwrap_or_else(|| {
+        // Generate stable label based on path or env_id for window-state plugin
+        if let Some(path) = &state.path {
+            let hash = runtimed::worktree_hash(path);
+            format!("notebook-{}", &hash[..8])
+        } else {
+            // For untitled notebooks, use env_id if available
+            let env_id = state
+                .notebook
+                .metadata
+                .additional
+                .get("runt")
+                .and_then(|v| v.get("env_id"))
+                .and_then(|v| v.as_str());
+            if let Some(id) = env_id {
+                format!("notebook-{}", &id[..8.min(id.len())])
+            } else {
+                format!("notebook-{}", uuid::Uuid::new_v4())
+            }
+        }
+    });
     let context = create_window_context(state);
     registry.insert(label.clone(), context.clone())?;
 
@@ -3141,17 +3172,47 @@ pub fn run(
     // Use provided runtime or fall back to user's default from settings
     let runtime = runtime.unwrap_or_else(|| settings::load_settings().default_runtime);
 
-    let initial_state = match notebook_path.as_ref() {
-        Some(path) => load_notebook_state_for_path(path, runtime).map_err(anyhow::Error::msg)?,
-        None => NotebookState::new_empty_with_runtime(runtime),
+    // Try to restore session if no notebook path provided
+    let restored_session = if notebook_path.is_none() {
+        session::load_session()
+    } else {
+        None
     };
 
-    let window_title = notebook_path
-        .as_ref()
-        .and_then(|p| p.file_name())
-        .and_then(|n| n.to_str())
-        .unwrap_or("Untitled.ipynb")
-        .to_string();
+    // Determine initial state for main window
+    let initial_state = match notebook_path.as_ref() {
+        Some(path) => load_notebook_state_for_path(path, runtime).map_err(anyhow::Error::msg)?,
+        None => {
+            // Try to restore from session
+            if let Some(ref session) = restored_session {
+                if let Some(main_session) = session.windows.iter().find(|w| w.label == "main") {
+                    match session::load_window_session_state(main_session) {
+                        Ok(state) => {
+                            info!("[session] Restored main window from session");
+                            state
+                        }
+                        Err(e) => {
+                            warn!("[session] Failed to restore main window: {}", e);
+                            NotebookState::new_empty_with_runtime(runtime)
+                        }
+                    }
+                } else {
+                    NotebookState::new_empty_with_runtime(runtime)
+                }
+            } else {
+                NotebookState::new_empty_with_runtime(runtime)
+            }
+        }
+    };
+
+    let window_title = match &initial_state.path {
+        Some(path) => path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Untitled.ipynb")
+            .to_string(),
+        None => "Untitled.ipynb".to_string(),
+    };
 
     let window_registry = WindowNotebookRegistry::default();
     let main_context = create_window_context(initial_state);
@@ -3180,6 +3241,7 @@ pub fn run(
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(window_registry.clone())
         .manage(reconnect_in_progress)
         .invoke_handler(tauri::generate_handler![
@@ -3300,6 +3362,55 @@ pub fn run(
             // Set up native menu bar
             let menu = crate::menu::create_menu(app.handle())?;
             app.set_menu(menu)?;
+
+            // Restore additional windows from session (main window already restored above)
+            if let Some(session) = &restored_session {
+                let registry = app.state::<WindowNotebookRegistry>();
+                let mut restore_failed = false;
+                for window_session in &session.windows {
+                    if window_session.label == "main" {
+                        continue; // Already restored
+                    }
+                    match session::load_window_session_state(window_session) {
+                        Ok(state) => {
+                            // Use deterministic label so window-state plugin can restore geometry
+                            let label = session::window_label_for_session(window_session);
+                            match create_notebook_window_with_label(
+                                app.handle(),
+                                &registry,
+                                state,
+                                Some(label.clone()),
+                            ) {
+                                Ok(created_label) => {
+                                    info!(
+                                        "[session] Restored additional window: {}",
+                                        created_label
+                                    );
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "[session] Failed to create window for {}: {}",
+                                        label, e
+                                    );
+                                    restore_failed = true;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!(
+                                "[session] Failed to load state for {}: {}",
+                                window_session.label, e
+                            );
+                            restore_failed = true;
+                        }
+                    }
+                }
+                // Only clear session file if at least one window restored successfully
+                // This allows retry on next startup if all windows failed
+                if !restore_failed || session.windows.iter().any(|w| w.label == "main") {
+                    session::clear_session();
+                }
+            }
 
             // Ensure runtimed is running (required for daemon-only mode)
             // The daemon provides centralized prewarming across all notebook windows
@@ -3555,7 +3666,40 @@ pub fn run(
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     let registry_for_open = window_registry.clone();
+    let registry_for_session = window_registry.clone();
+    let registry_for_window_close = window_registry.clone();
     app.run(move |_app_handle, _event| {
+        // Clean up registry entries when windows are destroyed
+        if let RunEvent::WindowEvent {
+            label,
+            event: WindowEvent::Destroyed,
+            ..
+        } = &_event
+        {
+            // Don't remove main window from registry - it persists for the app lifetime
+            if label != "main" {
+                if let Ok(mut contexts) = registry_for_window_close.contexts.lock() {
+                    if contexts.remove(label).is_some() {
+                        log::info!(
+                            "[window] Removed registry entry for closed window: {}",
+                            label
+                        );
+                    }
+                }
+            }
+        }
+
+        // Save session state when app is about to exit
+        // Use Exit (not ExitRequested) as it fires reliably on all platforms
+        if let RunEvent::Exit = &_event {
+            log::info!("[session] App exiting, saving session...");
+            if let Err(e) = session::save_session(&registry_for_session) {
+                log::error!("[session] Failed to save session: {}", e);
+            } else {
+                log::info!("[session] Session saved successfully");
+            }
+        }
+
         // Handle file associations (macOS only)
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         if let RunEvent::Opened { urls } = &_event {
