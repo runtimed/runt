@@ -1333,8 +1333,8 @@ impl RoomKernel {
         Ok(())
     }
 
-    /// Interrupt the currently executing cell.
-    pub async fn interrupt(&self) -> Result<()> {
+    /// Interrupt the currently executing cell and clear the execution queue.
+    pub async fn interrupt(&mut self) -> Result<()> {
         let connection_info = self
             .connection_info
             .as_ref()
@@ -1347,6 +1347,16 @@ impl RoomKernel {
         control.send(request).await?;
 
         info!("[kernel-manager] Sent interrupt_request");
+
+        // Clear the execution queue - interrupt semantically means "stop all pending work"
+        let cleared = self.clear_queue();
+        if !cleared.is_empty() {
+            info!(
+                "[kernel-manager] Cleared {} queued cells due to interrupt",
+                cleared.len()
+            );
+        }
+
         Ok(())
     }
 

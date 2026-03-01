@@ -1612,8 +1612,8 @@ async fn handle_notebook_request(
         }
 
         NotebookRequest::InterruptExecution {} => {
-            let kernel_guard = room.kernel.lock().await;
-            if let Some(ref kernel) = *kernel_guard {
+            let mut kernel_guard = room.kernel.lock().await;
+            if let Some(ref mut kernel) = *kernel_guard {
                 match kernel.interrupt().await {
                     Ok(()) => NotebookResponse::InterruptSent {},
                     Err(e) => NotebookResponse::Error {
