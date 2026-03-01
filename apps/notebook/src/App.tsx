@@ -414,25 +414,17 @@ function AppContent() {
       // Broadcast clear to other windows
       await clearOutputs(cellId);
 
-      // Check if cell is code (early exit before daemon call)
-      const cell = cells.find((c) => c.id === cellId);
-      if (!cell || cell.cell_type !== "code") return;
-
-      // Start kernel via daemon if not running, then execute cell
-      // ExecuteCell reads source from the synced document (document-first execution)
+      // Start kernel via daemon if not running, then execute cell.
+      // Do not gate on local cell lookup here: fixture notebooks can remap cell IDs
+      // during sync updates between clearOutputs and execute, while the daemon still
+      // resolves execution against the synced document state.
       if (kernelStatus === "not_started") {
-        await tryStartKernel();
+        const started = await tryStartKernel();
+        if (!started) return;
       }
-      executeCell(cellId);
+      await executeCell(cellId);
     },
-    [
-      clearCellOutputs,
-      clearOutputs,
-      cells,
-      kernelStatus,
-      tryStartKernel,
-      executeCell,
-    ],
+    [clearCellOutputs, clearOutputs, kernelStatus, tryStartKernel, executeCell],
   );
 
   const handleAddCell = useCallback(
