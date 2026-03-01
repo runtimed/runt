@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: pr-binary-${{ inputs.pr_number }}-${{ inputs.target_os }}
@@ -289,8 +290,84 @@ jobs:
           Set-Content -Path pr-binary/build-metadata.json -Value $metadata
 
       - name: Upload runnable binary artifact
+        id: upload-artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ needs.resolve-pr.outputs.artifact_prefix }}-${{ matrix.artifact_suffix }}
           path: pr-binary/
           retention-days: 14
+
+      - name: Comment on PR with artifact link
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ needs.resolve-pr.outputs.pr_number }}
+          TARGET_OS: ${{ matrix.target_os }}
+          COMMIT_SHORT_SHA: ${{ needs.resolve-pr.outputs.head_short_sha }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ARTIFACT_NAME: ${{ needs.resolve-pr.outputs.artifact_prefix }}-${{ matrix.artifact_suffix }}
+          ARTIFACT_URL: ${{ steps.upload-artifact.outputs.artifact-url }}
+          ARTIFACT_ID: ${{ steps.upload-artifact.outputs.artifact-id }}
+        with:
+          script: |
+            const prNumber = Number(process.env.PR_NUMBER);
+            if (!Number.isInteger(prNumber) || prNumber <= 0) {
+              core.setFailed(`Invalid PR number: ${process.env.PR_NUMBER}`);
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            const artifactUrlFromAction = (process.env.ARTIFACT_URL || "").trim();
+            const artifactId = (process.env.ARTIFACT_ID || "").trim();
+            const fallbackArtifactUrl = artifactId
+              ? `https://github.com/${owner}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}/artifacts/${artifactId}`
+              : runUrl;
+            const artifactUrl = artifactUrlFromAction || fallbackArtifactUrl;
+
+            const marker = `<!-- pr-binary-artifact:${process.env.TARGET_OS} -->`;
+            const body = [
+              marker,
+              "✅ PR binary artifact is ready.",
+              "",
+              `- **OS:** \`${process.env.TARGET_OS}\``,
+              `- **Version:** \`${process.env.VERSION}\``,
+              `- **Commit:** \`${process.env.COMMIT_SHORT_SHA}\``,
+              `- **Artifact:** [${process.env.ARTIFACT_NAME}](${artifactUrl})`,
+              `- **Workflow run:** [View run](${runUrl})`,
+              "",
+              "Download requires GitHub authentication and is available for 14 days.",
+            ].join("\n");
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number: prNumber,
+              per_page: 100,
+            });
+
+            const existingComment = comments.find(
+              (comment) =>
+                comment.user?.type === "Bot" && comment.body?.includes(marker),
+            );
+
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existingComment.id,
+                body,
+              });
+              core.info(
+                `Updated existing artifact comment for PR #${prNumber} (${process.env.TARGET_OS})`,
+              );
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body,
+              });
+              core.info(
+                `Posted artifact comment for PR #${prNumber} (${process.env.TARGET_OS})`,
+              );
+            }
