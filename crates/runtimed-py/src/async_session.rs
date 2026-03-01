@@ -654,51 +654,54 @@ impl AsyncSession {
         })
     }
 
-    /// Convenience method: create a cell, execute it, and return the result.
+    /// Queue a cell for execution without waiting for the result.
     ///
-    /// This is a shortcut that combines create_cell() and execute_cell().
-    /// The cell is written to the automerge document before execution,
-    /// so other connected clients will see it.
+    /// The daemon reads the cell's source from the automerge document and
+    /// queues it for execution. Use get_cell() to poll for results.
+    ///
+    /// If a kernel isn't running yet, this will start one automatically.
     ///
     /// Args:
-    ///     code: The code to execute.
-    ///     timeout_secs: Maximum time to wait for execution (default: 60).
+    ///     cell_id: The cell ID to execute.
     ///
-    /// Returns a coroutine that resolves to ExecutionResult.
+    /// Returns a coroutine.
     ///
     /// Raises:
-    ///     RuntimedError: If not connected, kernel not started, or timeout.
-    #[pyo3(signature = (code, timeout_secs=60.0))]
-    fn run<'py>(
-        &self,
-        py: Python<'py>,
-        code: &str,
-        timeout_secs: f64,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    ///     RuntimedError: If not connected or cell not found.
+    fn queue_cell<'py>(&self, py: Python<'py>, cell_id: &str) -> PyResult<Bound<'py, PyAny>> {
         let state = Arc::clone(&self.state);
         let notebook_id = self.notebook_id.clone();
-        let code = code.to_string();
+        let cell_id = cell_id.to_string();
 
         future_into_py(py, async move {
-            // Ensure connected
+            // Auto-start kernel if not running
             {
                 let state_guard = state.lock().await;
-                if state_guard.handle.is_none() {
+                if !state_guard.kernel_started {
                     drop(state_guard);
 
-                    let socket_path = if let Ok(path) = std::env::var("RUNTIMED_SOCKET_PATH") {
-                        std::path::PathBuf::from(path)
-                    } else {
-                        runtimed::default_socket_path()
-                    };
+                    // Need to connect and start kernel
+                    let state_guard = state.lock().await;
+                    if state_guard.handle.is_none() {
+                        drop(state_guard);
 
-                    let (handle, sync_rx, broadcast_rx, _cells, _notebook_path) =
-                        NotebookSyncClient::connect_split(socket_path.clone(), notebook_id.clone())
+                        let socket_path = if let Ok(path) = std::env::var("RUNTIMED_SOCKET_PATH") {
+                            std::path::PathBuf::from(path)
+                        } else {
+                            runtimed::default_socket_path()
+                        };
+
+                        let (handle, sync_rx, broadcast_rx, _cells, _notebook_path) =
+                            NotebookSyncClient::connect_split(
+                                socket_path.clone(),
+                                notebook_id.clone(),
+                            )
                             .await
                             .map_err(to_py_err)?;
 
-                    let (blob_base_url, blob_store_path) =
-                        if let Some(parent) = socket_path.parent() {
+                        let (blob_base_url, blob_store_path) = if let Some(parent) =
+                            socket_path.parent()
+                        {
                             let daemon_json = parent.join("daemon.json");
                             let base_url = if daemon_json.exists() {
                                 tokio::fs::read_to_string(&daemon_json)
@@ -725,44 +728,15 @@ impl AsyncSession {
                             (None, None)
                         };
 
-                    let mut state_guard = state.lock().await;
-                    state_guard.handle = Some(handle);
-                    state_guard.sync_rx = Some(sync_rx);
-                    state_guard.broadcast_rx = Some(broadcast_rx);
-                    state_guard.blob_base_url = blob_base_url;
-                    state_guard.blob_store_path = blob_store_path;
-                }
-            }
+                        let mut state_guard = state.lock().await;
+                        state_guard.handle = Some(handle);
+                        state_guard.sync_rx = Some(sync_rx);
+                        state_guard.broadcast_rx = Some(broadcast_rx);
+                        state_guard.blob_base_url = blob_base_url;
+                        state_guard.blob_store_path = blob_store_path;
+                    }
 
-            // Create cell in document
-            let cell_id = format!("cell-{}", uuid::Uuid::new_v4());
-            {
-                let state_guard = state.lock().await;
-                let handle = state_guard
-                    .handle
-                    .as_ref()
-                    .ok_or_else(|| to_py_err("Not connected"))?;
-
-                let cells = handle.get_cells().await.map_err(to_py_err)?;
-                let insert_index = cells.len();
-
-                handle
-                    .add_cell(insert_index, &cell_id, "code")
-                    .await
-                    .map_err(to_py_err)?;
-
-                handle
-                    .update_source(&cell_id, &code)
-                    .await
-                    .map_err(to_py_err)?;
-            }
-
-            // Auto-start kernel if needed
-            {
-                let state_guard = state.lock().await;
-                if !state_guard.kernel_started {
-                    drop(state_guard);
-
+                    // Start kernel
                     let mut state_guard = state.lock().await;
                     let handle = state_guard
                         .handle
@@ -801,45 +775,23 @@ impl AsyncSession {
                 }
             }
 
-            // Execute
             let state_guard = state.lock().await;
+
             let handle = state_guard
                 .handle
                 .as_ref()
                 .ok_or_else(|| to_py_err("Not connected"))?;
 
-            let blob_base_url = state_guard.blob_base_url.clone();
-            let blob_store_path = state_guard.blob_store_path.clone();
-
+            // Queue cell execution (daemon reads source from automerge doc)
             let response = handle
-                .send_request(NotebookRequest::ExecuteCell {
-                    cell_id: cell_id.clone(),
-                })
+                .send_request(NotebookRequest::ExecuteCell { cell_id })
                 .await
                 .map_err(to_py_err)?;
 
             match response {
-                NotebookResponse::CellQueued { .. } => {}
-                NotebookResponse::Error { error } => return Err(to_py_err(error)),
-                other => return Err(to_py_err(format!("Unexpected response: {:?}", other))),
-            }
-
-            drop(state_guard);
-
-            let timeout = std::time::Duration::from_secs_f64(timeout_secs);
-            let result = tokio::time::timeout(
-                timeout,
-                collect_outputs_async(&state, &cell_id, blob_base_url, blob_store_path),
-            )
-            .await;
-
-            match result {
-                Ok(Ok(exec_result)) => Ok(exec_result),
-                Ok(Err(e)) => Err(e),
-                Err(_) => Err(to_py_err(format!(
-                    "Execution timed out after {} seconds",
-                    timeout_secs
-                ))),
+                NotebookResponse::CellQueued { .. } => Ok(()),
+                NotebookResponse::Error { error } => Err(to_py_err(error)),
+                other => Err(to_py_err(format!("Unexpected response: {:?}", other))),
             }
         })
     }

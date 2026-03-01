@@ -508,28 +508,50 @@ impl Session {
         })
     }
 
-    /// Convenience method: create a cell, execute it, and return the result.
+    /// Queue a cell for execution without waiting for the result.
     ///
-    /// This is a shortcut that combines create_cell() and execute_cell().
-    /// The cell is written to the automerge document before execution,
-    /// so other connected clients will see it.
+    /// The daemon reads the cell's source from the automerge document and
+    /// queues it for execution. Use get_cell() to poll for results.
+    ///
+    /// If a kernel isn't running yet, this will start one automatically.
     ///
     /// Args:
-    ///     code: The code to execute.
-    ///     timeout_secs: Maximum time to wait for execution (default: 60).
-    ///
-    /// Returns:
-    ///     ExecutionResult with outputs, success status, and execution count.
+    ///     cell_id: The cell ID to execute.
     ///
     /// Raises:
-    ///     RuntimedError: If not connected, kernel not started, or timeout.
-    #[pyo3(signature = (code, timeout_secs=60.0))]
-    fn run(&self, code: &str, timeout_secs: f64) -> PyResult<ExecutionResult> {
-        // Create cell in document first
-        let cell_id = self.create_cell(code, "code", None)?;
+    ///     RuntimedError: If not connected or cell not found.
+    fn queue_cell(&self, cell_id: &str) -> PyResult<()> {
+        // Auto-start kernel if not running
+        {
+            let state = self.runtime.block_on(self.state.lock());
+            if !state.kernel_started {
+                drop(state);
+                self.start_kernel("python", "uv:prewarmed")?;
+            }
+        }
 
-        // Then execute by ID (daemon reads from doc)
-        self.execute_cell(&cell_id, timeout_secs)
+        self.runtime.block_on(async {
+            let state = self.state.lock().await;
+
+            let handle = state
+                .handle
+                .as_ref()
+                .ok_or_else(|| to_py_err("Not connected"))?;
+
+            // Execute cell (daemon reads source from automerge doc)
+            let response = handle
+                .send_request(NotebookRequest::ExecuteCell {
+                    cell_id: cell_id.to_string(),
+                })
+                .await
+                .map_err(to_py_err)?;
+
+            match response {
+                NotebookResponse::CellQueued { .. } => Ok(()),
+                NotebookResponse::Error { error } => Err(to_py_err(error)),
+                other => Err(to_py_err(format!("Unexpected response: {:?}", other))),
+            }
+        })
     }
 
     /// Interrupt the currently executing cell.

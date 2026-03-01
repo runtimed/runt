@@ -362,20 +362,34 @@ class TestDocumentFirstExecution:
         assert result.cell_id == cell_id
         assert result.execution_count is not None
 
-    def test_run_convenience_method(self, session):
-        """run() is a shortcut for create_cell + execute_cell."""
+    def test_queue_cell_fires_execution(self, session):
+        """queue_cell fires execution without waiting.
+
+        This tests the fire-and-forget pattern where you queue execution
+        and then poll get_cell() for results.
+        """
         session.start_kernel()
 
-        result = session.run("print('hello from run')")
+        # Create and queue execution
+        cell_id = session.create_cell("queued_var = 'queued'")
+        session.queue_cell(cell_id)
+
+        # Give it time to execute
+        time.sleep(1)
+
+        # Now verify it ran by executing another cell that uses the variable
+        cell2 = session.create_cell("print(queued_var)")
+        result = session.execute_cell(cell2)
 
         assert result.success
-        assert "hello from run" in result.stdout
+        assert "queued" in result.stdout
 
     def test_execution_error_captured(self, session):
         """Execution errors are captured in result."""
         session.start_kernel()
 
-        result = session.run("raise ValueError('test error')")
+        cell_id = session.create_cell("raise ValueError('test error')")
+        result = session.execute_cell(cell_id)
 
         assert not result.success
         assert result.error is not None
@@ -386,13 +400,16 @@ class TestDocumentFirstExecution:
         session.start_kernel()
 
         # Execute multiple cells, building up state
-        r1 = session.run("x = 10")
+        cell1 = session.create_cell("x = 10")
+        r1 = session.execute_cell(cell1)
         assert r1.success
 
-        r2 = session.run("y = x * 2")
+        cell2 = session.create_cell("y = x * 2")
+        r2 = session.execute_cell(cell2)
         assert r2.success
 
-        r3 = session.run("print(f'y = {y}')")
+        cell3 = session.create_cell("print(f'y = {y}')")
+        r3 = session.execute_cell(cell3)
         assert r3.success
         assert "y = 20" in r3.stdout
 
@@ -466,11 +483,13 @@ class TestMultiClientSync:
         time.sleep(0.5)
 
         # Session 1 sets a variable
-        r1 = s1.run("shared = 'from s1'")
+        cell1 = s1.create_cell("shared = 'from s1'")
+        r1 = s1.execute_cell(cell1)
         assert r1.success
 
         # Session 2 can access it (same kernel)
-        r2 = s2.run("print(shared)")
+        cell2 = s2.create_cell("print(shared)")
+        r2 = s2.execute_cell(cell2)
         assert r2.success
         assert "from s1" in r2.stdout
 
@@ -525,7 +544,8 @@ class TestOutputTypes:
         """Captures stdout output."""
         session.start_kernel()
 
-        result = session.run("print('hello stdout')")
+        cell_id = session.create_cell("print('hello stdout')")
+        result = session.execute_cell(cell_id)
 
         assert result.success
         assert result.stdout == "hello stdout\n"
@@ -534,7 +554,8 @@ class TestOutputTypes:
         """Captures stderr output."""
         session.start_kernel()
 
-        result = session.run("import sys; sys.stderr.write('hello stderr\\n')")
+        cell_id = session.create_cell("import sys; sys.stderr.write('hello stderr\\n')")
+        result = session.execute_cell(cell_id)
 
         assert result.success
         assert "hello stderr" in result.stderr
@@ -543,7 +564,8 @@ class TestOutputTypes:
         """Captures expression return value."""
         session.start_kernel()
 
-        result = session.run("2 + 2")
+        cell_id = session.create_cell("2 + 2")
+        result = session.execute_cell(cell_id)
 
         assert result.success
         # Return value should appear in display_data
@@ -554,11 +576,12 @@ class TestOutputTypes:
         """Captures multiple outputs from one cell."""
         session.start_kernel()
 
-        result = session.run("""
+        cell_id = session.create_cell("""
 print('line 1')
 print('line 2')
 'final value'
 """)
+        result = session.execute_cell(cell_id)
 
         assert result.success
         assert "line 1" in result.stdout
@@ -593,7 +616,8 @@ class TestErrorHandling:
         """Syntax errors are captured."""
         session.start_kernel()
 
-        result = session.run("def broken(")
+        cell_id = session.create_cell("def broken(")
+        result = session.execute_cell(cell_id)
 
         assert not result.success
         assert result.error is not None
@@ -1176,21 +1200,33 @@ class TestAsyncDocumentFirstExecution:
         assert result.execution_count is not None
 
     @pytest.mark.asyncio
-    async def test_async_run_convenience_method(self, async_session):
-        """run() is a shortcut for create_cell + execute_cell."""
+    async def test_async_queue_cell_fires_execution(self, async_session):
+        """queue_cell fires execution without waiting."""
+        import asyncio
+
         await async_session.start_kernel()
 
-        result = await async_session.run("print('hello from async run')")
+        # Create and queue execution
+        cell_id = await async_session.create_cell("async_queued_var = 'async_queued'")
+        await async_session.queue_cell(cell_id)
+
+        # Give it time to execute
+        await asyncio.sleep(1)
+
+        # Verify it ran by executing another cell that uses the variable
+        cell2 = await async_session.create_cell("print(async_queued_var)")
+        result = await async_session.execute_cell(cell2)
 
         assert result.success
-        assert "hello from async run" in result.stdout
+        assert "async_queued" in result.stdout
 
     @pytest.mark.asyncio
     async def test_async_execution_error_captured(self, async_session):
         """Execution errors are captured in result."""
         await async_session.start_kernel()
 
-        result = await async_session.run("raise ValueError('async test error')")
+        cell_id = await async_session.create_cell("raise ValueError('async test error')")
+        result = await async_session.execute_cell(cell_id)
 
         assert not result.success
         assert result.error is not None
@@ -1201,13 +1237,16 @@ class TestAsyncDocumentFirstExecution:
         """Can execute multiple cells sequentially."""
         await async_session.start_kernel()
 
-        r1 = await async_session.run("x = 10")
+        cell1 = await async_session.create_cell("x = 10")
+        r1 = await async_session.execute_cell(cell1)
         assert r1.success
 
-        r2 = await async_session.run("y = x * 2")
+        cell2 = await async_session.create_cell("y = x * 2")
+        r2 = await async_session.execute_cell(cell2)
         assert r2.success
 
-        r3 = await async_session.run("print(f'y = {y}')")
+        cell3 = await async_session.create_cell("print(f'y = {y}')")
+        r3 = await async_session.execute_cell(cell3)
         assert r3.success
         assert "y = 20" in r3.stdout
 
@@ -1250,10 +1289,12 @@ class TestAsyncMultiClientSync:
         await s2.start_kernel()  # No-op in daemon
         await asyncio.sleep(0.5)
 
-        r1 = await s1.run("async_shared = 'from async s1'")
+        cell1 = await s1.create_cell("async_shared = 'from async s1'")
+        r1 = await s1.execute_cell(cell1)
         assert r1.success
 
-        r2 = await s2.run("print(async_shared)")
+        cell2 = await s2.create_cell("print(async_shared)")
+        r2 = await s2.execute_cell(cell2)
         assert r2.success
         assert "from async s1" in r2.stdout
 
@@ -1295,7 +1336,8 @@ class TestAsyncOutputTypes:
         """Captures stdout output."""
         await async_session.start_kernel()
 
-        result = await async_session.run("print('async hello stdout')")
+        cell_id = await async_session.create_cell("print('async hello stdout')")
+        result = await async_session.execute_cell(cell_id)
 
         assert result.success
         assert result.stdout == "async hello stdout\n"
@@ -1305,7 +1347,8 @@ class TestAsyncOutputTypes:
         """Captures stderr output."""
         await async_session.start_kernel()
 
-        result = await async_session.run("import sys; sys.stderr.write('async hello stderr\\n')")
+        cell_id = await async_session.create_cell("import sys; sys.stderr.write('async hello stderr\\n')")
+        result = await async_session.execute_cell(cell_id)
 
         assert result.success
         assert "async hello stderr" in result.stderr
@@ -1315,7 +1358,8 @@ class TestAsyncOutputTypes:
         """Captures expression return value."""
         await async_session.start_kernel()
 
-        result = await async_session.run("2 + 2")
+        cell_id = await async_session.create_cell("2 + 2")
+        result = await async_session.execute_cell(cell_id)
 
         assert result.success
         display = result.display_data
@@ -1336,7 +1380,8 @@ class TestAsyncErrorHandling:
         """Syntax errors are captured."""
         await async_session.start_kernel()
 
-        result = await async_session.run("def broken(")
+        cell_id = await async_session.create_cell("def broken(")
+        result = await async_session.execute_cell(cell_id)
 
         assert not result.success
         assert result.error is not None
@@ -1360,7 +1405,8 @@ class TestAsyncContextManager:
             await session.connect()
             await session.start_kernel()
 
-            result = await session.run("print('context manager works')")
+            cell_id = await session.create_cell("print('context manager works')")
+            result = await session.execute_cell(cell_id)
             assert result.success
             assert "context manager works" in result.stdout
 

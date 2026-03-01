@@ -23,7 +23,8 @@ import runtimed
 # Execute code with automatic kernel management
 with runtimed.Session() as session:
     session.start_kernel()
-    result = session.run("print('hello')")
+    cell_id = session.create_cell("print('hello')")
+    result = session.execute_cell(cell_id)
     print(result.stdout)  # "hello\n"
 ```
 
@@ -36,7 +37,8 @@ import runtimed
 async def main():
     async with runtimed.AsyncSession() as session:
         await session.start_kernel()
-        result = await session.run("print('hello async')")
+        cell_id = await session.create_cell("print('hello async')")
+        result = await session.execute_cell(cell_id)
         print(result.stdout)  # "hello async\n"
 
 asyncio.run(main())
@@ -69,9 +71,13 @@ session.shutdown_kernel()            # Stop the kernel
 ### Code Execution
 
 ```python
-# Simple execution (creates ephemeral cell, executes, returns result)
-result = session.run("x = 42")
-result = session.run("print(x)")
+# Create cells in the document, then execute (document-first pattern)
+cell_id = session.create_cell("x = 42")
+result = session.execute_cell(cell_id)
+
+# Execute another cell
+cell_id2 = session.create_cell("print(x)")
+result = session.execute_cell(cell_id2)
 
 # Check results
 print(result.success)         # True if no error
@@ -79,6 +85,11 @@ print(result.stdout)          # Captured stdout
 print(result.stderr)          # Captured stderr
 print(result.execution_count) # Execution counter
 print(result.error)           # Error output if failed
+
+# Queue execution without waiting (fire-and-forget)
+session.queue_cell(cell_id)
+# Poll for results later
+cell = session.get_cell(cell_id)
 ```
 
 ### Document-First Execution
@@ -114,7 +125,8 @@ Sessions work as context managers for automatic cleanup:
 ```python
 with runtimed.Session() as session:
     session.start_kernel()
-    result = session.run("1 + 1")
+    cell_id = session.create_cell("1 + 1")
+    result = session.execute_cell(cell_id)
 # Kernel automatically shut down on exit
 ```
 
@@ -140,7 +152,8 @@ import runtimed
 async def main():
     async with runtimed.AsyncSession() as session:
         await session.start_kernel()
-        result = await session.run("print('hello async')")
+        cell_id = await session.create_cell("print('hello async')")
+        result = await session.execute_cell(cell_id)
         print(result.stdout)  # "hello async\n"
 
 asyncio.run(main())
@@ -169,14 +182,20 @@ await session.shutdown_kernel()      # Stop the kernel
 ### Code Execution
 
 ```python
-# Simple execution
-result = await session.run("x = 42")
-result = await session.run("print(x)")
+# Create and execute cells (document-first pattern)
+cell_id = await session.create_cell("x = 42")
+result = await session.execute_cell(cell_id)
+
+cell_id2 = await session.create_cell("print(x)")
+result = await session.execute_cell(cell_id2)
 
 # Check results
 print(result.success)         # True if no error
 print(result.stdout)          # Captured stdout
 print(result.stderr)          # Captured stderr
+
+# Queue execution without waiting
+await session.queue_cell(cell_id)
 ```
 
 ### Document-First Execution
@@ -209,7 +228,8 @@ AsyncSession works as an async context manager for automatic cleanup:
 ```python
 async with runtimed.AsyncSession() as session:
     await session.start_kernel()
-    result = await session.run("1 + 1")
+    cell_id = await session.create_cell("1 + 1")
+    result = await session.execute_cell(cell_id)
 # Kernel automatically shut down on exit
 ```
 
@@ -269,10 +289,11 @@ client.shutdown()     # Stop the daemon
 
 ### ExecutionResult
 
-Returned by `run()` and `execute_cell()`:
+Returned by `execute_cell()`:
 
 ```python
-result = session.run("print('hello')")
+cell_id = session.create_cell("print('hello')")
+result = session.execute_cell(cell_id)
 
 result.cell_id          # Cell that was executed
 result.success          # True if no error
@@ -323,11 +344,12 @@ cell.execution_count # Execution count if executed
 Two sessions with the same `notebook_id` share the same kernel and document:
 
 ```python
-# Session 1 creates a cell
+# Session 1 creates a cell and executes
 s1 = runtimed.Session(notebook_id="shared")
 s1.connect()
 s1.start_kernel()
 cell_id = s1.create_cell("x = 42")
+s1.execute_cell(cell_id)
 
 # Session 2 sees the cell and shares the kernel
 s2 = runtimed.Session(notebook_id="shared")
@@ -338,7 +360,8 @@ cells = s2.get_cells()
 assert any(c.id == cell_id for c in cells)
 
 # Execute in s2, result visible to s1
-s2.run("print(x)")  # Uses x=42 from s1's execution
+cell_id2 = s2.create_cell("print(x)")
+s2.execute_cell(cell_id2)  # Uses x=42 from s1's execution
 ```
 
 This enables:

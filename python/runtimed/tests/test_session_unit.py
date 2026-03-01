@@ -142,6 +142,12 @@ class TestSessionErrorHandling:
         with pytest.raises(runtimed.RuntimedError, match="[Nn]ot connected"):
             session.shutdown_kernel()
 
+    def test_queue_cell_without_connection(self):
+        """queue_cell raises error when not connected."""
+        session = runtimed.Session()
+        with pytest.raises(runtimed.RuntimedError, match="[Nn]ot connected"):
+            session.queue_cell("cell-123")
+
 
 class TestAsyncSessionErrorHandling:
     """Test error handling for disconnected async sessions."""
@@ -194,6 +200,13 @@ class TestAsyncSessionErrorHandling:
         session = runtimed.AsyncSession()
         with pytest.raises(runtimed.RuntimedError, match="[Nn]ot connected"):
             await session.create_cell("x = 1")
+
+    @pytest.mark.asyncio
+    async def test_async_queue_cell_without_connection(self):
+        """queue_cell raises error when not connected."""
+        session = runtimed.AsyncSession()
+        with pytest.raises(runtimed.RuntimedError, match="[Nn]ot connected"):
+            await session.queue_cell("cell-123")
 
 
 class TestOutputTypes:
