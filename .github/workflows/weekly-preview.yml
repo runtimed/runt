@@ -283,13 +283,13 @@ jobs:
       - name: Rename DMG
         run: |
           DMG_PATH=$(find target/release/bundle/dmg -name "*.dmg" | head -1)
-          cp "$DMG_PATH" runt-notebook-darwin-arm64.dmg
+          cp "$DMG_PATH" nteract-darwin-arm64.dmg
 
       - name: Upload ARM64 DMG
         uses: actions/upload-artifact@v4
         with:
-          name: runt-notebook-macos-arm64
-          path: runt-notebook-darwin-arm64.dmg
+          name: nteract-macos-arm64
+          path: nteract-darwin-arm64.dmg
 
   build-notebook-macos-x64:
     name: Build macOS x64 Notebook DMG
@@ -414,13 +414,13 @@ jobs:
       - name: Rename DMG
         run: |
           DMG_PATH=$(find target/x86_64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
-          cp "$DMG_PATH" runt-notebook-darwin-x64.dmg
+          cp "$DMG_PATH" nteract-darwin-x64.dmg
 
       - name: Upload x64 DMG
         uses: actions/upload-artifact@v4
         with:
-          name: runt-notebook-macos-x64
-          path: runt-notebook-darwin-x64.dmg
+          name: nteract-macos-x64
+          path: nteract-darwin-x64.dmg
 
   build-notebook-windows-x64:
     name: Build Windows x64 Notebook Installer
@@ -509,13 +509,13 @@ jobs:
         shell: pwsh
         run: |
           $nsisPath = Get-ChildItem -Path target\release\bundle\nsis -Filter "*.exe" | Select-Object -First 1
-          Copy-Item $nsisPath.FullName "runt-notebook-windows-x64.exe"
+          Copy-Item $nsisPath.FullName "nteract-windows-x64.exe"
 
       - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
-          name: runt-notebook-windows-x64
-          path: runt-notebook-windows-x64.exe
+          name: nteract-windows-x64
+          path: nteract-windows-x64.exe
 
   build-notebook-linux-x64:
     name: Build Linux x64 Notebook AppImage
@@ -604,18 +604,26 @@ jobs:
       - name: Rename AppImage
         run: |
           APPIMAGE_PATH=$(find target/release/bundle/appimage -name "*.AppImage" | head -1)
-          cp "$APPIMAGE_PATH" runt-notebook-linux-x64.AppImage
+          cp "$APPIMAGE_PATH" nteract-linux-x64.AppImage
 
       - name: Upload Linux AppImage
         uses: actions/upload-artifact@v4
         with:
-          name: runt-notebook-linux-x64
-          path: runt-notebook-linux-x64.AppImage
+          name: nteract-linux-x64
+          path: nteract-linux-x64.AppImage
 
   prerelease:
     name: Prerelease
     runs-on: ubuntu-latest
-    needs: [build-linux, build-macos, build-notebook-macos-arm64, build-notebook-macos-x64, build-notebook-windows-x64, build-notebook-linux-x64]
+    needs:
+      [
+        build-linux,
+        build-macos,
+        build-notebook-macos-arm64,
+        build-notebook-macos-x64,
+        build-notebook-windows-x64,
+        build-notebook-linux-x64,
+      ]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -637,25 +645,25 @@ jobs:
       - name: Download macOS ARM64 notebook DMG
         uses: actions/download-artifact@v4
         with:
-          name: runt-notebook-macos-arm64
+          name: nteract-macos-arm64
           path: ./executables
 
       - name: Download macOS x64 notebook DMG
         uses: actions/download-artifact@v4
         with:
-          name: runt-notebook-macos-x64
+          name: nteract-macos-x64
           path: ./executables
 
       - name: Download Windows x64 notebook installer
         uses: actions/download-artifact@v4
         with:
-          name: runt-notebook-windows-x64
+          name: nteract-windows-x64
           path: ./executables
 
       - name: Download Linux x64 notebook AppImage
         uses: actions/download-artifact@v4
         with:
-          name: runt-notebook-linux-x64
+          name: nteract-linux-x64
           path: ./executables
 
       - name: Create GitHub Preview Release
@@ -664,53 +672,39 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: v${{ needs.build-linux.outputs.version }}
-          name: runt-cli v${{ needs.build-linux.outputs.version }}
+          name: nteract v${{ needs.build-linux.outputs.version }}
           body: |
             ## Weekly Preview Release
 
-            This is an automated weekly preview release from the `main` branch.
+            Automated preview from `main`. **Commit:** ${{ github.sha }}
 
-            **Commit:** ${{ github.sha }}
+            ### nteract (desktop app)
 
-            ## Installation
+            | Platform | Architecture | Download |
+            |----------|--------------|----------|
+            | macOS | ARM64 (Apple Silicon) | `nteract-darwin-arm64.dmg` |
+            | macOS | x64 (Intel) | `nteract-darwin-x64.dmg` |
+            | Windows | x64 | `nteract-windows-x64.exe` |
+            | Linux | x64 | `nteract-linux-x64.AppImage` |
 
-            ### CLI
-            ```bash
-            curl https://i.safia.sh/runtimed/runt | sh
-            ```
+            macOS builds are signed and notarized. Windows is not code signed — expect a SmartScreen prompt. Linux AppImage: `chmod +x` and run.
 
-            ### Notebook App (macOS)
-            Download the DMG for your architecture below. The app is signed and notarized by Apple.
+            ### runt (CLI)
 
-            ### Notebook App (Windows)
-            Download the Windows installer below. Note: The Windows build is not code signed, so you may see a SmartScreen warning on first launch.
+            Also bundled inside the desktop app. Standalone binaries:
 
-            ### Notebook App (Linux)
-            Download the AppImage below. Make it executable with `chmod +x` and run directly.
-
-            ## Manual Downloads
-
-            ### CLI
             | Platform | Architecture | Download |
             |----------|--------------|----------|
             | Linux | x64 | `runt-linux-x64` |
             | macOS | x64 | `runt-darwin-x64` |
             | macOS | ARM64 | `runt-darwin-arm64` |
-
-            ### Notebook App
-            | Platform | Architecture | Download |
-            |----------|--------------|----------|
-            | Linux | x64 | `runt-notebook-linux-x64.AppImage` |
-            | macOS | x64 (Intel) | `runt-notebook-darwin-x64.dmg` |
-            | macOS | ARM64 (Apple Silicon) | `runt-notebook-darwin-arm64.dmg` |
-            | Windows | x64 | `runt-notebook-windows-x64.exe` |
           draft: false
           prerelease: true
           files: |
             ./executables/runt-linux-x64
             ./executables/runt-darwin-x64
             ./executables/runt-darwin-arm64
-            ./executables/runt-notebook-linux-x64.AppImage
-            ./executables/runt-notebook-darwin-x64.dmg
-            ./executables/runt-notebook-darwin-arm64.dmg
-            ./executables/runt-notebook-windows-x64.exe
+            ./executables/nteract-linux-x64.AppImage
+            ./executables/nteract-darwin-x64.dmg
+            ./executables/nteract-darwin-arm64.dmg
+            ./executables/nteract-windows-x64.exe
