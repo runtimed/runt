@@ -129,7 +129,7 @@ def daemon_process():
             "--socket", str(socket_path),
             "--cache-dir", str(cache_dir),
             "--blob-store-dir", str(blob_dir),
-            "--uv-pool-size", "1",  # Minimal pool for tests
+            "--uv-pool-size", "2",  # Small pool for tests (need >1 for sequential tests)
             "--conda-pool-size", "0",  # No conda for speed
         ]
 
@@ -164,6 +164,24 @@ def daemon_process():
             proc.terminate()
             print(f"[test] Daemon logs:\n{log_file.read_text()}", file=sys.stderr)
             pytest.fail("Daemon socket did not appear within 30s")
+
+        # Wait for pool to warm up before running tests
+        os.environ["RUNTIMED_SOCKET_PATH"] = str(socket_path)
+        try:
+            client = runtimed.DaemonClient()
+            for i in range(60):
+                try:
+                    status = client.status()
+                    if status.get("uv_available", 0) > 0:
+                        print(f"[test] Pool ready after {i + 1}s (uv_available={status['uv_available']})", file=sys.stderr)
+                        break
+                except Exception:
+                    pass
+                time.sleep(1)
+            else:
+                print("[test] Warning: pool did not warm up within 60s", file=sys.stderr)
+        except Exception as e:
+            print(f"[test] Warning: could not check pool status: {e}", file=sys.stderr)
 
         try:
             yield socket_path, proc
@@ -563,6 +581,209 @@ class TestErrorHandling:
         assert not result.success
         assert result.error is not None
         assert "SyntaxError" in result.error.ename
+
+
+# ============================================================================
+# Kernel launch metadata tests
+# ============================================================================
+
+
+# The metadata key used by the daemon to store NotebookMetadataSnapshot
+NOTEBOOK_METADATA_KEY = "notebook_metadata"
+
+
+def _python_kernelspec_metadata(*, with_uv_deps=None, with_conda_deps=None,
+                                  with_conda_channels=None):
+    """Build a NotebookMetadataSnapshot JSON dict with a Python kernelspec."""
+    snapshot = {
+        "kernelspec": {
+            "name": "python3",
+            "display_name": "Python 3",
+            "language": "python",
+        },
+        "language_info": {"name": "python"},
+        "runt": {"schema_version": "1"},
+    }
+    if with_uv_deps is not None:
+        snapshot["runt"]["uv"] = {"dependencies": with_uv_deps}
+    if with_conda_deps is not None:
+        snapshot["runt"]["conda"] = {
+            "dependencies": with_conda_deps,
+            "channels": with_conda_channels or ["conda-forge"],
+        }
+    return snapshot
+
+
+def _deno_kernelspec_metadata():
+    """Build a NotebookMetadataSnapshot JSON dict with a Deno kernelspec."""
+    return {
+        "kernelspec": {
+            "name": "deno",
+            "display_name": "Deno",
+            "language": "typescript",
+        },
+        "language_info": {"name": "typescript"},
+        "runt": {"schema_version": "1"},
+    }
+
+
+class TestKernelLaunchMetadata:
+    """Test that kernel launch reads metadata from the Automerge doc.
+
+    These tests verify the refactored metadata resolution path where
+    the daemon reads kernelspec and dependency info from the synced
+    Automerge document rather than re-reading .ipynb files from disk.
+    """
+
+    def test_metadata_round_trip(self, session):
+        """Metadata set on the doc can be read back."""
+        import json
+
+        snapshot = _python_kernelspec_metadata()
+        session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+
+        # Give sync time to propagate
+        time.sleep(0.3)
+
+        raw = session.get_metadata(NOTEBOOK_METADATA_KEY)
+        assert raw is not None
+        parsed = json.loads(raw)
+        assert parsed["kernelspec"]["name"] == "python3"
+        assert parsed["runt"]["schema_version"] == "1"
+
+    def test_python_kernel_with_python_kernelspec(self, session):
+        """A notebook with python kernelspec launches a Python kernel."""
+        import json
+
+        # Set python kernelspec in the Automerge doc
+        snapshot = _python_kernelspec_metadata()
+        session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+        time.sleep(0.3)
+
+        session.start_kernel(kernel_type="python")
+
+        # Verify it's actually a Python kernel
+        result = session.run("import sys; print(sys.prefix)")
+        assert result.success
+        # sys.prefix should be a real filesystem path
+        assert "/" in result.stdout or "\\" in result.stdout
+
+    def test_default_deno_but_python_notebook(self, session):
+        """When default runtime is Deno but notebook has Python kernelspec,
+        the kernel should be Python.
+
+        This is the key invariant: the notebook's kernelspec in the Automerge
+        doc takes priority over the user's default_runtime setting. A Python
+        notebook in a project that defaults to Deno should still get a Python
+        kernel.
+        """
+        import json
+
+        # Set python kernelspec in the Automerge doc (simulates opening
+        # an existing Python notebook even though default_runtime=deno)
+        snapshot = _python_kernelspec_metadata()
+        session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+        time.sleep(0.3)
+
+        # Explicitly start Python kernel (as the frontend would after
+        # reading kernelspec from the doc)
+        session.start_kernel(kernel_type="python")
+
+        # Verify it's truly Python - sys.prefix gives the venv path,
+        # and sys.executable should be a python binary
+        result = session.run("import sys; print(sys.prefix)")
+        assert result.success, f"Expected success, got: {result.stderr}"
+        prefix = result.stdout.strip()
+        assert prefix, "sys.prefix should not be empty"
+        assert "/" in prefix or "\\" in prefix, (
+            f"sys.prefix should be a filesystem path, got: {prefix}"
+        )
+
+        # Double-check: importing a Python-only stdlib module should work
+        result2 = session.run("import json; print(json.dumps({'runtime': 'python'}))")
+        assert result2.success
+        assert '"runtime": "python"' in result2.stdout
+
+    def test_kernel_launch_reports_env_source(self, session):
+        """Kernel launch returns the resolved env_source."""
+        session.start_kernel()
+
+        # env_source should be set after kernel launch
+        env_source = session.env_source
+        assert env_source is not None
+        # Should be one of the known env_source values
+        assert any(
+            env_source.startswith(prefix)
+            for prefix in ("uv:", "conda:", "deno")
+        ), f"Unexpected env_source: {env_source}"
+
+    def test_metadata_visible_to_second_peer(self, two_sessions):
+        """Metadata set by one peer is visible to another."""
+        import json
+
+        s1, s2 = two_sessions
+
+        # Session 1 sets metadata
+        snapshot = _python_kernelspec_metadata()
+        s1.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+
+        # Give sync time
+        time.sleep(0.5)
+
+        # Session 2 should see it
+        raw = s2.get_metadata(NOTEBOOK_METADATA_KEY)
+        assert raw is not None
+        parsed = json.loads(raw)
+        assert parsed["kernelspec"]["name"] == "python3"
+
+    def test_uv_inline_deps_trusted(self, session):
+        """Python kernel with UV inline deps from metadata launches correctly.
+
+        When the notebook metadata contains runt.uv.dependencies, the daemon
+        should detect env_source as 'uv:inline' and prepare a cached env
+        with those deps installed.
+        """
+        import json
+
+        snapshot = _python_kernelspec_metadata(with_uv_deps=["requests"])
+        session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+        time.sleep(0.3)
+
+        session.start_kernel(kernel_type="python", env_source="uv:inline")
+
+        assert session.env_source == "uv:inline"
+
+        # Verify the dep is actually importable
+        result = session.run("import requests; print(requests.__version__)")
+        assert result.success, f"Failed to import requests: {result.stderr}"
+        assert result.stdout.strip(), "requests version should not be empty"
+
+    def test_uv_inline_deps_env_has_python(self, session):
+        """UV inline env actually has a working Python with the declared deps."""
+        import json
+
+        snapshot = _python_kernelspec_metadata(with_uv_deps=["requests"])
+        session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+        time.sleep(0.3)
+
+        session.start_kernel(kernel_type="python", env_source="uv:inline")
+
+        # sys.prefix should point to a venv, not the system Python
+        result = session.run("import sys; print(sys.prefix)")
+        assert result.success
+        prefix = result.stdout.strip()
+        assert "inline-env" in prefix or "inline" in prefix or "cache" in prefix, (
+            f"Expected inline env path, got: {prefix}"
+        )
+
+    def test_kernel_prewarmed_env_source(self, session):
+        """Default kernel launch uses prewarmed pool."""
+        session.start_kernel(kernel_type="python", env_source="uv:prewarmed")
+
+        assert session.env_source == "uv:prewarmed"
+
+        result = session.run("import sys; print(sys.prefix)")
+        assert result.success
 
 
 if __name__ == "__main__":

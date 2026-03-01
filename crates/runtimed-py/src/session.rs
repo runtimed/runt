@@ -364,6 +364,61 @@ impl Session {
     }
 
     // =========================================================================
+    // Metadata Operations (synced via automerge doc)
+    // =========================================================================
+
+    /// Set a metadata value in the automerge document.
+    ///
+    /// The value is synced to the daemon and all connected clients.
+    /// Use the key "notebook_metadata" to set the NotebookMetadataSnapshot
+    /// (JSON-encoded kernelspec, language_info, and runt config).
+    ///
+    /// Args:
+    ///     key: The metadata key.
+    ///     value: The metadata value (typically JSON).
+    fn set_metadata(&self, key: &str, value: &str) -> PyResult<()> {
+        self.connect()?;
+
+        let key = key.to_string();
+        let value = value.to_string();
+
+        self.runtime.block_on(async {
+            let state = self.state.lock().await;
+            let handle = state
+                .handle
+                .as_ref()
+                .ok_or_else(|| to_py_err("Not connected"))?;
+
+            handle.set_metadata(&key, &value).await.map_err(to_py_err)
+        })
+    }
+
+    /// Get a metadata value from the automerge document.
+    ///
+    /// Reads from the local replica of the automerge doc.
+    ///
+    /// Args:
+    ///     key: The metadata key.
+    ///
+    /// Returns:
+    ///     The metadata value (str) or None if not set.
+    fn get_metadata(&self, key: &str) -> PyResult<Option<String>> {
+        self.connect()?;
+
+        let key = key.to_string();
+
+        self.runtime.block_on(async {
+            let state = self.state.lock().await;
+            let handle = state
+                .handle
+                .as_ref()
+                .ok_or_else(|| to_py_err("Not connected"))?;
+
+            handle.get_metadata(&key).await.map_err(to_py_err)
+        })
+    }
+
+    // =========================================================================
     // Execution (document-first: reads source from automerge doc)
     // =========================================================================
 
