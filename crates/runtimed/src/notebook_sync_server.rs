@@ -348,15 +348,17 @@ async fn check_and_broadcast_sync_state(room: &NotebookRoom) {
                 };
 
                 if !added.is_empty() {
-                    let _ = room.kernel_broadcast_tx.send(NotebookBroadcast::EnvSyncState {
-                        in_sync: false,
-                        diff: Some(EnvSyncDiff {
-                            added,
-                            removed: vec![],
-                            channels_changed: false,
-                            deno_changed: false,
-                        }),
-                    });
+                    let _ = room
+                        .kernel_broadcast_tx
+                        .send(NotebookBroadcast::EnvSyncState {
+                            in_sync: false,
+                            diff: Some(EnvSyncDiff {
+                                added,
+                                removed: vec![],
+                                channels_changed: false,
+                                deno_changed: false,
+                            }),
+                        });
                 }
             }
         }
