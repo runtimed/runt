@@ -915,6 +915,7 @@ async fn save_notebook_as(
     registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
     let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let save_path = PathBuf::from(&path);
 
     // First pass: collect cells to format (release lock for async formatting)
@@ -972,19 +973,39 @@ async fn save_notebook_as(
     }
 
     // Now save
-    let mut nb = state.lock().map_err(|e| e.to_string())?;
-    let content = nb.serialize()?;
-    std::fs::write(&save_path, &content).map_err(|e| e.to_string())?;
+    {
+        let mut nb = state.lock().map_err(|e| e.to_string())?;
+        let content = nb.serialize()?;
+        std::fs::write(&save_path, &content).map_err(|e| e.to_string())?;
 
-    // Update the stored path and window title
-    let filename = save_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("Untitled.ipynb");
-    let _ = window.set_title(filename);
+        // Update the stored path and window title
+        let filename = save_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Untitled.ipynb");
+        let _ = window.set_title(filename);
 
-    nb.path = Some(save_path);
-    nb.dirty = false;
+        nb.path = Some(save_path);
+        nb.dirty = false;
+    }
+
+    // Reconnect to the daemon with the new path-based room ID.
+    // This ensures realtime sync uses the correct file path as the room identifier.
+    info!("[save-as] Reconnecting to room for new path");
+
+    // Clear the existing sync handle to disconnect from the old room
+    {
+        let mut sync_guard = notebook_sync.lock().await;
+        *sync_guard = None;
+    }
+
+    // Reconnect with the new path-based room ID
+    let webview_window = window
+        .app_handle()
+        .get_webview_window(window.label())
+        .ok_or_else(|| "Current webview window not found".to_string())?;
+    initialize_notebook_sync(webview_window, state, notebook_sync).await?;
+
     Ok(())
 }
 
