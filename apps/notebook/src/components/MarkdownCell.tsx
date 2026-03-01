@@ -1,4 +1,4 @@
-import type { KeyBinding } from "@codemirror/view";
+import type { EditorView, KeyBinding } from "@codemirror/view";
 import { Pencil, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CellContainer } from "@/components/cell/CellContainer";
@@ -36,6 +36,82 @@ export function MarkdownCell({
   onInsertCellAfter,
   isLastCell = false,
 }: MarkdownCellProps) {
+  const applyInlineFormatting = useCallback(
+    (prefix: string, suffix = prefix) =>
+      (view: EditorView) => {
+        const selection = view.state.selection.main;
+        const selectedText = view.state.doc.sliceString(
+          selection.from,
+          selection.to,
+        );
+        const wrappedText = `${prefix}${selectedText}${suffix}`;
+
+        view.dispatch({
+          changes: {
+            from: selection.from,
+            to: selection.to,
+            insert: wrappedText,
+          },
+          selection: {
+            anchor: selection.from + prefix.length,
+            head: selection.from + prefix.length + selectedText.length,
+          },
+        });
+        return true;
+      },
+    [],
+  );
+
+  const applyLinkFormatting = useCallback((view: EditorView) => {
+    const selection = view.state.selection.main;
+    const selectedText = view.state.doc.sliceString(
+      selection.from,
+      selection.to,
+    );
+    const linkText = selectedText || "link text";
+    const formattedText = `[${linkText}](https://)`;
+
+    view.dispatch({
+      changes: {
+        from: selection.from,
+        to: selection.to,
+        insert: formattedText,
+      },
+      selection: selectedText
+        ? {
+            anchor: selection.from + 1,
+            head: selection.from + 1 + linkText.length,
+          }
+        : {
+            anchor: selection.from + 1,
+            head: selection.from + 1 + "link text".length,
+          },
+    });
+    return true;
+  }, []);
+
+  const applyQuoteFormatting = useCallback((view: EditorView) => {
+    const selection = view.state.selection.main;
+    const selectedText = view.state.doc.sliceString(
+      selection.from,
+      selection.to,
+    );
+    const text = selectedText || "quote";
+    const quotedText = text
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n");
+
+    view.dispatch({
+      changes: { from: selection.from, to: selection.to, insert: quotedText },
+      selection: {
+        anchor: selection.from,
+        head: selection.from + quotedText.length,
+      },
+    });
+    return true;
+  }, []);
+
   const [editing, setEditing] = useState(cell.source === "");
   const editorRef = useRef<CodeMirrorEditorRef>(null);
   const frameRef = useRef<IsolatedFrameHandle>(null);
@@ -165,8 +241,38 @@ export function MarkdownCell({
           return true;
         },
       },
+      {
+        key: "Mod-b",
+        run: applyInlineFormatting("**"),
+      },
+      {
+        key: "Mod-i",
+        run: applyInlineFormatting("*"),
+      },
+      {
+        key: "Mod-u",
+        run: applyInlineFormatting("<u>", "</u>"),
+      },
+      {
+        key: "Mod-k",
+        run: applyLinkFormatting,
+      },
+      {
+        key: "Mod-Shift-.",
+        run: applyQuoteFormatting,
+      },
+      {
+        key: "Mod-Shift->",
+        run: applyQuoteFormatting,
+      },
     ],
-    [navigationKeyMap, cell.source],
+    [
+      navigationKeyMap,
+      cell.source,
+      applyInlineFormatting,
+      applyLinkFormatting,
+      applyQuoteFormatting,
+    ],
   );
 
   // Focus editor when entering edit mode (after initial mount)
