@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 use alacritty_terminal::event::VoidListener;
 use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::Config;
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor, Rgb};
@@ -174,134 +175,138 @@ impl StreamTerminals {
 
 /// Serialize terminal content to ANSI-encoded string.
 ///
-/// This iterates through the terminal's renderable content and converts
-/// it back to ANSI escape sequences that the frontend can render.
+/// This iterates through the terminal's full grid (including scrollback history)
+/// and converts it back to ANSI escape sequences that the frontend can render.
 /// Only lines with actual content are included (trailing empty lines are trimmed).
 fn serialize_to_ansi(term: &Term<VoidListener>) -> String {
-    // First pass: find the last line with actual content
-    let content = term.renderable_content();
-    let mut max_line_with_content: i32 = -1;
+    let grid = term.grid();
+    let columns = grid.columns();
 
-    for indexed_cell in content.display_iter {
-        let cell = &indexed_cell.cell;
-        if cell.c != ' ' && cell.c != '\0' {
-            max_line_with_content = max_line_with_content.max(indexed_cell.point.line.0);
+    // First pass: find the last line with actual content (across full history)
+    let topmost = grid.topmost_line();
+    let bottommost = grid.bottommost_line();
+    let mut max_line_with_content: i32 = topmost.0 - 1; // Start below topmost
+
+    for line_idx in topmost.0..=bottommost.0 {
+        let row = &grid[Line(line_idx)];
+        for col in 0..columns {
+            let cell = &row[Column(col)];
+            if cell.c != ' ' && cell.c != '\0' {
+                max_line_with_content = max_line_with_content.max(line_idx);
+                break; // Found content on this line, move to next
+            }
         }
     }
 
-    if max_line_with_content < 0 {
+    if max_line_with_content < topmost.0 {
         return String::new();
     }
 
     // Second pass: serialize with ANSI codes, only up to max_line_with_content
-    let content = term.renderable_content();
     let mut result = String::new();
     let mut current_fg: Option<Color> = None;
     let mut current_bg: Option<Color> = None;
     let mut current_flags = Flags::empty();
-    let mut last_line: Option<i32> = None;
+    let mut is_first_line = true;
 
-    for indexed_cell in content.display_iter {
-        let point = indexed_cell.point;
-        let cell = &indexed_cell.cell;
+    for line_idx in topmost.0..=max_line_with_content {
+        let row = &grid[Line(line_idx)];
 
-        // Stop after the last line with content
-        if point.line.0 > max_line_with_content {
-            break;
+        // Add newline between lines (not before first)
+        if !is_first_line {
+            result.push('\n');
         }
+        is_first_line = false;
 
-        // Handle line breaks
-        if let Some(prev_line) = last_line {
-            if point.line.0 != prev_line {
-                let lines_to_add = point.line.0 - prev_line;
-                for _ in 0..lines_to_add {
-                    result.push('\n');
+        for col in 0..columns {
+            let cell = &row[Column(col)];
+
+            // Skip spacer cells for wide characters
+            if cell.flags.contains(Flags::WIDE_CHAR_SPACER)
+                || cell.flags.contains(Flags::LEADING_WIDE_CHAR_SPACER)
+            {
+                continue;
+            }
+
+            // Emit attribute changes
+            let mut attrs_changed = false;
+
+            // Check if we need to reset
+            let need_reset = (current_flags != cell.flags && !current_flags.is_empty())
+                || (current_fg.is_some() && current_fg != Some(cell.fg))
+                || (current_bg.is_some() && current_bg != Some(cell.bg));
+
+            if need_reset {
+                result.push_str("\x1b[0m");
+                current_fg = None;
+                current_bg = None;
+                current_flags = Flags::empty();
+                attrs_changed = true;
+            }
+
+            // Emit new flags
+            if cell.flags != current_flags {
+                if cell.flags.contains(Flags::BOLD) && !current_flags.contains(Flags::BOLD) {
+                    result.push_str("\x1b[1m");
+                    attrs_changed = true;
                 }
+                if cell.flags.contains(Flags::DIM) && !current_flags.contains(Flags::DIM) {
+                    result.push_str("\x1b[2m");
+                    attrs_changed = true;
+                }
+                if cell.flags.contains(Flags::ITALIC) && !current_flags.contains(Flags::ITALIC) {
+                    result.push_str("\x1b[3m");
+                    attrs_changed = true;
+                }
+                if cell.flags.contains(Flags::UNDERLINE)
+                    && !current_flags.contains(Flags::UNDERLINE)
+                {
+                    result.push_str("\x1b[4m");
+                    attrs_changed = true;
+                }
+                if cell.flags.contains(Flags::STRIKEOUT)
+                    && !current_flags.contains(Flags::STRIKEOUT)
+                {
+                    result.push_str("\x1b[9m");
+                    attrs_changed = true;
+                }
+                if cell.flags.contains(Flags::HIDDEN) && !current_flags.contains(Flags::HIDDEN) {
+                    result.push_str("\x1b[8m");
+                    attrs_changed = true;
+                }
+                current_flags = cell.flags;
             }
-        }
-        last_line = Some(point.line.0);
 
-        // Skip spacer cells
-        if cell.flags.contains(Flags::WIDE_CHAR_SPACER)
-            || cell.flags.contains(Flags::LEADING_WIDE_CHAR_SPACER)
-        {
-            continue;
-        }
-
-        // Emit attribute changes
-        let mut attrs_changed = false;
-
-        // Check if we need to reset
-        let need_reset = (current_flags != cell.flags && !current_flags.is_empty())
-            || (current_fg.is_some() && current_fg != Some(cell.fg))
-            || (current_bg.is_some() && current_bg != Some(cell.bg));
-
-        if need_reset {
-            result.push_str("\x1b[0m");
-            current_fg = None;
-            current_bg = None;
-            current_flags = Flags::empty();
-            attrs_changed = true;
-        }
-
-        // Emit new flags
-        if cell.flags != current_flags {
-            if cell.flags.contains(Flags::BOLD) && !current_flags.contains(Flags::BOLD) {
-                result.push_str("\x1b[1m");
-                attrs_changed = true;
+            // Emit foreground color if changed
+            if current_fg != Some(cell.fg) {
+                if let Some(ansi) = color_to_ansi(&cell.fg, true) {
+                    result.push_str(&ansi);
+                    attrs_changed = true;
+                }
+                current_fg = Some(cell.fg);
             }
-            if cell.flags.contains(Flags::DIM) && !current_flags.contains(Flags::DIM) {
-                result.push_str("\x1b[2m");
-                attrs_changed = true;
-            }
-            if cell.flags.contains(Flags::ITALIC) && !current_flags.contains(Flags::ITALIC) {
-                result.push_str("\x1b[3m");
-                attrs_changed = true;
-            }
-            if cell.flags.contains(Flags::UNDERLINE) && !current_flags.contains(Flags::UNDERLINE) {
-                result.push_str("\x1b[4m");
-                attrs_changed = true;
-            }
-            if cell.flags.contains(Flags::STRIKEOUT) && !current_flags.contains(Flags::STRIKEOUT) {
-                result.push_str("\x1b[9m");
-                attrs_changed = true;
-            }
-            if cell.flags.contains(Flags::HIDDEN) && !current_flags.contains(Flags::HIDDEN) {
-                result.push_str("\x1b[8m");
-                attrs_changed = true;
-            }
-            current_flags = cell.flags;
-        }
 
-        // Emit foreground color if changed
-        if current_fg != Some(cell.fg) {
-            if let Some(ansi) = color_to_ansi(&cell.fg, true) {
-                result.push_str(&ansi);
-                attrs_changed = true;
+            // Emit background color if changed
+            if current_bg != Some(cell.bg) {
+                if let Some(ansi) = color_to_ansi(&cell.bg, false) {
+                    result.push_str(&ansi);
+                    attrs_changed = true;
+                }
+                current_bg = Some(cell.bg);
             }
-            current_fg = Some(cell.fg);
-        }
 
-        // Emit background color if changed
-        if current_bg != Some(cell.bg) {
-            if let Some(ansi) = color_to_ansi(&cell.bg, false) {
-                result.push_str(&ansi);
-                attrs_changed = true;
+            // Emit the character
+            if cell.c != ' ' || attrs_changed {
+                result.push(cell.c);
+            } else {
+                result.push(' ');
             }
-            current_bg = Some(cell.bg);
-        }
 
-        // Emit the character
-        if cell.c != ' ' || attrs_changed {
-            result.push(cell.c);
-        } else {
-            result.push(' ');
-        }
-
-        // Emit any zero-width characters
-        if let Some(zerowidth) = cell.zerowidth() {
-            for c in zerowidth {
-                result.push(*c);
+            // Emit any zero-width characters
+            if let Some(zerowidth) = cell.zerowidth() {
+                for c in zerowidth {
+                    result.push(*c);
+                }
             }
         }
     }
@@ -445,6 +450,33 @@ mod tests {
     fn test_is_send() {
         fn assert_send<T: Send>() {}
         assert_send::<StreamTerminals>();
+    }
+
+    #[test]
+    fn test_long_output_scrollback() {
+        let mut terminals = StreamTerminals::new();
+
+        // Create output longer than screen height (100 lines)
+        // This tests that scrollback history is properly serialized
+        let mut long_text = String::new();
+        for i in 0..150 {
+            long_text.push_str(&format!("Line {}\n", i));
+        }
+
+        let result = terminals.feed("cell-1", "stdout", &long_text);
+
+        // Should contain all lines, not just the last 100
+        assert!(
+            result.contains("Line 0"),
+            "Should contain Line 0 from scrollback"
+        );
+        assert!(result.contains("Line 50"), "Should contain Line 50");
+        assert!(result.contains("Line 100"), "Should contain Line 100");
+        assert!(result.contains("Line 149"), "Should contain Line 149");
+
+        // Count the lines to verify none were truncated
+        let line_count = result.lines().count();
+        assert_eq!(line_count, 150, "Should have all 150 lines");
     }
 
     #[test]
