@@ -66,26 +66,9 @@ jobs:
             core.setOutput("artifact_prefix", artifactPrefix);
 
   build:
-    name: Build ${{ matrix.label }} binary
+    name: Build ${{ inputs.target_os == 'linux' && 'Linux x64' || inputs.target_os == 'macos' && 'macOS' || 'Windows x64' }} binary
     needs: [resolve-pr]
-    if: ${{ inputs.target_os == matrix.target_os }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target_os: linux
-            label: Linux x64
-            runner: ubuntu-22.04
-            artifact_suffix: linux-x64
-          - target_os: macos
-            label: macOS
-            runner: macos-latest
-            artifact_suffix: macos
-          - target_os: windows
-            label: Windows x64
-            runner: windows-latest
-            artifact_suffix: windows-x64
+    runs-on: ${{ inputs.target_os == 'linux' && 'ubuntu-22.04' || inputs.target_os == 'macos' && 'macos-latest' || 'windows-latest' }}
 
     steps:
       - name: Checkout pinned PR commit
@@ -105,7 +88,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: pr-binary-${{ matrix.target_os }}
+          shared-key: pr-binary-${{ inputs.target_os }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -148,18 +131,18 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin
-          key: cargo-bin-${{ matrix.target_os }}-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
+          key: cargo-bin-${{ inputs.target_os }}-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
           restore-keys: |
-            cargo-bin-${{ matrix.target_os }}-tauri-cli-
+            cargo-bin-${{ inputs.target_os }}-tauri-cli-
 
       - name: Cache tauri-cli binary (Windows)
         if: runner.os == 'Windows'
         uses: actions/cache@v4
         with:
           path: ~\.cargo\bin
-          key: cargo-bin-${{ matrix.target_os }}-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
+          key: cargo-bin-${{ inputs.target_os }}-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
           restore-keys: |
-            cargo-bin-${{ matrix.target_os }}-tauri-cli-
+            cargo-bin-${{ inputs.target_os }}-tauri-cli-
 
       - name: Install tauri-cli (Unix)
         if: runner.os != 'Windows'
@@ -264,7 +247,7 @@ jobs:
           cat > pr-binary/build-metadata.json <<EOF
           {
             "pr_number": "${{ needs.resolve-pr.outputs.pr_number }}",
-            "target_os": "${{ matrix.target_os }}",
+            "target_os": "${{ inputs.target_os }}",
             "commit": "${{ needs.resolve-pr.outputs.head_sha }}",
             "version": "$VERSION"
           }
@@ -282,7 +265,7 @@ jobs:
 
           $metadata = @{
             pr_number = "${{ needs.resolve-pr.outputs.pr_number }}"
-            target_os = "${{ matrix.target_os }}"
+            target_os = "${{ inputs.target_os }}"
             commit = "${{ needs.resolve-pr.outputs.head_sha }}"
             version = "$env:VERSION"
           } | ConvertTo-Json
@@ -293,7 +276,7 @@ jobs:
         id: upload-artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ needs.resolve-pr.outputs.artifact_prefix }}-${{ matrix.artifact_suffix }}
+          name: ${{ needs.resolve-pr.outputs.artifact_prefix }}-${{ inputs.target_os == 'linux' && 'linux-x64' || inputs.target_os == 'macos' && 'macos' || 'windows-x64' }}
           path: pr-binary/
           retention-days: 14
 
@@ -301,10 +284,10 @@ jobs:
         uses: actions/github-script@v7
         env:
           PR_NUMBER: ${{ needs.resolve-pr.outputs.pr_number }}
-          TARGET_OS: ${{ matrix.target_os }}
+          TARGET_OS: ${{ inputs.target_os }}
           COMMIT_SHORT_SHA: ${{ needs.resolve-pr.outputs.head_short_sha }}
           VERSION: ${{ steps.version.outputs.version }}
-          ARTIFACT_NAME: ${{ needs.resolve-pr.outputs.artifact_prefix }}-${{ matrix.artifact_suffix }}
+          ARTIFACT_NAME: ${{ needs.resolve-pr.outputs.artifact_prefix }}-${{ inputs.target_os == 'linux' && 'linux-x64' || inputs.target_os == 'macos' && 'macos' || 'windows-x64' }}
           ARTIFACT_URL: ${{ steps.upload-artifact.outputs.artifact-url }}
           ARTIFACT_ID: ${{ steps.upload-artifact.outputs.artifact-id }}
         with:
