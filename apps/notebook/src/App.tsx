@@ -22,6 +22,7 @@ import { DependencyHeader } from "./components/DependencyHeader";
 import { NotebookToolbar } from "./components/NotebookToolbar";
 import { NotebookView } from "./components/NotebookView";
 import { TrustDialog } from "./components/TrustDialog";
+import { useAppUpdater } from "./hooks/useAppUpdater";
 import { useCondaDependencies } from "./hooks/useCondaDependencies";
 import { useDaemonKernel } from "./hooks/useDaemonKernel";
 import { useDenoDependencies } from "./hooks/useDenoDependencies";
@@ -76,6 +77,12 @@ async function sendMessage(message: unknown): Promise<void> {
 function AppContent() {
   const gitInfo = useGitInfo();
   const daemonInfo = useDaemonInfo();
+  const {
+    availableUpdate,
+    isInstalling: isInstallingUpdate,
+    error: updateError,
+    installAndRelaunch,
+  } = useAppUpdater();
 
   const { theme, setTheme } = useSyncedTheme();
   const {
@@ -779,6 +786,11 @@ function AppContent() {
         onAddCell={handleAddCell}
         onToggleDependencies={() => setDependencyHeaderOpen((prev) => !prev)}
         isDepsOpen={dependencyHeaderOpen}
+        updateVersion={availableUpdate?.version ?? null}
+        updateChannel={availableUpdate?.channel ?? null}
+        isInstallingUpdate={isInstallingUpdate}
+        updateError={updateError}
+        onInstallUpdate={availableUpdate ? installAndRelaunch : undefined}
       />
       {/* Dual-dependency choice: both UV and conda deps exist, let user pick */}
       {dependencyHeaderOpen &&

@@ -22,6 +22,14 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/nteract/desktop/releases/download/stable/latest.json"
+      ],
+      "pubkey": "__TAURI_UPDATER_PUBLIC_KEY__"
+    }
+  },
   "bundle": {
     "active": true,
     "externalBin": ["binaries/runtimed", "binaries/runt"],

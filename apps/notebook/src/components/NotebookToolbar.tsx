@@ -158,6 +158,11 @@ interface NotebookToolbarProps {
   onDefaultUvPackagesChange?: (packages: string[]) => void;
   defaultCondaPackages?: string[];
   onDefaultCondaPackagesChange?: (packages: string[]) => void;
+  updateVersion?: string | null;
+  updateChannel?: string | null;
+  isInstallingUpdate?: boolean;
+  updateError?: string | null;
+  onInstallUpdate?: () => void;
   onSave: () => void;
   onStartKernel: (name: string) => void;
   onInterruptKernel: () => void;
@@ -293,6 +298,11 @@ export function NotebookToolbar({
   onDefaultUvPackagesChange,
   defaultCondaPackages = [],
   onDefaultCondaPackagesChange,
+  updateVersion = null,
+  updateChannel = null,
+  isInstallingUpdate = false,
+  updateError = null,
+  onInstallUpdate,
   onSave,
   onStartKernel,
   onInterruptKernel,
@@ -460,6 +470,37 @@ export function NotebookToolbar({
           )}
 
           <div className="flex-1" />
+
+          {/* App updater */}
+          {onInstallUpdate && updateVersion && (
+            <button
+              type="button"
+              onClick={onInstallUpdate}
+              disabled={isInstallingUpdate}
+              data-testid="restart-to-update-button"
+              className={cn(
+                "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors",
+                isInstallingUpdate
+                  ? "cursor-wait text-emerald-700 dark:text-emerald-300"
+                  : "text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300",
+                "disabled:opacity-70",
+              )}
+              title={
+                updateError
+                  ? updateError
+                  : `Update ${updateVersion} is available${
+                      updateChannel ? ` (${updateChannel})` : ""
+                    }. Download and restart to install.`
+              }
+            >
+              <RotateCcw
+                className={cn("h-3 w-3", isInstallingUpdate && "animate-spin")}
+              />
+              <span>
+                {isInstallingUpdate ? "Updating..." : "Restart to update"}
+              </span>
+            </button>
+          )}
 
           {/* Runtime / deps toggle */}
           <button

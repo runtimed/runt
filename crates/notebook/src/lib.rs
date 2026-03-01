@@ -82,6 +82,8 @@ use std::sync::{Arc, Mutex};
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::RunEvent;
 use tauri::{Emitter, Manager};
+use tauri_plugin_updater::UpdaterExt;
+use url::Url;
 
 #[derive(Serialize)]
 struct KernelspecInfo {
@@ -96,6 +98,18 @@ struct GitInfo {
     branch: String,
     commit: String,
     description: Option<String>,
+}
+
+const UPDATER_CHANNEL_PREVIEW: &str = "preview";
+const UPDATER_CHANNEL_STABLE: &str = "stable";
+const UPDATER_RELEASES_BASE_URL: &str = "https://github.com/nteract/desktop/releases/download";
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AvailableAppUpdate {
+    version: String,
+    body: Option<String>,
+    channel: String,
 }
 
 /// Environment sync state for dirty detection.
@@ -788,6 +802,99 @@ async fn get_blob_port() -> Result<u16, String> {
         .ok_or_else(|| "Daemon not running".to_string())?;
     info.blob_port
         .ok_or_else(|| "Blob server not available".to_string())
+}
+
+fn release_channel_for_version(version: &str) -> &'static str {
+    if version.contains("-preview.") {
+        UPDATER_CHANNEL_PREVIEW
+    } else {
+        UPDATER_CHANNEL_STABLE
+    }
+}
+
+fn preview_sequence(pre_release: &str) -> Option<u64> {
+    let mut parts = pre_release.split('.');
+    if parts.next()? != UPDATER_CHANNEL_PREVIEW {
+        return None;
+    }
+    parts.next()?.parse::<u64>().ok()
+}
+
+fn updater_for_current_channel(
+    app: &tauri::AppHandle,
+) -> Result<tauri_plugin_updater::Updater, String> {
+    let current_version = app.package_info().version.to_string();
+    let channel = release_channel_for_version(&current_version);
+    let endpoint = Url::parse(&format!(
+        "{UPDATER_RELEASES_BASE_URL}/{channel}/latest.json"
+    ))
+    .map_err(|e| format!("Failed to parse updater endpoint: {e}"))?;
+
+    let mut builder = app
+        .updater_builder()
+        .endpoints(vec![endpoint])
+        .map_err(|e| format!("Failed to configure updater endpoint: {e}"))?;
+
+    if channel == UPDATER_CHANNEL_PREVIEW {
+        // Preview builds previously used hash-based prerelease identifiers, which do not
+        // compare chronologically under semver ordering. For preview channel updates we:
+        // - Prefer numeric preview sequence comparison when available.
+        // - Fall back to "any different preview version" to allow migration from older
+        //   non-numeric preview version formats.
+        builder = builder.version_comparator(|current, update| {
+            if update.version == current {
+                return false;
+            }
+
+            match (
+                preview_sequence(current.pre.as_str()),
+                preview_sequence(update.version.pre.as_str()),
+            ) {
+                (Some(current_seq), Some(remote_seq)) => remote_seq > current_seq,
+                _ => true,
+            }
+        });
+    }
+
+    builder
+        .build()
+        .map_err(|e| format!("Failed to build updater client: {e}"))
+}
+
+#[tauri::command]
+async fn check_for_app_update(app: tauri::AppHandle) -> Result<Option<AvailableAppUpdate>, String> {
+    let current_version = app.package_info().version.to_string();
+    let channel = release_channel_for_version(&current_version).to_string();
+    let updater = updater_for_current_channel(&app)?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| format!("Failed to check for app updates: {e}"))?;
+
+    Ok(update.map(|update| AvailableAppUpdate {
+        version: update.version,
+        body: update.body,
+        channel,
+    }))
+}
+
+#[tauri::command]
+async fn download_and_install_app_update(app: tauri::AppHandle) -> Result<bool, String> {
+    let updater = updater_for_current_channel(&app)?;
+    let Some(update) = updater
+        .check()
+        .await
+        .map_err(|e| format!("Failed to check for app updates before install: {e}"))?
+    else {
+        return Ok(false);
+    };
+
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| format!("Failed to download and install app update: {e}"))?;
+
+    app.restart();
 }
 
 #[tauri::command]
@@ -3246,6 +3353,7 @@ pub fn run(
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(window_registry.clone())
         .manage(env_pool)
         .manage(conda_env_pool)
@@ -3338,6 +3446,9 @@ pub fn run(
             get_conda_pool_status,
             get_daemon_info,
             get_blob_port,
+            // App updates
+            check_for_app_update,
+            download_and_install_app_update,
         ])
         .setup(move |app| {
             let setup_start = std::time::Instant::now();

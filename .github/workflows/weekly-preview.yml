@@ -9,23 +9,91 @@ on:
 permissions:
   contents: write
 
+env:
+  # This workflow currently ships preview builds. Stable support is wired by
+  # channel-aware metadata below and can be enabled in a future workflow by
+  # setting this to "stable".
+  RELEASE_CHANNEL: preview
+
 jobs:
+  version:
+    name: Compute release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      release_body: ${{ steps.meta.outputs.release_body }}
+      is_prerelease: ${{ steps.meta.outputs.is_prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute version and release metadata
+        id: meta
+        run: |
+          CURRENT_VERSION=$(python - <<'PY'
+          import pathlib, re
+          content = pathlib.Path("crates/runt/Cargo.toml").read_text()
+          match = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
+          if not match:
+              raise SystemExit("Could not find version in crates/runt/Cargo.toml")
+          print(match.group(1))
+          PY
+          )
+          COMMIT_SHA="${GITHUB_SHA::7}"
+
+          if [ "${RELEASE_CHANNEL}" = "preview" ]; then
+            VERSION="${CURRENT_VERSION}-preview.${GITHUB_RUN_NUMBER}+${COMMIT_SHA}"
+            IS_PRERELEASE="true"
+          else
+            VERSION="${CURRENT_VERSION}"
+            IS_PRERELEASE="false"
+          fi
+
+          RELEASE_TAG="${RELEASE_CHANNEL}"
+          RELEASE_NAME="nteract ${RELEASE_CHANNEL} v${VERSION}"
+
+          {
+            echo "version=${VERSION}"
+            echo "release_tag=${RELEASE_TAG}"
+            echo "release_name=${RELEASE_NAME}"
+            echo "is_prerelease=${IS_PRERELEASE}"
+            echo "release_body<<EOF"
+            echo "## ${RELEASE_CHANNEL^} channel release"
+            echo
+            echo "Automated ${RELEASE_CHANNEL} build from \`main\`."
+            echo
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Version: \`${VERSION}\`"
+            echo "- Update channel tag: \`${RELEASE_TAG}\`"
+            echo
+            echo "### nteract (desktop app)"
+            echo
+            echo "| Platform | Architecture | Download |"
+            echo "|----------|--------------|----------|"
+            echo "| macOS | ARM64 (Apple Silicon) | DMG asset |"
+            echo "| macOS | x64 (Intel) | DMG asset |"
+            echo "| Windows | x64 | NSIS installer asset |"
+            echo "| Linux | x64 | AppImage asset |"
+            echo
+            echo "Updater metadata is published as \`latest.json\` on this release tag."
+            echo
+            echo "### runt (CLI)"
+            echo
+            echo "Standalone CLI binaries are uploaded to this release after app bundles finish."
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
   build-linux:
     name: Build Linux Executables
     runs-on: ubuntu-22.04
-    outputs:
-      version: ${{ steps.version.outputs.VERSION }}
+    needs: [version]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev \
-            libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
       - name: Set up Rust
         uses: dsherret/rust-toolchain-file@v1
@@ -33,43 +101,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "linux-release"
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Enable corepack
-        run: corepack enable
-
-      - name: Set pnpm store directory
-        run: pnpm config set store-dir ~/.pnpm-store
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ~/.pnpm-store
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            pnpm-store-${{ runner.os }}-
-
-      - name: Install JS dependencies
-        run: pnpm install
-
-      - name: Build sidecar UI
-        run: pnpm build
-
-      - name: Set version
-        id: version
-        run: |
-          CURRENT_VERSION=$(grep '^version' crates/runt/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          COMMIT_SHA=${GITHUB_SHA::7}
-          VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
-          echo "Setting version to: ${VERSION}"
-          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-
-          # Update version in Cargo.toml
-          sed -i "s/^version = .*/version = \"${VERSION}\"/" crates/runt/Cargo.toml
 
       - name: Build for Linux x64
         run: cargo build --release --target x86_64-unknown-linux-gnu -p runt-cli
@@ -89,8 +120,7 @@ jobs:
   build-macos:
     name: Build macOS Executables
     runs-on: macos-latest
-    outputs:
-      version: ${{ steps.version.outputs.VERSION }}
+    needs: [version]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -106,41 +136,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "macos-release"
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Enable corepack
-        run: corepack enable
-
-      - name: Set pnpm store directory
-        run: pnpm config set store-dir ~/.pnpm-store
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ~/.pnpm-store
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            pnpm-store-${{ runner.os }}-
-
-      - name: Install JS dependencies
-        run: pnpm install
-
-      - name: Build sidecar UI
-        run: pnpm build
-
-      - name: Set version in Cargo.toml
-        id: version
-        run: |
-          CURRENT_VERSION=$(grep '^version' crates/runt/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          COMMIT_SHA=${GITHUB_SHA::7}
-          VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
-          echo "Setting version to: ${VERSION}"
-          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-          sed -i '' "s/^version = .*/version = \"${VERSION}\"/" crates/runt/Cargo.toml
 
       - name: Build for macOS x64
         run: cargo build --release --target x86_64-apple-darwin -p runt-cli
@@ -162,9 +157,115 @@ jobs:
             runt-darwin-x64
             runt-darwin-arm64
 
+  build-notebook-linux-x64:
+    name: Build Linux x64 Notebook AppImage
+    runs-on: ubuntu-22.04
+    needs: [version]
+    outputs:
+      release_id: ${{ steps.tauri.outputs.releaseId }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev \
+            libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Set up Rust
+        uses: dsherret/rust-toolchain-file@v1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "linux-notebook-x64"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Set pnpm store directory
+        run: pnpm config set store-dir ~/.pnpm-store
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Install JS dependencies
+        run: pnpm install
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Configure notebook release metadata
+        env:
+          APP_VERSION: ${{ needs.version.outputs.version }}
+          UPDATE_CHANNEL: ${{ env.RELEASE_CHANNEL }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY || secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: |
+          if [ -z "$TAURI_UPDATER_PUBLIC_KEY" ]; then
+            echo "TAURI_UPDATER_PUBLIC_KEY must be set as a repository variable or secret."
+            exit 1
+          fi
+
+          python - <<'PY'
+          import json, os, pathlib
+          path = pathlib.Path("crates/notebook/tauri.conf.json")
+          data = json.loads(path.read_text())
+          data["version"] = os.environ["APP_VERSION"]
+          plugins = data.setdefault("plugins", {})
+          updater = plugins.setdefault("updater", {})
+          updater["endpoints"] = [
+              f"https://github.com/nteract/desktop/releases/download/{os.environ['UPDATE_CHANNEL']}/latest.json"
+          ]
+          updater["pubkey"] = os.environ["TAURI_UPDATER_PUBLIC_KEY"]
+          path.write_text(json.dumps(data, indent=2) + "\n")
+          PY
+
+      - name: Generate Icons
+        run: cargo xtask icons
+
+      - name: Build external binaries
+        run: |
+          cargo build --release -p runtimed -p runt-cli
+          TARGET=$(rustc --print host-tuple)
+          mkdir -p crates/notebook/binaries
+          cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
+          cp target/release/runt "crates/notebook/binaries/runt-$TARGET"
+
+      - name: Build and upload Linux bundle with updater metadata
+        id: tauri
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: crates/notebook
+          tagName: ${{ needs.version.outputs.release_tag }}
+          releaseName: ${{ needs.version.outputs.release_name }}
+          releaseBody: ${{ needs.version.outputs.release_body }}
+          releaseDraft: false
+          prerelease: ${{ needs.version.outputs.is_prerelease }}
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: >-
+            --ci --bundles appimage --config '{"build":{"beforeBuildCommand":""}}'
+
   build-notebook-macos-arm64:
     name: Build macOS ARM64 Notebook DMG
     runs-on: macos-latest
+    needs: [version, build-notebook-linux-x64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -203,19 +304,30 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
-      - name: Cache cargo bin
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin
-          key: cargo-bin-macos-arm64-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
-          restore-keys: |
-            cargo-bin-macos-arm64-tauri-cli-
-
-      - name: Install Tauri CLI
+      - name: Configure notebook release metadata
+        env:
+          APP_VERSION: ${{ needs.version.outputs.version }}
+          UPDATE_CHANNEL: ${{ env.RELEASE_CHANNEL }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY || secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
-          if ! command -v cargo-tauri &> /dev/null; then
-            cargo install tauri-cli --locked
+          if [ -z "$TAURI_UPDATER_PUBLIC_KEY" ]; then
+            echo "TAURI_UPDATER_PUBLIC_KEY must be set as a repository variable or secret."
+            exit 1
           fi
+
+          python - <<'PY'
+          import json, os, pathlib
+          path = pathlib.Path("crates/notebook/tauri.conf.json")
+          data = json.loads(path.read_text())
+          data["version"] = os.environ["APP_VERSION"]
+          plugins = data.setdefault("plugins", {})
+          updater = plugins.setdefault("updater", {})
+          updater["endpoints"] = [
+              f"https://github.com/nteract/desktop/releases/download/{os.environ['UPDATE_CHANNEL']}/latest.json"
+          ]
+          updater["pubkey"] = os.environ["TAURI_UPDATER_PUBLIC_KEY"]
+          path.write_text(json.dumps(data, indent=2) + "\n")
+          PY
 
       - name: Import Apple signing certificate
         env:
@@ -245,14 +357,6 @@ jobs:
 
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
 
-      - name: Set version in tauri.conf.json
-        run: |
-          CURRENT_VERSION=$(grep '^version' crates/runt/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          COMMIT_SHA=${GITHUB_SHA::7}
-          VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
-          echo "Setting version to: ${VERSION}"
-          sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" crates/notebook/tauri.conf.json
-
       - name: Generate Icons
         run: cargo xtask icons
 
@@ -264,14 +368,26 @@ jobs:
           cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
           cp target/release/runt "crates/notebook/binaries/runt-$TARGET"
 
-      - name: Build and Sign DMG
+      - name: Build and upload macOS ARM64 bundle with updater metadata
+        uses: tauri-apps/tauri-action@v1
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: cargo tauri build --ci --bundles dmg --config '{"build":{"beforeBuildCommand":""}}'
-        working-directory: crates/notebook
+        with:
+          projectPath: crates/notebook
+          releaseId: ${{ needs.build-notebook-linux-x64.outputs.release_id }}
+          tagName: ${{ needs.version.outputs.release_tag }}
+          releaseDraft: false
+          prerelease: ${{ needs.version.outputs.is_prerelease }}
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: >-
+            --ci --bundles dmg --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: Cleanup keychain
         if: always()
@@ -280,20 +396,10 @@ jobs:
             security delete-keychain "$KEYCHAIN_PATH" || true
           fi
 
-      - name: Rename DMG
-        run: |
-          DMG_PATH=$(find target/release/bundle/dmg -name "*.dmg" | head -1)
-          cp "$DMG_PATH" nteract-darwin-arm64.dmg
-
-      - name: Upload ARM64 DMG
-        uses: actions/upload-artifact@v4
-        with:
-          name: nteract-macos-arm64
-          path: nteract-darwin-arm64.dmg
-
   build-notebook-macos-x64:
     name: Build macOS x64 Notebook DMG
     runs-on: macos-latest
+    needs: [version, build-notebook-linux-x64, build-notebook-macos-arm64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -335,19 +441,30 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
-      - name: Cache cargo bin
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin
-          key: cargo-bin-macos-x64-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
-          restore-keys: |
-            cargo-bin-macos-x64-tauri-cli-
-
-      - name: Install Tauri CLI
+      - name: Configure notebook release metadata
+        env:
+          APP_VERSION: ${{ needs.version.outputs.version }}
+          UPDATE_CHANNEL: ${{ env.RELEASE_CHANNEL }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY || secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
-          if ! command -v cargo-tauri &> /dev/null; then
-            cargo install tauri-cli --locked
+          if [ -z "$TAURI_UPDATER_PUBLIC_KEY" ]; then
+            echo "TAURI_UPDATER_PUBLIC_KEY must be set as a repository variable or secret."
+            exit 1
           fi
+
+          python - <<'PY'
+          import json, os, pathlib
+          path = pathlib.Path("crates/notebook/tauri.conf.json")
+          data = json.loads(path.read_text())
+          data["version"] = os.environ["APP_VERSION"]
+          plugins = data.setdefault("plugins", {})
+          updater = plugins.setdefault("updater", {})
+          updater["endpoints"] = [
+              f"https://github.com/nteract/desktop/releases/download/{os.environ['UPDATE_CHANNEL']}/latest.json"
+          ]
+          updater["pubkey"] = os.environ["TAURI_UPDATER_PUBLIC_KEY"]
+          path.write_text(json.dumps(data, indent=2) + "\n")
+          PY
 
       - name: Import Apple signing certificate
         env:
@@ -377,14 +494,6 @@ jobs:
 
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
 
-      - name: Set version in tauri.conf.json
-        run: |
-          CURRENT_VERSION=$(grep '^version' crates/runt/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          COMMIT_SHA=${GITHUB_SHA::7}
-          VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
-          echo "Setting version to: ${VERSION}"
-          sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" crates/notebook/tauri.conf.json
-
       - name: Generate Icons
         run: cargo xtask icons
 
@@ -395,14 +504,26 @@ jobs:
           cp target/x86_64-apple-darwin/release/runtimed "crates/notebook/binaries/runtimed-x86_64-apple-darwin"
           cp target/x86_64-apple-darwin/release/runt "crates/notebook/binaries/runt-x86_64-apple-darwin"
 
-      - name: Build and Sign DMG
+      - name: Build and upload macOS x64 bundle with updater metadata
+        uses: tauri-apps/tauri-action@v1
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: cargo tauri build --ci --target x86_64-apple-darwin --bundles dmg --config '{"build":{"beforeBuildCommand":""}}'
-        working-directory: crates/notebook
+        with:
+          projectPath: crates/notebook
+          releaseId: ${{ needs.build-notebook-linux-x64.outputs.release_id }}
+          tagName: ${{ needs.version.outputs.release_tag }}
+          releaseDraft: false
+          prerelease: ${{ needs.version.outputs.is_prerelease }}
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: >-
+            --ci --target x86_64-apple-darwin --bundles dmg --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: Cleanup keychain
         if: always()
@@ -411,20 +532,10 @@ jobs:
             security delete-keychain "$KEYCHAIN_PATH" || true
           fi
 
-      - name: Rename DMG
-        run: |
-          DMG_PATH=$(find target/x86_64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
-          cp "$DMG_PATH" nteract-darwin-x64.dmg
-
-      - name: Upload x64 DMG
-        uses: actions/upload-artifact@v4
-        with:
-          name: nteract-macos-x64
-          path: nteract-darwin-x64.dmg
-
   build-notebook-windows-x64:
     name: Build Windows x64 Notebook Installer
     runs-on: windows-latest
+    needs: [version, build-notebook-linux-x64, build-notebook-macos-x64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -460,34 +571,31 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
-      - name: Cache cargo bin
-        uses: actions/cache@v4
-        with:
-          path: ~\.cargo\bin
-          key: cargo-bin-windows-x64-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
-          restore-keys: |
-            cargo-bin-windows-x64-tauri-cli-
-
-      - name: Install Tauri CLI
-        shell: pwsh
+      - name: Configure notebook release metadata
+        shell: bash
+        env:
+          APP_VERSION: ${{ needs.version.outputs.version }}
+          UPDATE_CHANNEL: ${{ env.RELEASE_CHANNEL }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY || secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
-          if (!(Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
-            cargo install tauri-cli --locked
-          }
+          if [ -z "$TAURI_UPDATER_PUBLIC_KEY" ]; then
+            echo "TAURI_UPDATER_PUBLIC_KEY must be set as a repository variable or secret."
+            exit 1
+          fi
 
-      - name: Set version in tauri.conf.json
-        shell: pwsh
-        run: |
-          $content = Get-Content crates/runt/Cargo.toml -Raw
-          if ($content -match 'version = "([^"]+)"') {
-            $currentVersion = $matches[1]
-          }
-          $commitSha = "$env:GITHUB_SHA".Substring(0, 7)
-          $version = "$currentVersion-preview.$commitSha"
-          Write-Host "Setting version to: $version"
-          $tauriConf = Get-Content crates/notebook/tauri.conf.json -Raw
-          $tauriConf = $tauriConf -replace '"version": "[^"]+"', "`"version`": `"$version`""
-          Set-Content crates/notebook/tauri.conf.json $tauriConf
+          python - <<'PY'
+          import json, os, pathlib
+          path = pathlib.Path("crates/notebook/tauri.conf.json")
+          data = json.loads(path.read_text())
+          data["version"] = os.environ["APP_VERSION"]
+          plugins = data.setdefault("plugins", {})
+          updater = plugins.setdefault("updater", {})
+          updater["endpoints"] = [
+              f"https://github.com/nteract/desktop/releases/download/{os.environ['UPDATE_CHANNEL']}/latest.json"
+          ]
+          updater["pubkey"] = os.environ["TAURI_UPDATER_PUBLIC_KEY"]
+          path.write_text(json.dumps(data, indent=2) + "\n")
+          PY
 
       - name: Generate Icons
         run: cargo xtask icons
@@ -501,135 +609,34 @@ jobs:
           cp target/release/runtimed.exe "crates/notebook/binaries/runtimed-$TARGET.exe"
           cp target/release/runt.exe "crates/notebook/binaries/runt-$TARGET.exe"
 
-      - name: Build NSIS Installer
-        run: cargo tauri build --ci --bundles nsis --config '{"build":{"beforeBuildCommand":""}}'
-        working-directory: crates/notebook
-
-      - name: Rename Installer
-        shell: pwsh
-        run: |
-          $nsisPath = Get-ChildItem -Path target\release\bundle\nsis -Filter "*.exe" | Select-Object -First 1
-          Copy-Item $nsisPath.FullName "nteract-windows-x64.exe"
-
-      - name: Upload Windows Installer
-        uses: actions/upload-artifact@v4
+      - name: Build and upload Windows bundle with updater metadata
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          name: nteract-windows-x64
-          path: nteract-windows-x64.exe
+          projectPath: crates/notebook
+          releaseId: ${{ needs.build-notebook-linux-x64.outputs.release_id }}
+          tagName: ${{ needs.version.outputs.release_tag }}
+          releaseDraft: false
+          prerelease: ${{ needs.version.outputs.is_prerelease }}
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: >-
+            --ci --bundles nsis --config '{"build":{"beforeBuildCommand":""}}'
 
-  build-notebook-linux-x64:
-    name: Build Linux x64 Notebook AppImage
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev \
-            libssl-dev libayatana-appindicator3-dev librsvg2-dev
-
-      - name: Set up Rust
-        uses: dsherret/rust-toolchain-file@v1
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "linux-notebook-x64"
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Enable corepack
-        run: corepack enable
-
-      - name: Set pnpm store directory
-        run: pnpm config set store-dir ~/.pnpm-store
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ~/.pnpm-store
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            pnpm-store-${{ runner.os }}-
-
-      - name: Install JS dependencies
-        run: pnpm install
-
-      - name: Build frontend
-        run: pnpm build
-
-      - name: Cache cargo bin
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin
-          key: cargo-bin-linux-x64-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
-          restore-keys: |
-            cargo-bin-linux-x64-tauri-cli-
-
-      - name: Install Tauri CLI
-        run: |
-          if ! command -v cargo-tauri &> /dev/null; then
-            cargo install tauri-cli --locked
-          fi
-
-      - name: Set version in tauri.conf.json
-        run: |
-          CURRENT_VERSION=$(grep '^version' crates/runt/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          COMMIT_SHA=${GITHUB_SHA::7}
-          VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
-          echo "Setting version to: ${VERSION}"
-          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" crates/notebook/tauri.conf.json
-
-      - name: Generate Icons
-        run: cargo xtask icons
-
-      - name: Build external binaries
-        run: |
-          cargo build --release -p runtimed -p runt-cli
-          TARGET=$(rustc --print host-tuple)
-          mkdir -p crates/notebook/binaries
-          cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
-          cp target/release/runt "crates/notebook/binaries/runt-$TARGET"
-
-      - name: Build AppImage
-        run: cargo tauri build --ci --bundles appimage --config '{"build":{"beforeBuildCommand":""}}'
-        working-directory: crates/notebook
-
-      - name: Rename AppImage
-        run: |
-          APPIMAGE_PATH=$(find target/release/bundle/appimage -name "*.AppImage" | head -1)
-          cp "$APPIMAGE_PATH" nteract-linux-x64.AppImage
-
-      - name: Upload Linux AppImage
-        uses: actions/upload-artifact@v4
-        with:
-          name: nteract-linux-x64
-          path: nteract-linux-x64.AppImage
-
-  prerelease:
-    name: Prerelease
+  release-runt-cli:
+    name: Upload runt CLI binaries to release
     runs-on: ubuntu-latest
     needs:
       [
+        version,
         build-linux,
         build-macos,
-        build-notebook-macos-arm64,
-        build-notebook-macos-x64,
         build-notebook-windows-x64,
-        build-notebook-linux-x64,
       ]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Download Linux executables
         uses: actions/download-artifact@v4
         with:
@@ -642,69 +649,16 @@ jobs:
           name: runt-macos-executables
           path: ./executables
 
-      - name: Download macOS ARM64 notebook DMG
-        uses: actions/download-artifact@v4
-        with:
-          name: nteract-macos-arm64
-          path: ./executables
-
-      - name: Download macOS x64 notebook DMG
-        uses: actions/download-artifact@v4
-        with:
-          name: nteract-macos-x64
-          path: ./executables
-
-      - name: Download Windows x64 notebook installer
-        uses: actions/download-artifact@v4
-        with:
-          name: nteract-windows-x64
-          path: ./executables
-
-      - name: Download Linux x64 notebook AppImage
-        uses: actions/download-artifact@v4
-        with:
-          name: nteract-linux-x64
-          path: ./executables
-
-      - name: Create GitHub Preview Release
+      - name: Upload CLI binaries to release
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ needs.build-linux.outputs.version }}
-          name: nteract v${{ needs.build-linux.outputs.version }}
-          body: |
-            ## Weekly Preview Release
-
-            Automated preview from `main`. **Commit:** ${{ github.sha }}
-
-            ### nteract (desktop app)
-
-            | Platform | Architecture | Download |
-            |----------|--------------|----------|
-            | macOS | ARM64 (Apple Silicon) | `nteract-darwin-arm64.dmg` |
-            | macOS | x64 (Intel) | `nteract-darwin-x64.dmg` |
-            | Windows | x64 | `nteract-windows-x64.exe` |
-            | Linux | x64 | `nteract-linux-x64.AppImage` |
-
-            macOS builds are signed and notarized. Windows is not code signed — expect a SmartScreen prompt. Linux AppImage: `chmod +x` and run.
-
-            ### runt (CLI)
-
-            Also bundled inside the desktop app. Standalone binaries:
-
-            | Platform | Architecture | Download |
-            |----------|--------------|----------|
-            | Linux | x64 | `runt-linux-x64` |
-            | macOS | x64 | `runt-darwin-x64` |
-            | macOS | ARM64 | `runt-darwin-arm64` |
+          tag_name: ${{ needs.version.outputs.release_tag }}
           draft: false
-          prerelease: true
+          prerelease: ${{ needs.version.outputs.is_prerelease }}
+          overwrite_files: true
           files: |
             ./executables/runt-linux-x64
             ./executables/runt-darwin-x64
             ./executables/runt-darwin-arm64
-            ./executables/nteract-linux-x64.AppImage
-            ./executables/nteract-darwin-x64.dmg
-            ./executables/nteract-darwin-arm64.dmg
-            ./executables/nteract-windows-x64.exe
