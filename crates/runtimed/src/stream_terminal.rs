@@ -17,7 +17,7 @@ use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor, Rgb};
 use alacritty_terminal::Term;
 
 /// Default terminal width in columns.
-const DEFAULT_COLUMNS: usize = 120;
+const DEFAULT_COLUMNS: usize = 128;
 
 /// Default terminal height in lines.
 /// We use a small height since we don't need scrollback for notebook outputs.
