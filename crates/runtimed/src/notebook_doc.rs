@@ -311,6 +311,57 @@ impl NotebookDoc {
         Ok(true)
     }
 
+    /// Update or insert a stream output for a cell.
+    ///
+    /// If `known_index` is provided and valid, updates at that index directly.
+    /// Otherwise, appends a new output.
+    ///
+    /// This is used by terminal emulation to maintain a single stream output
+    /// per stream type that gets updated as new content arrives. The caller
+    /// tracks the output index after the first insert and passes it on subsequent
+    /// updates for efficient in-place modification.
+    ///
+    /// Returns (updated: bool, output_index: usize) where updated is true if an
+    /// existing output was updated, false if a new output was appended.
+    pub fn upsert_stream_output(
+        &mut self,
+        cell_id: &str,
+        _stream_name: &str,
+        output_ref: &str,
+        known_index: Option<usize>,
+    ) -> Result<(bool, usize), AutomergeError> {
+        let cells_id = match self.cells_list_id() {
+            Some(id) => id,
+            None => return Ok((false, 0)),
+        };
+        let idx = match self.find_cell_index(&cells_id, cell_id) {
+            Some(i) => i,
+            None => return Ok((false, 0)),
+        };
+        let cell_obj = match self.cell_at_index(&cells_id, idx) {
+            Some(o) => o,
+            None => return Ok((false, 0)),
+        };
+        let outputs_id = match self.list_id(&cell_obj, "outputs") {
+            Some(id) => id,
+            None => return Ok((false, 0)),
+        };
+
+        let output_count = self.doc.length(&outputs_id);
+
+        // If we have a known index and it's valid, update in place
+        if let Some(idx) = known_index {
+            if idx < output_count {
+                self.doc.put(&outputs_id, idx, output_ref)?;
+                return Ok((true, idx));
+            }
+        }
+
+        // No known index, append new output
+        self.doc.insert(&outputs_id, output_count, output_ref)?;
+        Ok((false, output_count))
+    }
+
     /// Update an output by display_id across all cells.
     ///
     /// This is used for `update_display_data` messages which mutate an existing

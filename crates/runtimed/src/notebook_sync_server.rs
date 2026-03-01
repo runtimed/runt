@@ -1605,7 +1605,7 @@ async fn handle_notebook_request(
             // 4. Update kernel's internal tracking if kernel exists
             let kernel_guard = room.kernel.lock().await;
             if let Some(ref kernel) = *kernel_guard {
-                kernel.clear_outputs(&cell_id);
+                kernel.clear_outputs(&cell_id).await;
             }
 
             NotebookResponse::OutputsCleared { cell_id }
