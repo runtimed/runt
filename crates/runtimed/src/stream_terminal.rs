@@ -127,9 +127,9 @@ impl StreamTerminals {
         // We need \r\n to properly start at the beginning of the next line.
         for byte in text.as_bytes() {
             if *byte == b'\n' {
-                processor.advance(term, &[b'\r', b'\n']);
+                processor.advance(term, b"\r\n");
             } else {
-                processor.advance(term, &[*byte]);
+                processor.advance(term, std::slice::from_ref(byte));
             }
         }
 
