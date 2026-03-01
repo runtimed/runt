@@ -3,7 +3,7 @@
 //! Creates, caches, and prewarms UV virtual environments for Jupyter kernels.
 //! Environments are keyed by a SHA-256 hash of (dependencies + requires-python
 //! + env_id) and stored under the cache directory. UV is auto-bootstrapped via
-//! rattler if not found on PATH.
+//!   rattler if not found on PATH.
 
 use anyhow::{anyhow, Result};
 use log::info;
