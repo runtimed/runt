@@ -107,7 +107,7 @@ impl StreamTerminals {
             Term::new(config, &dimensions, VoidListener)
         });
 
-        let processor = self.processors.entry(key).or_insert_with(Processor::new);
+        let processor = self.processors.entry(key).or_default();
 
         // Feed input to terminal
         processor.advance(term, text.as_bytes());
