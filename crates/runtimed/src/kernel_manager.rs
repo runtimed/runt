@@ -762,6 +762,13 @@ impl RoomKernel {
                                         _ => "unknown",
                                     };
 
+                                    // Clear stream terminal state - non-stream outputs break
+                                    // the stream chain, so next stream message should start fresh
+                                    {
+                                        let mut terminals = stream_terminals.lock().await;
+                                        terminals.clear(cid);
+                                    }
+
                                     // Convert to nbformat JSON for storage
                                     if let Some(nbformat_value) =
                                         message_content_to_nbformat(&message.content)
@@ -882,6 +889,12 @@ impl RoomKernel {
 
                             JupyterMessageContent::ErrorOutput(_) => {
                                 if let Some(ref cid) = cell_id {
+                                    // Clear stream terminal state - errors break the stream chain
+                                    {
+                                        let mut terminals = stream_terminals.lock().await;
+                                        terminals.clear(cid);
+                                    }
+
                                     // Convert error to nbformat JSON
                                     if let Some(nbformat_value) =
                                         message_content_to_nbformat(&message.content)
