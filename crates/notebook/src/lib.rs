@@ -1347,27 +1347,6 @@ async fn launch_kernel_via_daemon(
 
 /// Queue a cell for execution via the daemon.
 ///
-/// The daemon manages the execution queue and broadcasts outputs to all windows.
-#[tauri::command]
-#[allow(deprecated)]
-async fn queue_cell_via_daemon(
-    cell_id: String,
-    code: String,
-    window: tauri::Window,
-    registry: tauri::State<'_, WindowNotebookRegistry>,
-) -> Result<NotebookResponse, String> {
-    info!("[daemon-kernel] queue_cell_via_daemon: cell_id={}", cell_id);
-
-    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
-    let guard = notebook_sync.lock().await;
-    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
-
-    handle
-        .send_request(NotebookRequest::QueueCell { cell_id, code })
-        .await
-        .map_err(|e| format!("daemon request failed: {}", e))
-}
-
 /// Execute a cell via the daemon (reads source from synced document).
 ///
 /// This is the preferred method - ensures execution matches synced document state.
@@ -2406,58 +2385,6 @@ async fn detect_pixi_toml(
     Ok(Some(info))
 }
 
-/// Full pixi dependencies for display in the UI.
-#[derive(Serialize)]
-struct PixiDepsJson {
-    path: String,
-    relative_path: String,
-    workspace_name: Option<String>,
-    dependencies: Vec<String>,
-    pypi_dependencies: Vec<String>,
-    python: Option<String>,
-    channels: Vec<String>,
-}
-
-/// Get full parsed dependencies from the detected pixi.toml.
-#[tauri::command]
-async fn get_pixi_dependencies(
-    window: tauri::Window,
-    registry: tauri::State<'_, WindowNotebookRegistry>,
-) -> Result<Option<PixiDepsJson>, String> {
-    let state = notebook_state_for_window(&window, registry.inner())?;
-    let notebook_path = {
-        let state = state.lock().map_err(|e| e.to_string())?;
-        state.path.clone()
-    };
-
-    let Some(notebook_path) = notebook_path else {
-        return Ok(None);
-    };
-
-    let Some(pixi_path) = pixi::find_pixi_toml(&notebook_path) else {
-        return Ok(None);
-    };
-
-    let config = pixi::parse_pixi_toml(&pixi_path).map_err(|e| e.to_string())?;
-
-    let relative_path = pathdiff::diff_paths(
-        &config.path,
-        notebook_path.parent().unwrap_or(&notebook_path),
-    )
-    .map(|p| p.display().to_string())
-    .unwrap_or_else(|| config.path.display().to_string());
-
-    Ok(Some(PixiDepsJson {
-        path: config.path.display().to_string(),
-        relative_path,
-        workspace_name: config.workspace_name,
-        dependencies: config.dependencies,
-        pypi_dependencies: config.pypi_dependencies,
-        python: config.python,
-        channels: config.channels,
-    }))
-}
-
 // ============================================================================
 // environment.yml Discovery and Environment Commands
 // ============================================================================
@@ -3267,7 +3194,6 @@ pub fn run(
             delete_cell,
             // Daemon kernel operations (all kernel ops go through daemon)
             launch_kernel_via_daemon,
-            queue_cell_via_daemon,
             execute_cell_via_daemon,
             clear_outputs_via_daemon,
             interrupt_via_daemon,
@@ -3304,7 +3230,6 @@ pub fn run(
             import_pyproject_dependencies,
             // pixi.toml support
             detect_pixi_toml,
-            get_pixi_dependencies,
             import_pixi_dependencies,
             // environment.yml support
             detect_environment_yml,
