@@ -408,22 +408,29 @@ function AppContent() {
 
   const handleExecuteCell = useCallback(
     async (cellId: string) => {
+      // Resolve cell up front before awaiting sync operations.
+      const cell = cells.find((c) => c.id === cellId);
+      if (!cell || cell.cell_type !== "code") return;
+
       // Clear outputs immediately so user sees feedback
       clearCellOutputs(cellId);
 
       // Broadcast clear to other windows
       await clearOutputs(cellId);
 
-      // Check if cell is code (early exit before daemon call)
-      const cell = cells.find((c) => c.id === cellId);
-      if (!cell || cell.cell_type !== "code") return;
-
-      // Start kernel via daemon if not running, then execute cell
-      // ExecuteCell reads source from the synced document (document-first execution)
+      // Start kernel via daemon if not running, then queue cell.
       if (kernelStatus === "not_started") {
-        await tryStartKernel();
+        const started = await tryStartKernel();
+        // Only block execution when trust approval is pending.
+        // For startup races (e.g. daemon already auto-starting), still try execute.
+        if (!started && pendingKernelStartRef.current) return;
       }
-      executeCell(cellId);
+      const response = await executeCell(cellId);
+      if (response.result === "error") {
+        console.error("[App] handleExecuteCell: daemon error", response.error);
+      } else if (response.result === "no_kernel") {
+        console.warn("[App] handleExecuteCell: no kernel available");
+      }
     },
     [
       clearCellOutputs,
@@ -504,8 +511,9 @@ function AppContent() {
 
   // Cmd+S to save (keyboard and native menu)
   useEffect(() => {
+    const webview = getCurrentWebview();
     // Listen for native menu save event
-    const unlistenPromise = listen("menu:save", () => {
+    const unlistenPromise = webview.listen("menu:save", () => {
       save();
     });
 
@@ -526,8 +534,9 @@ function AppContent() {
 
   // Cmd+O to open (keyboard and native menu)
   useEffect(() => {
+    const webview = getCurrentWebview();
     // Listen for native menu open event
-    const unlistenPromise = listen("menu:open", () => {
+    const unlistenPromise = webview.listen("menu:open", () => {
       openNotebook();
     });
 
@@ -548,7 +557,8 @@ function AppContent() {
 
   // Clone notebook via native menu
   useEffect(() => {
-    const unlistenPromise = listen("menu:clone", () => {
+    const webview = getCurrentWebview();
+    const unlistenPromise = webview.listen("menu:clone", () => {
       cloneNotebook();
     });
 
@@ -559,7 +569,8 @@ function AppContent() {
 
   // Kernel menu: Run All Cells
   useEffect(() => {
-    const unlistenPromise = listen("menu:run-all", () => {
+    const webview = getCurrentWebview();
+    const unlistenPromise = webview.listen("menu:run-all", () => {
       handleRunAllCells();
     });
     return () => {
@@ -569,7 +580,8 @@ function AppContent() {
 
   // Kernel menu: Restart & Run All Cells
   useEffect(() => {
-    const unlistenPromise = listen("menu:restart-and-run-all", () => {
+    const webview = getCurrentWebview();
+    const unlistenPromise = webview.listen("menu:restart-and-run-all", () => {
       handleRestartAndRunAll();
     });
     return () => {
@@ -597,9 +609,9 @@ function AppContent() {
       webview.setZoom(1.0);
     };
 
-    const unlistenIn = listen("menu:zoom-in", handleZoomIn);
-    const unlistenOut = listen("menu:zoom-out", handleZoomOut);
-    const unlistenReset = listen("menu:zoom-reset", handleZoomReset);
+    const unlistenIn = webview.listen("menu:zoom-in", handleZoomIn);
+    const unlistenOut = webview.listen("menu:zoom-out", handleZoomOut);
+    const unlistenReset = webview.listen("menu:zoom-reset", handleZoomReset);
 
     return () => {
       unlistenIn.then((u) => u());
@@ -610,6 +622,7 @@ function AppContent() {
 
   // Listen for daemon startup progress events
   useEffect(() => {
+    const webview = getCurrentWebview();
     // Helper to cancel any pending ready timeout
     const cancelReadyTimeout = () => {
       if (readyTimeoutRef.current) {
@@ -639,7 +652,7 @@ function AppContent() {
     );
 
     // Listen for daemon disconnection (mid-session)
-    const unlistenDisconnect = listen("daemon:disconnected", () => {
+    const unlistenDisconnect = webview.listen("daemon:disconnected", () => {
       cancelReadyTimeout();
       setDaemonStatus({
         status: "failed",
@@ -661,7 +674,7 @@ function AppContent() {
     });
 
     // Listen for daemon ready (reconnection success)
-    const unlistenReady = listen("daemon:ready", () => {
+    const unlistenReady = webview.listen("daemon:ready", () => {
       // Clear any status banner when daemon reconnects (failed, checking, etc.)
       cancelReadyTimeout();
       setDaemonStatus(null);

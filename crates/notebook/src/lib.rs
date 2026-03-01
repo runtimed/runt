@@ -30,12 +30,44 @@ use runtimed::protocol::{CompletionItem, HistoryEntry, NotebookRequest, Notebook
 use log::{debug, info, warn};
 use nbformat::v4::{Cell, CellId, CellMetadata};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::ffi::OsStr;
 
 /// Shared notebook sync handle for cross-window state synchronization.
 /// The Option allows graceful fallback when daemon is unavailable.
 /// Uses the split handle pattern - the handle is clonable and doesn't block.
 type SharedNotebookSync = Arc<tokio::sync::Mutex<Option<NotebookSyncHandle>>>;
+
+#[derive(Clone)]
+struct WindowNotebookContext {
+    notebook_state: Arc<Mutex<NotebookState>>,
+    notebook_sync: SharedNotebookSync,
+}
+
+#[derive(Clone, Default)]
+struct WindowNotebookRegistry {
+    contexts: Arc<Mutex<HashMap<String, WindowNotebookContext>>>,
+}
+
+impl WindowNotebookRegistry {
+    fn insert(
+        &self,
+        label: impl Into<String>,
+        context: WindowNotebookContext,
+    ) -> Result<(), String> {
+        let mut contexts = self.contexts.lock().map_err(|e| e.to_string())?;
+        contexts.insert(label.into(), context);
+        Ok(())
+    }
+
+    fn get(&self, label: &str) -> Result<WindowNotebookContext, String> {
+        let contexts = self.contexts.lock().map_err(|e| e.to_string())?;
+        contexts
+            .get(label)
+            .cloned()
+            .ok_or_else(|| format!("No notebook context for window '{label}'"))
+    }
+}
 
 /// Newtype wrapper for auto-launch-in-progress flag (distinguishes from other AtomicBool states).
 #[allow(dead_code)]
@@ -117,6 +149,33 @@ fn derive_notebook_id(state: &NotebookState) -> String {
     }
 }
 
+fn notebook_state_for_window(
+    window: &tauri::Window,
+    registry: &WindowNotebookRegistry,
+) -> Result<Arc<Mutex<NotebookState>>, String> {
+    Ok(registry.get(window.label())?.notebook_state)
+}
+
+fn notebook_sync_for_window(
+    window: &tauri::Window,
+    registry: &WindowNotebookRegistry,
+) -> Result<SharedNotebookSync, String> {
+    Ok(registry.get(window.label())?.notebook_sync)
+}
+
+fn emit_to_label<R, M, S>(emitter: &M, label: &str, event: &str, payload: S) -> tauri::Result<()>
+where
+    R: tauri::Runtime,
+    M: tauri::Emitter<R>,
+    S: Serialize + Clone,
+{
+    emitter.emit_to(
+        tauri::EventTarget::webview(label.to_string()),
+        event,
+        payload,
+    )
+}
+
 /// Convert a CellSnapshot from Automerge to an nbformat Cell.
 /// Used when joining an existing room to update local state.
 fn cell_snapshot_to_nbformat(snap: &CellSnapshot) -> Cell {
@@ -187,7 +246,7 @@ fn cell_snapshot_to_nbformat(snap: &CellSnapshot) -> Cell {
 /// The split pattern separates the handle (for sending commands) from the
 /// receiver (for incoming changes), avoiding lock contention during network I/O.
 async fn initialize_notebook_sync(
-    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     notebook_state: Arc<Mutex<NotebookState>>,
     notebook_sync: SharedNotebookSync,
 ) -> Result<(), String> {
@@ -293,7 +352,9 @@ async fn initialize_notebook_sync(
             }
         }
         // Emit Automerge state to frontend (for immediate UI update)
-        if let Err(e) = app.emit("notebook:updated", &initial_cells) {
+        if let Err(e) =
+            emit_to_label::<_, _, _>(&window, window.label(), "notebook:updated", &initial_cells)
+        {
             warn!("[notebook-sync] Failed to emit initial cells: {}", e);
         }
     }
@@ -312,7 +373,7 @@ async fn initialize_notebook_sync(
 
     // Spawn receiver task for cross-window sync
     // The receiver is separate from the handle, so it doesn't block commands
-    let app_clone = app.clone();
+    let window_clone = window.clone();
     let notebook_id_for_receiver = notebook_id.clone();
     let notebook_state_for_receiver = notebook_state.clone();
     tokio::spawn(async move {
@@ -327,7 +388,12 @@ async fn initialize_notebook_sync(
                 notebook_id_for_receiver
             );
             // Emit cell changes for frontend to reconcile state
-            if let Err(e) = app_clone.emit("notebook:updated", &update.cells) {
+            if let Err(e) = emit_to_label::<_, _, _>(
+                &window_clone,
+                window_clone.label(),
+                "notebook:updated",
+                &update.cells,
+            ) {
                 warn!("[notebook-sync] Failed to emit notebook:updated: {}", e);
             }
 
@@ -343,7 +409,12 @@ async fn initialize_notebook_sync(
                                 &mut state.notebook.metadata,
                             );
                         }
-                        if let Err(e) = app_clone.emit("notebook:metadata_updated", metadata_json) {
+                        if let Err(e) = emit_to_label::<_, _, _>(
+                            &window_clone,
+                            window_clone.label(),
+                            "notebook:metadata_updated",
+                            metadata_json,
+                        ) {
                             warn!(
                                 "[notebook-sync] Failed to emit notebook:metadata_updated: {}",
                                 e
@@ -366,7 +437,7 @@ async fn initialize_notebook_sync(
     });
 
     // Clone app for later use (before spawning moves it)
-    let app_for_ready = app.clone();
+    let window_for_ready = window.clone();
 
     // Spawn broadcast receiver task for daemon kernel events
     let notebook_sync_for_disconnect = notebook_sync.clone();
@@ -382,7 +453,9 @@ async fn initialize_notebook_sync(
                 notebook_id_for_broadcast, broadcast
             );
             // Emit broadcast events to frontend
-            if let Err(e) = app.emit("daemon:broadcast", &broadcast) {
+            if let Err(e) =
+                emit_to_label::<_, _, _>(&window, window.label(), "daemon:broadcast", &broadcast)
+            {
                 warn!("[notebook-sync] Failed to emit daemon:broadcast: {}", e);
             }
         }
@@ -403,7 +476,8 @@ async fn initialize_notebook_sync(
         );
 
         // Emit disconnection event so frontend can reset kernel state
-        if let Err(e) = app.emit("daemon:disconnected", ()) {
+        if let Err(e) = emit_to_label::<_, _, _>(&window, window.label(), "daemon:disconnected", ())
+        {
             warn!("[notebook-sync] Failed to emit daemon:disconnected: {}", e);
         }
     });
@@ -415,7 +489,12 @@ async fn initialize_notebook_sync(
 
     // Emit event so frontend knows daemon sync is ready
     // Frontend should wait for this before calling daemon commands
-    if let Err(e) = app_for_ready.emit("daemon:ready", ()) {
+    if let Err(e) = emit_to_label::<_, _, _>(
+        &window_for_ready,
+        window_for_ready.label(),
+        "daemon:ready",
+        (),
+    ) {
         warn!("[notebook-sync] Failed to emit daemon:ready: {}", e);
     }
 
@@ -713,8 +792,10 @@ async fn get_blob_port() -> Result<u16, String> {
 
 #[tauri::command]
 async fn load_notebook(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Vec<FrontendCell>, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let state = state.lock().map_err(|e| e.to_string())?;
     Ok(state.cells_for_frontend())
 }
@@ -722,8 +803,10 @@ async fn load_notebook(
 /// Check if the notebook has a file path set
 #[tauri::command]
 async fn has_notebook_path(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<bool, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let state = state.lock().map_err(|e| e.to_string())?;
     Ok(state.path.is_some())
 }
@@ -731,8 +814,10 @@ async fn has_notebook_path(
 /// Get the current notebook file path
 #[tauri::command]
 async fn get_notebook_path(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Option<String>, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let state = state.lock().map_err(|e| e.to_string())?;
     Ok(state.path.as_ref().map(|p| p.to_string_lossy().to_string()))
 }
@@ -744,10 +829,11 @@ async fn get_notebook_path(
 /// existing file content). Falls back to local save if daemon is unavailable.
 #[tauri::command]
 async fn save_notebook(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
-    app: tauri::AppHandle,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     // First pass: collect cells to format (release lock for async formatting)
     let (runtime, cells_to_format, path) = {
         let nb = state.lock().map_err(|e| e.to_string())?;
@@ -793,7 +879,9 @@ async fn save_notebook(
                     nb.update_cell_source(&cell_id, cell_source);
                 }
                 // Emit event to sync frontend
-                let _ = app.emit(
+                let _ = emit_to_label::<_, _, _>(
+                    &window,
+                    window.label(),
                     "cell:source_updated",
                     serde_json::json!({
                         "cell_id": cell_id,
@@ -865,9 +953,9 @@ async fn save_notebook(
 async fn save_notebook_as(
     path: String,
     window: tauri::Window,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    app: tauri::AppHandle,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let save_path = PathBuf::from(&path);
 
     // First pass: collect cells to format (release lock for async formatting)
@@ -911,7 +999,9 @@ async fn save_notebook_as(
                     nb.update_cell_source(&cell_id, cell_source);
                 }
                 // Emit event to sync frontend
-                let _ = app.emit(
+                let _ = emit_to_label::<_, _, _>(
+                    &window,
+                    window.label(),
                     "cell:source_updated",
                     serde_json::json!({
                         "cell_id": cell_id,
@@ -944,8 +1034,10 @@ async fn save_notebook_as(
 #[tauri::command]
 async fn clone_notebook_to_path(
     path: String,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let notebook_state = notebook_state_for_window(&window, registry.inner())?;
     // Generate fresh env_id upfront
     let new_env_id = uuid::Uuid::new_v4().to_string();
 
@@ -985,19 +1077,67 @@ async fn clone_notebook_to_path(
     Ok(())
 }
 
-/// Open a notebook file in a new window (spawns new process)
+/// Open a notebook file in a new window within the current app process.
 #[tauri::command]
-async fn open_notebook_in_new_window(path: String) -> Result<(), String> {
-    spawn_notebook_window_for_path(Path::new(&path))
+async fn open_notebook_in_new_window(
+    path: String,
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
+) -> Result<(), String> {
+    open_notebook_window(&app, registry.inner(), Path::new(&path))
 }
 
-fn spawn_notebook_window_for_path(path: &Path) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    std::process::Command::new(exe)
-        .arg(path)
-        .spawn()
-        .map_err(|e| format!("Failed to open notebook: {}", e))?;
-    Ok(())
+fn create_notebook_window(
+    app: &tauri::AppHandle,
+    registry: &WindowNotebookRegistry,
+    state: NotebookState,
+) -> Result<String, String> {
+    let title = state
+        .path
+        .as_ref()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("Untitled.ipynb")
+        .to_string();
+    let label = format!("notebook-{}", uuid::Uuid::new_v4());
+    let context = create_window_context(state);
+    registry.insert(label.clone(), context.clone())?;
+
+    let window =
+        match tauri::WebviewWindowBuilder::new(app, label.clone(), tauri::WebviewUrl::default())
+            .title(&title)
+            .inner_size(1100.0, 750.0)
+            .resizable(true)
+            .build()
+        {
+            Ok(window) => window,
+            Err(error) => {
+                let mut contexts = registry.contexts.lock().map_err(|e| e.to_string())?;
+                contexts.remove(&label);
+                return Err(error.to_string());
+            }
+        };
+
+    let context = registry.get(&label)?;
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) =
+            initialize_notebook_sync(window, context.notebook_state, context.notebook_sync).await
+        {
+            warn!("[startup] Notebook sync initialization failed: {}", e);
+        }
+    });
+
+    Ok(label)
+}
+
+fn open_notebook_window(
+    app: &tauri::AppHandle,
+    registry: &WindowNotebookRegistry,
+    path: &Path,
+) -> Result<(), String> {
+    let runtime = settings::load_settings().default_runtime;
+    let state = load_notebook_state_for_path(path, runtime)?;
+    create_notebook_window(app, registry, state).map(|_| ())
 }
 
 fn next_available_sample_path(base_dir: &Path, file_name: &str) -> PathBuf {
@@ -1045,19 +1185,22 @@ fn materialize_sample_notebook(
 
 fn open_bundled_sample_notebook(
     app: &tauri::AppHandle,
+    registry: &WindowNotebookRegistry,
     sample: &crate::menu::BundledSampleNotebook,
 ) -> Result<(), String> {
     let path = materialize_sample_notebook(app, sample)?;
-    spawn_notebook_window_for_path(&path)
+    open_notebook_window(app, registry, &path)
 }
 
 #[tauri::command]
 async fn update_cell_source(
     cell_id: String,
     source: String,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     // Update local state synchronously for responsiveness
     {
         let mut s = state.lock().map_err(|e| e.to_string())?;
@@ -1082,9 +1225,11 @@ async fn update_cell_source(
 async fn add_cell(
     cell_type: String,
     after_cell_id: Option<String>,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<FrontendCell, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     // Add to local state first
     let (cell, index) = {
         let mut s = state.lock().map_err(|e| e.to_string())?;
@@ -1127,9 +1272,11 @@ async fn add_cell(
 #[tauri::command]
 async fn delete_cell(
     cell_id: String,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     // Delete from local state first
     {
         let mut s = state.lock().map_err(|e| e.to_string())?;
@@ -1163,8 +1310,10 @@ async fn launch_kernel_via_daemon(
     kernel_type: String,
     env_source: String,
     notebook_path: Option<String>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<NotebookResponse, String> {
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
@@ -1204,10 +1353,12 @@ async fn launch_kernel_via_daemon(
 async fn queue_cell_via_daemon(
     cell_id: String,
     code: String,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<NotebookResponse, String> {
     info!("[daemon-kernel] queue_cell_via_daemon: cell_id={}", cell_id);
 
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
@@ -1224,13 +1375,15 @@ async fn queue_cell_via_daemon(
 #[tauri::command]
 async fn execute_cell_via_daemon(
     cell_id: String,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<NotebookResponse, String> {
     info!(
         "[daemon-kernel] execute_cell_via_daemon: cell_id={}",
         cell_id
     );
 
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
@@ -1244,13 +1397,15 @@ async fn execute_cell_via_daemon(
 #[tauri::command]
 async fn clear_outputs_via_daemon(
     cell_id: String,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<NotebookResponse, String> {
     info!(
         "[daemon-kernel] clear_outputs_via_daemon: cell_id={}",
         cell_id
     );
 
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
@@ -1263,10 +1418,12 @@ async fn clear_outputs_via_daemon(
 /// Interrupt kernel execution via the daemon.
 #[tauri::command]
 async fn interrupt_via_daemon(
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<NotebookResponse, String> {
     info!("[daemon-kernel] interrupt_via_daemon");
 
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
@@ -1279,10 +1436,12 @@ async fn interrupt_via_daemon(
 /// Shutdown the kernel via the daemon.
 #[tauri::command]
 async fn shutdown_kernel_via_daemon(
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<NotebookResponse, String> {
     info!("[daemon-kernel] shutdown_kernel_via_daemon");
 
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
@@ -1295,8 +1454,10 @@ async fn shutdown_kernel_via_daemon(
 /// Get kernel info from the daemon.
 #[tauri::command]
 async fn get_daemon_kernel_info(
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<NotebookResponse, String> {
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let has_handle = guard.is_some();
     info!(
@@ -1319,8 +1480,10 @@ async fn get_daemon_kernel_info(
 /// Returns true if notebook_sync handle exists (daemon available).
 #[tauri::command]
 async fn is_daemon_connected(
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<bool, String> {
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     Ok(guard.is_some())
 }
@@ -1328,10 +1491,12 @@ async fn is_daemon_connected(
 /// Get execution queue state from the daemon.
 #[tauri::command]
 async fn get_daemon_queue_state(
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<NotebookResponse, String> {
     info!("[daemon-kernel] get_daemon_queue_state");
 
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
@@ -1345,10 +1510,12 @@ async fn get_daemon_queue_state(
 /// Daemon reads cell sources from the synced Automerge document.
 #[tauri::command]
 async fn run_all_cells_via_daemon(
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<NotebookResponse, String> {
     info!("[daemon-kernel] run_all_cells_via_daemon");
 
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
@@ -1365,7 +1532,8 @@ async fn run_all_cells_via_daemon(
 #[tauri::command]
 async fn send_comm_via_daemon(
     message: serde_json::Value,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<NotebookResponse, String> {
     let msg_type = message
         .get("header")
@@ -1377,6 +1545,7 @@ async fn send_comm_via_daemon(
         msg_type
     );
 
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
@@ -1394,13 +1563,15 @@ async fn send_comm_via_daemon(
 async fn get_history_via_daemon(
     pattern: Option<String>,
     n: i32,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Vec<HistoryEntry>, String> {
     info!(
         "[daemon-kernel] get_history_via_daemon: pattern={:?}, n={}",
         pattern, n
     );
 
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
@@ -1437,13 +1608,15 @@ struct CompletionResult {
 async fn complete_via_daemon(
     code: String,
     cursor_pos: usize,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<CompletionResult, String> {
     debug!(
         "[daemon-kernel] complete_via_daemon: cursor_pos={}",
         cursor_pos
     );
 
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
@@ -1473,12 +1646,14 @@ async fn complete_via_daemon(
 /// Called by the frontend after receiving daemon:disconnected event.
 #[tauri::command]
 async fn reconnect_to_daemon(
-    app: tauri::AppHandle,
-    notebook_state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
     reconnect_in_progress: tauri::State<'_, ReconnectInProgress>,
 ) -> Result<(), String> {
     info!("[daemon-kernel] reconnect_to_daemon");
+
+    let notebook_state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
 
     // Use atomic compare_exchange to ensure only one reconnect runs at a time
     if reconnect_in_progress
@@ -1504,12 +1679,11 @@ async fn reconnect_to_daemon(
     }
 
     // Re-initialize notebook sync
-    let result = initialize_notebook_sync(
-        app,
-        notebook_state.inner().clone(),
-        notebook_sync.inner().clone(),
-    )
-    .await;
+    let webview_window = window
+        .app_handle()
+        .get_webview_window(window.label())
+        .ok_or_else(|| "Current webview window not found".to_string())?;
+    let result = initialize_notebook_sync(webview_window, notebook_state, notebook_sync).await;
 
     reset_flag();
     result
@@ -1522,9 +1696,10 @@ async fn reconnect_to_daemon(
 /// was emitted before listeners were ready).
 #[tauri::command]
 async fn refresh_from_automerge(
-    app: tauri::AppHandle,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
@@ -1539,7 +1714,7 @@ async fn refresh_from_automerge(
     );
 
     // Emit to frontend (which will resolve manifest hashes)
-    app.emit("notebook:updated", &cells)
+    emit_to_label::<_, _, _>(&window, window.label(), "notebook:updated", &cells)
         .map_err(|e| format!("Failed to emit notebook:updated: {}", e))
 }
 
@@ -1548,10 +1723,12 @@ async fn refresh_from_automerge(
 /// Returns the cells as the daemon sees them, useful for debugging sync issues.
 #[tauri::command]
 async fn debug_get_automerge_state(
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Vec<serde_json::Value>, String> {
     info!("[debug] Getting Automerge state from daemon");
 
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 
@@ -1581,10 +1758,12 @@ async fn debug_get_automerge_state(
 /// Debug: Get local notebook state (in-memory).
 #[tauri::command]
 fn debug_get_local_state(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Vec<serde_json::Value>, String> {
     info!("[debug] Getting local notebook state");
 
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let state = state.lock().map_err(|e| e.to_string())?;
 
     // Use cells_for_frontend which handles the nbformat Cell enum
@@ -1623,8 +1802,10 @@ fn debug_get_local_state(
 
 #[tauri::command]
 async fn get_preferred_kernelspec(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Option<String>, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let state = state.lock().map_err(|e| e.to_string())?;
     Ok(state
         .notebook
@@ -1667,8 +1848,10 @@ async fn check_uv_available() -> bool {
 /// Get dependencies from notebook metadata.
 #[tauri::command]
 async fn get_notebook_dependencies(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Option<NotebookDependenciesJson>, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let state = state.lock().map_err(|e| e.to_string())?;
     let deps = uv_env::extract_dependencies(&state.notebook.metadata);
     Ok(deps.map(|d| NotebookDependenciesJson {
@@ -1682,9 +1865,11 @@ async fn get_notebook_dependencies(
 async fn set_notebook_dependencies(
     dependencies: Vec<String>,
     requires_python: Option<String>,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     {
         let mut state = state.lock().map_err(|e| e.to_string())?;
         let deps = uv_env::NotebookDependencies {
@@ -1702,9 +1887,11 @@ async fn set_notebook_dependencies(
 #[tauri::command]
 async fn add_dependency(
     package: String,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let changed = {
         let mut s = state.lock().map_err(|e| e.to_string())?;
 
@@ -1752,9 +1939,11 @@ async fn add_dependency(
 #[tauri::command]
 async fn remove_dependency(
     package: String,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     {
         let mut s = state.lock().map_err(|e| e.to_string())?;
         let existing = uv_env::extract_dependencies(&s.notebook.metadata);
@@ -1793,9 +1982,11 @@ async fn remove_dependency(
 #[tauri::command]
 async fn clear_dependency_section(
     section: String,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     if section != "uv" && section != "conda" {
         return Err(format!(
             "Invalid section: {}. Must be 'uv' or 'conda'.",
@@ -1840,8 +2031,10 @@ struct CondaDependenciesJson {
 /// Get conda dependencies from notebook metadata.
 #[tauri::command]
 async fn get_conda_dependencies(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Option<CondaDependenciesJson>, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let state = state.lock().map_err(|e| e.to_string())?;
     let deps = conda_env::extract_dependencies(&state.notebook.metadata);
     Ok(deps.map(|d| CondaDependenciesJson {
@@ -1857,9 +2050,11 @@ async fn set_conda_dependencies(
     dependencies: Vec<String>,
     channels: Vec<String>,
     python: Option<String>,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     {
         let mut s = state.lock().map_err(|e| e.to_string())?;
         let deps = conda_env::CondaDependencies {
@@ -1879,9 +2074,11 @@ async fn set_conda_dependencies(
 #[tauri::command]
 async fn add_conda_dependency(
     package: String,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let changed = {
         let mut s = state.lock().map_err(|e| e.to_string())?;
 
@@ -1933,9 +2130,11 @@ async fn add_conda_dependency(
 #[tauri::command]
 async fn remove_conda_dependency(
     package: String,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     {
         let mut s = state.lock().map_err(|e| e.to_string())?;
         let existing = conda_env::extract_dependencies(&s.notebook.metadata);
@@ -1976,8 +2175,10 @@ async fn remove_conda_dependency(
 /// Detect pyproject.toml near the notebook and return info about it.
 #[tauri::command]
 async fn detect_pyproject(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Option<pyproject::PyProjectInfo>, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let notebook_path = {
         let state = state.lock().map_err(|e| e.to_string())?;
         state.path.clone()
@@ -2020,8 +2221,10 @@ struct PyProjectDepsJson {
 /// Get full parsed dependencies from the detected pyproject.toml.
 #[tauri::command]
 async fn get_pyproject_dependencies(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Option<PyProjectDepsJson>, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let notebook_path = {
         let state = state.lock().map_err(|e| e.to_string())?;
         state.path.clone()
@@ -2059,9 +2262,11 @@ async fn get_pyproject_dependencies(
 /// This makes the notebook more portable.
 #[tauri::command]
 async fn import_pyproject_dependencies(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let notebook_path = {
         let s = state.lock().map_err(|e| e.to_string())?;
         s.path.clone()
@@ -2104,8 +2309,10 @@ async fn import_pyproject_dependencies(
 /// Returns the trust status and information about what packages would be installed.
 #[tauri::command]
 async fn verify_notebook_trust(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<trust::TrustInfo, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let state = state.lock().map_err(|e| e.to_string())?;
     trust::verify_notebook_trust(&state.notebook.metadata.additional)
 }
@@ -2116,9 +2323,11 @@ async fn verify_notebook_trust(
 /// the dependency metadata is modified externally).
 #[tauri::command]
 async fn approve_notebook_trust(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     {
         let mut s = state.lock().map_err(|e| e.to_string())?;
 
@@ -2166,8 +2375,10 @@ async fn check_typosquats(packages: Vec<String>) -> Vec<typosquat::TyposquatWarn
 /// Detect pixi.toml near the notebook and return info about it.
 #[tauri::command]
 async fn detect_pixi_toml(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Option<pixi::PixiInfo>, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let notebook_path = {
         let state = state.lock().map_err(|e| e.to_string())?;
         state.path.clone()
@@ -2210,8 +2421,10 @@ struct PixiDepsJson {
 /// Get full parsed dependencies from the detected pixi.toml.
 #[tauri::command]
 async fn get_pixi_dependencies(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Option<PixiDepsJson>, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let notebook_path = {
         let state = state.lock().map_err(|e| e.to_string())?;
         state.path.clone()
@@ -2252,8 +2465,10 @@ async fn get_pixi_dependencies(
 /// Detect environment.yml near the notebook and return info about it.
 #[tauri::command]
 async fn detect_environment_yml(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Option<environment_yml::EnvironmentYmlInfo>, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let notebook_path = {
         let state = state.lock().map_err(|e| e.to_string())?;
         state.path.clone()
@@ -2296,8 +2511,10 @@ struct EnvironmentYmlDepsJson {
 /// Get full parsed dependencies from the detected environment.yml.
 #[tauri::command]
 async fn get_environment_yml_dependencies(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Option<EnvironmentYmlDepsJson>, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let notebook_path = {
         let state = state.lock().map_err(|e| e.to_string())?;
         state.path.clone()
@@ -2335,9 +2552,11 @@ async fn get_environment_yml_dependencies(
 /// This converts pixi deps to conda format and stores them inline in the notebook.
 #[tauri::command]
 async fn import_pixi_dependencies(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let notebook_path = {
         let s = state.lock().map_err(|e| e.to_string())?;
         s.path.clone()
@@ -2392,8 +2611,10 @@ async fn get_deno_version() -> Result<String, String> {
 /// Get the runtime type from notebook metadata
 #[tauri::command]
 async fn get_notebook_runtime(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<String, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let state = state.lock().map_err(|e| e.to_string())?;
     Ok(state.get_runtime().to_string())
 }
@@ -2401,8 +2622,10 @@ async fn get_notebook_runtime(
 /// Detect deno.json/deno.jsonc near the notebook and return info about it
 #[tauri::command]
 async fn detect_deno_config(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Option<deno_env::DenoConfigInfo>, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let notebook_path = {
         let state = state.lock().map_err(|e| e.to_string())?;
         state.path.clone()
@@ -2426,8 +2649,10 @@ async fn detect_deno_config(
 /// Get Deno permissions from notebook metadata
 #[tauri::command]
 async fn get_deno_permissions(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<Vec<String>, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let state = state.lock().map_err(|e| e.to_string())?;
     let deps = deno_env::extract_deno_metadata(&state.notebook.metadata);
     Ok(deps.map(|d| d.permissions).unwrap_or_default())
@@ -2437,9 +2662,11 @@ async fn get_deno_permissions(
 #[tauri::command]
 async fn set_deno_permissions(
     permissions: Vec<String>,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     {
         let mut s = state.lock().map_err(|e| e.to_string())?;
         let mut deno_deps =
@@ -2459,8 +2686,10 @@ async fn set_deno_permissions(
 /// Get Deno flexible npm imports setting from notebook metadata
 #[tauri::command]
 async fn get_deno_flexible_npm_imports(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<bool, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let state = state.lock().map_err(|e| e.to_string())?;
     let deps = deno_env::extract_deno_metadata(&state.notebook.metadata);
     Ok(deps.map(|d| d.flexible_npm_imports).unwrap_or(true))
@@ -2470,9 +2699,11 @@ async fn get_deno_flexible_npm_imports(
 #[tauri::command]
 async fn set_deno_flexible_npm_imports(
     enabled: bool,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<(), String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     {
         let mut s = state.lock().map_err(|e| e.to_string())?;
         let mut deno_deps =
@@ -2495,9 +2726,10 @@ async fn set_deno_flexible_npm_imports(
 #[tauri::command]
 async fn format_cell(
     cell_id: String,
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
-    app: tauri::AppHandle,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<format::FormatResult, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     // Get current source and runtime
     let (source, runtime) = {
         let nb = state.lock().map_err(|e| e.to_string())?;
@@ -2541,7 +2773,9 @@ async fn format_cell(
             nb.update_cell_source(&cell_id, &result.source);
         }
         // Emit event to notify frontend of the source change
-        let _ = app.emit(
+        let _ = emit_to_label::<_, _, _>(
+            &window,
+            window.label(),
             "cell:source_updated",
             serde_json::json!({
                 "cell_id": cell_id,
@@ -2557,8 +2791,10 @@ async fn format_cell(
 /// Returns true if ruff is available for Python notebooks or deno for TypeScript notebooks.
 #[tauri::command]
 async fn check_formatter_available(
-    state: tauri::State<'_, Arc<Mutex<NotebookState>>>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<bool, String> {
+    let state = notebook_state_for_window(&window, registry.inner())?;
     let runtime = {
         let nb = state.lock().map_err(|e| e.to_string())?;
         nb.get_runtime()
@@ -2735,13 +2971,20 @@ async fn set_synced_setting(key: String, value: serde_json::Value) -> Result<(),
     Ok(())
 }
 
-/// Spawn a new notebook process with the specified runtime
-fn spawn_new_notebook(runtime: Runtime) {
-    if let Ok(exe) = std::env::current_exe() {
-        let _ = std::process::Command::new(exe)
-            .args(["--runtime", &runtime.to_string()])
-            .spawn();
-    }
+fn focused_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+    app.webview_windows()
+        .into_values()
+        .find(|window| window.is_focused().ok() == Some(true))
+}
+
+/// Create a new notebook window with the specified runtime.
+fn spawn_new_notebook(
+    app: &tauri::AppHandle,
+    registry: &WindowNotebookRegistry,
+    runtime: Runtime,
+) -> Result<(), String> {
+    let state = NotebookState::new_empty_with_runtime(runtime);
+    create_notebook_window(app, registry, state).map(|_| ())
 }
 
 /// Ensure ~/notebooks directory exists and return its path.
@@ -2902,6 +3145,33 @@ fn create_new_notebook_state(path: &Path, runtime: Runtime) -> NotebookState {
     state
 }
 
+fn load_notebook_state_for_path(path: &Path, runtime: Runtime) -> Result<NotebookState, String> {
+    if path.exists() {
+        let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let nb = nbformat::parse_notebook(&content).map_err(|e| e.to_string())?;
+        let mut nb_v4 = match nb {
+            nbformat::Notebook::V4(nb) => nb,
+            nbformat::Notebook::Legacy(legacy) => {
+                nbformat::upgrade_legacy_notebook(legacy).map_err(|e| e.to_string())?
+            }
+            nbformat::Notebook::V3(v3) => {
+                nbformat::upgrade_v3_notebook(v3).map_err(|e| e.to_string())?
+            }
+        };
+        notebook_state::migrate_legacy_metadata(&mut nb_v4.metadata.additional);
+        Ok(NotebookState::from_notebook(nb_v4, path.to_path_buf()))
+    } else {
+        Ok(create_new_notebook_state(path, runtime))
+    }
+}
+
+fn create_window_context(state: NotebookState) -> WindowNotebookContext {
+    WindowNotebookContext {
+        notebook_state: Arc::new(Mutex::new(state)),
+        notebook_sync: Arc::new(tokio::sync::Mutex::new(None)),
+    }
+}
+
 /// Run the notebook Tauri app.
 ///
 /// If `notebook_path` is Some, opens that file. If None, creates a new empty notebook.
@@ -2918,28 +3188,9 @@ pub fn run(
     // Use provided runtime or fall back to user's default from settings
     let runtime = runtime.unwrap_or_else(|| settings::load_settings().default_runtime);
 
-    let initial_state = match notebook_path {
-        Some(ref path) if path.exists() => {
-            // Existing notebook - load it (runtime comes from notebook metadata)
-            let content = std::fs::read_to_string(path)?;
-            let nb = nbformat::parse_notebook(&content).map_err(|e| anyhow::anyhow!("{}", e))?;
-            let mut nb_v4 = match nb {
-                nbformat::Notebook::V4(nb) => nb,
-                nbformat::Notebook::Legacy(legacy) => nbformat::upgrade_legacy_notebook(legacy)?,
-                nbformat::Notebook::V3(v3) => nbformat::upgrade_v3_notebook(v3)?,
-            };
-            // Migrate legacy metadata (uv/conda at top level) to new runt namespace
-            notebook_state::migrate_legacy_metadata(&mut nb_v4.metadata.additional);
-            NotebookState::from_notebook(nb_v4, path.clone())
-        }
-        Some(ref path) => {
-            // New notebook at specified path - detect pyproject.toml for Python
-            create_new_notebook_state(path, runtime)
-        }
-        None => {
-            // New empty notebook with requested runtime
-            NotebookState::new_empty_with_runtime(runtime)
-        }
+    let initial_state = match notebook_path.as_ref() {
+        Some(path) => load_notebook_state_for_path(path, runtime).map_err(anyhow::Error::msg)?,
+        None => NotebookState::new_empty_with_runtime(runtime),
     };
 
     let window_title = notebook_path
@@ -2949,7 +3200,11 @@ pub fn run(
         .unwrap_or("Untitled.ipynb")
         .to_string();
 
-    let notebook_state = Arc::new(Mutex::new(initial_state));
+    let window_registry = WindowNotebookRegistry::default();
+    let main_context = create_window_context(initial_state);
+    window_registry
+        .insert("main", main_context.clone())
+        .map_err(anyhow::Error::msg)?;
 
     // Create the prewarming environment pools (UV and Conda)
     let env_pool: env_pool::SharedEnvPool = Arc::new(tokio::sync::Mutex::new(
@@ -2964,9 +3219,6 @@ pub fn run(
 
     // Guard against concurrent reconnect attempts
     let reconnect_in_progress = ReconnectInProgress(Arc::new(AtomicBool::new(false)));
-
-    // Notebook sync client for cross-window state synchronization
-    let notebook_sync: SharedNotebookSync = Arc::new(tokio::sync::Mutex::new(None));
 
     // Recovery completion flags - set when prewarming loops finish recovery
     let uv_recovery_complete = Arc::new(AtomicBool::new(false));
@@ -2983,12 +3235,8 @@ pub fn run(
     let uv_recovery_for_prewarm = uv_recovery_complete.clone();
     let conda_recovery_for_prewarm = conda_recovery_complete.clone();
 
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    let notebook_for_open = notebook_state.clone();
-
     // Clone for notebook sync initialization
-    let notebook_for_sync = notebook_state.clone();
-    let notebook_sync_for_init = notebook_sync.clone();
+    let registry_for_sync = window_registry.clone();
     let daemon_sync_complete_for_init = daemon_sync_complete.clone();
     let daemon_sync_success_for_init = daemon_sync_success.clone();
 
@@ -2998,12 +3246,11 @@ pub fn run(
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(notebook_state)
+        .manage(window_registry.clone())
         .manage(env_pool)
         .manage(conda_env_pool)
         .manage(auto_launch_in_progress)
         .manage(reconnect_in_progress)
-        .manage(notebook_sync)
         .invoke_handler(tauri::generate_handler![
             // Notebook file operations
             load_notebook,
@@ -3132,6 +3379,7 @@ pub fn run(
             let app_for_daemon = app.handle().clone();
             let app_for_sync = app.handle().clone();
             let app_for_notebook_sync = app.handle().clone();
+            let registry_for_notebook_sync = registry_for_sync.clone();
             tauri::async_runtime::spawn(async move {
                 // Get path to bundled runtimed binary (for auto-installation)
                 let binary_path = get_bundled_runtimed_path(&app_for_daemon);
@@ -3166,19 +3414,38 @@ pub fn run(
 
                 // Initialize notebook sync if daemon is available
                 if daemon_available {
-                    match initialize_notebook_sync(
-                        app_for_notebook_sync,
-                        notebook_for_sync,
-                        notebook_sync_for_init,
-                    )
-                    .await
-                    {
-                        Ok(()) => {
-                            log::info!("[startup] Notebook sync initialized successfully");
-                            daemon_sync_success_for_init.store(true, Ordering::SeqCst);
+                    match (
+                        app_for_notebook_sync.get_webview_window("main"),
+                        registry_for_notebook_sync.get("main"),
+                    ) {
+                        (Some(window), Ok(context)) => {
+                            match initialize_notebook_sync(
+                                window,
+                                context.notebook_state,
+                                context.notebook_sync,
+                            )
+                            .await
+                            {
+                                Ok(()) => {
+                                    log::info!(
+                                        "[startup] Notebook sync initialized successfully"
+                                    );
+                                    daemon_sync_success_for_init
+                                        .store(true, Ordering::SeqCst);
+                                }
+                                Err(e) => {
+                                    log::warn!(
+                                        "[startup] Notebook sync initialization failed: {}",
+                                        e
+                                    );
+                                }
+                            }
                         }
-                        Err(e) => {
-                            log::warn!("[startup] Notebook sync initialization failed: {}", e);
+                        (None, _) => {
+                            log::warn!("[startup] Main window missing during sync init");
+                        }
+                        (_, Err(e)) => {
+                            log::warn!("[startup] Main notebook context missing: {}", e);
                         }
                     }
                 }
@@ -3254,59 +3521,65 @@ pub fn run(
         })
         .on_menu_event(|app, event| {
             let menu_id = event.id().as_ref();
+            let registry = app.state::<WindowNotebookRegistry>();
             match menu_id {
                 crate::menu::MENU_NEW_NOTEBOOK => {
                     // Spawn notebook using the user's default runtime preference
                     let runtime = settings::load_settings().default_runtime;
-                    spawn_new_notebook(runtime);
+                    let _ = spawn_new_notebook(app, registry.inner(), runtime);
                 }
                 crate::menu::MENU_NEW_PYTHON_NOTEBOOK => {
-                    spawn_new_notebook(Runtime::Python);
+                    let _ = spawn_new_notebook(app, registry.inner(), Runtime::Python);
                 }
                 crate::menu::MENU_NEW_DENO_NOTEBOOK => {
-                    spawn_new_notebook(Runtime::Deno);
+                    let _ = spawn_new_notebook(app, registry.inner(), Runtime::Deno);
                 }
                 crate::menu::MENU_OPEN => {
                     // Emit event to frontend to trigger open dialog
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.emit("menu:open", ());
+                    if let Some(window) = focused_window(app) {
+                        let _ = emit_to_label::<_, _, _>(&window, window.label(), "menu:open", ());
                     }
                 }
                 crate::menu::MENU_SAVE => {
                     // Emit event to frontend to trigger save
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.emit("menu:save", ());
+                    if let Some(window) = focused_window(app) {
+                        let _ = emit_to_label::<_, _, _>(&window, window.label(), "menu:save", ());
                     }
                 }
                 crate::menu::MENU_CLONE_NOTEBOOK => {
                     // Emit event to frontend to trigger clone
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.emit("menu:clone", ());
+                    if let Some(window) = focused_window(app) {
+                        let _ = emit_to_label::<_, _, _>(&window, window.label(), "menu:clone", ());
                     }
                 }
                 crate::menu::MENU_ZOOM_IN => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.emit("menu:zoom-in", ());
+                    if let Some(window) = focused_window(app) {
+                        let _ = emit_to_label::<_, _, _>(&window, window.label(), "menu:zoom-in", ());
                     }
                 }
                 crate::menu::MENU_ZOOM_OUT => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.emit("menu:zoom-out", ());
+                    if let Some(window) = focused_window(app) {
+                        let _ = emit_to_label::<_, _, _>(&window, window.label(), "menu:zoom-out", ());
                     }
                 }
                 crate::menu::MENU_ZOOM_RESET => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.emit("menu:zoom-reset", ());
+                    if let Some(window) = focused_window(app) {
+                        let _ = emit_to_label::<_, _, _>(&window, window.label(), "menu:zoom-reset", ());
                     }
                 }
                 crate::menu::MENU_RUN_ALL_CELLS => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.emit("menu:run-all", ());
+                    if let Some(window) = focused_window(app) {
+                        let _ = emit_to_label::<_, _, _>(&window, window.label(), "menu:run-all", ());
                     }
                 }
                 crate::menu::MENU_RESTART_AND_RUN_ALL => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.emit("menu:restart-and-run-all", ());
+                    if let Some(window) = focused_window(app) {
+                        let _ = emit_to_label::<_, _, _>(
+                            &window,
+                            window.label(),
+                            "menu:restart-and-run-all",
+                            (),
+                        );
                     }
                 }
                 crate::menu::MENU_INSTALL_CLI => {
@@ -3338,7 +3611,7 @@ pub fn run(
                 }
                 _ => {
                     if let Some(sample) = crate::menu::sample_for_menu_item_id(menu_id) {
-                        if let Err(e) = open_bundled_sample_notebook(app, sample) {
+                        if let Err(e) = open_bundled_sample_notebook(app, registry.inner(), sample) {
                             log::error!(
                                 "[sample_notebooks] Failed to open sample {}: {}",
                                 sample.id,
@@ -3363,6 +3636,8 @@ pub fn run(
         .build(tauri::generate_context!())
         .map_err(|e| anyhow::anyhow!("Tauri build error: {}", e))?;
 
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    let registry_for_open = window_registry.clone();
     app.run(move |_app_handle, _event| {
         // Handle file associations (macOS only)
         #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -3377,66 +3652,49 @@ pub fn run(
                     continue;
                 }
 
-                // If the current window has no notebook loaded, open it here.
-                // Otherwise spawn a new process.
-                let has_path = notebook_for_open
-                    .lock()
-                    .map(|s| s.path.is_some())
+                let main_is_empty = registry_for_open
+                    .get("main")
+                    .ok()
+                    .and_then(|context| {
+                        context
+                            .notebook_state
+                            .lock()
+                            .ok()
+                            .map(|state| state.path.is_none() && !state.dirty)
+                    })
                     .unwrap_or(false);
 
-                if !has_path {
-                    // Load into the current window
-                    match std::fs::read_to_string(&path) {
-                        Ok(content) => match nbformat::parse_notebook(&content) {
-                            Ok(nb) => {
-                                let mut nb_v4 = match nb {
-                                    nbformat::Notebook::V4(nb) => nb,
-                                    nbformat::Notebook::Legacy(legacy) => {
-                                        match nbformat::upgrade_legacy_notebook(legacy) {
-                                            Ok(nb) => nb,
-                                            Err(e) => {
-                                                log::error!("Failed to upgrade notebook: {}", e);
-                                                continue;
-                                            }
-                                        }
-                                    }
-                                    nbformat::Notebook::V3(v3) => {
-                                        match nbformat::upgrade_v3_notebook(v3) {
-                                            Ok(nb) => nb,
-                                            Err(e) => {
-                                                log::error!("Failed to upgrade notebook: {}", e);
-                                                continue;
-                                            }
-                                        }
-                                    }
-                                };
-                                // Migrate legacy metadata to new runt namespace
-                                notebook_state::migrate_legacy_metadata(
-                                    &mut nb_v4.metadata.additional,
-                                );
-                                let new_state = NotebookState::from_notebook(nb_v4, path.clone());
-                                if let Ok(mut state) = notebook_for_open.lock() {
+                if main_is_empty {
+                    match load_notebook_state_for_path(
+                        &path,
+                        settings::load_settings().default_runtime,
+                    ) {
+                        Ok(new_state) => {
+                            if let Ok(context) = registry_for_open.get("main") {
+                                if let Ok(mut state) = context.notebook_state.lock() {
                                     *state = new_state;
                                 }
-                                // Update window title and tell frontend to reload
-                                if let Some(window) = _app_handle.get_webview_window("main") {
-                                    let title = path
-                                        .file_name()
-                                        .and_then(|n| n.to_str())
-                                        .unwrap_or("Untitled.ipynb");
-                                    let _ = window.set_title(title);
-                                    let _ = window.emit("notebook:file-opened", ());
-                                }
                             }
-                            Err(e) => log::error!("Failed to parse notebook: {}", e),
-                        },
-                        Err(e) => log::error!("Failed to read notebook file: {}", e),
+
+                            if let Some(window) = _app_handle.get_webview_window("main") {
+                                let title = path
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("Untitled.ipynb");
+                                let _ = window.set_title(title);
+                                let _ = emit_to_label::<_, _, _>(
+                                    &window,
+                                    window.label(),
+                                    "notebook:file-opened",
+                                    (),
+                                );
+                            }
+                        }
+                        Err(e) => log::error!("Failed to load notebook file: {}", e),
                     }
-                } else {
-                    // Already have a notebook open — spawn a new process
-                    if let Ok(exe) = std::env::current_exe() {
-                        let _ = std::process::Command::new(exe).arg(&path).spawn();
-                    }
+                } else if let Err(e) = open_notebook_window(_app_handle, &registry_for_open, &path)
+                {
+                    log::error!("Failed to open notebook in new window: {}", e);
                 }
             }
         }

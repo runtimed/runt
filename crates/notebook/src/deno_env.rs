@@ -88,9 +88,22 @@ struct RawDenoConfig {
     tasks: Option<serde_json::Value>,
 }
 
-/// Check if Deno is available (either on PATH or bootstrappable via rattler)
+/// Check if Deno is available on PATH or already cached.
+///
+/// This intentionally avoids triggering a full bootstrap during UI initialization,
+/// because daemon kernel launch handles on-demand bootstrap when needed.
 pub async fn check_deno_available() -> bool {
-    tools::get_deno_path().await.is_ok()
+    if let Ok(output) = tokio::process::Command::new("deno")
+        .arg("--version")
+        .output()
+        .await
+    {
+        if output.status.success() {
+            return true;
+        }
+    }
+
+    tools::cached_tool_binary_path("deno", None).exists()
 }
 
 /// Get the installed Deno version

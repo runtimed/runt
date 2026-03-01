@@ -12,7 +12,7 @@ use rattler_conda_types::{
 use rattler_repodata_gateway::Gateway;
 use rattler_solve::{resolvo, SolverImpl, SolverTask};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 
@@ -36,6 +36,25 @@ fn compute_tool_hash(tool_name: &str, version: Option<&str>) -> String {
     hasher.update(Platform::current().to_string().as_bytes());
     let hash = hasher.finalize();
     format!("{:x}", hash)[..12].to_string()
+}
+
+/// Compute the binary path for a tool inside a given environment directory.
+fn binary_path_for_env(env_path: &Path, tool_name: &str) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        env_path.join("Scripts").join(format!("{}.exe", tool_name))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        env_path.join("bin").join(tool_name)
+    }
+}
+
+/// Return the expected cached binary path for a tool/version without bootstrapping.
+pub fn cached_tool_binary_path(tool_name: &str, version: Option<&str>) -> PathBuf {
+    let hash = compute_tool_hash(tool_name, version);
+    let env_path = tools_cache_dir().join(format!("{}-{}", tool_name, hash));
+    binary_path_for_env(&env_path, tool_name)
 }
 
 /// Information about a bootstrapped tool.
@@ -65,12 +84,7 @@ pub async fn bootstrap_tool(tool_name: &str, version: Option<&str>) -> Result<Bo
     let hash = compute_tool_hash(tool_name, version);
     let cache_dir = tools_cache_dir();
     let env_path = cache_dir.join(format!("{}-{}", tool_name, hash));
-
-    // Determine binary path based on platform
-    #[cfg(target_os = "windows")]
-    let binary_path = env_path.join("Scripts").join(format!("{}.exe", tool_name));
-    #[cfg(not(target_os = "windows"))]
-    let binary_path = env_path.join("bin").join(tool_name);
+    let binary_path = binary_path_for_env(&env_path, tool_name);
 
     // Check if already cached
     if binary_path.exists() {

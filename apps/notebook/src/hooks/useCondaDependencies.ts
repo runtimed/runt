@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useCallback, useEffect, useState } from "react";
 import type { PixiInfo } from "../types";
 
@@ -96,7 +96,8 @@ export function useCondaDependencies() {
 
   // Re-load when metadata is synced from another window
   useEffect(() => {
-    const unlisten = listen("notebook:metadata_updated", () => {
+    const webview = getCurrentWebview();
+    const unlisten = webview.listen("notebook:metadata_updated", () => {
       loadDependencies();
     });
     return () => {
