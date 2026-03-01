@@ -223,6 +223,10 @@ pub enum NotebookRequest {
         /// If true, format code cells before saving (e.g., with ruff).
         format_cells: bool,
     },
+
+    /// Sync environment with current metadata (hot-install new packages).
+    /// Only supported for UV inline deps. Falls back to restart for removals/conda.
+    SyncEnvironment {},
 }
 
 /// Responses from daemon to notebook app.
@@ -295,6 +299,26 @@ pub enum NotebookResponse {
         items: Vec<CompletionItem>,
         cursor_start: usize,
         cursor_end: usize,
+    },
+
+    /// Environment sync started (installing new packages).
+    SyncEnvironmentStarted {
+        /// Packages being installed
+        packages: Vec<String>,
+    },
+
+    /// Environment sync completed successfully.
+    SyncEnvironmentComplete {
+        /// Packages that were installed
+        synced_packages: Vec<String>,
+    },
+
+    /// Environment sync failed (fall back to restart).
+    SyncEnvironmentFailed {
+        /// Error message explaining why sync failed
+        error: String,
+        /// Whether the user should restart instead
+        needs_restart: bool,
     },
 }
 

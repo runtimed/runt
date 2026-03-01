@@ -603,6 +603,34 @@ export function useDaemonKernel({
       }
     }, []);
 
+  /** Hot-sync environment - install new packages without restart (UV only) */
+  const syncEnvironment =
+    useCallback(async (): Promise<DaemonNotebookResponse> => {
+      console.log("[daemon-kernel] syncing environment");
+      try {
+        const response = await invoke<DaemonNotebookResponse>(
+          "sync_environment_via_daemon",
+        );
+        if (response.result === "sync_environment_complete") {
+          console.log(
+            "[daemon-kernel] sync complete:",
+            response.synced_packages,
+          );
+        } else if (response.result === "sync_environment_failed") {
+          console.warn(
+            "[daemon-kernel] sync failed:",
+            response.error,
+            "needs_restart:",
+            response.needs_restart,
+          );
+        }
+        return response;
+      } catch (e) {
+        console.error("[daemon-kernel] sync environment failed:", e);
+        throw e;
+      }
+    }, []);
+
   /** Get current queue state from daemon */
   const refreshQueueState = useCallback(async () => {
     try {
@@ -696,6 +724,8 @@ export function useDaemonKernel({
     interruptKernel,
     /** Shutdown the kernel */
     shutdownKernel,
+    /** Hot-sync environment - install new packages without restart (UV only) */
+    syncEnvironment,
     /** Refresh queue state from daemon */
     refreshQueueState,
     /** Run all code cells (daemon reads from synced doc) */

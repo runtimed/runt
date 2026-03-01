@@ -245,6 +245,7 @@ function AppContent() {
     clearOutputs,
     interruptKernel,
     shutdownKernel,
+    syncEnvironment,
     runAllCells: daemonRunAllCells,
     sendCommMessage,
   } = useDaemonKernel({
@@ -370,9 +371,36 @@ function AppContent() {
     return false;
   }, [checkTrust, launchKernel]);
 
-  // Handler to restart kernel with updated deps
+  // Handler to sync deps - tries hot-sync for UV additions, falls back to restart
   // Checks trust before shutdown to avoid losing kernel if user declines
   const handleSyncDeps = useCallback(async (): Promise<boolean> => {
+    // For UV inline deps with only additions, try hot-sync first
+    const isUvInline = envSource === "uv:inline";
+    const hasOnlyAdditions =
+      envSyncState?.diff?.added?.length && !envSyncState?.diff?.removed?.length;
+
+    if (isUvInline && hasOnlyAdditions) {
+      console.log("[App] Trying hot-sync for UV additions");
+      const response = await syncEnvironment();
+
+      if (response.result === "sync_environment_complete") {
+        console.log("[App] Hot-sync succeeded:", response.synced_packages);
+        return true;
+      }
+
+      if (
+        response.result === "sync_environment_failed" &&
+        !response.needs_restart
+      ) {
+        // Error but doesn't need restart (e.g., install failed)
+        console.error("[App] Hot-sync failed:", response.error);
+        return false;
+      }
+
+      // needs_restart or other error - fall through to restart flow
+      console.log("[App] Hot-sync requires restart, falling back");
+    }
+
     // Check trust first - don't shut down if we can't restart
     const info = await checkTrust();
     if (!info) return false;
@@ -388,7 +416,14 @@ function AppContent() {
     pendingKernelStartRef.current = true;
     setTrustDialogOpen(true);
     return false;
-  }, [checkTrust, shutdownKernel, tryStartKernel]);
+  }, [
+    envSource,
+    envSyncState,
+    syncEnvironment,
+    checkTrust,
+    shutdownKernel,
+    tryStartKernel,
+  ]);
 
   // Restart and run all cells
   const restartAndRunAll = useCallback(async () => {

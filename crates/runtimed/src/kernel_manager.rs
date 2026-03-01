@@ -55,6 +55,10 @@ pub struct LaunchedEnvConfig {
     /// Deno config (if kernel_type is "deno")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deno_config: Option<DenoLaunchedConfig>,
+
+    /// Path to the venv used by the kernel (for hot-sync into running env)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub venv_path: Option<PathBuf>,
 }
 
 /// Deno configuration captured at kernel launch time.
@@ -397,6 +401,12 @@ impl RoomKernel {
     /// Get the environment configuration used at launch (for sync detection).
     pub fn launched_config(&self) -> &LaunchedEnvConfig {
         &self.launched_config
+    }
+
+    /// Update the UV deps in the launched config after hot-sync.
+    /// This ensures future sync checks know about the newly installed packages.
+    pub fn update_launched_uv_deps(&mut self, deps: Vec<String>) {
+        self.launched_config.uv_deps = Some(deps);
     }
 
     /// Get the current kernel status.

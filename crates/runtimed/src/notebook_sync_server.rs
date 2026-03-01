@@ -158,15 +158,18 @@ fn build_launched_config(
     env_source: &str,
     inline_deps: Option<&[String]>,
     metadata_snapshot: Option<&NotebookMetadataSnapshot>,
+    venv_path: Option<PathBuf>,
 ) -> LaunchedEnvConfig {
     let mut config = LaunchedEnvConfig::default();
 
     match env_source {
         "uv:inline" => {
             config.uv_deps = inline_deps.map(|d| d.to_vec());
+            config.venv_path = venv_path;
         }
         "conda:inline" => {
             config.conda_deps = inline_deps.map(|d| d.to_vec());
+            config.venv_path = venv_path;
             if let Some(snapshot) = metadata_snapshot {
                 config.conda_channels = Some(get_inline_conda_channels(snapshot));
             }
@@ -1318,11 +1321,13 @@ async fn auto_launch_kernel(
     };
 
     // Build LaunchedEnvConfig to track what config the kernel was launched with
+    let venv_path = pooled_env.as_ref().map(|e| e.venv_path.clone());
     let launched_config = build_launched_config(
         kernel_type,
         &env_source,
         inline_deps.as_deref(),
         metadata_snapshot.as_ref(),
+        venv_path,
     );
 
     match kernel
@@ -1638,11 +1643,13 @@ async fn handle_notebook_request(
             };
 
             // Build LaunchedEnvConfig to track what config the kernel was launched with
+            let venv_path = pooled_env.as_ref().map(|e| e.venv_path.clone());
             let launched_config = build_launched_config(
                 &resolved_kernel_type,
                 &resolved_env_source,
                 inline_deps.as_deref(),
                 metadata_snapshot.as_ref(),
+                venv_path,
             );
 
             match kernel
@@ -1964,6 +1971,186 @@ async fn handle_notebook_request(
                 Err(e) => NotebookResponse::Error {
                     error: format!("Failed to save notebook: {e}"),
                 },
+            }
+        }
+
+        NotebookRequest::SyncEnvironment {} => handle_sync_environment(room).await,
+    }
+}
+
+/// Handle sync environment request - hot-install new packages without kernel restart.
+///
+/// Only supported for UV inline dependencies when there are only additions (no removals).
+/// Conda and other env types fall back to restart.
+async fn handle_sync_environment(room: &NotebookRoom) -> NotebookResponse {
+    use crate::inline_env::UvEnvironment;
+
+    // Get kernel info and venv_path while holding lock, then release
+    let (launched, venv_path) = {
+        let kernel_guard = room.kernel.lock().await;
+
+        // Check if kernel is running
+        let kernel = match kernel_guard.as_ref() {
+            Some(k) if k.is_running() => k,
+            Some(_) | None => {
+                return NotebookResponse::SyncEnvironmentFailed {
+                    error: "No kernel running".to_string(),
+                    needs_restart: false,
+                };
+            }
+        };
+
+        let launched = kernel.launched_config().clone();
+
+        // Only UV inline deps support hot-sync
+        if launched.uv_deps.is_none() {
+            return NotebookResponse::SyncEnvironmentFailed {
+                error: "Hot-sync only supported for UV inline dependencies".to_string(),
+                needs_restart: true,
+            };
+        }
+
+        let venv_path = match &launched.venv_path {
+            Some(path) => path.clone(),
+            None => {
+                return NotebookResponse::SyncEnvironmentFailed {
+                    error: "No venv path stored - restart required".to_string(),
+                    needs_restart: true,
+                };
+            }
+        };
+
+        (launched, venv_path)
+    };
+
+    // Get current metadata from the document
+    let current_metadata = match resolve_metadata_snapshot(room, Some(&room.notebook_path)).await {
+        Some(m) => m,
+        None => {
+            return NotebookResponse::SyncEnvironmentFailed {
+                error: "Could not read notebook metadata".to_string(),
+                needs_restart: false,
+            };
+        }
+    };
+
+    // Compute diff
+    let diff = compute_env_sync_diff(&launched, &current_metadata);
+
+    match diff {
+        None => {
+            // Already in sync
+            NotebookResponse::SyncEnvironmentComplete {
+                synced_packages: vec![],
+            }
+        }
+        Some(d) => {
+            // Check if there are removals - require restart for those
+            if !d.removed.is_empty() {
+                return NotebookResponse::SyncEnvironmentFailed {
+                    error: format!(
+                        "Cannot remove packages from running env: {:?}. Restart required.",
+                        d.removed
+                    ),
+                    needs_restart: true,
+                };
+            }
+
+            // Check for channel changes (conda only, but check anyway)
+            if d.channels_changed {
+                return NotebookResponse::SyncEnvironmentFailed {
+                    error: "Channel changes require restart".to_string(),
+                    needs_restart: true,
+                };
+            }
+
+            // Nothing to add?
+            if d.added.is_empty() {
+                return NotebookResponse::SyncEnvironmentComplete {
+                    synced_packages: vec![],
+                };
+            }
+
+            // Send started notification
+            let packages_to_install = d.added.clone();
+            let _ = room
+                .kernel_broadcast_tx
+                .send(NotebookBroadcast::EnvProgress {
+                    env_type: "uv".to_string(),
+                    phase: kernel_env::progress::EnvProgressPhase::InstallingPackages {
+                        packages: packages_to_install.clone(),
+                    },
+                });
+
+            // Build UvEnvironment and call sync_dependencies
+            let python_path = venv_path.join("bin").join("python");
+            let env = UvEnvironment {
+                venv_path: venv_path.clone(),
+                python_path,
+            };
+
+            info!(
+                "[notebook-sync] Hot-syncing {} packages to {:?}",
+                packages_to_install.len(),
+                venv_path
+            );
+
+            match kernel_env::uv::sync_dependencies(&env, &packages_to_install).await {
+                Ok(()) => {
+                    info!(
+                        "[notebook-sync] Hot-sync complete: {:?}",
+                        packages_to_install
+                    );
+
+                    // Update the kernel's launched config so future sync checks are accurate
+                    let mut kernel_guard = room.kernel.lock().await;
+                    if let Some(ref mut kernel) = *kernel_guard {
+                        if let Some(ref current_uv) = current_metadata.runt.uv {
+                            kernel.update_launched_uv_deps(current_uv.dependencies.clone());
+                        }
+                    }
+
+                    // Broadcast ready
+                    let _ = room
+                        .kernel_broadcast_tx
+                        .send(NotebookBroadcast::EnvProgress {
+                            env_type: "uv".to_string(),
+                            phase: kernel_env::progress::EnvProgressPhase::Ready {
+                                env_path: venv_path.to_string_lossy().to_string(),
+                                python_path: env.python_path.to_string_lossy().to_string(),
+                            },
+                        });
+
+                    // Broadcast that we're back in sync
+                    let _ = room
+                        .kernel_broadcast_tx
+                        .send(NotebookBroadcast::EnvSyncState {
+                            in_sync: true,
+                            diff: None,
+                        });
+
+                    NotebookResponse::SyncEnvironmentComplete {
+                        synced_packages: packages_to_install,
+                    }
+                }
+                Err(e) => {
+                    error!("[notebook-sync] Hot-sync failed: {}", e);
+
+                    // Broadcast error
+                    let _ = room
+                        .kernel_broadcast_tx
+                        .send(NotebookBroadcast::EnvProgress {
+                            env_type: "uv".to_string(),
+                            phase: kernel_env::progress::EnvProgressPhase::Error {
+                                message: e.to_string(),
+                            },
+                        });
+
+                    NotebookResponse::SyncEnvironmentFailed {
+                        error: format!("Failed to install packages: {}", e),
+                        needs_restart: true,
+                    }
+                }
             }
         }
     }
