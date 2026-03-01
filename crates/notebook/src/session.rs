@@ -131,14 +131,13 @@ pub fn load_session() -> Option<SessionState> {
         }
     };
 
-    // Check session age
+    // Check session age using seconds for precision
     if let Ok(saved_at) = chrono::DateTime::parse_from_rfc3339(&session.saved_at) {
         let age = chrono::Utc::now().signed_duration_since(saved_at);
-        if age.num_hours() > SessionState::MAX_AGE_HOURS {
-            info!(
-                "[session] Session too old ({}h), skipping restore",
-                age.num_hours()
-            );
+        let max_age_seconds = SessionState::MAX_AGE_HOURS * 3600;
+        if age.num_seconds() > max_age_seconds {
+            let hours = age.num_seconds() / 3600;
+            info!("[session] Session too old ({}h), skipping restore", hours);
             return None;
         }
     }
