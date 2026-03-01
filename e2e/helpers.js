@@ -69,7 +69,7 @@ export async function waitForKernelReady(timeout = 60000) {
 }
 
 /**
- * Find the first code cell and execute it with Shift+Enter.
+ * Find the first code cell and execute it.
  * Assumes the cell already has code (pre-populated in fixture notebooks).
  * Returns the cell element for further assertions.
  */
@@ -77,19 +77,23 @@ export async function executeFirstCell() {
   const codeCell = await $('[data-cell-type="code"]');
   await codeCell.waitForExist({ timeout: 5000 });
 
-  // Focus the editor and execute
+  // Prefer explicit execute button click: more reliable than Shift+Enter in WRY.
+  const executeButton = await codeCell.$('[data-testid="execute-button"]');
+  if (await executeButton.isExisting()) {
+    await executeButton.waitForClickable({ timeout: 5000 });
+    await executeButton.click();
+    return codeCell;
+  }
+
+  // Fallback for older UI variants that may not expose the execute button.
   const editor = await codeCell.$('.cm-content[contenteditable="true"]');
   await editor.waitForExist({ timeout: 5000 });
   await editor.click();
   await browser.pause(200);
-
-  // Select all first to place cursor (ensures focus is in the editor)
   await browser.keys([MOD_KEY, "a"]);
   await browser.pause(100);
-  // Move to end so we don't replace content
   await browser.keys(["ArrowRight"]);
   await browser.pause(100);
-
   await browser.keys(["Shift", "Enter"]);
   return codeCell;
 }
@@ -102,21 +106,35 @@ export async function executeFirstCell() {
  * so we use a global selector if the cell-scoped one fails.
  */
 export async function waitForCellOutput(cell, timeout = 120000) {
+  const outputSelectors = [
+    '[data-slot="ansi-stream-output"]',
+    '[data-slot="ansi-error-output"]',
+    '[data-slot="output-item"]',
+  ];
+
   await browser.waitUntil(
     async () => {
-      // Try cell-scoped selector first
-      try {
-        const output = await cell.$('[data-slot="ansi-stream-output"]');
-        if (await output.isExisting()) {
-          return true;
+      // Try cell-scoped selectors first.
+      for (const selector of outputSelectors) {
+        try {
+          const output = await cell.$(selector);
+          if (await output.isExisting()) {
+            return true;
+          }
+        } catch {
+          // Cell reference may be stale, continue to global check.
         }
-      } catch {
-        // Cell reference may be stale, continue to global check
       }
 
-      // Fall back to global selector (any stream output on page)
-      const globalOutput = await $('[data-slot="ansi-stream-output"]');
-      return await globalOutput.isExisting();
+      // Fall back to global selectors (any output on page).
+      for (const selector of outputSelectors) {
+        const globalOutput = await $(selector);
+        if (await globalOutput.isExisting()) {
+          return true;
+        }
+      }
+
+      return false;
     },
     {
       timeout,
@@ -125,17 +143,26 @@ export async function waitForCellOutput(cell, timeout = 120000) {
     },
   );
 
-  // Try cell-scoped first, then fall back to global
-  try {
-    const cellOutput = await cell.$('[data-slot="ansi-stream-output"]');
-    if (await cellOutput.isExisting()) {
-      return await cellOutput.getText();
+  // Try cell-scoped first, then fall back to global.
+  for (const selector of outputSelectors) {
+    try {
+      const cellOutput = await cell.$(selector);
+      if (await cellOutput.isExisting()) {
+        return await cellOutput.getText();
+      }
+    } catch {
+      // Cell reference stale, use global check below.
     }
-  } catch {
-    // Cell reference stale, use global
   }
 
-  return await $('[data-slot="ansi-stream-output"]').getText();
+  for (const selector of outputSelectors) {
+    const globalOutput = await $(selector);
+    if (await globalOutput.isExisting()) {
+      return await globalOutput.getText();
+    }
+  }
+
+  return "";
 }
 
 /**
