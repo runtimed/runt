@@ -15,6 +15,7 @@ tokio = { workspace = true }
 log = "0.4"
 dirs = "5"
 sha2 = "0.10"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
 
 # Conda/rattler for tool bootstrapping
 rattler = "0.39"

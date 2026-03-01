@@ -1,7 +1,10 @@
-//! Tool bootstrapping via rattler.
+//! Tool bootstrapping via rattler and direct downloads.
 //!
 //! This module provides a way to automatically install CLI tools (like `ruff`, `deno`, `uv`)
-//! from conda-forge on demand. Tools are cached in `~/.cache/runt/tools/`.
+//! on demand. Tools are cached in `~/.cache/runt/tools/`.
+//!
+//! For Deno specifically, we download directly from GitHub releases for better reliability,
+//! with a fallback to conda-forge via rattler.
 
 use anyhow::{anyhow, Result};
 use log::info;
@@ -12,9 +15,24 @@ use rattler_conda_types::{
 use rattler_repodata_gateway::Gateway;
 use rattler_solve::{resolvo, SolverImpl, SolverTask};
 use sha2::{Digest, Sha256};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::OnceCell;
+use zip::ZipArchive;
+
+/// Target Deno version for GitHub download.
+pub const DENO_TARGET_VERSION: &str = "2.7.1";
+
+/// Minimum acceptable Deno major version for system deno.
+/// If system deno is below this version, we download a newer one.
+pub const DENO_MIN_MAJOR_VERSION: u32 = 2;
+
+/// Platform information for Deno GitHub release assets.
+struct DenoPlatform {
+    arch: &'static str,
+    platform: &'static str,
+}
 
 /// Cache directory for bootstrapped tools.
 fn tools_cache_dir() -> PathBuf {
@@ -249,31 +267,288 @@ pub async fn get_ruff_path() -> Result<PathBuf> {
 /// This avoids repeated lookups once deno is bootstrapped.
 static DENO_PATH: OnceCell<Arc<Result<PathBuf, String>>> = OnceCell::const_new();
 
-/// Get the path to deno, bootstrapping it if necessary.
+/// Check if a usable Deno is available without triggering a bootstrap.
 ///
-/// This function:
-/// 1. First checks if deno is available on PATH (fast path)
-/// 2. If not, bootstraps it via rattler from conda-forge
-/// 3. Caches the result for subsequent calls
+/// Returns true if:
+/// - System deno exists and is version 2.x+, OR
+/// - A cached deno binary exists (either from GitHub download or rattler)
 ///
-/// Returns the path to the deno binary, or an error if it can't be obtained.
+/// This is intended for UI availability checks where we don't want to
+/// trigger a full download during initialization.
+pub async fn check_deno_available_without_bootstrap() -> bool {
+    // Check for acceptable system deno (2.x+)
+    if let Ok(output) = tokio::process::Command::new("deno")
+        .arg("--version")
+        .output()
+        .await
+    {
+        if output.status.success() {
+            let version_str = String::from_utf8_lossy(&output.stdout);
+            if let Some(major) = parse_deno_major_version(&version_str) {
+                if major >= DENO_MIN_MAJOR_VERSION {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Check for cached GitHub download (versioned path)
+    if cached_tool_binary_path("deno", Some(DENO_TARGET_VERSION)).exists() {
+        return true;
+    }
+
+    // Check for cached rattler download (unversioned path, fallback)
+    cached_tool_binary_path("deno", None).exists()
+}
+
+/// Get the GitHub release asset platform string for the current system.
+fn get_deno_platform() -> Result<DenoPlatform> {
+    let arch = match std::env::consts::ARCH {
+        "aarch64" => "aarch64",
+        "x86_64" => "x86_64",
+        other => return Err(anyhow!("Unsupported architecture for Deno: {}", other)),
+    };
+
+    let platform = match std::env::consts::OS {
+        "macos" => "apple-darwin",
+        "linux" => "unknown-linux-gnu",
+        "windows" => "pc-windows-msvc",
+        other => return Err(anyhow!("Unsupported platform for Deno: {}", other)),
+    };
+
+    Ok(DenoPlatform { arch, platform })
+}
+
+/// Parse a version string and return the major version number.
+/// Handles both "2.7.1" and "deno 2.7.1 (release, ...)" formats.
+fn parse_deno_major_version(version_output: &str) -> Option<u32> {
+    let line = version_output.lines().next()?;
+    // Find the first token that starts with a digit (the version number)
+    let version_str = line.split_whitespace().find(|s| {
+        s.chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
+    })?;
+    version_str.split('.').next()?.parse().ok()
+}
+
+/// Check if system deno is acceptable (major version >= 2).
+/// Returns Some(path) if acceptable, None otherwise.
+async fn check_system_deno_acceptable() -> Option<PathBuf> {
+    let output = tokio::process::Command::new("deno")
+        .arg("--version")
+        .output()
+        .await
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let version_str = String::from_utf8_lossy(&output.stdout);
+    let major = parse_deno_major_version(&version_str)?;
+
+    if major >= DENO_MIN_MAJOR_VERSION {
+        let version_line = version_str.lines().next().unwrap_or("unknown");
+        info!("Using system deno ({})", version_line);
+        Some(PathBuf::from("deno"))
+    } else {
+        info!(
+            "System deno version {}.x is below minimum {}.x, will download newer version",
+            major, DENO_MIN_MAJOR_VERSION
+        );
+        None
+    }
+}
+
+/// Extract the deno binary from a zip archive.
+fn extract_deno_zip(zip_bytes: &[u8], dest_dir: &Path) -> Result<PathBuf> {
+    // Create destination directory structure
+    let bin_dir = if cfg!(windows) {
+        dest_dir.join("Scripts")
+    } else {
+        dest_dir.join("bin")
+    };
+    std::fs::create_dir_all(&bin_dir)?;
+
+    // Open zip archive
+    let cursor = Cursor::new(zip_bytes);
+    let mut archive = ZipArchive::new(cursor)?;
+
+    // The deno zip contains a single "deno" (or "deno.exe") file at the root
+    let binary_name = if cfg!(windows) { "deno.exe" } else { "deno" };
+    let mut extracted_path = None;
+
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        let name = file.name().to_string();
+
+        // Only extract the deno binary
+        if name == "deno" || name == "deno.exe" {
+            let dest_path = bin_dir.join(binary_name);
+            let mut dest_file = std::fs::File::create(&dest_path)?;
+            std::io::copy(&mut file, &mut dest_file)?;
+            extracted_path = Some(dest_path);
+            break;
+        }
+    }
+
+    extracted_path.ok_or_else(|| anyhow!("Deno binary not found in zip archive"))
+}
+
+/// Download and verify the deno binary from GitHub releases.
+async fn download_deno_from_github(version: &str) -> Result<BootstrappedTool> {
+    let platform = get_deno_platform()?;
+    let asset_name = format!("deno-{}-{}.zip", platform.arch, platform.platform);
+
+    // Build URLs
+    let zip_url = format!(
+        "https://github.com/denoland/deno/releases/download/v{}/{}",
+        version, asset_name
+    );
+    let checksum_url = format!("{}.sha256sum", zip_url);
+
+    info!("Downloading deno {} from GitHub...", version);
+
+    // Setup cache directory
+    let cache_dir = tools_cache_dir();
+    let hash = compute_tool_hash("deno", Some(version));
+    let env_path = cache_dir.join(format!("deno-{}", hash));
+    let binary_path = binary_path_for_env(&env_path, "deno");
+
+    // Check if already cached
+    if binary_path.exists() {
+        info!("Using cached deno at {:?}", binary_path);
+        return Ok(BootstrappedTool {
+            binary_path,
+            env_path,
+        });
+    }
+
+    // Ensure cache directory exists
+    tokio::fs::create_dir_all(&cache_dir).await?;
+
+    // Remove partial environment if it exists
+    if env_path.exists() {
+        tokio::fs::remove_dir_all(&env_path).await?;
+    }
+
+    // Create HTTP client (follows redirects automatically)
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()?;
+
+    // Download checksum first
+    info!("Fetching checksum from {}...", checksum_url);
+    let checksum_response = client.get(&checksum_url).send().await?;
+    if !checksum_response.status().is_success() {
+        return Err(anyhow!(
+            "Failed to download checksum: {}",
+            checksum_response.status()
+        ));
+    }
+    let checksum_text = checksum_response.text().await?;
+    let expected_hash = checksum_text
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow!("Invalid checksum format"))?
+        .to_lowercase();
+
+    // Download zip file
+    info!("Downloading {}...", asset_name);
+    let zip_response = client.get(&zip_url).send().await?;
+    if !zip_response.status().is_success() {
+        return Err(anyhow!(
+            "Failed to download deno: {}",
+            zip_response.status()
+        ));
+    }
+    let zip_bytes = zip_response.bytes().await?;
+
+    // Verify checksum
+    info!("Verifying checksum...");
+    let mut hasher = Sha256::new();
+    hasher.update(&zip_bytes);
+    let actual_hash = format!("{:x}", hasher.finalize());
+
+    if actual_hash != expected_hash {
+        return Err(anyhow!(
+            "Checksum mismatch: expected {}, got {}",
+            expected_hash,
+            actual_hash
+        ));
+    }
+
+    // Extract zip (blocking IO, run on blocking thread pool)
+    info!("Extracting deno to {:?}...", env_path);
+    let env_path_clone = env_path.clone();
+    let binary_path_clone = binary_path.clone();
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        let extracted_binary = extract_deno_zip(&zip_bytes, &env_path_clone)?;
+
+        // Set executable permission on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(&extracted_binary, perms)?;
+        }
+
+        // Silence unused warning on Windows where we don't set permissions
+        let _ = &extracted_binary;
+
+        // Verify binary exists at expected location
+        if !binary_path_clone.exists() {
+            return Err(anyhow!(
+                "Deno binary not found after extraction at {:?}",
+                binary_path_clone
+            ));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| anyhow!("Extraction task panicked: {}", e))??;
+
+    info!(
+        "Successfully installed deno {} at {:?}",
+        version, binary_path
+    );
+    Ok(BootstrappedTool {
+        binary_path,
+        env_path,
+    })
+}
+
+/// Get the path to deno, with the following priority:
+///
+/// 1. System deno if version >= 2.x (fast path, respects user's installation)
+/// 2. Download from GitHub releases (v2.7.1) - most reliable source
+/// 3. Fallback to rattler/conda-forge if GitHub download fails
+///
+/// Results are cached for subsequent calls.
 pub async fn get_deno_path() -> Result<PathBuf> {
     let result = DENO_PATH
         .get_or_init(|| async {
-            // First, check if deno is on PATH
-            if let Ok(output) = tokio::process::Command::new("deno")
-                .arg("--version")
-                .output()
-                .await
-            {
-                if output.status.success() {
-                    info!("Using system deno");
-                    return Arc::new(Ok(PathBuf::from("deno")));
+            // 1. Check for acceptable system deno (2.x+)
+            if let Some(path) = check_system_deno_acceptable().await {
+                return Arc::new(Ok(path));
+            }
+
+            // 2. Try GitHub download (primary method)
+            info!(
+                "Downloading deno {} from GitHub releases...",
+                DENO_TARGET_VERSION
+            );
+            match download_deno_from_github(DENO_TARGET_VERSION).await {
+                Ok(tool) => return Arc::new(Ok(tool.binary_path)),
+                Err(e) => {
+                    info!("GitHub download failed: {}. Falling back to rattler...", e);
                 }
             }
 
-            // Not on PATH, bootstrap via rattler
-            info!("deno not found on PATH, bootstrapping via rattler...");
+            // 3. Fallback to rattler
+            info!("Bootstrapping deno via rattler from conda-forge...");
             match bootstrap_tool("deno", None).await {
                 Ok(tool) => Arc::new(Ok(tool.binary_path)),
                 Err(e) => Arc::new(Err(e.to_string())),
@@ -386,5 +661,99 @@ mod tests {
 
         // Different tools should produce different hashes
         assert_ne!(hash1, hash_ruff);
+    }
+
+    #[test]
+    fn test_parse_deno_major_version() {
+        // Full version output format from `deno --version`
+        assert_eq!(
+            parse_deno_major_version("deno 2.7.1 (release, aarch64-apple-darwin)"),
+            Some(2)
+        );
+        assert_eq!(
+            parse_deno_major_version("deno 1.45.2 (release, x86_64-unknown-linux-gnu)"),
+            Some(1)
+        );
+        assert_eq!(
+            parse_deno_major_version("deno 2.0.0 (release, x86_64-pc-windows-msvc)"),
+            Some(2)
+        );
+
+        // Simple version format
+        assert_eq!(parse_deno_major_version("2.7.1"), Some(2));
+        assert_eq!(parse_deno_major_version("1.0.0"), Some(1));
+        assert_eq!(parse_deno_major_version("10.2.3"), Some(10));
+
+        // Edge cases
+        assert_eq!(parse_deno_major_version(""), None);
+        assert_eq!(parse_deno_major_version("not a version"), None);
+        assert_eq!(parse_deno_major_version("deno"), None);
+    }
+
+    #[test]
+    fn test_get_deno_platform() {
+        let result = get_deno_platform();
+        // Should succeed on supported platforms (macOS, Linux, Windows on x86_64 or aarch64)
+        #[cfg(any(
+            all(target_arch = "aarch64", target_os = "macos"),
+            all(target_arch = "x86_64", target_os = "macos"),
+            all(target_arch = "aarch64", target_os = "linux"),
+            all(target_arch = "x86_64", target_os = "linux"),
+            all(target_arch = "x86_64", target_os = "windows"),
+            all(target_arch = "aarch64", target_os = "windows"),
+        ))]
+        {
+            assert!(result.is_ok());
+            let platform = result.unwrap();
+            assert!(!platform.arch.is_empty());
+            assert!(!platform.platform.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_deno_platform_mapping() {
+        // Verify platform strings match GitHub release asset naming
+        #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+        {
+            let p = get_deno_platform().unwrap();
+            assert_eq!(p.arch, "aarch64");
+            assert_eq!(p.platform, "apple-darwin");
+        }
+
+        #[cfg(all(target_arch = "x86_64", target_os = "macos"))]
+        {
+            let p = get_deno_platform().unwrap();
+            assert_eq!(p.arch, "x86_64");
+            assert_eq!(p.platform, "apple-darwin");
+        }
+
+        #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+        {
+            let p = get_deno_platform().unwrap();
+            assert_eq!(p.arch, "x86_64");
+            assert_eq!(p.platform, "unknown-linux-gnu");
+        }
+
+        #[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+        {
+            let p = get_deno_platform().unwrap();
+            assert_eq!(p.arch, "aarch64");
+            assert_eq!(p.platform, "unknown-linux-gnu");
+        }
+
+        #[cfg(all(target_arch = "x86_64", target_os = "windows"))]
+        {
+            let p = get_deno_platform().unwrap();
+            assert_eq!(p.arch, "x86_64");
+            assert_eq!(p.platform, "pc-windows-msvc");
+        }
+    }
+
+    #[test]
+    fn test_deno_version_constants() {
+        // Ensure constants are sensible
+        assert!(!DENO_TARGET_VERSION.is_empty());
+        assert!(DENO_TARGET_VERSION.contains('.'));
+        assert!(DENO_MIN_MAJOR_VERSION >= 2);
     }
 }
