@@ -40,17 +40,86 @@ jobs:
       - name: Check Biome (format + lint + imports)
         run: npx @biomejs/biome check apps/notebook/src/ e2e/
 
+  build-linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install rust
+        uses: dsherret/rust-toolchain-file@v1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Set pnpm store directory
+        run: pnpm config set store-dir ~/.pnpm-store
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Install JS dependencies
+        run: pnpm install
+
+      - name: Run JS tests
+        run: pnpm test:run
+
+      - name: Build UIs
+        run: |
+          pnpm --dir apps/sidecar build
+          pnpm --dir apps/notebook build
+
+      - name: Build external binaries
+        shell: bash
+        run: |
+          cargo build --release -p runtimed -p runt-cli
+          TARGET=$(rustc --print host-tuple)
+          mkdir -p crates/notebook/binaries
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp target/release/runtimed.exe "crates/notebook/binaries/runtimed-$TARGET.exe"
+            cp target/release/runt.exe "crates/notebook/binaries/runt-$TARGET.exe"
+          else
+            cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
+            cp target/release/runt "crates/notebook/binaries/runt-$TARGET"
+          fi
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Run tests
+        run: cargo test --verbose
+
   build:
     name: ${{ matrix.platform.name }}
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
         platform:
-          - name: Linux
-            runner: ubuntu-latest
-            setup: |
-              sudo apt-get update
-              sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev
           - name: macOS
             runner: macos-latest
             setup: echo "No extra deps needed on macOS"
@@ -512,7 +581,7 @@ jobs:
   runtimed-py-integration:
     name: runtimed-py Integration Tests
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [build-linux]
     steps:
       - uses: actions/checkout@v4
 
