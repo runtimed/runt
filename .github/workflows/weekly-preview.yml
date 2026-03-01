@@ -207,6 +207,20 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
+      - name: Cache cargo bin
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: cargo-bin-macos-arm64-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-bin-macos-arm64-tauri-cli-
+
+      - name: Install Tauri CLI
+        run: |
+          if ! command -v cargo-tauri &> /dev/null; then
+            cargo install tauri-cli --locked
+          fi
+
       - name: Import Apple signing certificate
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -337,6 +351,20 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
+      - name: Cache cargo bin
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: cargo-bin-macos-x64-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-bin-macos-x64-tauri-cli-
+
+      - name: Install Tauri CLI
+        run: |
+          if ! command -v cargo-tauri &> /dev/null; then
+            cargo install tauri-cli --locked
+          fi
+
       - name: Import Apple signing certificate
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -459,6 +487,21 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
+      - name: Cache cargo bin
+        uses: actions/cache@v4
+        with:
+          path: ~\.cargo\bin
+          key: cargo-bin-windows-x64-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-bin-windows-x64-tauri-cli-
+
+      - name: Install Tauri CLI
+        shell: pwsh
+        run: |
+          if (!(Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
+            cargo install tauri-cli --locked
+          }
+
       - name: Set version in tauri.conf.json
         shell: pwsh
         run: |
@@ -559,6 +602,20 @@ jobs:
 
       - name: Build frontend
         run: pnpm build
+
+      - name: Cache cargo bin
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: cargo-bin-linux-x64-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-bin-linux-x64-tauri-cli-
+
+      - name: Install Tauri CLI
+        run: |
+          if ! command -v cargo-tauri &> /dev/null; then
+            cargo install tauri-cli --locked
+          fi
 
       - name: Set version in tauri.conf.json
         run: |
