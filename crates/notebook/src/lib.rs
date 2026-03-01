@@ -3632,6 +3632,7 @@ pub fn run(
         .build(tauri::generate_context!())
         .map_err(|e| anyhow::anyhow!("Tauri build error: {}", e))?;
 
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     let registry_for_open = window_registry.clone();
     app.run(move |_app_handle, _event| {
         // Handle file associations (macOS only)
