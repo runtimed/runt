@@ -170,7 +170,7 @@ where
     S: Serialize + Clone,
 {
     emitter.emit_to(
-        tauri::EventTarget::labeled(label.to_string()),
+        tauri::EventTarget::webview(label.to_string()),
         event,
         payload,
     )
