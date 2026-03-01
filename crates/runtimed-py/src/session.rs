@@ -513,23 +513,12 @@ impl Session {
     /// The daemon reads the cell's source from the automerge document and
     /// queues it for execution. Use get_cell() to poll for results.
     ///
-    /// If a kernel isn't running yet, this will start one automatically.
-    ///
     /// Args:
     ///     cell_id: The cell ID to execute.
     ///
     /// Raises:
     ///     RuntimedError: If not connected or cell not found.
     fn queue_cell(&self, cell_id: &str) -> PyResult<()> {
-        // Auto-start kernel if not running
-        {
-            let state = self.runtime.block_on(self.state.lock());
-            if !state.kernel_started {
-                drop(state);
-                self.start_kernel("python", "uv:prewarmed")?;
-            }
-        }
-
         self.runtime.block_on(async {
             let state = self.state.lock().await;
 
@@ -538,7 +527,7 @@ impl Session {
                 .as_ref()
                 .ok_or_else(|| to_py_err("Not connected"))?;
 
-            // Execute cell (daemon reads source from automerge doc)
+            // Queue cell execution (daemon reads source from automerge doc)
             let response = handle
                 .send_request(NotebookRequest::ExecuteCell {
                     cell_id: cell_id.to_string(),

@@ -28,7 +28,8 @@ use crate::output::{Cell, ExecutionResult, Output};
 /// Example:
 ///     async with AsyncSession() as session:
 ///         await session.start_kernel()
-///         result = await session.run("print('hello')")
+///         cell_id = await session.create_cell("print('hello')")
+///         result = await session.execute_cell(cell_id)
 ///         print(result.stdout)  # "hello\n"
 #[pyclass]
 pub struct AsyncSession {
@@ -659,8 +660,6 @@ impl AsyncSession {
     /// The daemon reads the cell's source from the automerge document and
     /// queues it for execution. Use get_cell() to poll for results.
     ///
-    /// If a kernel isn't running yet, this will start one automatically.
-    ///
     /// Args:
     ///     cell_id: The cell ID to execute.
     ///
@@ -670,111 +669,9 @@ impl AsyncSession {
     ///     RuntimedError: If not connected or cell not found.
     fn queue_cell<'py>(&self, py: Python<'py>, cell_id: &str) -> PyResult<Bound<'py, PyAny>> {
         let state = Arc::clone(&self.state);
-        let notebook_id = self.notebook_id.clone();
         let cell_id = cell_id.to_string();
 
         future_into_py(py, async move {
-            // Auto-start kernel if not running
-            {
-                let state_guard = state.lock().await;
-                if !state_guard.kernel_started {
-                    drop(state_guard);
-
-                    // Need to connect and start kernel
-                    let state_guard = state.lock().await;
-                    if state_guard.handle.is_none() {
-                        drop(state_guard);
-
-                        let socket_path = if let Ok(path) = std::env::var("RUNTIMED_SOCKET_PATH") {
-                            std::path::PathBuf::from(path)
-                        } else {
-                            runtimed::default_socket_path()
-                        };
-
-                        let (handle, sync_rx, broadcast_rx, _cells, _notebook_path) =
-                            NotebookSyncClient::connect_split(
-                                socket_path.clone(),
-                                notebook_id.clone(),
-                            )
-                            .await
-                            .map_err(to_py_err)?;
-
-                        let (blob_base_url, blob_store_path) = if let Some(parent) =
-                            socket_path.parent()
-                        {
-                            let daemon_json = parent.join("daemon.json");
-                            let base_url = if daemon_json.exists() {
-                                tokio::fs::read_to_string(&daemon_json)
-                                    .await
-                                    .ok()
-                                    .and_then(|contents| {
-                                        serde_json::from_str::<serde_json::Value>(&contents).ok()
-                                    })
-                                    .and_then(|info| info.get("blob_port").and_then(|p| p.as_u64()))
-                                    .map(|port| format!("http://127.0.0.1:{}", port))
-                            } else {
-                                None
-                            };
-
-                            let store_path = parent.join("blobs");
-                            let store_path = if store_path.exists() {
-                                Some(store_path)
-                            } else {
-                                None
-                            };
-
-                            (base_url, store_path)
-                        } else {
-                            (None, None)
-                        };
-
-                        let mut state_guard = state.lock().await;
-                        state_guard.handle = Some(handle);
-                        state_guard.sync_rx = Some(sync_rx);
-                        state_guard.broadcast_rx = Some(broadcast_rx);
-                        state_guard.blob_base_url = blob_base_url;
-                        state_guard.blob_store_path = blob_store_path;
-                    }
-
-                    // Start kernel
-                    let mut state_guard = state.lock().await;
-                    let handle = state_guard
-                        .handle
-                        .as_ref()
-                        .ok_or_else(|| to_py_err("Not connected"))?;
-
-                    let response = handle
-                        .send_request(NotebookRequest::LaunchKernel {
-                            kernel_type: "python".to_string(),
-                            env_source: "uv:prewarmed".to_string(),
-                            notebook_path: None,
-                        })
-                        .await
-                        .map_err(to_py_err)?;
-
-                    match response {
-                        NotebookResponse::KernelLaunched {
-                            env_source: actual_env,
-                            ..
-                        } => {
-                            state_guard.kernel_started = true;
-                            state_guard.env_source = Some(actual_env);
-                        }
-                        NotebookResponse::KernelAlreadyRunning {
-                            env_source: actual_env,
-                            ..
-                        } => {
-                            state_guard.kernel_started = true;
-                            state_guard.env_source = Some(actual_env);
-                        }
-                        NotebookResponse::Error { error } => return Err(to_py_err(error)),
-                        other => {
-                            return Err(to_py_err(format!("Unexpected response: {:?}", other)))
-                        }
-                    }
-                }
-            }
-
             let state_guard = state.lock().await;
 
             let handle = state_guard
