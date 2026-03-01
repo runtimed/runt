@@ -85,6 +85,10 @@ export function useDaemonKernel({
   // Store blob port in ref for use in event handlers
   const blobPortRef = useRef<number>(0);
 
+  // Timer ref for throttling transient busy states
+  // Ignores busy if it disappears within the threshold (e.g., from completions)
+  const busyTimerRef = useRef<number | null>(null);
+
   // Store callbacks in refs to avoid effect re-runs
   const callbacksRef = useRef({
     onOutput,
@@ -136,8 +140,44 @@ export function useDaemonKernel({
         switch (broadcast.event) {
           case "kernel_status": {
             const status = broadcast.status as DaemonKernelStatus;
-            setKernelStatus(status);
-            callbacksRef.current.onStatusChange?.(status, broadcast.cell_id);
+
+            if (status === "busy") {
+              // Throttle busy: only show if it persists past threshold
+              // This ignores transient busy states from completions
+              if (busyTimerRef.current === null) {
+                busyTimerRef.current = window.setTimeout(() => {
+                  busyTimerRef.current = null;
+                  setKernelStatus("busy");
+                  callbacksRef.current.onStatusChange?.(
+                    "busy",
+                    broadcast.cell_id,
+                  );
+                }, 60);
+              }
+            } else if (status === "idle") {
+              // Cancel pending busy transition if idle arrives quickly
+              if (busyTimerRef.current !== null) {
+                clearTimeout(busyTimerRef.current);
+                busyTimerRef.current = null;
+                // Don't update - stay at current status (probably idle)
+              } else {
+                // No pending busy, show idle immediately
+                setKernelStatus(status);
+                callbacksRef.current.onStatusChange?.(
+                  status,
+                  broadcast.cell_id,
+                );
+              }
+            } else {
+              // Other statuses (starting, error, shutdown, etc.) shown immediately
+              // Also clear any pending busy timer
+              if (busyTimerRef.current !== null) {
+                clearTimeout(busyTimerRef.current);
+                busyTimerRef.current = null;
+              }
+              setKernelStatus(status);
+              callbacksRef.current.onStatusChange?.(status, broadcast.cell_id);
+            }
             break;
           }
 
@@ -402,6 +442,11 @@ export function useDaemonKernel({
 
     return () => {
       cancelled = true;
+      // Clear pending busy timer
+      if (busyTimerRef.current !== null) {
+        clearTimeout(busyTimerRef.current);
+        busyTimerRef.current = null;
+      }
       unlistenBroadcast.then((fn) => fn()).catch(() => {});
       unlistenDisconnect.then((fn) => fn()).catch(() => {});
       unlistenReady.then((fn) => fn()).catch(() => {});
