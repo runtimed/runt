@@ -1483,14 +1483,11 @@ async fn run_sync_task<S>(
                 }
             }
 
-            // Check for incoming changes (with timeout to not block commands)
+            // Check for incoming changes
+            // Note: recv_frame_any() has an internal 100ms timeout, so no outer timeout needed
             _ = poll_interval.tick() => {
-                // Try to receive with a short timeout
-                match tokio::time::timeout(
-                    Duration::from_millis(10),
-                    client.recv_frame_any()
-                ).await {
-                    Ok(Ok(Some(ReceivedFrame::Changes(cells)))) => {
+                match client.recv_frame_any().await {
+                    Ok(Some(ReceivedFrame::Changes(cells))) => {
                         // Got changes from another peer — only include metadata if it changed
                         let current_metadata = client.get_metadata(NOTEBOOK_METADATA_KEY);
                         let metadata_changed = current_metadata != last_metadata;
@@ -1501,15 +1498,24 @@ async fn run_sync_task<S>(
                             cells,
                             notebook_metadata: if metadata_changed { current_metadata } else { None },
                         };
-                        if changes_tx.send(update).await.is_err() {
-                            info!(
-                                "[notebook-sync-task] Changes receiver dropped for {}, loop_count={}",
-                                notebook_id, loop_count
-                            );
-                            break;
+                        // Use try_send to avoid blocking if receiver isn't draining
+                        // (e.g., Python bindings keep sync_rx alive but don't consume it)
+                        match changes_tx.try_send(update) {
+                            Ok(()) => {}
+                            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                                // Channel full - receiver not keeping up, skip this update
+                                // Next update will contain latest state anyway
+                            }
+                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                info!(
+                                    "[notebook-sync-task] Changes receiver dropped for {}, loop_count={}",
+                                    notebook_id, loop_count
+                                );
+                                break;
+                            }
                         }
                     }
-                    Ok(Ok(Some(ReceivedFrame::Broadcast(broadcast)))) => {
+                    Ok(Some(ReceivedFrame::Broadcast(broadcast))) => {
                         // Got a broadcast from daemon
                         let send_result = broadcast_tx.send(broadcast).await;
                         if send_result.is_err() {
@@ -1520,29 +1526,26 @@ async fn run_sync_task<S>(
                             // Continue - broadcasts are optional
                         }
                     }
-                    Ok(Ok(Some(ReceivedFrame::Response(_)))) => {
+                    Ok(Some(ReceivedFrame::Response(_))) => {
                         // Unexpected response - we weren't waiting for one
                         warn!("[notebook-sync-task] Unexpected response frame for {}", notebook_id);
                     }
-                    Ok(Ok(None)) => {
-                        // No frame available
+                    Ok(None) => {
+                        // No frame available (timeout), continue
                     }
-                    Ok(Err(NotebookSyncError::Disconnected)) => {
+                    Err(NotebookSyncError::Disconnected) => {
                         warn!(
                             "[notebook-sync-task] Disconnected from daemon for {}, loop_count={}",
                             notebook_id, loop_count
                         );
                         break;
                     }
-                    Ok(Err(e)) => {
+                    Err(e) => {
                         warn!(
                             "[notebook-sync-task] Error receiving for {}: {}, loop_count={}",
                             notebook_id, e, loop_count
                         );
                         break;
-                    }
-                    Err(_) => {
-                        // Timeout - no data available, continue
                     }
                 }
             }

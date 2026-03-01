@@ -45,11 +45,16 @@ def _find_runtimed_binary():
     if "RUNTIMED_BINARY" in os.environ:
         return Path(os.environ["RUNTIMED_BINARY"])
 
-    # Check relative to this repo
-    repo_root = Path(__file__).parent.parent.parent.parent.parent
+    # Use CONDUCTOR_WORKSPACE_PATH if available (preferred in CI and worktrees)
+    if "CONDUCTOR_WORKSPACE_PATH" in os.environ:
+        repo_root = Path(os.environ["CONDUCTOR_WORKSPACE_PATH"])
+    else:
+        # Fallback: walk up from this file (python/runtimed/tests/test_*.py)
+        repo_root = Path(__file__).parent.parent.parent.parent.parent
+
     candidates = [
-        repo_root / "target" / "debug" / "runtimed",
         repo_root / "target" / "release" / "runtimed",
+        repo_root / "target" / "debug" / "runtimed",
     ]
 
     for path in candidates:
@@ -180,17 +185,17 @@ def daemon_process():
 
 
 @pytest.fixture
-def session(daemon_process):
+def session(daemon_process, monkeypatch):
     """Create a fresh Session for each test."""
     socket_path, _ = daemon_process
+
+    # Set socket path env var so Session.connect() uses the right daemon
+    if socket_path is not None:
+        monkeypatch.setenv("RUNTIMED_SOCKET_PATH", str(socket_path))
 
     # Create session with unique notebook ID
     notebook_id = f"test-{uuid.uuid4()}"
     sess = runtimed.Session(notebook_id=notebook_id)
-
-    # If we have a custom socket path, we need to configure it
-    # For now, the Session uses default_socket_path() internally
-    # which should work with CONDUCTOR_WORKSPACE_PATH or dev mode
 
     sess.connect()
     yield sess
@@ -204,9 +209,13 @@ def session(daemon_process):
 
 
 @pytest.fixture
-def two_sessions(daemon_process):
+def two_sessions(daemon_process, monkeypatch):
     """Create two sessions connected to the same notebook (peer sync test)."""
     socket_path, _ = daemon_process
+
+    # Set socket path env var so Session.connect() uses the right daemon
+    if socket_path is not None:
+        monkeypatch.setenv("RUNTIMED_SOCKET_PATH", str(socket_path))
 
     # Both sessions share the same notebook ID
     notebook_id = f"test-{uuid.uuid4()}"

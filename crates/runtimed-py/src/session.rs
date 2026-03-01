@@ -117,6 +117,7 @@ impl Session {
     /// Connect to the daemon.
     ///
     /// This is called automatically by start_kernel() if not already connected.
+    /// Respects the RUNTIMED_SOCKET_PATH environment variable if set.
     fn connect(&self) -> PyResult<()> {
         self.runtime.block_on(async {
             let mut state = self.state.lock().await;
@@ -124,7 +125,12 @@ impl Session {
                 return Ok(()); // Already connected
             }
 
-            let socket_path = runtimed::default_socket_path();
+            // Check for socket path override via environment variable
+            let socket_path = if let Ok(path) = std::env::var("RUNTIMED_SOCKET_PATH") {
+                std::path::PathBuf::from(path)
+            } else {
+                runtimed::default_socket_path()
+            };
 
             let (handle, sync_rx, broadcast_rx, _cells, _notebook_path) =
                 NotebookSyncClient::connect_split(socket_path.clone(), self.notebook_id.clone())
@@ -745,11 +751,20 @@ impl Session {
             }
         }
 
-        // Fallback: create a minimal output
-        Some(Output::stream(
-            "stderr",
-            &format!("Failed to parse output: {}", output_json),
-        ))
+        // Fallback: create an error output to preserve failure semantics
+        // If the original output_type was "error", this ensures success=false is set
+        if output_type == "error" {
+            Some(Output::error(
+                "OutputParseError",
+                &format!("Failed to parse error output: {}", output_json),
+                vec![],
+            ))
+        } else {
+            Some(Output::stream(
+                "stderr",
+                &format!("Failed to parse output: {}", output_json),
+            ))
+        }
     }
 
     /// Convert a parsed JSON value to an Output.
