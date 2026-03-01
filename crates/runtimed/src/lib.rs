@@ -241,6 +241,23 @@ pub fn settings_json_path() -> PathBuf {
         .join("settings.json")
 }
 
+/// Get the path to the session state file.
+///
+/// In dev mode: stored per-worktree for isolation during development.
+/// In production: stored in config directory alongside settings.
+pub fn session_state_path() -> PathBuf {
+    if is_dev_mode() {
+        // Per-worktree session for dev isolation
+        daemon_base_dir().join("session.json")
+    } else {
+        // Production: config directory
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("nteract")
+            .join("session.json")
+    }
+}
+
 /// Get the path to the settings JSON Schema file.
 pub fn settings_schema_path() -> PathBuf {
     dirs::config_dir()
