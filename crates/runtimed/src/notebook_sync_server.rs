@@ -293,6 +293,10 @@ fn compute_env_sync_diff(
 
 /// Check if the current metadata differs from kernel's launched config and broadcast sync state.
 /// Called after metadata sync to notify all clients about dependency drift.
+///
+/// Handles two cases:
+/// 1. Kernel launched with inline deps - track drift (additions/removals)
+/// 2. Kernel launched with prewarmed - detect when user adds inline deps (needs restart)
 async fn check_and_broadcast_sync_state(room: &NotebookRoom) {
     // Get current metadata from doc
     let current_metadata = {
@@ -311,21 +315,49 @@ async fn check_and_broadcast_sync_state(room: &NotebookRoom) {
     // Check if kernel is running
     let kernel_guard = room.kernel.lock().await;
     if let Some(ref kernel) = *kernel_guard {
-        if kernel.is_running() {
-            let launched = kernel.launched_config();
+        if !kernel.is_running() {
+            return;
+        }
 
-            // Check if we're tracking inline deps or deno config
-            let is_tracking = launched.uv_deps.is_some()
-                || launched.conda_deps.is_some()
-                || launched.deno_config.is_some();
+        let launched = kernel.launched_config();
 
-            if is_tracking {
-                let diff = compute_env_sync_diff(launched, &current_metadata);
-                let in_sync = diff.is_none();
+        // Check if we're tracking inline deps or deno config
+        let is_tracking = launched.uv_deps.is_some()
+            || launched.conda_deps.is_some()
+            || launched.deno_config.is_some();
 
-                let _ = room
-                    .kernel_broadcast_tx
-                    .send(NotebookBroadcast::EnvSyncState { in_sync, diff });
+        if is_tracking {
+            // Case 1: Kernel launched with inline deps - compute drift
+            let diff = compute_env_sync_diff(launched, &current_metadata);
+            let in_sync = diff.is_none();
+
+            let _ = room
+                .kernel_broadcast_tx
+                .send(NotebookBroadcast::EnvSyncState { in_sync, diff });
+        } else {
+            // Case 2: Kernel launched with prewarmed - check if metadata now has inline deps
+            // This happens when user adds deps to a notebook with a prewarmed kernel running
+            let current_inline = check_inline_deps(&current_metadata);
+
+            if let Some(ref inline_source) = current_inline {
+                // Metadata now has inline deps but kernel is prewarmed - needs restart
+                let added = match inline_source.as_str() {
+                    "uv:inline" => get_inline_uv_deps(&current_metadata).unwrap_or_default(),
+                    "conda:inline" => get_inline_conda_deps(&current_metadata).unwrap_or_default(),
+                    _ => vec![],
+                };
+
+                if !added.is_empty() {
+                    let _ = room.kernel_broadcast_tx.send(NotebookBroadcast::EnvSyncState {
+                        in_sync: false,
+                        diff: Some(EnvSyncDiff {
+                            added,
+                            removed: vec![],
+                            channels_changed: false,
+                            deno_changed: false,
+                        }),
+                    });
+                }
             }
         }
     }
