@@ -208,6 +208,7 @@ fn serialize_to_ansi(term: &Term<VoidListener>) -> String {
     let mut current_bg: Option<Color> = None;
     let mut current_flags = Flags::empty();
     let mut is_first_line = true;
+    let mut has_emitted_styling = false; // Track if we've actually output any ANSI codes
 
     for line_idx in topmost.0..=max_line_with_content {
         let row = &grid[Line(line_idx)];
@@ -266,6 +267,7 @@ fn serialize_to_ansi(term: &Term<VoidListener>) -> String {
                 current_bg = None;
                 current_flags = Flags::empty();
                 attrs_changed = true;
+                // Note: reset doesn't count as "active styling" since it clears state
             }
 
             // Emit new flags
@@ -273,30 +275,36 @@ fn serialize_to_ansi(term: &Term<VoidListener>) -> String {
                 if cell.flags.contains(Flags::BOLD) && !current_flags.contains(Flags::BOLD) {
                     result.push_str("\x1b[1m");
                     attrs_changed = true;
+                    has_emitted_styling = true;
                 }
                 if cell.flags.contains(Flags::DIM) && !current_flags.contains(Flags::DIM) {
                     result.push_str("\x1b[2m");
                     attrs_changed = true;
+                    has_emitted_styling = true;
                 }
                 if cell.flags.contains(Flags::ITALIC) && !current_flags.contains(Flags::ITALIC) {
                     result.push_str("\x1b[3m");
                     attrs_changed = true;
+                    has_emitted_styling = true;
                 }
                 if cell.flags.contains(Flags::UNDERLINE)
                     && !current_flags.contains(Flags::UNDERLINE)
                 {
                     result.push_str("\x1b[4m");
                     attrs_changed = true;
+                    has_emitted_styling = true;
                 }
                 if cell.flags.contains(Flags::STRIKEOUT)
                     && !current_flags.contains(Flags::STRIKEOUT)
                 {
                     result.push_str("\x1b[9m");
                     attrs_changed = true;
+                    has_emitted_styling = true;
                 }
                 if cell.flags.contains(Flags::HIDDEN) && !current_flags.contains(Flags::HIDDEN) {
                     result.push_str("\x1b[8m");
                     attrs_changed = true;
+                    has_emitted_styling = true;
                 }
                 current_flags = cell.flags;
             }
@@ -306,6 +314,7 @@ fn serialize_to_ansi(term: &Term<VoidListener>) -> String {
                 if let Some(ansi) = color_to_ansi(&cell.fg, true) {
                     result.push_str(&ansi);
                     attrs_changed = true;
+                    has_emitted_styling = true;
                 }
                 current_fg = Some(cell.fg);
             }
@@ -315,6 +324,7 @@ fn serialize_to_ansi(term: &Term<VoidListener>) -> String {
                 if let Some(ansi) = color_to_ansi(&cell.bg, false) {
                     result.push_str(&ansi);
                     attrs_changed = true;
+                    has_emitted_styling = true;
                 }
                 current_bg = Some(cell.bg);
             }
@@ -335,8 +345,8 @@ fn serialize_to_ansi(term: &Term<VoidListener>) -> String {
         }
     }
 
-    // Reset at end if we have any active attributes
-    if !current_flags.is_empty() || current_fg.is_some() || current_bg.is_some() {
+    // Reset at end only if we actually emitted styling codes
+    if has_emitted_styling {
         result.push_str("\x1b[0m");
     }
 
@@ -510,20 +520,20 @@ mod tests {
         // Simple text should not have trailing spaces padding to terminal width
         let result = terminals.feed("cell-1", "stdout", "hello");
 
-        // Should be "hello" possibly with a reset sequence, not padded to 120 cols
-        assert!(result.starts_with("hello"), "Should start with hello");
-        // Terminal width is 120, so if we were padding we'd have >100 chars
-        assert!(
-            result.len() < 20,
-            "Output should not be padded to terminal width, got {} chars",
-            result.len()
-        );
-        // Verify no trailing spaces before any reset sequence
-        let without_reset = result.replace("\x1b[0m", "");
-        assert!(
-            !without_reset.ends_with(' '),
-            "Should not have trailing spaces"
-        );
+        // Plain text with no styling should be exactly "hello" - no reset code needed
+        assert_eq!(result, "hello", "Plain text should have no ANSI codes");
+    }
+
+    #[test]
+    fn test_styled_text_has_reset() {
+        let mut terminals = StreamTerminals::new();
+
+        // Text with ANSI color codes should have a reset at the end
+        let result = terminals.feed("cell-1", "stdout", "\x1b[31mred\x1b[0m");
+
+        // Should preserve the red color and have a reset at end
+        assert!(result.contains("\x1b[31m"), "Should have red color code");
+        assert!(result.ends_with("\x1b[0m"), "Should end with reset");
     }
 
     #[test]
