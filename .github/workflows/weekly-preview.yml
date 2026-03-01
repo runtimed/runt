@@ -284,17 +284,30 @@ jobs:
           fi
 
       - name: Collect artifacts
+        shell: bash
         run: |
           mkdir -p artifacts
-          DMG_PATH=$(find target/release/bundle/dmg -name "*.dmg" | head -1)
-          cp "$DMG_PATH" artifacts/nteract-darwin-arm64.dmg
-          # Updater bundle (.tar.gz and .sig)
-          for f in target/release/bundle/macos/*.tar.gz; do
-            [ -f "$f" ] && cp "$f" artifacts/nteract-darwin-arm64.app.tar.gz
-          done
-          for f in target/release/bundle/macos/*.tar.gz.sig; do
-            [ -f "$f" ] && cp "$f" artifacts/nteract-darwin-arm64.app.tar.gz.sig
-          done
+
+          shopt -s nullglob
+          DMG_BINARIES=(target/release/bundle/dmg/*.dmg)
+          TAR_GZ_BINARIES=(target/release/bundle/macos/*.tar.gz)
+          TAR_GZ_SIG_BINARIES=(target/release/bundle/macos/*.tar.gz.sig)
+          shopt -u nullglob
+
+          if [ ${#DMG_BINARIES[@]} -eq 0 ]; then
+            echo "::error::No macOS installer (.dmg) found in target/release/bundle/dmg"
+            exit 1
+          fi
+
+          cp "${DMG_BINARIES[0]}" artifacts/nteract-darwin-arm64.dmg
+
+          # Optional updater bundle (.tar.gz and .sig) for channels that publish updater artifacts.
+          if [ ${#TAR_GZ_BINARIES[@]} -gt 0 ]; then
+            cp "${TAR_GZ_BINARIES[0]}" artifacts/nteract-darwin-arm64.app.tar.gz
+          fi
+          if [ ${#TAR_GZ_SIG_BINARIES[@]} -gt 0 ]; then
+            cp "${TAR_GZ_SIG_BINARIES[0]}" artifacts/nteract-darwin-arm64.app.tar.gz.sig
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
