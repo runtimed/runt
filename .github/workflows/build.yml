@@ -538,6 +538,10 @@ jobs:
         working-directory: python/runtimed
         run: uv run maturin develop --manifest-path ../../crates/runtimed-py/Cargo.toml
 
+      - name: Run unit tests
+        working-directory: python/runtimed
+        run: uv run pytest tests/test_session_unit.py -v --tb=short
+
       - name: Run integration tests
         timeout-minutes: 10
         working-directory: python/runtimed
