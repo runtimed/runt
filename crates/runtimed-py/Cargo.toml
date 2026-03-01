@@ -12,7 +12,7 @@ name = "runtimed"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.28", features = ["extension-module"] }
+pyo3 = { version = "0.28", features = ["extension-module", "abi3-py39"] }
 pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
 runtimed = { path = "../runtimed" }
 tokio = { version = "1", features = ["full"] }
