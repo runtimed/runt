@@ -198,23 +198,6 @@ pub async fn sync_dependencies(env: &CondaEnvironment, deps: &CondaDependencies)
     kernel_env::conda::sync_dependencies(env, &deps.clone().into()).await
 }
 
-/// No-op cleanup (cached environments are kept for reuse).
-pub async fn cleanup_environment(env: &CondaEnvironment) -> Result<()> {
-    kernel_env::conda::cleanup_environment(env).await
-}
-
-/// Force remove a cached environment.
-#[allow(dead_code)]
-pub async fn remove_environment(env: &CondaEnvironment) -> Result<()> {
-    kernel_env::conda::remove_environment(env).await
-}
-
-/// Clear all cached conda environments.
-#[allow(dead_code)]
-pub async fn clear_cache() -> Result<()> {
-    kernel_env::conda::clear_cache().await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
