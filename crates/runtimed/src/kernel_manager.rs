@@ -21,7 +21,7 @@ use jupyter_protocol::{
     JupyterMessage, JupyterMessageContent, KernelInfoRequest, ShutdownRequest,
 };
 use log::{debug, error, info, warn};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot, RwLock};
 use uuid::Uuid;
 
@@ -31,7 +31,57 @@ use crate::notebook_doc::NotebookDoc;
 use crate::notebook_sync_server::persist_notebook_bytes;
 use crate::output_store::{self, DEFAULT_INLINE_THRESHOLD};
 use crate::protocol::{CompletionItem, HistoryEntry, NotebookBroadcast};
+use crate::stream_terminal::{StreamOutputState, StreamTerminals};
 use crate::PooledEnv;
+
+// ── Launched Environment Config ─────────────────────────────────────────────
+
+/// Environment configuration captured at kernel launch time.
+/// Used to detect when notebook metadata has drifted from the running kernel.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct LaunchedEnvConfig {
+    /// UV inline deps (if env_source is "uv:inline")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uv_deps: Option<Vec<String>>,
+
+    /// Conda inline deps (if env_source is "conda:inline")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conda_deps: Option<Vec<String>>,
+
+    /// Conda channels (if env_source is "conda:inline")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conda_channels: Option<Vec<String>>,
+
+    /// Deno config (if kernel_type is "deno")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deno_config: Option<DenoLaunchedConfig>,
+}
+
+/// Deno configuration captured at kernel launch time.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct DenoLaunchedConfig {
+    /// Deno permission flags
+    #[serde(default)]
+    pub permissions: Vec<String>,
+
+    /// Path to import_map.json
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub import_map: Option<String>,
+
+    /// Path to deno.json config
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<String>,
+
+    /// Whether npm: imports auto-install packages
+    #[serde(default = "default_flexible_npm")]
+    pub flexible_npm_imports: bool,
+}
+
+fn default_flexible_npm() -> bool {
+    true
+}
+
+// ── Output Conversion ───────────────────────────────────────────────────────
 
 /// Convert a JupyterMessageContent to nbformat-style JSON for storage in Automerge.
 ///
@@ -221,6 +271,8 @@ pub struct RoomKernel {
     kernel_type: String,
     /// Environment source (e.g., "uv:inline", "conda:prewarmed")
     env_source: String,
+    /// Environment configuration used at launch (for sync detection)
+    launched_config: LaunchedEnvConfig,
     /// Connection info for the kernel
     connection_info: Option<ConnectionInfo>,
     /// Path to the connection file
@@ -266,6 +318,8 @@ pub struct RoomKernel {
     pending_history: Arc<StdMutex<HashMap<String, oneshot::Sender<Vec<HistoryEntry>>>>>,
     /// Pending completion requests: msg_id → response channel
     pending_completions: PendingCompletions,
+    /// Terminal emulators for stream outputs (stdout/stderr)
+    stream_terminals: Arc<tokio::sync::Mutex<StreamTerminals>>,
 }
 
 /// Commands from iopub/shell handlers for queue state management.
@@ -293,6 +347,7 @@ impl RoomKernel {
         Self {
             kernel_type: String::new(),
             env_source: String::new(),
+            launched_config: LaunchedEnvConfig::default(),
             connection_info: None,
             connection_file: None,
             session_id: Uuid::new_v4().to_string(),
@@ -316,6 +371,7 @@ impl RoomKernel {
             comm_state,
             pending_history: Arc::new(StdMutex::new(HashMap::new())),
             pending_completions: Arc::new(StdMutex::new(HashMap::new())),
+            stream_terminals: Arc::new(tokio::sync::Mutex::new(StreamTerminals::new())),
         }
     }
 
@@ -336,6 +392,11 @@ impl RoomKernel {
     /// Get the environment source.
     pub fn env_source(&self) -> &str {
         &self.env_source
+    }
+
+    /// Get the environment configuration used at launch (for sync detection).
+    pub fn launched_config(&self) -> &LaunchedEnvConfig {
+        &self.launched_config
     }
 
     /// Get the current kernel status.
@@ -366,13 +427,16 @@ impl RoomKernel {
     ///
     /// Note: `conda:inline` currently falls back to prewarmed pool (inline deps not installed).
     /// TODO: Implement on-demand conda env creation for conda:inline deps.
+    ///
+    /// The `launched_config` captures the environment configuration used at launch time,
+    /// enabling detection of metadata drift (e.g., user added deps while kernel running).
     pub async fn launch(
         &mut self,
         kernel_type: &str,
         env_source: &str,
         notebook_path: Option<&std::path::Path>,
         env: Option<PooledEnv>,
-        _inline_deps: Option<Vec<String>>,
+        launched_config: LaunchedEnvConfig,
     ) -> Result<()> {
         // Shutdown existing kernel if any (but don't broadcast shutdown for fresh kernel)
         if self.is_running() {
@@ -381,6 +445,7 @@ impl RoomKernel {
 
         self.kernel_type = kernel_type.to_string();
         self.env_source = env_source.to_string();
+        self.launched_config = launched_config;
         self.status = KernelStatus::Starting;
 
         // Broadcast starting status
@@ -591,6 +656,7 @@ impl RoomKernel {
         let changed_tx = self.changed_tx.clone();
         let blob_store = self.blob_store.clone();
         let comm_state = self.comm_state.clone();
+        let stream_terminals = self.stream_terminals.clone();
 
         let iopub_task = tokio::spawn(async move {
             loop {
@@ -646,16 +712,123 @@ impl RoomKernel {
                                 }
                             }
 
-                            JupyterMessageContent::StreamContent(_)
-                            | JupyterMessageContent::DisplayData(_)
+                            // Stream outputs use terminal emulation to handle escape sequences
+                            // like carriage returns (for progress bars) properly
+                            JupyterMessageContent::StreamContent(stream) => {
+                                if let Some(ref cid) = cell_id {
+                                    let stream_name = match stream.name {
+                                        jupyter_protocol::Stdio::Stdout => "stdout",
+                                        jupyter_protocol::Stdio::Stderr => "stderr",
+                                    };
+
+                                    // Feed text through terminal emulator and get known output state
+                                    let (rendered_text, known_state) = {
+                                        let mut terminals = stream_terminals.lock().await;
+                                        let text = terminals.feed(cid, stream_name, &stream.text);
+                                        let state =
+                                            terminals.get_output_state(cid, stream_name).cloned();
+                                        (text, state)
+                                    };
+
+                                    // Create nbformat JSON with rendered text
+                                    let nbformat_value = serde_json::json!({
+                                        "output_type": "stream",
+                                        "name": stream_name,
+                                        "text": rendered_text
+                                    });
+
+                                    // Create and store manifest
+                                    let output_ref = match output_store::create_manifest(
+                                        &nbformat_value,
+                                        &blob_store,
+                                        DEFAULT_INLINE_THRESHOLD,
+                                    )
+                                    .await
+                                    {
+                                        Ok(manifest_json) => {
+                                            match output_store::store_manifest(
+                                                &manifest_json,
+                                                &blob_store,
+                                            )
+                                            .await
+                                            {
+                                                Ok(hash) => hash,
+                                                Err(e) => {
+                                                    warn!(
+                                                        "[kernel-manager] Failed to store stream manifest: {}",
+                                                        e
+                                                    );
+                                                    nbformat_value.to_string()
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            warn!(
+                                                "[kernel-manager] Failed to create stream manifest: {}",
+                                                e
+                                            );
+                                            nbformat_value.to_string()
+                                        }
+                                    };
+
+                                    // Upsert stream output (update if validated, append if not)
+                                    let persist_bytes = {
+                                        let mut doc_guard = doc.write().await;
+                                        match doc_guard.upsert_stream_output(
+                                            cid,
+                                            stream_name,
+                                            &output_ref,
+                                            known_state.as_ref(),
+                                        ) {
+                                            Ok((_updated, output_index)) => {
+                                                // Store new state (index + hash) for future validation
+                                                let mut terminals = stream_terminals.lock().await;
+                                                terminals.set_output_state(
+                                                    cid,
+                                                    stream_name,
+                                                    StreamOutputState {
+                                                        index: output_index,
+                                                        manifest_hash: output_ref.clone(),
+                                                    },
+                                                );
+                                            }
+                                            Err(e) => {
+                                                warn!(
+                                                    "[kernel-manager] Failed to upsert stream output: {}",
+                                                    e
+                                                );
+                                            }
+                                        }
+                                        let bytes = doc_guard.save();
+                                        let _ = changed_tx.send(());
+                                        bytes
+                                    };
+                                    persist_notebook_bytes(&persist_bytes, &persist_path);
+
+                                    let _ = broadcast_tx.send(NotebookBroadcast::Output {
+                                        cell_id: cid.clone(),
+                                        output_type: "stream".to_string(),
+                                        output_json: output_ref,
+                                    });
+                                }
+                            }
+
+                            // DisplayData and ExecuteResult are appended normally
+                            JupyterMessageContent::DisplayData(_)
                             | JupyterMessageContent::ExecuteResult(_) => {
                                 if let Some(ref cid) = cell_id {
                                     let output_type = match &message.content {
-                                        JupyterMessageContent::StreamContent(_) => "stream",
                                         JupyterMessageContent::DisplayData(_) => "display_data",
                                         JupyterMessageContent::ExecuteResult(_) => "execute_result",
                                         _ => "unknown",
                                     };
+
+                                    // Clear stream terminal state - non-stream outputs break
+                                    // the stream chain, so next stream message should start fresh
+                                    {
+                                        let mut terminals = stream_terminals.lock().await;
+                                        terminals.clear(cid);
+                                    }
 
                                     // Convert to nbformat JSON for storage
                                     if let Some(nbformat_value) =
@@ -777,6 +950,12 @@ impl RoomKernel {
 
                             JupyterMessageContent::ErrorOutput(_) => {
                                 if let Some(ref cid) = cell_id {
+                                    // Clear stream terminal state - errors break the stream chain
+                                    {
+                                        let mut terminals = stream_terminals.lock().await;
+                                        terminals.clear(cid);
+                                    }
+
                                     // Convert error to nbformat JSON
                                     if let Some(nbformat_value) =
                                         message_content_to_nbformat(&message.content)
@@ -1244,10 +1423,11 @@ impl RoomKernel {
     }
 
     /// Clear outputs for a cell (before re-execution).
-    pub fn clear_outputs(&self, cell_id: &str) {
+    pub async fn clear_outputs(&self, cell_id: &str) {
         info!("[kernel-manager] Clearing outputs for cell: {}", cell_id);
-        // The frontend handles the actual clearing; we just broadcast the event
-        // so all windows know to clear
+        // Clear terminal emulator state for this cell
+        let mut terminals = self.stream_terminals.lock().await;
+        terminals.clear(cell_id);
     }
 
     /// Process the next cell in the queue.
@@ -1333,8 +1513,8 @@ impl RoomKernel {
         Ok(())
     }
 
-    /// Interrupt the currently executing cell.
-    pub async fn interrupt(&self) -> Result<()> {
+    /// Interrupt the currently executing cell and clear the execution queue.
+    pub async fn interrupt(&mut self) -> Result<()> {
         let connection_info = self
             .connection_info
             .as_ref()
@@ -1347,6 +1527,16 @@ impl RoomKernel {
         control.send(request).await?;
 
         info!("[kernel-manager] Sent interrupt_request");
+
+        // Clear the execution queue - interrupt semantically means "stop all pending work"
+        let cleared = self.clear_queue();
+        if !cleared.is_empty() {
+            info!(
+                "[kernel-manager] Cleared {} queued cells due to interrupt",
+                cleared.len()
+            );
+        }
+
         Ok(())
     }
 

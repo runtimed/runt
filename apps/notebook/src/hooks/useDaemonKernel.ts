@@ -82,6 +82,17 @@ export function useDaemonKernel({
     envSource?: string;
   }>({});
 
+  // Environment sync state - tracks if metadata has drifted from launched config
+  const [envSyncState, setEnvSyncState] = useState<{
+    inSync: boolean;
+    diff?: {
+      added: string[];
+      removed: string[];
+      channelsChanged: boolean;
+      denoChanged: boolean;
+    };
+  } | null>(null);
+
   // Store blob port in ref for use in event handlers
   const blobPortRef = useRef<number>(0);
 
@@ -177,6 +188,11 @@ export function useDaemonKernel({
               }
               setKernelStatus(status);
               callbacksRef.current.onStatusChange?.(status, broadcast.cell_id);
+
+              // Clear sync state when kernel shuts down
+              if (status === "shutdown") {
+                setEnvSyncState(null);
+              }
             }
             break;
           }
@@ -351,6 +367,31 @@ export function useDaemonKernel({
             // Handled by useEnvProgress hook's own daemon:broadcast listener
             break;
 
+          case "env_sync_state": {
+            // Environment sync state changed - metadata differs from launched config
+            const syncBroadcast = broadcast as {
+              in_sync: boolean;
+              diff?: {
+                added: string[];
+                removed: string[];
+                channels_changed: boolean;
+                deno_changed: boolean;
+              };
+            };
+            setEnvSyncState({
+              inSync: syncBroadcast.in_sync,
+              diff: syncBroadcast.diff
+                ? {
+                    added: syncBroadcast.diff.added,
+                    removed: syncBroadcast.diff.removed,
+                    channelsChanged: syncBroadcast.diff.channels_changed,
+                    denoChanged: syncBroadcast.diff.deno_changed,
+                  }
+                : undefined,
+            });
+            break;
+          }
+
           default: {
             // Log unknown events to help debug unexpected broadcast types
             console.log(
@@ -407,6 +448,7 @@ export function useDaemonKernel({
         setKernelStatus("not_started");
         setKernelInfo({});
         setQueueState({ executing: null, queued: [] });
+        setEnvSyncState(null);
         // Reset blob port so next output triggers fresh fetch
         blobPortRef.current = 0;
 
@@ -642,6 +684,8 @@ export function useDaemonKernel({
     queueState,
     /** Kernel type and environment source */
     kernelInfo,
+    /** Environment sync state - null if unknown, has inSync and diff if known */
+    envSyncState,
     /** Launch a kernel via the daemon */
     launchKernel,
     /** Execute a cell (reads source from synced document) */

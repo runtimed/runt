@@ -37,10 +37,10 @@ use tokio::sync::{broadcast, Mutex, RwLock};
 use crate::blob_store::BlobStore;
 use crate::comm_state::CommState;
 use crate::connection::{self, NotebookFrameType};
-use crate::kernel_manager::RoomKernel;
+use crate::kernel_manager::{DenoLaunchedConfig, LaunchedEnvConfig, RoomKernel};
 use crate::notebook_doc::{notebook_doc_filename, NotebookDoc};
 use crate::notebook_metadata::{NotebookMetadataSnapshot, NOTEBOOK_METADATA_KEY};
-use crate::protocol::{NotebookBroadcast, NotebookRequest, NotebookResponse};
+use crate::protocol::{EnvSyncDiff, NotebookBroadcast, NotebookRequest, NotebookResponse};
 
 /// Trust state for a notebook room.
 /// Tracks whether the notebook's dependencies are trusted for auto-launch.
@@ -149,6 +149,183 @@ fn get_inline_conda_channels(snapshot: &NotebookMetadataSnapshot) -> Vec<String>
         }
     }
     vec!["conda-forge".to_string()]
+}
+
+/// Build a LaunchedEnvConfig from the current metadata snapshot.
+/// This captures what configuration was used at kernel launch time.
+fn build_launched_config(
+    kernel_type: &str,
+    env_source: &str,
+    inline_deps: Option<&[String]>,
+    metadata_snapshot: Option<&NotebookMetadataSnapshot>,
+) -> LaunchedEnvConfig {
+    let mut config = LaunchedEnvConfig::default();
+
+    match env_source {
+        "uv:inline" => {
+            config.uv_deps = inline_deps.map(|d| d.to_vec());
+        }
+        "conda:inline" => {
+            config.conda_deps = inline_deps.map(|d| d.to_vec());
+            if let Some(snapshot) = metadata_snapshot {
+                config.conda_channels = Some(get_inline_conda_channels(snapshot));
+            }
+        }
+        _ => {}
+    }
+
+    // For Deno kernels, capture the deno config
+    if kernel_type == "deno" {
+        if let Some(snapshot) = metadata_snapshot {
+            if let Some(ref deno) = snapshot.runt.deno {
+                config.deno_config = Some(DenoLaunchedConfig {
+                    permissions: deno.permissions.clone(),
+                    import_map: deno.import_map.clone(),
+                    config: deno.config.clone(),
+                    flexible_npm_imports: deno.flexible_npm_imports.unwrap_or(true),
+                });
+            }
+        }
+    }
+
+    config
+}
+
+/// Compute the difference between launched config and current metadata.
+/// Returns Some(diff) if there are differences, None if in sync.
+fn compute_env_sync_diff(
+    launched: &LaunchedEnvConfig,
+    current: &NotebookMetadataSnapshot,
+) -> Option<EnvSyncDiff> {
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    let mut deno_changed = false;
+
+    // Check UV deps
+    if let Some(ref launched_uv) = launched.uv_deps {
+        let current_uv = current
+            .runt
+            .uv
+            .as_ref()
+            .map(|u| &u.dependencies[..])
+            .unwrap_or(&[]);
+
+        for dep in current_uv {
+            if !launched_uv.contains(dep) {
+                added.push(dep.clone());
+            }
+        }
+        for dep in launched_uv {
+            if !current_uv.contains(dep) {
+                removed.push(dep.clone());
+            }
+        }
+    }
+
+    // Check conda deps and channels
+    let mut channels_changed = false;
+    if let Some(ref launched_conda) = launched.conda_deps {
+        let current_conda = current
+            .runt
+            .conda
+            .as_ref()
+            .map(|c| &c.dependencies[..])
+            .unwrap_or(&[]);
+
+        for dep in current_conda {
+            if !launched_conda.contains(dep) {
+                added.push(dep.clone());
+            }
+        }
+        for dep in launched_conda {
+            if !current_conda.contains(dep) {
+                removed.push(dep.clone());
+            }
+        }
+
+        // Check channels
+        if let Some(ref launched_channels) = launched.conda_channels {
+            let current_channels = current
+                .runt
+                .conda
+                .as_ref()
+                .map(|c| &c.channels[..])
+                .unwrap_or(&[]);
+
+            // Channels are ordered, so compare as slices
+            if launched_channels.as_slice() != current_channels {
+                channels_changed = true;
+            }
+        }
+    }
+
+    // Check deno config
+    if let Some(ref launched_deno) = launched.deno_config {
+        if let Some(ref current_deno) = current.runt.deno {
+            let current_flexible = current_deno.flexible_npm_imports.unwrap_or(true);
+            if launched_deno.permissions != current_deno.permissions
+                || launched_deno.import_map != current_deno.import_map
+                || launched_deno.config != current_deno.config
+                || launched_deno.flexible_npm_imports != current_flexible
+            {
+                deno_changed = true;
+            }
+        } else {
+            // Deno config was removed
+            deno_changed = true;
+        }
+    }
+
+    if added.is_empty() && removed.is_empty() && !channels_changed && !deno_changed {
+        None
+    } else {
+        Some(EnvSyncDiff {
+            added,
+            removed,
+            channels_changed,
+            deno_changed,
+        })
+    }
+}
+
+/// Check if the current metadata differs from kernel's launched config and broadcast sync state.
+/// Called after metadata sync to notify all clients about dependency drift.
+async fn check_and_broadcast_sync_state(room: &NotebookRoom) {
+    // Get current metadata from doc
+    let current_metadata = {
+        let doc = room.doc.read().await;
+        if let Some(meta_json) = doc.get_metadata(NOTEBOOK_METADATA_KEY) {
+            serde_json::from_str::<NotebookMetadataSnapshot>(&meta_json).ok()
+        } else {
+            None
+        }
+    };
+
+    let Some(current_metadata) = current_metadata else {
+        return;
+    };
+
+    // Check if kernel is running
+    let kernel_guard = room.kernel.lock().await;
+    if let Some(ref kernel) = *kernel_guard {
+        if kernel.is_running() {
+            let launched = kernel.launched_config();
+
+            // Check if we're tracking inline deps or deno config
+            let is_tracking = launched.uv_deps.is_some()
+                || launched.conda_deps.is_some()
+                || launched.deno_config.is_some();
+
+            if is_tracking {
+                let diff = compute_env_sync_diff(launched, &current_metadata);
+                let in_sync = diff.is_none();
+
+                let _ = room
+                    .kernel_broadcast_tx
+                    .send(NotebookBroadcast::EnvSyncState { in_sync, diff });
+            }
+        }
+    }
 }
 
 /// Resolve the metadata snapshot for a notebook, trying the Automerge doc first
@@ -718,6 +895,9 @@ where
 
                                 // Persist outside the write lock
                                 persist_notebook_bytes(&persist_bytes, &room.persist_path);
+
+                                // Check if metadata changed and kernel is running - broadcast sync state
+                                check_and_broadcast_sync_state(room).await;
                             }
 
                             NotebookFrameType::Request => {
@@ -1137,13 +1317,21 @@ async fn auto_launch_kernel(
         (pooled_env, None)
     };
 
+    // Build LaunchedEnvConfig to track what config the kernel was launched with
+    let launched_config = build_launched_config(
+        kernel_type,
+        &env_source,
+        inline_deps.as_deref(),
+        metadata_snapshot.as_ref(),
+    );
+
     match kernel
         .launch(
             kernel_type,
             &env_source,
             notebook_path_opt.as_deref(),
             pooled_env,
-            inline_deps,
+            launched_config,
         )
         .await
     {
@@ -1225,6 +1413,7 @@ async fn handle_notebook_request(
                     return NotebookResponse::KernelAlreadyRunning {
                         kernel_type: kernel.kernel_type().to_string(),
                         env_source: kernel.env_source().to_string(),
+                        launched_config: kernel.launched_config().clone(),
                     };
                 }
             }
@@ -1448,13 +1637,21 @@ async fn handle_notebook_request(
                 (pooled_env, None)
             };
 
+            // Build LaunchedEnvConfig to track what config the kernel was launched with
+            let launched_config = build_launched_config(
+                &resolved_kernel_type,
+                &resolved_env_source,
+                inline_deps.as_deref(),
+                metadata_snapshot.as_ref(),
+            );
+
             match kernel
                 .launch(
                     &resolved_kernel_type,
                     &resolved_env_source,
                     notebook_path.as_deref(),
                     pooled_env,
-                    inline_deps,
+                    launched_config.clone(),
                 )
                 .await
             {
@@ -1513,6 +1710,7 @@ async fn handle_notebook_request(
                     NotebookResponse::KernelLaunched {
                         kernel_type: kt,
                         env_source: es,
+                        launched_config,
                     }
                 }
                 Err(e) => NotebookResponse::Error {
@@ -1605,15 +1803,15 @@ async fn handle_notebook_request(
             // 4. Update kernel's internal tracking if kernel exists
             let kernel_guard = room.kernel.lock().await;
             if let Some(ref kernel) = *kernel_guard {
-                kernel.clear_outputs(&cell_id);
+                kernel.clear_outputs(&cell_id).await;
             }
 
             NotebookResponse::OutputsCleared { cell_id }
         }
 
         NotebookRequest::InterruptExecution {} => {
-            let kernel_guard = room.kernel.lock().await;
-            if let Some(ref kernel) = *kernel_guard {
+            let mut kernel_guard = room.kernel.lock().await;
+            if let Some(ref mut kernel) = *kernel_guard {
                 match kernel.interrupt().await {
                     Ok(()) => NotebookResponse::InterruptSent {},
                     Err(e) => NotebookResponse::Error {

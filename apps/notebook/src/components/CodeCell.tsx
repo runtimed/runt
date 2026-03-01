@@ -216,6 +216,7 @@ export function CodeCell({
   const rightGutterContent = (
     <button
       type="button"
+      tabIndex={-1}
       onClick={onDelete}
       className="flex items-center justify-center rounded p-1 text-muted-foreground/40 transition-colors hover:text-destructive"
       title="Delete cell"

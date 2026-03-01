@@ -32,6 +32,8 @@ use automerge::{AutoCommit, AutomergeError, ObjId, ObjType, ReadDoc};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
+use crate::stream_terminal::StreamOutputState;
+
 /// Snapshot of a single cell's state, suitable for serialization.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CellSnapshot {
@@ -309,6 +311,74 @@ impl NotebookDoc {
         let len = self.doc.length(&outputs_id);
         self.doc.insert(&outputs_id, len, output)?;
         Ok(true)
+    }
+
+    /// Update or insert a stream output for a cell.
+    ///
+    /// If `known_state` is provided, validates that the output at the cached index
+    /// still has the expected manifest hash. If validation passes, updates in place.
+    /// If validation fails (hash mismatch, index out of bounds, or no state), appends
+    /// a new output.
+    ///
+    /// This validation protects against:
+    /// - External clear operations (another peer, frontend-initiated)
+    /// - Individual output deletion
+    /// - CRDT modifications between stream messages
+    ///
+    /// Returns (updated: bool, output_index: usize) where updated is true if an
+    /// existing output was updated, false if a new output was appended.
+    pub fn upsert_stream_output(
+        &mut self,
+        cell_id: &str,
+        _stream_name: &str,
+        output_ref: &str,
+        known_state: Option<&StreamOutputState>,
+    ) -> Result<(bool, usize), AutomergeError> {
+        let cells_id = match self.cells_list_id() {
+            Some(id) => id,
+            None => return Ok((false, 0)),
+        };
+        let idx = match self.find_cell_index(&cells_id, cell_id) {
+            Some(i) => i,
+            None => return Ok((false, 0)),
+        };
+        let cell_obj = match self.cell_at_index(&cells_id, idx) {
+            Some(o) => o,
+            None => return Ok((false, 0)),
+        };
+        let outputs_id = match self.list_id(&cell_obj, "outputs") {
+            Some(id) => id,
+            None => return Ok((false, 0)),
+        };
+
+        let output_count = self.doc.length(&outputs_id);
+
+        // Validate cached state if provided
+        // Only update in-place if:
+        // 1. Index is valid and points to the last output (nothing appended after it)
+        // 2. Hash matches what we last wrote
+        // This ensures interleaved stdout/stderr don't corrupt ordering.
+        if let Some(state) = known_state {
+            // Must be the last output - if something was appended after (e.g., stderr
+            // between two stdout messages), we should append instead of updating
+            if state.index + 1 == output_count {
+                // Read what's currently at that index
+                if let Ok(Some((value, _))) = self.doc.get(&outputs_id, state.index) {
+                    if let Ok(current_hash) = value.into_string() {
+                        if current_hash == state.manifest_hash {
+                            // ✓ Validated! Safe to update in place
+                            self.doc.put(&outputs_id, state.index, output_ref)?;
+                            return Ok((true, state.index));
+                        }
+                    }
+                }
+            }
+            // Validation failed - fall through to append
+        }
+
+        // No valid state, append new output
+        self.doc.insert(&outputs_id, output_count, output_ref)?;
+        Ok((false, output_count))
     }
 
     /// Update an output by display_id across all cells.

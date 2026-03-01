@@ -32,6 +32,7 @@ pub mod runtime;
 pub mod service;
 pub mod settings_doc;
 pub mod singleton;
+pub mod stream_terminal;
 pub mod sync_client;
 pub mod sync_server;
 
