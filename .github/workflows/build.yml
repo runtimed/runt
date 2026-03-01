@@ -5,6 +5,27 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    paths:
+      - ".github/workflows/build.yml"
+      - "apps/**"
+      - "bin/**"
+      - "crates/**"
+      - "e2e/**"
+      - "python/**"
+      - "scripts/**"
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "package.json"
+      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "biome.json"
+      - "components.json"
+      - "tailwind.config.js"
+      - "tsconfig.json"
+      - "vitest.config.ts"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
