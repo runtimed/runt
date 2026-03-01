@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   open as openDialog,
@@ -323,16 +322,19 @@ export function useNotebook() {
   // Listen for backend-initiated bulk output clearing (run all / restart & run all)
   useEffect(() => {
     const webview = getCurrentWebview();
-    const unlisten = webview.listen<string[]>("cells:outputs_cleared", (event) => {
-      const clearedIds = new Set(event.payload);
-      setCells((prev) =>
-        prev.map((c) =>
-          clearedIds.has(c.id) && c.cell_type === "code"
-            ? { ...c, outputs: [], execution_count: null }
-            : c,
-        ),
-      );
-    });
+    const unlisten = webview.listen<string[]>(
+      "cells:outputs_cleared",
+      (event) => {
+        const clearedIds = new Set(event.payload);
+        setCells((prev) =>
+          prev.map((c) =>
+            clearedIds.has(c.id) && c.cell_type === "code"
+              ? { ...c, outputs: [], execution_count: null }
+              : c,
+          ),
+        );
+      },
+    );
     return () => {
       unlisten.then((fn) => fn());
     };

@@ -7,7 +7,6 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
@@ -127,7 +126,9 @@ export function useDaemonKernel({
     // Fetch blob port for manifest resolution
     refreshBlobPort();
 
-    const unlistenBroadcast = webview.listen<DaemonBroadcast>("daemon:broadcast", (event) => {
+    const unlistenBroadcast = webview.listen<DaemonBroadcast>(
+      "daemon:broadcast",
+      (event) => {
         if (cancelled) return;
 
         const broadcast = event.payload;
@@ -313,7 +314,8 @@ export function useDaemonKernel({
             );
           }
         }
-      });
+      },
+    );
 
     // Helper to fetch kernel info with retry for "not_started" status
     // (kernel may still be auto-launching when daemon:ready fires)
@@ -351,34 +353,41 @@ export function useDaemonKernel({
     };
 
     // Listen for daemon disconnection (e.g., daemon restarted)
-    const unlistenDisconnect = webview.listen("daemon:disconnected", async () => {
-      if (cancelled) return;
-      console.warn("[daemon-kernel] Daemon disconnected, resetting kernel state");
-      setKernelStatus("not_started");
-      setKernelInfo({});
-      setQueueState({ executing: null, queued: [] });
-      // Reset blob port so next output triggers fresh fetch
-      blobPortRef.current = 0;
-
-      // Attempt to reconnect to the daemon
-      console.log("[daemon-kernel] Attempting to reconnect to daemon...");
-      try {
-        await invoke("reconnect_to_daemon");
-        console.log(
-          "[daemon-kernel] Reconnected to daemon, fetching kernel info",
+    const unlistenDisconnect = webview.listen(
+      "daemon:disconnected",
+      async () => {
+        if (cancelled) return;
+        console.warn(
+          "[daemon-kernel] Daemon disconnected, resetting kernel state",
         );
-        // After reconnecting, refresh blob port (daemon may have new port) and kernel info
-        refreshBlobPort();
-        fetchKernelInfo();
-      } catch (e) {
-        console.error("[daemon-kernel] Failed to reconnect:", e);
-      }
-    });
+        setKernelStatus("not_started");
+        setKernelInfo({});
+        setQueueState({ executing: null, queued: [] });
+        // Reset blob port so next output triggers fresh fetch
+        blobPortRef.current = 0;
+
+        // Attempt to reconnect to the daemon
+        console.log("[daemon-kernel] Attempting to reconnect to daemon...");
+        try {
+          await invoke("reconnect_to_daemon");
+          console.log(
+            "[daemon-kernel] Reconnected to daemon, fetching kernel info",
+          );
+          // After reconnecting, refresh blob port (daemon may have new port) and kernel info
+          refreshBlobPort();
+          fetchKernelInfo();
+        } catch (e) {
+          console.error("[daemon-kernel] Failed to reconnect:", e);
+        }
+      },
+    );
 
     // Listen for daemon ready signal
     const unlistenReady = webview.listen("daemon:ready", () => {
       if (cancelled) return;
-      console.log("[daemon-kernel] Daemon ready, refreshing blob port and kernel info");
+      console.log(
+        "[daemon-kernel] Daemon ready, refreshing blob port and kernel info",
+      );
       refreshBlobPort();
       fetchKernelInfo();
     });
