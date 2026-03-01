@@ -1373,13 +1373,15 @@ async fn queue_cell_via_daemon(
 #[tauri::command]
 async fn execute_cell_via_daemon(
     cell_id: String,
-    notebook_sync: tauri::State<'_, SharedNotebookSync>,
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
 ) -> Result<NotebookResponse, String> {
     info!(
         "[daemon-kernel] execute_cell_via_daemon: cell_id={}",
         cell_id
     );
 
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
     let guard = notebook_sync.lock().await;
     let handle = guard.as_ref().ok_or("Not connected to daemon")?;
 

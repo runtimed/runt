@@ -421,9 +421,16 @@ function AppContent() {
       // Start kernel via daemon if not running, then queue cell.
       if (kernelStatus === "not_started") {
         const started = await tryStartKernel();
-        if (!started) return;
+        // Only block execution when trust approval is pending.
+        // For startup races (e.g. daemon already auto-starting), still try execute.
+        if (!started && pendingKernelStartRef.current) return;
       }
-      executeCell(cellId);
+      const response = await executeCell(cellId);
+      if (response.result === "error") {
+        console.error("[App] handleExecuteCell: daemon error", response.error);
+      } else if (response.result === "no_kernel") {
+        console.warn("[App] handleExecuteCell: no kernel available");
+      }
     },
     [
       clearCellOutputs,
