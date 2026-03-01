@@ -212,13 +212,37 @@ fn serialize_to_ansi(term: &Term<VoidListener>) -> String {
     for line_idx in topmost.0..=max_line_with_content {
         let row = &grid[Line(line_idx)];
 
+        // Find last column with meaningful content on this row
+        // (non-space character, or space with styling that differs from default)
+        let mut last_col_with_content: Option<usize> = None;
+        for col in (0..columns).rev() {
+            let cell = &row[Column(col)];
+            // Skip spacer cells
+            if cell.flags.contains(Flags::WIDE_CHAR_SPACER)
+                || cell.flags.contains(Flags::LEADING_WIDE_CHAR_SPACER)
+            {
+                continue;
+            }
+            // Check if this cell has content or styling
+            let has_content = cell.c != ' ' && cell.c != '\0';
+            let has_styling = !cell.flags.is_empty()
+                || !matches!(cell.fg, Color::Named(NamedColor::Foreground))
+                || !matches!(cell.bg, Color::Named(NamedColor::Background));
+            if has_content || has_styling {
+                last_col_with_content = Some(col);
+                break;
+            }
+        }
+
         // Add newline between lines (not before first)
         if !is_first_line {
             result.push('\n');
         }
         is_first_line = false;
 
-        for col in 0..columns {
+        // Only emit columns up to the last one with content
+        let end_col = last_col_with_content.map(|c| c + 1).unwrap_or(0);
+        for col in 0..end_col {
             let cell = &row[Column(col)];
 
             // Skip spacer cells for wide characters
@@ -316,7 +340,7 @@ fn serialize_to_ansi(term: &Term<VoidListener>) -> String {
         result.push_str("\x1b[0m");
     }
 
-    // Trim trailing whitespace from each line
+    // Trim trailing whitespace from each line (safety net for edge cases)
     let lines: Vec<&str> = result.lines().collect();
     let trimmed_lines: Vec<String> = lines
         .iter()
@@ -477,6 +501,29 @@ mod tests {
         // Count the lines to verify none were truncated
         let line_count = result.lines().count();
         assert_eq!(line_count, 150, "Should have all 150 lines");
+    }
+
+    #[test]
+    fn test_no_trailing_spaces() {
+        let mut terminals = StreamTerminals::new();
+
+        // Simple text should not have trailing spaces padding to terminal width
+        let result = terminals.feed("cell-1", "stdout", "hello");
+
+        // Should be "hello" possibly with a reset sequence, not padded to 120 cols
+        assert!(result.starts_with("hello"), "Should start with hello");
+        // Terminal width is 120, so if we were padding we'd have >100 chars
+        assert!(
+            result.len() < 20,
+            "Output should not be padded to terminal width, got {} chars",
+            result.len()
+        );
+        // Verify no trailing spaces before any reset sequence
+        let without_reset = result.replace("\x1b[0m", "");
+        assert!(
+            !without_reset.ends_with(' '),
+            "Should not have trailing spaces"
+        );
     }
 
     #[test]
