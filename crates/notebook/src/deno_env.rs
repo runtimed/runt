@@ -92,18 +92,12 @@ struct RawDenoConfig {
 ///
 /// This intentionally avoids triggering a full bootstrap during UI initialization,
 /// because daemon kernel launch handles on-demand bootstrap when needed.
+///
+/// Returns true if:
+/// - System deno exists and is version 2.x+, OR
+/// - A cached deno binary exists (from GitHub download or rattler fallback)
 pub async fn check_deno_available() -> bool {
-    if let Ok(output) = tokio::process::Command::new("deno")
-        .arg("--version")
-        .output()
-        .await
-    {
-        if output.status.success() {
-            return true;
-        }
-    }
-
-    tools::cached_tool_binary_path("deno", None).exists()
+    tools::check_deno_available_without_bootstrap().await
 }
 
 /// Get the installed Deno version
