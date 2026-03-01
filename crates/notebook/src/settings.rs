@@ -1,9 +1,9 @@
 //! Application settings persistence for notebook preferences.
 //!
 //! Settings are stored in a JSON file in the user's config directory:
-//! - macOS: ~/Library/Application Support/runt-notebook/settings.json
-//! - Linux: ~/.config/runt-notebook/settings.json
-//! - Windows: C:\Users\<User>\AppData\Roaming\runt-notebook\settings.json
+//! - macOS: ~/Library/Application Support/nteract/settings.json
+//! - Linux: ~/.config/nteract/settings.json
+//! - Windows: C:\Users\<User>\AppData\Roaming\nteract\settings.json
 //!
 //! Uses `runtimed::settings_doc::SyncedSettings` as the canonical settings type.
 
@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn test_settings_path_is_valid() {
         let path = settings_path();
-        assert!(path.ends_with("runt-notebook/settings.json"));
+        assert!(path.ends_with("nteract/settings.json"));
     }
 
     #[test]
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn test_unknown_enum_round_trips_through_settings() {
-        // Unknown runtime/env values should survive a load → save round-trip.
+        // Unknown runtime/env values should survive a load -> save round-trip.
         let json = r#"{
             "theme": "dark",
             "default_runtime": "julia",

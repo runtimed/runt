@@ -171,8 +171,8 @@ fn try_install_direct(
 /// Create the nb wrapper script
 fn create_nb_wrapper(nb_dest: &std::path::Path) -> Result<(), String> {
     let script = r#"#!/bin/bash
-# nb - Runt Notebook CLI (shorthand for 'runt notebook')
-# Installed by runt-notebook.app
+# nb - nteract CLI (shorthand for 'runt notebook')
+# Installed by nteract.app
 exec runt notebook "$@"
 "#;
 
@@ -208,7 +208,7 @@ fn install_with_admin_privileges(
     let temp_nb = std::env::temp_dir().join("runt-nb-install-script");
     create_nb_wrapper(&temp_nb)?;
 
-    // Build shell commands — just copy and chmod, no embedded script content.
+    // Build shell commands -- just copy and chmod, no embedded script content.
     // This avoids escaping issues with AppleScript string parsing.
     let commands = format!(
         "cp '{}' '{}' && chmod 755 '{}' && cp '{}' '{}' && chmod 755 '{}'",

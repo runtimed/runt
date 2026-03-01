@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(
     name = "notebook",
-    about = "Runt Notebook - Interactive computing environment"
+    about = "nteract - Interactive computing environment"
 )]
 struct Args {
     /// Path to notebook file to open or create
