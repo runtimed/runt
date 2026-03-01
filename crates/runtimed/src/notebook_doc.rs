@@ -354,8 +354,14 @@ impl NotebookDoc {
         let output_count = self.doc.length(&outputs_id);
 
         // Validate cached state if provided
+        // Only update in-place if:
+        // 1. Index is valid and points to the last output (nothing appended after it)
+        // 2. Hash matches what we last wrote
+        // This ensures interleaved stdout/stderr don't corrupt ordering.
         if let Some(state) = known_state {
-            if state.index < output_count {
+            // Must be the last output - if something was appended after (e.g., stderr
+            // between two stdout messages), we should append instead of updating
+            if state.index + 1 == output_count {
                 // Read what's currently at that index
                 if let Ok(Some((value, _))) = self.doc.get(&outputs_id, state.index) {
                     if let Ok(current_hash) = value.into_string() {
