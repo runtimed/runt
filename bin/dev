@@ -7,4 +7,5 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-exec cargo xtask dev --manifest-path "$REPO_ROOT/Cargo.toml" "$@"
+cd "$REPO_ROOT"
+exec cargo xtask dev "$@"
