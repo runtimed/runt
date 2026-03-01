@@ -3,7 +3,7 @@ name = "notebook"
 version = "1.0.0"
 edition = "2021"
 description = "Tauri-based notebook UI for Jupyter kernels"
-repository = "https://github.com/runtimed/runt"
+repository = "https://github.com/nteract/desktop"
 license = "BSD-3-Clause"
 
 [lints]

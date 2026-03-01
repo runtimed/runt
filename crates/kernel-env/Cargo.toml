@@ -3,7 +3,7 @@ name = "kernel-env"
 version = "0.1.0"
 edition = "2021"
 description = "Python environment management (UV + Conda) with progress reporting"
-repository = "https://github.com/runtimed/runt"
+repository = "https://github.com/nteract/desktop"
 license = "BSD-3-Clause"
 
 [lints]

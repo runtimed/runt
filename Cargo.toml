@@ -17,7 +17,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "BSD-3-Clause"
-repository = "https://github.com/runtimed/runt"
+repository = "https://github.com/nteract/desktop"
 
 [workspace.dependencies]
 anyhow = "1"

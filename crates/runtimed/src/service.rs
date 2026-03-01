@@ -1,7 +1,7 @@
 //! Cross-platform service management for runtimed.
 //!
 //! Handles installation and management of the daemon as a system service:
-//! - macOS: launchd user agent (`~/Library/LaunchAgents/io.runtimed.plist`)
+//! - macOS: launchd user agent (`~/Library/LaunchAgents/io.nteract.runtimed.plist`)
 //! - Linux: systemd user service (`~/.config/systemd/user/runtimed.service`)
 //! - Windows: Startup shortcut
 
@@ -349,7 +349,7 @@ impl ServiceManager {
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>io.runtimed</string>
+    <string>io.nteract.runtimed</string>
     <key>ProgramArguments</key>
     <array>
         <string>{}</string>
@@ -559,7 +559,7 @@ fn plist_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("Library")
         .join("LaunchAgents")
-        .join("io.runtimed.plist")
+        .join("io.nteract.runtimed.plist")
 }
 
 #[cfg(target_os = "linux")]

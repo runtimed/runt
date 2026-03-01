@@ -3,7 +3,7 @@ name = "runtimed"
 version = "0.1.0-dev.10"
 edition = "2021"
 description = "Central daemon for managing Jupyter runtimes and prewarmed environments"
-repository = "https://github.com/runtimed/runt"
+repository = "https://github.com/nteract/desktop"
 license = "BSD-3-Clause"
 
 [lints]

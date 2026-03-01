@@ -1,5 +1,5 @@
 {
-  "name": "runtimed",
+  "name": "nteract-desktop",
   "private": true,
   "packageManager": "pnpm@10.30.0",
   "scripts": {

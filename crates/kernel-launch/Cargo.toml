@@ -2,8 +2,8 @@
 name = "kernel-launch"
 version = "0.1.0"
 edition = "2021"
-description = "Shared kernel launching and tool bootstrapping for Runt"
-repository = "https://github.com/runtimed/runt"
+description = "Shared kernel launching and tool bootstrapping for nteract"
+repository = "https://github.com/nteract/desktop"
 license = "BSD-3-Clause"
 
 [lints]

@@ -418,7 +418,7 @@ fn open_notebook(path: Option<PathBuf>, runtime: Option<String>) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         let mut cmd = std::process::Command::new("open");
-        cmd.arg("-a").arg("runt-notebook");
+        cmd.arg("-a").arg("nteract");
 
         if abs_path.is_some() || runtime.is_some() {
             cmd.arg("--args");
@@ -431,13 +431,13 @@ fn open_notebook(path: Option<PathBuf>, runtime: Option<String>) -> Result<()> {
         }
 
         cmd.spawn()
-            .map_err(|e| anyhow::anyhow!("Failed to launch runt-notebook: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to launch nteract: {}", e))?;
     }
 
     #[cfg(target_os = "windows")]
     {
         // On Windows, try common install locations or use shell execution
-        let app_name = "runt-notebook.exe";
+        let app_name = "nteract.exe";
         let mut cmd = std::process::Command::new(app_name);
 
         if let Some(p) = abs_path {
@@ -448,13 +448,13 @@ fn open_notebook(path: Option<PathBuf>, runtime: Option<String>) -> Result<()> {
         }
 
         cmd.spawn()
-            .map_err(|e| anyhow::anyhow!("Failed to launch runt-notebook: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to launch nteract: {}", e))?;
     }
 
     #[cfg(target_os = "linux")]
     {
         // On Linux, try to find the app in PATH or common locations
-        let app_name = "runt-notebook";
+        let app_name = "nteract";
         let mut cmd = std::process::Command::new(app_name);
 
         if let Some(p) = abs_path {
@@ -465,7 +465,7 @@ fn open_notebook(path: Option<PathBuf>, runtime: Option<String>) -> Result<()> {
         }
 
         cmd.spawn()
-            .map_err(|e| anyhow::anyhow!("Failed to launch runt-notebook: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to launch nteract: {}", e))?;
     }
 
     Ok(())
