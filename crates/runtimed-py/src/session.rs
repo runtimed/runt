@@ -532,6 +532,41 @@ impl Session {
         self.execute_cell(&cell_id, timeout_secs)
     }
 
+    /// Queue a cell for execution without waiting for the result.
+    ///
+    /// The daemon reads the cell's source from the automerge document and
+    /// queues it for execution. Use get_cell() to poll for results.
+    ///
+    /// Args:
+    ///     cell_id: The cell ID to execute.
+    ///
+    /// Raises:
+    ///     RuntimedError: If not connected or cell not found.
+    fn queue_cell(&self, cell_id: &str) -> PyResult<()> {
+        self.runtime.block_on(async {
+            let state = self.state.lock().await;
+
+            let handle = state
+                .handle
+                .as_ref()
+                .ok_or_else(|| to_py_err("Not connected"))?;
+
+            // Queue cell execution (daemon reads source from automerge doc)
+            let response = handle
+                .send_request(NotebookRequest::ExecuteCell {
+                    cell_id: cell_id.to_string(),
+                })
+                .await
+                .map_err(to_py_err)?;
+
+            match response {
+                NotebookResponse::CellQueued { .. } => Ok(()),
+                NotebookResponse::Error { error } => Err(to_py_err(error)),
+                other => Err(to_py_err(format!("Unexpected response: {:?}", other))),
+            }
+        })
+    }
+
     /// Interrupt the currently executing cell.
     fn interrupt(&self) -> PyResult<()> {
         self.runtime.block_on(async {

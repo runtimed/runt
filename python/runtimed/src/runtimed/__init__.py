@@ -7,6 +7,7 @@ from runtimed._sidecar import BridgedSidecar, Sidecar, sidecar
 
 # Native daemon client (PyO3 bindings)
 from runtimed.runtimed import (
+    AsyncSession,
     DaemonClient,
     ExecutionResult,
     Output,
@@ -19,9 +20,12 @@ __all__ = [
     "BridgedSidecar",
     "Sidecar",
     "sidecar",
-    # Daemon client API
+    # Daemon client API - sync
     "DaemonClient",
     "Session",
+    # Daemon client API - async
+    "AsyncSession",
+    # Output types
     "ExecutionResult",
     "Output",
     "RuntimedError",

@@ -15,6 +15,8 @@ uv run maturin develop
 
 ## Quick Start
 
+### Synchronous API
+
 ```python
 import runtimed
 
@@ -23,6 +25,21 @@ with runtimed.Session() as session:
     session.start_kernel()
     result = session.run("print('hello')")
     print(result.stdout)  # "hello\n"
+```
+
+### Async API
+
+```python
+import asyncio
+import runtimed
+
+async def main():
+    async with runtimed.AsyncSession() as session:
+        await session.start_kernel()
+        result = await session.run("print('hello async')")
+        print(result.stdout)  # "hello async\n"
+
+asyncio.run(main())
 ```
 
 ## Session API
@@ -52,9 +69,13 @@ session.shutdown_kernel()            # Stop the kernel
 ### Code Execution
 
 ```python
-# Simple execution (creates ephemeral cell, executes, returns result)
-result = session.run("x = 42")
-result = session.run("print(x)")
+# Create cells in the document, then execute (document-first pattern)
+cell_id = session.create_cell("x = 42")
+result = session.execute_cell(cell_id)
+
+# Execute another cell
+cell_id2 = session.create_cell("print(x)")
+result = session.execute_cell(cell_id2)
 
 # Check results
 print(result.success)         # True if no error
@@ -62,6 +83,11 @@ print(result.stdout)          # Captured stdout
 print(result.stderr)          # Captured stderr
 print(result.execution_count) # Execution counter
 print(result.error)           # Error output if failed
+
+# Queue execution without waiting (fire-and-forget)
+session.queue_cell(cell_id)
+# Poll for results later
+cell = session.get_cell(cell_id)
 ```
 
 ### Document-First Execution
@@ -97,7 +123,8 @@ Sessions work as context managers for automatic cleanup:
 ```python
 with runtimed.Session() as session:
     session.start_kernel()
-    result = session.run("1 + 1")
+    cell_id = session.create_cell("1 + 1")
+    result = session.execute_cell(cell_id)
 # Kernel automatically shut down on exit
 ```
 
@@ -109,6 +136,114 @@ with runtimed.Session() as session:
 | `is_connected` | `bool` | Whether connected to daemon |
 | `kernel_started` | `bool` | Whether kernel is running |
 | `env_source` | `str \| None` | Environment source (e.g., "uv:prewarmed") |
+
+## AsyncSession API
+
+The `AsyncSession` class provides the same functionality as `Session` but with an async API for use in async Python code.
+
+### Quick Start
+
+```python
+import asyncio
+import runtimed
+
+async def main():
+    async with runtimed.AsyncSession() as session:
+        await session.start_kernel()
+        cell_id = await session.create_cell("print('hello async')")
+        result = await session.execute_cell(cell_id)
+        print(result.stdout)  # "hello async\n"
+
+asyncio.run(main())
+```
+
+### Creating an AsyncSession
+
+```python
+# Auto-generated notebook ID
+session = runtimed.AsyncSession()
+
+# Explicit notebook ID (allows sharing between sessions)
+session = runtimed.AsyncSession(notebook_id="my-notebook")
+```
+
+### Kernel Lifecycle
+
+```python
+await session.connect()              # Connect to daemon
+await session.start_kernel()         # Launch Python kernel
+await session.start_kernel(kernel_type="deno")  # Launch Deno kernel
+await session.interrupt()            # Interrupt running execution
+await session.shutdown_kernel()      # Stop the kernel
+```
+
+### Code Execution
+
+```python
+# Create and execute cells (document-first pattern)
+cell_id = await session.create_cell("x = 42")
+result = await session.execute_cell(cell_id)
+
+cell_id2 = await session.create_cell("print(x)")
+result = await session.execute_cell(cell_id2)
+
+# Check results
+print(result.success)         # True if no error
+print(result.stdout)          # Captured stdout
+print(result.stderr)          # Captured stderr
+
+# Queue execution without waiting
+await session.queue_cell(cell_id)
+```
+
+### Document-First Execution
+
+```python
+# Create a cell in the automerge document
+cell_id = await session.create_cell("x = 10")
+
+# Update cell source
+await session.set_source(cell_id, "x = 20")
+
+# Execute by cell ID (daemon reads source from document)
+result = await session.execute_cell(cell_id)
+
+# Read cell state
+cell = await session.get_cell(cell_id)
+print(cell.source)  # "x = 20"
+
+# List all cells
+cells = await session.get_cells()
+
+# Delete a cell
+await session.delete_cell(cell_id)
+```
+
+### Async Context Manager
+
+AsyncSession works as an async context manager for automatic cleanup:
+
+```python
+async with runtimed.AsyncSession() as session:
+    await session.start_kernel()
+    cell_id = await session.create_cell("1 + 1")
+    result = await session.execute_cell(cell_id)
+# Kernel automatically shut down on exit
+```
+
+### Async Properties
+
+Note that property accessors are async methods in AsyncSession:
+
+```python
+# These are coroutines, not properties
+connected = await session.is_connected()     # bool
+kernel_running = await session.kernel_started()  # bool
+env = await session.env_source()             # str | None
+
+# Only notebook_id is a sync property
+notebook_id = session.notebook_id  # str
+```
 
 ## DaemonClient API
 
@@ -152,10 +287,11 @@ client.shutdown()     # Stop the daemon
 
 ### ExecutionResult
 
-Returned by `run()` and `execute_cell()`:
+Returned by `execute_cell()`:
 
 ```python
-result = session.run("print('hello')")
+cell_id = session.create_cell("print('hello')")
+result = session.execute_cell(cell_id)
 
 result.cell_id          # Cell that was executed
 result.success          # True if no error
@@ -206,11 +342,12 @@ cell.execution_count # Execution count if executed
 Two sessions with the same `notebook_id` share the same kernel and document:
 
 ```python
-# Session 1 creates a cell
+# Session 1 creates a cell and executes
 s1 = runtimed.Session(notebook_id="shared")
 s1.connect()
 s1.start_kernel()
 cell_id = s1.create_cell("x = 42")
+s1.execute_cell(cell_id)
 
 # Session 2 sees the cell and shares the kernel
 s2 = runtimed.Session(notebook_id="shared")
@@ -221,7 +358,8 @@ cells = s2.get_cells()
 assert any(c.id == cell_id for c in cells)
 
 # Execute in s2, result visible to s1
-s2.run("print(x)")  # Uses x=42 from s1's execution
+cell_id2 = s2.create_cell("print(x)")
+s2.execute_cell(cell_id2)  # Uses x=42 from s1's execution
 ```
 
 This enables:
