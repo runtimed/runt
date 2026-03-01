@@ -17,8 +17,7 @@ import runtimed
 
 with runtimed.Session() as session:
     session.start_kernel()
-    cell_id = session.create_cell("print('hello')")
-    result = session.execute_cell(cell_id)
+    result = session.run("print('hello')")
     print(result.stdout)  # "hello\n"
 ```
 
@@ -31,8 +30,7 @@ import runtimed
 async def main():
     async with runtimed.AsyncSession() as session:
         await session.start_kernel()
-        cell_id = await session.create_cell("print('hello async')")
-        result = await session.execute_cell(cell_id)
+        result = await session.run("print('hello async')")
         print(result.stdout)
 
 asyncio.run(main())
@@ -50,17 +48,14 @@ asyncio.run(main())
 
 ```python
 session = runtimed.Session(notebook_id="my-notebook")
-session.connect()
 session.start_kernel()
 
-# Create and execute cells (document-first pattern)
-cell_id = session.create_cell("x = 42")
-result = session.execute_cell(cell_id)
+# Simple execution
+result = session.run("x = 42")
 
-# Queue execution without waiting (fire-and-forget)
-session.queue_cell(cell_id)
-# Poll for results
-cell = session.get_cell(cell_id)
+# Document-first pattern (for fine-grained control)
+cell_id = session.create_cell("print(x)")
+result = session.execute_cell(cell_id)
 
 # Inspect results
 print(result.success)
@@ -73,11 +68,11 @@ print(result.error)
 ```python
 async with runtimed.AsyncSession(notebook_id="my-notebook") as session:
     await session.start_kernel()
-    cell_id = await session.create_cell("x = 42")
-    result = await session.execute_cell(cell_id)
+    result = await session.run("x = 42")
 
-    # Or queue without waiting
-    await session.queue_cell(cell_id)
+    # Or document-first pattern
+    cell_id = await session.create_cell("print(x)")
+    result = await session.execute_cell(cell_id)
 ```
 
 ## DaemonClient API

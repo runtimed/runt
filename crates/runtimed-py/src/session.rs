@@ -508,6 +508,30 @@ impl Session {
         })
     }
 
+    /// Convenience method: create a cell, execute it, and return the result.
+    ///
+    /// This is a shortcut that combines create_cell() and execute_cell().
+    /// The cell is written to the automerge document before execution,
+    /// so other connected clients will see it.
+    ///
+    /// Args:
+    ///     code: The code to execute.
+    ///     timeout_secs: Maximum time to wait for execution (default: 60).
+    ///
+    /// Returns:
+    ///     ExecutionResult with outputs, success status, and execution count.
+    ///
+    /// Raises:
+    ///     RuntimedError: If not connected, kernel not started, or timeout.
+    #[pyo3(signature = (code, timeout_secs=60.0))]
+    fn run(&self, code: &str, timeout_secs: f64) -> PyResult<ExecutionResult> {
+        // Create cell in document first
+        let cell_id = self.create_cell(code, "code", None)?;
+
+        // Then execute by ID (daemon reads from doc)
+        self.execute_cell(&cell_id, timeout_secs)
+    }
+
     /// Queue a cell for execution without waiting for the result.
     ///
     /// The daemon reads the cell's source from the automerge document and

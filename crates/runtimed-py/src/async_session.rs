@@ -655,6 +655,110 @@ impl AsyncSession {
         })
     }
 
+    /// Convenience method: create a cell, execute it, and return the result.
+    ///
+    /// This is a shortcut that combines create_cell() and execute_cell().
+    /// The cell is written to the automerge document before execution,
+    /// so other connected clients will see it.
+    ///
+    /// Args:
+    ///     code: The code to execute.
+    ///     timeout_secs: Maximum time to wait for execution (default: 60).
+    ///
+    /// Returns a coroutine that resolves to ExecutionResult.
+    ///
+    /// Raises:
+    ///     RuntimedError: If not connected, kernel not started, or timeout.
+    #[pyo3(signature = (code, timeout_secs=60.0))]
+    fn run<'py>(
+        &self,
+        py: Python<'py>,
+        code: &str,
+        timeout_secs: f64,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let state = Arc::clone(&self.state);
+        let code = code.to_string();
+
+        future_into_py(py, async move {
+            // Create cell in document first
+            let cell_id = {
+                let state_guard = state.lock().await;
+                let handle = state_guard
+                    .handle
+                    .as_ref()
+                    .ok_or_else(|| to_py_err("Not connected"))?;
+
+                let cell_id = format!("cell-{}", uuid::Uuid::new_v4());
+
+                // Get current cell count for append position
+                let cells = handle.get_cells().await.map_err(to_py_err)?;
+                let insert_index = cells.len();
+
+                // Add cell to document
+                handle
+                    .add_cell(insert_index, &cell_id, "code")
+                    .await
+                    .map_err(to_py_err)?;
+
+                // Set source
+                handle
+                    .update_source(&cell_id, &code)
+                    .await
+                    .map_err(to_py_err)?;
+
+                cell_id
+            };
+
+            // Queue execution
+            {
+                let state_guard = state.lock().await;
+                let handle = state_guard
+                    .handle
+                    .as_ref()
+                    .ok_or_else(|| to_py_err("Not connected"))?;
+
+                let response = handle
+                    .send_request(NotebookRequest::ExecuteCell {
+                        cell_id: cell_id.clone(),
+                    })
+                    .await
+                    .map_err(to_py_err)?;
+
+                match response {
+                    NotebookResponse::CellQueued { .. } => {}
+                    NotebookResponse::Error { error } => return Err(to_py_err(error)),
+                    other => return Err(to_py_err(format!("Unexpected response: {:?}", other))),
+                }
+            }
+
+            // Get blob resolution config
+            let (blob_base_url, blob_store_path) = {
+                let state_guard = state.lock().await;
+                (
+                    state_guard.blob_base_url.clone(),
+                    state_guard.blob_store_path.clone(),
+                )
+            };
+
+            // Collect outputs with timeout
+            let timeout = std::time::Duration::from_secs_f64(timeout_secs);
+            let result = tokio::time::timeout(
+                timeout,
+                collect_outputs_async(&state, &cell_id, blob_base_url, blob_store_path),
+            )
+            .await;
+
+            match result {
+                Ok(Ok(exec_result)) => Ok(exec_result),
+                Ok(Err(e)) => Err(e),
+                Err(_) => Err(to_py_err(format!(
+                    "Execution timed out after {} seconds",
+                    timeout_secs
+                ))),
+            }
+        })
+    }
+
     /// Queue a cell for execution without waiting for the result.
     ///
     /// The daemon reads the cell's source from the automerge document and

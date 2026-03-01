@@ -23,8 +23,7 @@ import runtimed
 # Execute code with automatic kernel management
 with runtimed.Session() as session:
     session.start_kernel()
-    cell_id = session.create_cell("print('hello')")
-    result = session.execute_cell(cell_id)
+    result = session.run("print('hello')")
     print(result.stdout)  # "hello\n"
 ```
 
@@ -37,8 +36,7 @@ import runtimed
 async def main():
     async with runtimed.AsyncSession() as session:
         await session.start_kernel()
-        cell_id = await session.create_cell("print('hello async')")
-        result = await session.execute_cell(cell_id)
+        result = await session.run("print('hello async')")
         print(result.stdout)  # "hello async\n"
 
 asyncio.run(main())
