@@ -31,7 +31,7 @@ use crate::notebook_doc::NotebookDoc;
 use crate::notebook_sync_server::persist_notebook_bytes;
 use crate::output_store::{self, DEFAULT_INLINE_THRESHOLD};
 use crate::protocol::{CompletionItem, HistoryEntry, NotebookBroadcast};
-use crate::stream_terminal::StreamTerminals;
+use crate::stream_terminal::{StreamOutputState, StreamTerminals};
 use crate::PooledEnv;
 
 /// Convert a JupyterMessageContent to nbformat-style JSON for storage in Automerge.
@@ -660,12 +660,13 @@ impl RoomKernel {
                                         jupyter_protocol::Stdio::Stderr => "stderr",
                                     };
 
-                                    // Feed text through terminal emulator and get known output index
-                                    let (rendered_text, known_index) = {
+                                    // Feed text through terminal emulator and get known output state
+                                    let (rendered_text, known_state) = {
                                         let mut terminals = stream_terminals.lock().await;
                                         let text = terminals.feed(cid, stream_name, &stream.text);
-                                        let idx = terminals.get_output_index(cid, stream_name);
-                                        (text, idx)
+                                        let state =
+                                            terminals.get_output_state(cid, stream_name).cloned();
+                                        (text, state)
                                     };
 
                                     // Create nbformat JSON with rendered text
@@ -709,22 +710,25 @@ impl RoomKernel {
                                         }
                                     };
 
-                                    // Upsert stream output (update if exists, append if not)
+                                    // Upsert stream output (update if validated, append if not)
                                     let persist_bytes = {
                                         let mut doc_guard = doc.write().await;
                                         match doc_guard.upsert_stream_output(
                                             cid,
                                             stream_name,
                                             &output_ref,
-                                            known_index,
+                                            known_state.as_ref(),
                                         ) {
                                             Ok((_updated, output_index)) => {
-                                                // Store the output index for future updates
+                                                // Store new state (index + hash) for future validation
                                                 let mut terminals = stream_terminals.lock().await;
-                                                terminals.set_output_index(
+                                                terminals.set_output_state(
                                                     cid,
                                                     stream_name,
-                                                    output_index,
+                                                    StreamOutputState {
+                                                        index: output_index,
+                                                        manifest_hash: output_ref.clone(),
+                                                    },
                                                 );
                                             }
                                             Err(e) => {

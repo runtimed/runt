@@ -32,6 +32,8 @@ use automerge::{AutoCommit, AutomergeError, ObjId, ObjType, ReadDoc};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
+use crate::stream_terminal::StreamOutputState;
+
 /// Snapshot of a single cell's state, suitable for serialization.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CellSnapshot {
@@ -313,13 +315,15 @@ impl NotebookDoc {
 
     /// Update or insert a stream output for a cell.
     ///
-    /// If `known_index` is provided and valid, updates at that index directly.
-    /// Otherwise, appends a new output.
+    /// If `known_state` is provided, validates that the output at the cached index
+    /// still has the expected manifest hash. If validation passes, updates in place.
+    /// If validation fails (hash mismatch, index out of bounds, or no state), appends
+    /// a new output.
     ///
-    /// This is used by terminal emulation to maintain a single stream output
-    /// per stream type that gets updated as new content arrives. The caller
-    /// tracks the output index after the first insert and passes it on subsequent
-    /// updates for efficient in-place modification.
+    /// This validation protects against:
+    /// - External clear operations (another peer, frontend-initiated)
+    /// - Individual output deletion
+    /// - CRDT modifications between stream messages
     ///
     /// Returns (updated: bool, output_index: usize) where updated is true if an
     /// existing output was updated, false if a new output was appended.
@@ -328,7 +332,7 @@ impl NotebookDoc {
         cell_id: &str,
         _stream_name: &str,
         output_ref: &str,
-        known_index: Option<usize>,
+        known_state: Option<&StreamOutputState>,
     ) -> Result<(bool, usize), AutomergeError> {
         let cells_id = match self.cells_list_id() {
             Some(id) => id,
@@ -349,15 +353,24 @@ impl NotebookDoc {
 
         let output_count = self.doc.length(&outputs_id);
 
-        // If we have a known index and it's valid, update in place
-        if let Some(idx) = known_index {
-            if idx < output_count {
-                self.doc.put(&outputs_id, idx, output_ref)?;
-                return Ok((true, idx));
+        // Validate cached state if provided
+        if let Some(state) = known_state {
+            if state.index < output_count {
+                // Read what's currently at that index
+                if let Ok(Some((value, _))) = self.doc.get(&outputs_id, state.index) {
+                    if let Ok(current_hash) = value.into_string() {
+                        if current_hash == state.manifest_hash {
+                            // ✓ Validated! Safe to update in place
+                            self.doc.put(&outputs_id, state.index, output_ref)?;
+                            return Ok((true, state.index));
+                        }
+                    }
+                }
             }
+            // Validation failed - fall through to append
         }
 
-        // No known index, append new output
+        // No valid state, append new output
         self.doc.insert(&outputs_id, output_count, output_ref)?;
         Ok((false, output_count))
     }

@@ -29,6 +29,19 @@ const SCROLLBACK_HISTORY: usize = 10000;
 /// Key for terminal buffers: (cell_id, stream_name).
 type StreamKey = (String, String);
 
+/// Tracks position and identity of a stream output.
+///
+/// Used to validate that a cached output index still points to "our" stream
+/// output before updating it in place. If the hash doesn't match what we
+/// last wrote, the output was modified externally and we should append instead.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StreamOutputState {
+    /// Index in the cell's outputs list
+    pub index: usize,
+    /// Manifest hash we last wrote at this index
+    pub manifest_hash: String,
+}
+
 /// Simple dimensions struct for creating terminals.
 struct TermDimensions {
     columns: usize,
@@ -64,13 +77,13 @@ impl Dimensions for TermDimensions {
 /// handle escape sequences. When text is fed to a stream, it's processed through
 /// the terminal and the rendered content is returned as ANSI text.
 ///
-/// Also tracks the output index for each stream in the cell's outputs list,
-/// enabling efficient in-place updates without searching.
+/// Also tracks the output state (index + manifest hash) for each stream to enable
+/// efficient in-place updates with validation against external modifications.
 pub struct StreamTerminals {
     terminals: HashMap<StreamKey, Term<VoidListener>>,
     processors: HashMap<StreamKey, Processor>,
-    /// Output indices for each (cell_id, stream_name) in the cell's outputs list.
-    output_indices: HashMap<StreamKey, usize>,
+    /// Output state for each (cell_id, stream_name) - tracks index and last hash for validation.
+    output_states: HashMap<StreamKey, StreamOutputState>,
 }
 
 impl Default for StreamTerminals {
@@ -85,7 +98,7 @@ impl StreamTerminals {
         Self {
             terminals: HashMap::new(),
             processors: HashMap::new(),
-            output_indices: HashMap::new(),
+            output_states: HashMap::new(),
         }
     }
 
@@ -123,7 +136,7 @@ impl StreamTerminals {
         // Remove all terminals for this cell (both stdout and stderr)
         self.terminals.retain(|(cid, _), _| cid != cell_id);
         self.processors.retain(|(cid, _), _| cid != cell_id);
-        self.output_indices.retain(|(cid, _), _| cid != cell_id);
+        self.output_states.retain(|(cid, _), _| cid != cell_id);
     }
 
     /// Check if a stream exists for a cell.
@@ -132,20 +145,22 @@ impl StreamTerminals {
         self.terminals.contains_key(&key)
     }
 
-    /// Get the output index for a stream (if known).
+    /// Get the output state for a stream (if known).
     ///
-    /// Returns the index in the cell's outputs list where this stream is stored.
-    pub fn get_output_index(&self, cell_id: &str, stream_name: &str) -> Option<usize> {
+    /// Returns the state (index + manifest hash) we last wrote for this stream.
+    /// Used to validate before updating in place.
+    pub fn get_output_state(&self, cell_id: &str, stream_name: &str) -> Option<&StreamOutputState> {
         let key = (cell_id.to_string(), stream_name.to_string());
-        self.output_indices.get(&key).copied()
+        self.output_states.get(&key)
     }
 
-    /// Set the output index for a stream.
+    /// Set the output state for a stream.
     ///
-    /// Called after upserting a stream output to track its position for future updates.
-    pub fn set_output_index(&mut self, cell_id: &str, stream_name: &str, index: usize) {
+    /// Called after upserting a stream output to track its position and hash
+    /// for future validation.
+    pub fn set_output_state(&mut self, cell_id: &str, stream_name: &str, state: StreamOutputState) {
         let key = (cell_id.to_string(), stream_name.to_string());
-        self.output_indices.insert(key, index);
+        self.output_states.insert(key, state);
     }
 }
 
@@ -425,24 +440,69 @@ mod tests {
     }
 
     #[test]
-    fn test_output_index_tracking() {
+    fn test_output_state_tracking() {
         let mut terminals = StreamTerminals::new();
 
-        // Initially no index known
-        assert!(terminals.get_output_index("cell-1", "stdout").is_none());
+        // Initially no state known
+        assert!(terminals.get_output_state("cell-1", "stdout").is_none());
 
-        // Set index after first upsert
-        terminals.set_output_index("cell-1", "stdout", 0);
-        assert_eq!(terminals.get_output_index("cell-1", "stdout"), Some(0));
+        // Set state after first upsert
+        terminals.set_output_state(
+            "cell-1",
+            "stdout",
+            StreamOutputState {
+                index: 0,
+                manifest_hash: "hash1".to_string(),
+            },
+        );
+        let state = terminals.get_output_state("cell-1", "stdout").unwrap();
+        assert_eq!(state.index, 0);
+        assert_eq!(state.manifest_hash, "hash1");
 
-        // Different stream gets different index
-        terminals.set_output_index("cell-1", "stderr", 1);
-        assert_eq!(terminals.get_output_index("cell-1", "stderr"), Some(1));
-        assert_eq!(terminals.get_output_index("cell-1", "stdout"), Some(0));
+        // Different stream gets different state
+        terminals.set_output_state(
+            "cell-1",
+            "stderr",
+            StreamOutputState {
+                index: 1,
+                manifest_hash: "hash2".to_string(),
+            },
+        );
+        assert_eq!(
+            terminals
+                .get_output_state("cell-1", "stderr")
+                .unwrap()
+                .index,
+            1
+        );
+        assert_eq!(
+            terminals
+                .get_output_state("cell-1", "stdout")
+                .unwrap()
+                .index,
+            0
+        );
 
-        // Clear removes indices
+        // Update state (e.g., after new stream message)
+        terminals.set_output_state(
+            "cell-1",
+            "stdout",
+            StreamOutputState {
+                index: 0,
+                manifest_hash: "hash3".to_string(),
+            },
+        );
+        assert_eq!(
+            terminals
+                .get_output_state("cell-1", "stdout")
+                .unwrap()
+                .manifest_hash,
+            "hash3"
+        );
+
+        // Clear removes all state
         terminals.clear("cell-1");
-        assert!(terminals.get_output_index("cell-1", "stdout").is_none());
-        assert!(terminals.get_output_index("cell-1", "stderr").is_none());
+        assert!(terminals.get_output_state("cell-1", "stdout").is_none());
+        assert!(terminals.get_output_state("cell-1", "stderr").is_none());
     }
 }
