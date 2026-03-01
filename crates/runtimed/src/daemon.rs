@@ -377,11 +377,13 @@ impl Daemon {
         }))
     }
 
-    /// Get a handle to the shutdown notifier.
+    /// Trigger a graceful shutdown of the daemon.
     ///
-    /// Signal handlers can use this to trigger graceful shutdown.
-    pub fn shutdown_notify(&self) -> Arc<Notify> {
-        self.shutdown_notify.clone()
+    /// Sets the shutdown flag and notifies all waiting tasks.
+    /// Used by both signal handlers and the RPC shutdown command.
+    pub async fn trigger_shutdown(&self) {
+        *self.shutdown.lock().await = true;
+        self.shutdown_notify.notify_waiters();
     }
 
     /// Run the daemon server.
@@ -1133,8 +1135,7 @@ impl Daemon {
             Request::Ping => Response::Pong,
 
             Request::Shutdown => {
-                *self.shutdown.lock().await = true;
-                self.shutdown_notify.notify_one();
+                self.trigger_shutdown().await;
                 Response::ShuttingDown
             }
 

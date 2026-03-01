@@ -105,7 +105,11 @@ async fn main() -> anyhow::Result<()> {
         // Write to stderr (visible in terminal)
         eprintln!("{}", msg);
 
-        // Also append to log file so it's captured for debugging
+        // Also append to log file so it's captured for debugging.
+        // Create the directory first in case this is first run.
+        if let Some(parent) = log_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         if let Ok(mut file) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -283,7 +287,7 @@ async fn run_daemon(
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
-        let shutdown = daemon.shutdown_notify();
+        let shutdown_daemon = daemon.clone();
 
         tokio::spawn(async move {
             let mut sigterm = signal(SignalKind::terminate()).expect("failed to register SIGTERM");
@@ -297,7 +301,7 @@ async fn run_daemon(
                     info!("[runtimed] Received SIGINT");
                 }
             }
-            shutdown.notify_one();
+            shutdown_daemon.trigger_shutdown().await;
         });
     }
 
