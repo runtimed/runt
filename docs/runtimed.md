@@ -134,9 +134,11 @@ runt daemon start      # Start the daemon service
 runt daemon stop       # Stop the daemon service
 runt daemon restart    # Restart the daemon
 runt daemon logs -f    # Tail daemon logs
-runt daemon install    # Install as system service
-runt daemon uninstall  # Uninstall system service
+runt daemon install    # Install as system service (system daemon only)
+runt daemon uninstall  # Uninstall system service (system daemon only)
 ```
+
+Most commands work with both the system daemon and dev worktree daemons. The `install`/`uninstall` commands are system-only — don't run these in a worktree context.
 
 Auto-upgrade: the client detects version mismatches and replaces the binary.
 
