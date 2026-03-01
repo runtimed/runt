@@ -122,8 +122,16 @@ impl StreamTerminals {
 
         let processor = self.processors.entry(key).or_default();
 
-        // Feed input to terminal
-        processor.advance(term, text.as_bytes());
+        // Feed input to terminal, converting \n to \r\n
+        // A raw \n (line feed) only moves cursor down without returning to column 0.
+        // We need \r\n to properly start at the beginning of the next line.
+        for byte in text.as_bytes() {
+            if *byte == b'\n' {
+                processor.advance(term, &[b'\r', b'\n']);
+            } else {
+                processor.advance(term, &[*byte]);
+            }
+        }
 
         // Serialize terminal content back to ANSI text
         serialize_to_ansi(term)
