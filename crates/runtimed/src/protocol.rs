@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::comm_state::CommSnapshot;
+use crate::kernel_manager::LaunchedEnvConfig;
 use crate::{EnvType, PoolError, PoolStats, PooledEnv};
 
 /// Requests that clients can send to the daemon.
@@ -232,12 +233,16 @@ pub enum NotebookResponse {
     KernelLaunched {
         kernel_type: String,
         env_source: String,
+        /// Environment config used at launch (for sync detection).
+        launched_config: LaunchedEnvConfig,
     },
 
     /// Kernel was already running (returned existing info).
     KernelAlreadyRunning {
         kernel_type: String,
         env_source: String,
+        /// Environment config used at launch (for sync detection).
+        launched_config: LaunchedEnvConfig,
     },
 
     /// Cell queued for execution.
@@ -397,6 +402,37 @@ pub enum NotebookBroadcast {
         #[serde(flatten)]
         phase: kernel_env::EnvProgressPhase,
     },
+
+    /// Environment sync state changed.
+    ///
+    /// Broadcast when notebook metadata changes and differs from the
+    /// kernel's launched configuration. All connected windows can show
+    /// the sync UI in response.
+    EnvSyncState {
+        /// Whether the current metadata matches the launched config.
+        in_sync: bool,
+        /// What's different (for UI display). None if in_sync is true.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        diff: Option<EnvSyncDiff>,
+    },
+}
+
+/// Difference between launched environment config and current metadata.
+/// Used to show the user what packages would be added/removed on restart.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvSyncDiff {
+    /// Packages to add (in current metadata but not in launched config).
+    #[serde(default)]
+    pub added: Vec<String>,
+    /// Packages to remove (in launched config but not in current metadata).
+    #[serde(default)]
+    pub removed: Vec<String>,
+    /// Conda channels changed (requires restart to use new channels).
+    #[serde(default)]
+    pub channels_changed: bool,
+    /// Deno config changed (permissions, import_map, etc.)
+    #[serde(default)]
+    pub deno_changed: bool,
 }
 
 // =============================================================================
@@ -692,9 +728,14 @@ mod tests {
         let resp = NotebookResponse::KernelLaunched {
             kernel_type: "python".into(),
             env_source: "conda:inline".into(),
+            launched_config: LaunchedEnvConfig {
+                conda_deps: Some(vec!["numpy".into(), "pandas".into()]),
+                ..Default::default()
+            },
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("kernel_launched"));
+        assert!(json.contains("launched_config"));
 
         let parsed: NotebookResponse = serde_json::from_str(&json).unwrap();
         assert!(matches!(parsed, NotebookResponse::KernelLaunched { .. }));

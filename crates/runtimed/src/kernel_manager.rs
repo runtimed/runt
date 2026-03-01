@@ -21,7 +21,7 @@ use jupyter_protocol::{
     JupyterMessage, JupyterMessageContent, KernelInfoRequest, ShutdownRequest,
 };
 use log::{debug, error, info, warn};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot, RwLock};
 use uuid::Uuid;
 
@@ -33,6 +33,55 @@ use crate::output_store::{self, DEFAULT_INLINE_THRESHOLD};
 use crate::protocol::{CompletionItem, HistoryEntry, NotebookBroadcast};
 use crate::stream_terminal::{StreamOutputState, StreamTerminals};
 use crate::PooledEnv;
+
+// ── Launched Environment Config ─────────────────────────────────────────────
+
+/// Environment configuration captured at kernel launch time.
+/// Used to detect when notebook metadata has drifted from the running kernel.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct LaunchedEnvConfig {
+    /// UV inline deps (if env_source is "uv:inline")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uv_deps: Option<Vec<String>>,
+
+    /// Conda inline deps (if env_source is "conda:inline")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conda_deps: Option<Vec<String>>,
+
+    /// Conda channels (if env_source is "conda:inline")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conda_channels: Option<Vec<String>>,
+
+    /// Deno config (if kernel_type is "deno")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deno_config: Option<DenoLaunchedConfig>,
+}
+
+/// Deno configuration captured at kernel launch time.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct DenoLaunchedConfig {
+    /// Deno permission flags
+    #[serde(default)]
+    pub permissions: Vec<String>,
+
+    /// Path to import_map.json
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub import_map: Option<String>,
+
+    /// Path to deno.json config
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<String>,
+
+    /// Whether npm: imports auto-install packages
+    #[serde(default = "default_flexible_npm")]
+    pub flexible_npm_imports: bool,
+}
+
+fn default_flexible_npm() -> bool {
+    true
+}
+
+// ── Output Conversion ───────────────────────────────────────────────────────
 
 /// Convert a JupyterMessageContent to nbformat-style JSON for storage in Automerge.
 ///
@@ -222,6 +271,8 @@ pub struct RoomKernel {
     kernel_type: String,
     /// Environment source (e.g., "uv:inline", "conda:prewarmed")
     env_source: String,
+    /// Environment configuration used at launch (for sync detection)
+    launched_config: LaunchedEnvConfig,
     /// Connection info for the kernel
     connection_info: Option<ConnectionInfo>,
     /// Path to the connection file
@@ -296,6 +347,7 @@ impl RoomKernel {
         Self {
             kernel_type: String::new(),
             env_source: String::new(),
+            launched_config: LaunchedEnvConfig::default(),
             connection_info: None,
             connection_file: None,
             session_id: Uuid::new_v4().to_string(),
@@ -342,6 +394,11 @@ impl RoomKernel {
         &self.env_source
     }
 
+    /// Get the environment configuration used at launch (for sync detection).
+    pub fn launched_config(&self) -> &LaunchedEnvConfig {
+        &self.launched_config
+    }
+
     /// Get the current kernel status.
     pub fn status(&self) -> KernelStatus {
         self.status
@@ -370,13 +427,16 @@ impl RoomKernel {
     ///
     /// Note: `conda:inline` currently falls back to prewarmed pool (inline deps not installed).
     /// TODO: Implement on-demand conda env creation for conda:inline deps.
+    ///
+    /// The `launched_config` captures the environment configuration used at launch time,
+    /// enabling detection of metadata drift (e.g., user added deps while kernel running).
     pub async fn launch(
         &mut self,
         kernel_type: &str,
         env_source: &str,
         notebook_path: Option<&std::path::Path>,
         env: Option<PooledEnv>,
-        _inline_deps: Option<Vec<String>>,
+        launched_config: LaunchedEnvConfig,
     ) -> Result<()> {
         // Shutdown existing kernel if any (but don't broadcast shutdown for fresh kernel)
         if self.is_running() {
@@ -385,6 +445,7 @@ impl RoomKernel {
 
         self.kernel_type = kernel_type.to_string();
         self.env_source = env_source.to_string();
+        self.launched_config = launched_config;
         self.status = KernelStatus::Starting;
 
         // Broadcast starting status

@@ -253,25 +253,24 @@ export function CondaDependencyHeader({
           </div>
         )}
 
-        {/* Sync Now notice for dirty environment */}
+        {/* Environment drift notice - kernel restart needed */}
         {syncState?.status === "dirty" && !needsKernelRestart && (
           <div className="mb-3 flex items-center justify-between rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
             <div className="flex items-center gap-2">
               <Info className="h-3.5 w-3.5 shrink-0" />
-              <span>
-                Dependencies changed — sync to install into running environment
-              </span>
+              <span>Dependencies changed — restart kernel to apply</span>
             </div>
             <button
               type="button"
               onClick={onSyncNow}
               disabled={syncing}
-              className="flex items-center gap-1 rounded bg-emerald-600 px-2 py-0.5 text-white text-xs font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
+              data-testid="deps-restart-button"
+              className="flex items-center gap-1 rounded bg-amber-600 px-2 py-0.5 text-white text-xs font-medium hover:bg-amber-700 transition-colors disabled:opacity-50"
             >
               <RefreshCw
                 className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`}
               />
-              Sync Now
+              Restart
             </button>
           </div>
         )}
