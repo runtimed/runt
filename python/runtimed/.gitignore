@@ -1,0 +1,16 @@
+# Compiled extension modules
+*.so
+*.pyd
+*.dylib
+
+# Build artifacts
+target/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc

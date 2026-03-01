@@ -1,0 +1,23 @@
+[package]
+name = "runtimed-py"
+version = "0.1.0"
+edition = "2021"
+description = "Python bindings for runtimed daemon client"
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "runtimed"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.28", features = ["extension-module"] }
+pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
+runtimed = { path = "../runtimed" }
+tokio = { version = "1", features = ["full"] }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+log = "0.4"
+thiserror = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }

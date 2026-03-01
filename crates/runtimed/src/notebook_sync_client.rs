@@ -967,7 +967,16 @@ where
     ///
     /// Returns `Ok(None)` if no frame is available (v1 protocol always returns None).
     /// This is used by the background task to handle all frame types.
+    ///
+    /// Note: This also drains any broadcasts collected during wait_for_response(),
+    /// ensuring they aren't lost when a request/response exchange occurs.
     async fn recv_frame_any(&mut self) -> Result<Option<ReceivedFrame>, NotebookSyncError> {
+        // First, drain any pending broadcasts collected during wait_for_response()
+        if !self.pending_broadcasts.is_empty() {
+            let broadcast = self.pending_broadcasts.remove(0);
+            return Ok(Some(ReceivedFrame::Broadcast(broadcast)));
+        }
+
         if !self.use_typed_frames {
             // v1 protocol: fall back to recv_changes behavior
             match self.recv_changes_v1().await {
@@ -976,9 +985,15 @@ where
                 Err(e) => Err(e),
             }
         } else {
-            // v2 protocol: handle all frame types
-            match connection::recv_typed_frame(&mut self.stream).await? {
-                Some(frame) => match frame.frame_type {
+            // v2 protocol: handle all frame types with timeout to avoid blocking
+            let frame_result = tokio::time::timeout(
+                Duration::from_millis(100),
+                connection::recv_typed_frame(&mut self.stream),
+            )
+            .await;
+
+            match frame_result {
+                Ok(Ok(Some(frame))) => match frame.frame_type {
                     NotebookFrameType::AutomergeSync => {
                         let message = sync::Message::decode(&frame.payload)
                             .map_err(|e| NotebookSyncError::SyncError(format!("decode: {}", e)))?;
@@ -1021,7 +1036,12 @@ where
                         Ok(None)
                     }
                 },
-                None => Err(NotebookSyncError::Disconnected),
+                // EOF/disconnect
+                Ok(Ok(None)) => Err(NotebookSyncError::Disconnected),
+                // I/O error
+                Ok(Err(e)) => Err(NotebookSyncError::ConnectionFailed(e)),
+                // Timeout - no data available, return Ok(None) so caller can continue
+                Err(_) => Ok(None),
             }
         }
     }
@@ -1165,8 +1185,13 @@ where
                         // Continue waiting for Response
                     }
                     NotebookFrameType::Broadcast => {
-                        // Ignore broadcasts while waiting for response
-                        // (The background task handles these)
+                        // Collect broadcasts received while waiting for response
+                        // They'll be delivered via recv_frame_any() later
+                        if let Ok(broadcast) =
+                            serde_json::from_slice::<NotebookBroadcast>(&frame.payload)
+                        {
+                            self.pending_broadcasts.push(broadcast);
+                        }
                         continue;
                     }
                     NotebookFrameType::Request => {
@@ -1399,6 +1424,7 @@ async fn run_sync_task<S>(
     loop {
         loop_count += 1;
         tokio::select! {
+            biased;  // Always check commands first
             // Process commands from handles
             cmd_opt = cmd_rx.recv() => {
                 match cmd_opt {
@@ -1457,14 +1483,11 @@ async fn run_sync_task<S>(
                 }
             }
 
-            // Check for incoming changes (with timeout to not block commands)
+            // Check for incoming changes
+            // Note: recv_frame_any() has an internal 100ms timeout, so no outer timeout needed
             _ = poll_interval.tick() => {
-                // Try to receive with a short timeout
-                match tokio::time::timeout(
-                    Duration::from_millis(10),
-                    client.recv_frame_any()
-                ).await {
-                    Ok(Ok(Some(ReceivedFrame::Changes(cells)))) => {
+                match client.recv_frame_any().await {
+                    Ok(Some(ReceivedFrame::Changes(cells))) => {
                         // Got changes from another peer — only include metadata if it changed
                         let current_metadata = client.get_metadata(NOTEBOOK_METADATA_KEY);
                         let metadata_changed = current_metadata != last_metadata;
@@ -1475,17 +1498,27 @@ async fn run_sync_task<S>(
                             cells,
                             notebook_metadata: if metadata_changed { current_metadata } else { None },
                         };
-                        if changes_tx.send(update).await.is_err() {
-                            info!(
-                                "[notebook-sync-task] Changes receiver dropped for {}, loop_count={}",
-                                notebook_id, loop_count
-                            );
-                            break;
+                        // Use try_send to avoid blocking if receiver isn't draining
+                        // (e.g., Python bindings keep sync_rx alive but don't consume it)
+                        match changes_tx.try_send(update) {
+                            Ok(()) => {}
+                            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                                // Channel full - receiver not keeping up, skip this update
+                                // Next update will contain latest state anyway
+                            }
+                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                info!(
+                                    "[notebook-sync-task] Changes receiver dropped for {}, loop_count={}",
+                                    notebook_id, loop_count
+                                );
+                                break;
+                            }
                         }
                     }
-                    Ok(Ok(Some(ReceivedFrame::Broadcast(broadcast)))) => {
+                    Ok(Some(ReceivedFrame::Broadcast(broadcast))) => {
                         // Got a broadcast from daemon
-                        if broadcast_tx.send(broadcast).await.is_err() {
+                        let send_result = broadcast_tx.send(broadcast).await;
+                        if send_result.is_err() {
                             info!(
                                 "[notebook-sync-task] Broadcast receiver dropped for {}",
                                 notebook_id
@@ -1493,29 +1526,26 @@ async fn run_sync_task<S>(
                             // Continue - broadcasts are optional
                         }
                     }
-                    Ok(Ok(Some(ReceivedFrame::Response(_)))) => {
+                    Ok(Some(ReceivedFrame::Response(_))) => {
                         // Unexpected response - we weren't waiting for one
                         warn!("[notebook-sync-task] Unexpected response frame for {}", notebook_id);
                     }
-                    Ok(Ok(None)) => {
-                        // No frame available
+                    Ok(None) => {
+                        // No frame available (timeout), continue
                     }
-                    Ok(Err(NotebookSyncError::Disconnected)) => {
+                    Err(NotebookSyncError::Disconnected) => {
                         warn!(
                             "[notebook-sync-task] Disconnected from daemon for {}, loop_count={}",
                             notebook_id, loop_count
                         );
                         break;
                     }
-                    Ok(Err(e)) => {
+                    Err(e) => {
                         warn!(
                             "[notebook-sync-task] Error receiving for {}: {}, loop_count={}",
                             notebook_id, e, loop_count
                         );
                         break;
-                    }
-                    Err(_) => {
-                        // Timeout - no data available, continue
                     }
                 }
             }
