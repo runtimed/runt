@@ -112,6 +112,15 @@ jobs:
           pnpm --dir apps/sidecar build
           pnpm --dir apps/notebook build
 
+      - name: Upload UI build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-build-dist
+          path: |
+            apps/notebook/dist/
+            apps/sidecar/dist/
+          retention-days: 1
+
       - name: Build external binaries
         shell: bash
         run: |
@@ -138,6 +147,7 @@ jobs:
   build:
     name: ${{ matrix.platform.name }}
     runs-on: ${{ matrix.platform.runner }}
+    needs: [build-linux]
     strategy:
       matrix:
         platform:
@@ -149,6 +159,12 @@ jobs:
             setup: echo "No extra deps needed on Windows"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download UI build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-build-dist
+          path: .
 
       - name: Install system dependencies
         run: ${{ matrix.platform.setup }}
@@ -162,36 +178,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ matrix.platform.runner }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Enable corepack
-        run: corepack enable
-
-      - name: Set pnpm store directory
-        run: pnpm config set store-dir ~/.pnpm-store
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ~/.pnpm-store
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            pnpm-store-${{ runner.os }}-
-
-      - name: Install JS dependencies
-        run: pnpm install
-
-      - name: Run JS tests
-        run: pnpm test:run
-
-      - name: Build UIs
-        run: |
-          pnpm --dir apps/sidecar build
-          pnpm --dir apps/notebook build
 
       - name: Build external binaries
         shell: bash
