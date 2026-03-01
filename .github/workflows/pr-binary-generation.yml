@@ -1,0 +1,296 @@
+name: PR Binary Generation
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to build
+        required: true
+        type: number
+      target_os:
+        description: Target operating system
+        required: true
+        type: choice
+        options:
+          - linux
+          - macos
+          - windows
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-binary-${{ inputs.pr_number }}-${{ inputs.target_os }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  resolve-pr:
+    name: Resolve PR metadata
+    runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      head_short_sha: ${{ steps.resolve.outputs.head_short_sha }}
+      artifact_prefix: ${{ steps.resolve.outputs.artifact_prefix }}
+    steps:
+      - name: Resolve pull request head commit
+        id: resolve
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = Number(context.payload.inputs.pr_number);
+            if (!Number.isInteger(prNumber) || prNumber <= 0) {
+              core.setFailed(`Invalid PR number: ${context.payload.inputs.pr_number}`);
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const { data: pr } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: prNumber,
+            });
+
+            const headSha = pr.head.sha;
+            const headShortSha = headSha.slice(0, 7);
+            const artifactPrefix = `nteract-pr-${prNumber}-${headShortSha}`;
+
+            core.info(`PR #${prNumber} head commit: ${headSha}`);
+            core.setOutput("pr_number", String(prNumber));
+            core.setOutput("head_sha", headSha);
+            core.setOutput("head_short_sha", headShortSha);
+            core.setOutput("artifact_prefix", artifactPrefix);
+
+  build:
+    name: Build ${{ matrix.label }} binary
+    needs: [resolve-pr]
+    if: ${{ inputs.target_os == matrix.target_os }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target_os: linux
+            label: Linux x64
+            runner: ubuntu-22.04
+            artifact_suffix: linux-x64
+          - target_os: macos
+            label: macOS
+            runner: macos-latest
+            artifact_suffix: macos
+          - target_os: windows
+            label: Windows x64
+            runner: windows-latest
+            artifact_suffix: windows-x64
+
+    steps:
+      - name: Checkout pinned PR commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-pr.outputs.head_sha }}
+          fetch-depth: 1
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev
+
+      - name: Install rust
+        uses: dsherret/rust-toolchain-file@v1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: pr-binary-${{ matrix.target_os }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Set pnpm store directory (Unix)
+        if: runner.os != 'Windows'
+        run: pnpm config set store-dir ~/.pnpm-store
+
+      - name: Cache pnpm store (Unix)
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Cache pnpm store (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pnpm\store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Install JS dependencies
+        run: pnpm install
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Cache tauri-cli binary (Unix)
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: cargo-bin-${{ matrix.target_os }}-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-bin-${{ matrix.target_os }}-tauri-cli-
+
+      - name: Cache tauri-cli binary (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~\.cargo\bin
+          key: cargo-bin-${{ matrix.target_os }}-tauri-cli-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-bin-${{ matrix.target_os }}-tauri-cli-
+
+      - name: Install tauri-cli (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          if ! command -v cargo-tauri &> /dev/null; then
+            cargo install tauri-cli --locked
+          fi
+
+      - name: Install tauri-cli (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (!(Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
+            cargo install tauri-cli --locked
+          }
+
+      - name: Bake PR + commit into version
+        id: version
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ needs.resolve-pr.outputs.pr_number }}
+          COMMIT_SHORT_SHA: ${{ needs.resolve-pr.outputs.head_short_sha }}
+        with:
+          script: |
+            const fs = require("node:fs");
+
+            const tauriPath = "crates/notebook/tauri.conf.json";
+            const cargoPath = "crates/notebook/Cargo.toml";
+
+            const config = JSON.parse(fs.readFileSync(tauriPath, "utf8"));
+            const baseVersion = String(config.version).split("+")[0];
+            const suffix = `pr.${process.env.PR_NUMBER}.sha.${process.env.COMMIT_SHORT_SHA}`;
+            const version = baseVersion.includes("-")
+              ? `${baseVersion}.${suffix}`
+              : `${baseVersion}-${suffix}`;
+
+            config.version = version;
+            fs.writeFileSync(tauriPath, `${JSON.stringify(config, null, 2)}\n`);
+
+            const cargoToml = fs.readFileSync(cargoPath, "utf8");
+            const updatedCargoToml = cargoToml.replace(
+              /^version\s*=\s*".*"$/m,
+              `version = "${version}"`,
+            );
+
+            if (updatedCargoToml === cargoToml) {
+              core.setFailed("Could not update notebook Cargo.toml version");
+              return;
+            }
+
+            fs.writeFileSync(cargoPath, updatedCargoToml);
+            core.info(`Version set to ${version}`);
+            core.setOutput("version", version);
+
+      - name: Generate icons
+        run: cargo xtask icons
+
+      - name: Build external binaries (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cargo build --release -p runtimed -p runt-cli
+          TARGET=$(rustc --print host-tuple)
+
+          mkdir -p crates/notebook/binaries target/release/binaries
+
+          cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
+          cp target/release/runt "crates/notebook/binaries/runt-$TARGET"
+          cp target/release/runtimed "target/release/binaries/runtimed-$TARGET"
+          cp target/release/runt "target/release/binaries/runt-$TARGET"
+
+      - name: Build external binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build --release -p runtimed -p runt-cli
+          $target = (rustc --print host-tuple).Trim()
+
+          New-Item -ItemType Directory -Force crates/notebook/binaries | Out-Null
+          New-Item -ItemType Directory -Force target/release/binaries | Out-Null
+
+          Copy-Item target/release/runtimed.exe "crates/notebook/binaries/runtimed-$target.exe"
+          Copy-Item target/release/runt.exe "crates/notebook/binaries/runt-$target.exe"
+          Copy-Item target/release/runtimed.exe "target/release/binaries/runtimed-$target.exe"
+          Copy-Item target/release/runt.exe "target/release/binaries/runt-$target.exe"
+
+      - name: Build notebook app (no bundle)
+        working-directory: crates/notebook
+        run: cargo tauri build --ci --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Collect artifact payload (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p pr-binary
+          cp target/release/notebook pr-binary/notebook
+          chmod +x pr-binary/notebook
+          cp -R target/release/binaries pr-binary/binaries
+
+          cat > pr-binary/build-metadata.json <<EOF
+          {
+            "pr_number": "${{ needs.resolve-pr.outputs.pr_number }}",
+            "target_os": "${{ matrix.target_os }}",
+            "commit": "${{ needs.resolve-pr.outputs.head_sha }}",
+            "version": "$VERSION"
+          }
+          EOF
+
+      - name: Collect artifact payload (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force pr-binary | Out-Null
+          Copy-Item target/release/notebook.exe pr-binary/notebook.exe
+          Copy-Item target/release/binaries pr-binary/binaries -Recurse
+
+          $metadata = @{
+            pr_number = "${{ needs.resolve-pr.outputs.pr_number }}"
+            target_os = "${{ matrix.target_os }}"
+            commit = "${{ needs.resolve-pr.outputs.head_sha }}"
+            version = "$env:VERSION"
+          } | ConvertTo-Json
+
+          Set-Content -Path pr-binary/build-metadata.json -Value $metadata
+
+      - name: Upload runnable binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.resolve-pr.outputs.artifact_prefix }}-${{ matrix.artifact_suffix }}
+          path: pr-binary/
+          retention-days: 14
