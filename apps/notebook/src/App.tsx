@@ -408,20 +408,21 @@ function AppContent() {
 
   const handleExecuteCell = useCallback(
     async (cellId: string) => {
+      // Resolve source up front before awaiting sync operations.
+      const cell = cells.find((c) => c.id === cellId);
+      if (!cell || cell.cell_type !== "code") return;
+      const source = cell.source;
+
       // Clear outputs immediately so user sees feedback
       clearCellOutputs(cellId);
 
       // Broadcast clear to other windows
       await clearOutputs(cellId);
 
-      // Check if cell is code (early exit before daemon call)
-      const cell = cells.find((c) => c.id === cellId);
-      if (!cell || cell.cell_type !== "code") return;
-
-      // Start kernel via daemon if not running, then execute cell
-      // ExecuteCell reads source from the synced document (document-first execution)
+      // Start kernel via daemon if not running, then queue cell.
       if (kernelStatus === "not_started") {
-        await tryStartKernel();
+        const started = await tryStartKernel();
+        if (!started) return;
       }
       executeCell(cellId);
     },
