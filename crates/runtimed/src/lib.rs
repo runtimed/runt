@@ -237,7 +237,7 @@ pub fn default_settings_doc_path() -> PathBuf {
 pub fn settings_json_path() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("runt-notebook")
+        .join("nteract")
         .join("settings.json")
 }
 
@@ -245,7 +245,7 @@ pub fn settings_json_path() -> PathBuf {
 pub fn settings_schema_path() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("runt-notebook")
+        .join("nteract")
         .join("settings.schema.json")
 }
 

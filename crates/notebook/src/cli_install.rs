@@ -171,8 +171,7 @@ fn try_install_direct(
 /// Create the nb wrapper script
 fn create_nb_wrapper(nb_dest: &std::path::Path) -> Result<(), String> {
     let script = r#"#!/bin/bash
-# nb - nteract CLI (shorthand for 'runt notebook')
-# Installed by nteract.app
+# nb - open notebooks faster than you can say runt notebook
 exec runt notebook "$@"
 "#;
 

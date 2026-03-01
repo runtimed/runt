@@ -326,7 +326,7 @@ fn cmd_install_daemon() {
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .map(|s| s.trim().to_string())
             .unwrap_or_else(|| "501".to_string());
-        let domain = format!("gui/{uid}/io.runtimed");
+        let domain = format!("gui/{uid}/io.nteract.runtimed");
 
         // Stop (ignore errors — may not be running)
         let _ = Command::new("launchctl")
@@ -389,7 +389,7 @@ fn cmd_install_daemon() {
     {
         let plist = dirs::home_dir()
             .expect("No home dir")
-            .join("Library/LaunchAgents/io.runtimed.plist");
+            .join("Library/LaunchAgents/io.nteract.runtimed.plist");
         if plist.exists() {
             let uid = Command::new("id")
                 .args(["-u"])

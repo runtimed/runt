@@ -3,10 +3,7 @@ use notebook::Runtime;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(
-    name = "notebook",
-    about = "nteract - Interactive computing environment"
-)]
+#[command(name = "notebook", about = "Open notebooks")]
 struct Args {
     /// Path to notebook file to open or create
     path: Option<PathBuf>,
