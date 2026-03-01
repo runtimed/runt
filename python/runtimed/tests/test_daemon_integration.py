@@ -591,6 +591,138 @@ print('line 2')
 
 
 # ============================================================================
+# Terminal emulation tests
+# ============================================================================
+
+
+class TestTerminalEmulation:
+    """Test terminal emulation for stream outputs.
+
+    The daemon uses alacritty_terminal to process escape sequences like
+    carriage returns (for progress bars) and cursor movement.
+    """
+
+    def test_carriage_return_overwrites(self, session):
+        """Carriage return \\r should overwrite previous content on same line.
+
+        This is how progress bars work - they print "Progress: 50%" then
+        "\\rProgress: 100%" to update in place.
+        """
+        session.start_kernel()
+
+        cell_id = session.create_cell(r'''
+import sys
+sys.stdout.write("Progress: 50%\rProgress: 100%")
+sys.stdout.flush()
+''')
+        result = session.execute_cell(cell_id)
+
+        assert result.success
+        # Should only contain the final state, not the intermediate
+        assert "Progress: 100%" in result.stdout
+        assert "Progress: 50%" not in result.stdout
+
+    def test_progress_bar_simulation(self, session):
+        """Simulated progress bar should show only final state."""
+        session.start_kernel()
+
+        cell_id = session.create_cell(r'''
+import sys
+import time
+for i in range(0, 101, 20):
+    sys.stdout.write(f"\rLoading: {i}%")
+    sys.stdout.flush()
+    time.sleep(0.05)
+print()  # Final newline
+''')
+        result = session.execute_cell(cell_id)
+
+        assert result.success
+        # Should show final state
+        assert "Loading: 100%" in result.stdout
+        # Should NOT show intermediate states (they were overwritten)
+        assert "Loading: 0%" not in result.stdout
+        assert "Loading: 20%" not in result.stdout
+
+    def test_consecutive_prints_merged(self, session):
+        """Consecutive print statements should be merged into one output."""
+        session.start_kernel()
+
+        cell_id = session.create_cell('''
+print("line 1")
+print("line 2")
+print("line 3")
+''')
+        result = session.execute_cell(cell_id)
+
+        assert result.success
+        # All lines should be present
+        assert "line 1" in result.stdout
+        assert "line 2" in result.stdout
+        assert "line 3" in result.stdout
+        # Should be a single continuous output
+        expected = "line 1\nline 2\nline 3\n"
+        assert result.stdout == expected
+
+    def test_interleaved_stdout_stderr_separate(self, session):
+        """Interleaved stdout and stderr should remain separate streams."""
+        session.start_kernel()
+
+        cell_id = session.create_cell('''
+import sys
+print("out1")
+sys.stderr.write("err1\\n")
+sys.stderr.flush()
+print("out2")
+''')
+        result = session.execute_cell(cell_id)
+
+        assert result.success
+        # stdout should have both stdout lines
+        assert "out1" in result.stdout
+        assert "out2" in result.stdout
+        # stderr should have the error line
+        assert "err1" in result.stderr
+        # They should not be mixed
+        assert "err1" not in result.stdout
+        assert "out1" not in result.stderr
+
+    def test_ansi_colors_preserved(self, session):
+        """ANSI color codes should be preserved in output."""
+        session.start_kernel()
+
+        cell_id = session.create_cell(r'''
+# Print with ANSI red color
+print("\x1b[31mRed text\x1b[0m Normal text")
+''')
+        result = session.execute_cell(cell_id)
+
+        assert result.success
+        # The text content should be present
+        assert "Red text" in result.stdout
+        assert "Normal text" in result.stdout
+        # ANSI codes should be preserved (the terminal emulator serializes back to ANSI)
+        assert "\x1b[" in result.stdout
+
+    def test_backspace_handling(self, session):
+        """Backspace character should delete previous character."""
+        session.start_kernel()
+
+        cell_id = session.create_cell(r'''
+import sys
+sys.stdout.write("abc\b\bd")
+sys.stdout.flush()
+print()
+''')
+        result = session.execute_cell(cell_id)
+
+        assert result.success
+        # "abc" with two backspaces then "d" should result in "ad"
+        # (delete 'c', delete 'b', write 'd')
+        assert "ad" in result.stdout
+
+
+# ============================================================================
 # Error handling tests
 # ============================================================================
 

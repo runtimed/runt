@@ -210,6 +210,36 @@ async function resolveOutput(
 }
 
 /**
+ * Merge consecutive stream outputs of the same type (stdout/stderr).
+ *
+ * This is a fallback for when the daemon's terminal emulation doesn't
+ * merge streams properly, or for existing notebooks with unmerged outputs.
+ */
+function mergeConsecutiveStreams(outputs: JupyterOutput[]): JupyterOutput[] {
+  return outputs.reduce<JupyterOutput[]>((merged, output) => {
+    if (output.output_type === "stream" && merged.length > 0) {
+      const last = merged[merged.length - 1];
+      if (last.output_type === "stream" && last.name === output.name) {
+        // Merge by concatenating text
+        const lastText = Array.isArray(last.text)
+          ? last.text.join("")
+          : last.text;
+        const outputText = Array.isArray(output.text)
+          ? output.text.join("")
+          : output.text;
+        merged[merged.length - 1] = {
+          ...last,
+          text: lastText + outputText,
+        };
+        return merged;
+      }
+    }
+    merged.push(output);
+    return merged;
+  }, []);
+}
+
+/**
  * Convert CellSnapshots to NotebookCells, resolving manifest hashes.
  */
 async function cellSnapshotsToNotebookCells(
@@ -226,11 +256,14 @@ async function cellSnapshotsToNotebookCells(
 
       if (snap.cell_type === "code") {
         // Resolve all outputs (may be manifest hashes or raw JSON)
-        const outputs = (
+        const resolvedOutputs = (
           await Promise.all(
             snap.outputs.map((o) => resolveOutput(o, blobPort, cache)),
           )
         ).filter((o): o is JupyterOutput => o !== null);
+
+        // Merge consecutive stream outputs as a fallback for unmerged data
+        const outputs = mergeConsecutiveStreams(resolvedOutputs);
 
         return {
           id: snap.id,

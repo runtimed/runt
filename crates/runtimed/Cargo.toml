@@ -51,6 +51,9 @@ reqwest-middleware = "0.4"
 sha2 = "0.10"
 hex = "0.4"
 
+# Terminal emulation for stream outputs
+alacritty_terminal = "0.25"
+
 # Error parsing
 regex = "1"
 
