@@ -41,6 +41,9 @@ type SharedNotebookSync = Arc<tokio::sync::Mutex<Option<NotebookSyncHandle>>>;
 struct WindowNotebookContext {
     notebook_state: Arc<Mutex<NotebookState>>,
     notebook_sync: SharedNotebookSync,
+    /// Generation counter to prevent stale broadcast tasks from clobbering new connections.
+    /// Incremented each time initialize_notebook_sync is called.
+    sync_generation: Arc<AtomicU64>,
 }
 
 #[derive(Clone, Default)]
@@ -72,7 +75,7 @@ impl WindowNotebookRegistry {
 struct ReconnectInProgress(Arc<AtomicBool>);
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::RunEvent;
@@ -156,6 +159,13 @@ fn notebook_sync_for_window(
     registry: &WindowNotebookRegistry,
 ) -> Result<SharedNotebookSync, String> {
     Ok(registry.get(window.label())?.notebook_sync)
+}
+
+fn sync_generation_for_window(
+    window: &tauri::Window,
+    registry: &WindowNotebookRegistry,
+) -> Result<Arc<AtomicU64>, String> {
+    Ok(registry.get(window.label())?.sync_generation)
 }
 
 fn emit_to_label<R, M, S>(emitter: &M, label: &str, event: &str, payload: S) -> tauri::Result<()>
@@ -244,7 +254,11 @@ async fn initialize_notebook_sync(
     window: tauri::WebviewWindow,
     notebook_state: Arc<Mutex<NotebookState>>,
     notebook_sync: SharedNotebookSync,
+    sync_generation: Arc<AtomicU64>,
 ) -> Result<(), String> {
+    // Increment generation to invalidate any stale cleanup from previous connections
+    let current_generation = sync_generation.fetch_add(1, Ordering::SeqCst) + 1;
+
     let (notebook_id, cells) = {
         let state = notebook_state.lock().map_err(|e| e.to_string())?;
         (derive_notebook_id(&state), state.cells_for_frontend())
@@ -437,10 +451,12 @@ async fn initialize_notebook_sync(
     // Spawn broadcast receiver task for daemon kernel events
     let notebook_sync_for_disconnect = notebook_sync.clone();
     let notebook_id_for_broadcast = notebook_id.clone();
+    let sync_generation_for_cleanup = sync_generation.clone();
+    let cleanup_generation = current_generation;
     tokio::spawn(async move {
         info!(
-            "[notebook-sync] Starting broadcast receiver loop for {}",
-            notebook_id_for_broadcast
+            "[notebook-sync] Starting broadcast receiver loop for {} (gen {})",
+            notebook_id_for_broadcast, cleanup_generation
         );
         while let Some(broadcast) = broadcast_receiver.recv().await {
             info!(
@@ -455,25 +471,36 @@ async fn initialize_notebook_sync(
             }
         }
         warn!(
-            "[notebook-sync] Broadcast receiver loop ended for {} - daemon disconnected (broadcast_tx dropped)",
-            notebook_id_for_broadcast
+            "[notebook-sync] Broadcast receiver loop ended for {} (gen {}) - daemon disconnected (broadcast_tx dropped)",
+            notebook_id_for_broadcast, cleanup_generation
         );
 
-        // Clear the handle so operations fail gracefully
-        info!(
-            "[notebook-sync] Clearing notebook_sync handle for {}",
-            notebook_id_for_broadcast
-        );
-        *notebook_sync_for_disconnect.lock().await = None;
-        info!(
-            "[notebook-sync] Handle cleared for {}",
-            notebook_id_for_broadcast
-        );
+        // Only clear the handle if this is still the current generation.
+        // A newer connection may have already replaced the handle, and we
+        // don't want to clobber it.
+        let current_gen = sync_generation_for_cleanup.load(Ordering::SeqCst);
+        if current_gen == cleanup_generation {
+            info!(
+                "[notebook-sync] Clearing notebook_sync handle for {} (gen {})",
+                notebook_id_for_broadcast, cleanup_generation
+            );
+            *notebook_sync_for_disconnect.lock().await = None;
+            info!(
+                "[notebook-sync] Handle cleared for {}",
+                notebook_id_for_broadcast
+            );
 
-        // Emit disconnection event so frontend can reset kernel state
-        if let Err(e) = emit_to_label::<_, _, _>(&window, window.label(), "daemon:disconnected", ())
-        {
-            warn!("[notebook-sync] Failed to emit daemon:disconnected: {}", e);
+            // Emit disconnection event so frontend can reset kernel state
+            if let Err(e) =
+                emit_to_label::<_, _, _>(&window, window.label(), "daemon:disconnected", ())
+            {
+                warn!("[notebook-sync] Failed to emit daemon:disconnected: {}", e);
+            }
+        } else {
+            info!(
+                "[notebook-sync] Skipping cleanup for {} (gen {}) - newer connection exists (gen {})",
+                notebook_id_for_broadcast, cleanup_generation, current_gen
+            );
         }
     });
 
@@ -916,6 +943,7 @@ async fn save_notebook_as(
 ) -> Result<(), String> {
     let state = notebook_state_for_window(&window, registry.inner())?;
     let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
+    let sync_generation = sync_generation_for_window(&window, registry.inner())?;
     let save_path = PathBuf::from(&path);
 
     // First pass: collect cells to format (release lock for async formatting)
@@ -999,12 +1027,17 @@ async fn save_notebook_as(
         *sync_guard = None;
     }
 
-    // Reconnect with the new path-based room ID
+    // Reconnect with the new path-based room ID.
+    // We don't fail the save if reconnect fails - the file was already written successfully.
     let webview_window = window
         .app_handle()
         .get_webview_window(window.label())
         .ok_or_else(|| "Current webview window not found".to_string())?;
-    initialize_notebook_sync(webview_window, state, notebook_sync).await?;
+    if let Err(e) =
+        initialize_notebook_sync(webview_window, state, notebook_sync, sync_generation).await
+    {
+        warn!("[save-as] Daemon reconnect failed (save succeeded): {}", e);
+    }
 
     Ok(())
 }
@@ -1100,8 +1133,13 @@ fn create_notebook_window(
 
     let context = registry.get(&label)?;
     tauri::async_runtime::spawn(async move {
-        if let Err(e) =
-            initialize_notebook_sync(window, context.notebook_state, context.notebook_sync).await
+        if let Err(e) = initialize_notebook_sync(
+            window,
+            context.notebook_state,
+            context.notebook_sync,
+            context.sync_generation,
+        )
+        .await
         {
             warn!("[startup] Notebook sync initialization failed: {}", e);
         }
@@ -1613,6 +1651,7 @@ async fn reconnect_to_daemon(
 
     let notebook_state = notebook_state_for_window(&window, registry.inner())?;
     let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
+    let sync_generation = sync_generation_for_window(&window, registry.inner())?;
 
     // Use atomic compare_exchange to ensure only one reconnect runs at a time
     if reconnect_in_progress
@@ -1642,7 +1681,13 @@ async fn reconnect_to_daemon(
         .app_handle()
         .get_webview_window(window.label())
         .ok_or_else(|| "Current webview window not found".to_string())?;
-    let result = initialize_notebook_sync(webview_window, notebook_state, notebook_sync).await;
+    let result = initialize_notebook_sync(
+        webview_window,
+        notebook_state,
+        notebook_sync,
+        sync_generation,
+    )
+    .await;
 
     reset_flag();
     result
@@ -3076,6 +3121,7 @@ fn create_window_context(state: NotebookState) -> WindowNotebookContext {
     WindowNotebookContext {
         notebook_state: Arc::new(Mutex::new(state)),
         notebook_sync: Arc::new(tokio::sync::Mutex::new(None)),
+        sync_generation: Arc::new(AtomicU64::new(0)),
     }
 }
 
@@ -3302,6 +3348,7 @@ pub fn run(
                                 window,
                                 context.notebook_state,
                                 context.notebook_sync,
+                                context.sync_generation,
                             )
                             .await
                             {
