@@ -5,27 +5,6 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-    paths:
-      - ".github/workflows/build.yml"
-      - "apps/**"
-      - "bin/**"
-      - "crates/**"
-      - "e2e/**"
-      - "python/**"
-      - "scripts/**"
-      - "src/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "package.json"
-      - "package-lock.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - "biome.json"
-      - "components.json"
-      - "tailwind.config.js"
-      - "tsconfig.json"
-      - "vitest.config.ts"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -35,8 +14,47 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  changes:
+    name: Detect source changes
+    runs-on: ubuntu-latest
+    outputs:
+      source_changed: ${{ steps.filter.outputs.source }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            source:
+              - ".github/workflows/build.yml"
+              - "apps/**"
+              - "bin/**"
+              - "crates/**"
+              - "e2e/**"
+              - "python/**"
+              - "scripts/**"
+              - "src/**"
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - "rust-toolchain.toml"
+              - "package.json"
+              - "package-lock.json"
+              - "pnpm-lock.yaml"
+              - "pnpm-workspace.yaml"
+              - "biome.json"
+              - "components.json"
+              - "tailwind.config.js"
+              - "tsconfig.json"
+              - "vitest.config.ts"
+
   lint:
     name: Lint & Format
+    needs: [changes]
+    if: needs.changes.outputs.source_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,6 +81,8 @@ jobs:
 
   build-linux:
     name: Linux
+    needs: [changes]
+    if: needs.changes.outputs.source_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -137,7 +157,8 @@ jobs:
 
   build:
     name: ${{ matrix.platform.name }}
-    runs-on: ${{ matrix.platform.runner }}
+    needs: [changes]
+    runs-on: ${{ needs.changes.outputs.source_changed == 'true' && matrix.platform.runner || 'ubuntu-latest' }}
     strategy:
       matrix:
         platform:
@@ -148,33 +169,46 @@ jobs:
             runner: windows-latest
             setup: echo "No extra deps needed on Windows"
     steps:
+      - name: Skip non-source changes
+        if: needs.changes.outputs.source_changed != 'true'
+        run: echo "No source changes detected; skipping this platform leg."
+
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.source_changed == 'true'
 
       - name: Install system dependencies
+        if: needs.changes.outputs.source_changed == 'true'
         run: ${{ matrix.platform.setup }}
 
       - name: Install uv
+        if: needs.changes.outputs.source_changed == 'true'
         uses: astral-sh/setup-uv@v5
 
       - name: Install rust
+        if: needs.changes.outputs.source_changed == 'true'
         uses: dsherret/rust-toolchain-file@v1
 
       - uses: Swatinem/rust-cache@v2
+        if: needs.changes.outputs.source_changed == 'true'
         with:
           shared-key: ${{ matrix.platform.runner }}
 
       - name: Setup Node.js
+        if: needs.changes.outputs.source_changed == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
       - name: Enable corepack
+        if: needs.changes.outputs.source_changed == 'true'
         run: corepack enable
 
       - name: Set pnpm store directory
+        if: needs.changes.outputs.source_changed == 'true'
         run: pnpm config set store-dir ~/.pnpm-store
 
       - name: Cache pnpm store
+        if: needs.changes.outputs.source_changed == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.pnpm-store
@@ -183,17 +217,21 @@ jobs:
             pnpm-store-${{ runner.os }}-
 
       - name: Install JS dependencies
+        if: needs.changes.outputs.source_changed == 'true'
         run: pnpm install
 
       - name: Run JS tests
+        if: needs.changes.outputs.source_changed == 'true'
         run: pnpm test:run
 
       - name: Build UIs
+        if: needs.changes.outputs.source_changed == 'true'
         run: |
           pnpm --dir apps/sidecar build
           pnpm --dir apps/notebook build
 
       - name: Build external binaries
+        if: needs.changes.outputs.source_changed == 'true'
         shell: bash
         run: |
           cargo build --release -p runtimed -p runt-cli
@@ -208,17 +246,22 @@ jobs:
           fi
 
       - name: Clippy
+        if: needs.changes.outputs.source_changed == 'true'
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Build
+        if: needs.changes.outputs.source_changed == 'true'
         run: cargo build --release
 
       - name: Run tests
+        if: needs.changes.outputs.source_changed == 'true'
         run: cargo test --verbose
 
   # Build Tauri app once and share with E2E shards
   build-e2e-app:
     name: Build E2E Test App
+    needs: [changes]
+    if: needs.changes.outputs.source_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -303,7 +346,8 @@ jobs:
   e2e:
     name: E2E Smoke Test
     runs-on: ubuntu-latest
-    needs: [build-e2e-app]
+    needs: [changes, build-e2e-app]
+    if: needs.changes.outputs.source_changed == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -442,7 +486,8 @@ jobs:
   e2e-fixtures:
     name: E2E Kernel Launch Tests
     runs-on: ubuntu-latest
-    needs: [build-e2e-app, e2e]
+    needs: [changes, build-e2e-app, e2e]
+    if: needs.changes.outputs.source_changed == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -602,7 +647,8 @@ jobs:
   runtimed-py-integration:
     name: runtimed-py Integration Tests
     runs-on: ubuntu-latest
-    needs: [build-linux]
+    needs: [changes, build-linux]
+    if: needs.changes.outputs.source_changed == 'true'
     steps:
       - uses: actions/checkout@v4
 
