@@ -394,14 +394,25 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts
-          NSIS_PATH=$(find target/release/bundle/nsis -name "*.exe" | head -1)
+          shopt -s nullglob
+          NSIS_BINARIES=(target/release/bundle/nsis/*.exe)
+          shopt -u nullglob
+
+          if [ ${#NSIS_BINARIES[@]} -eq 0 ]; then
+            echo "::error::No NSIS installer (.exe) found in target/release/bundle/nsis"
+            exit 1
+          fi
+
+          NSIS_PATH="${NSIS_BINARIES[0]}"
           cp "$NSIS_PATH" artifacts/nteract-windows-x64.exe
-          for f in target/release/bundle/nsis/*.nsis.zip; do
-            [ -f "$f" ] && cp "$f" artifacts/nteract-windows-x64.nsis.zip
-          done
-          for f in target/release/bundle/nsis/*.nsis.zip.sig; do
-            [ -f "$f" ] && cp "$f" artifacts/nteract-windows-x64.nsis.zip.sig
-          done
+
+          NSIS_SIG_PATH="${NSIS_PATH}.sig"
+          if [ -f "$NSIS_SIG_PATH" ]; then
+            cp "$NSIS_SIG_PATH" artifacts/nteract-windows-x64.exe.sig
+          else
+            echo "::error::Missing updater signature for $NSIS_PATH"
+            exit 1
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -643,8 +654,7 @@ jobs:
           # Updater bundles + signatures
           cp notebook-macos-arm64/nteract-darwin-arm64.app.tar.gz release-assets/ 2>/dev/null || true
           cp notebook-macos-arm64/nteract-darwin-arm64.app.tar.gz.sig release-assets/ 2>/dev/null || true
-          cp notebook-windows-x64/nteract-windows-x64.nsis.zip release-assets/ 2>/dev/null || true
-          cp notebook-windows-x64/nteract-windows-x64.nsis.zip.sig release-assets/ 2>/dev/null || true
+          cp notebook-windows-x64/nteract-windows-x64.exe.sig release-assets/
           cp notebook-linux-x64/nteract-linux-x64.AppImage.sig release-assets/ 2>/dev/null || true
 
       - name: Generate updater manifest (latest.json)
@@ -660,7 +670,7 @@ jobs:
 
           SIG_DARWIN_ARM64=$(read_sig release-assets/nteract-darwin-arm64.app.tar.gz.sig)
           SIG_LINUX_X64=$(read_sig release-assets/nteract-linux-x64.AppImage.sig)
-          SIG_WINDOWS_X64=$(read_sig release-assets/nteract-windows-x64.nsis.zip.sig)
+          SIG_WINDOWS_X64=$(read_sig release-assets/nteract-windows-x64.exe.sig)
 
           jq -n \
             --arg version "$VERSION" \
@@ -671,7 +681,7 @@ jobs:
             --arg sig_linux_x64 "$SIG_LINUX_X64" \
             --arg url_linux_x64 "$RELEASE_BASE/nteract-linux-x64.AppImage" \
             --arg sig_windows_x64 "$SIG_WINDOWS_X64" \
-            --arg url_windows_x64 "$RELEASE_BASE/nteract-windows-x64.nsis.zip" \
+            --arg url_windows_x64 "$RELEASE_BASE/nteract-windows-x64.exe" \
             '{
               version: $version,
               notes: $notes,
@@ -749,8 +759,7 @@ jobs:
             ./release-assets/nteract-darwin-arm64.app.tar.gz
             ./release-assets/nteract-darwin-arm64.app.tar.gz.sig
             ./release-assets/nteract-windows-x64.exe
-            ./release-assets/nteract-windows-x64.nsis.zip
-            ./release-assets/nteract-windows-x64.nsis.zip.sig
+            ./release-assets/nteract-windows-x64.exe.sig
             ./release-assets/latest.json
             ./wheels/*.whl
 
