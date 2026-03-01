@@ -100,6 +100,7 @@ async fn main() -> anyhow::Result<()> {
         Ok(NotebookResponse::KernelLaunched {
             kernel_type,
             env_source,
+            ..
         }) => {
             println!("✅ Kernel launched!");
             println!("   kernel_type: {}", kernel_type);

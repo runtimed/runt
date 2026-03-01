@@ -198,7 +198,17 @@ export type DaemonBroadcast =
   | ({
       event: "env_progress";
       env_type: "conda" | "uv";
-    } & EnvProgressPhase);
+    } & EnvProgressPhase)
+  | {
+      event: "env_sync_state";
+      in_sync: boolean;
+      diff?: {
+        added: string[];
+        removed: string[];
+        channels_changed: boolean;
+        deno_changed: boolean;
+      };
+    };
 
 /** Response types from daemon notebook requests */
 export type DaemonNotebookResponse =

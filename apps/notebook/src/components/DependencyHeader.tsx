@@ -100,24 +100,26 @@ export function DependencyHeader({
           </div>
         )}
 
-        {/* Sync Now notice for dirty environment */}
+        {/* Environment drift notice - kernel restart needed */}
         {syncState?.status === "dirty" && onSyncNow && (
           <div className="mb-3 flex items-center justify-between rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
             <div className="flex items-center gap-2">
               <Info className="h-3.5 w-3.5 shrink-0" />
               <span>
+                Restart kernel to use{" "}
                 {syncState.added.length > 0 && (
                   <span>
-                    {syncState.added.length} package
-                    {syncState.added.length > 1 ? "s" : ""} to install
+                    {syncState.added.length} new package
+                    {syncState.added.length > 1 ? "s" : ""}
                   </span>
                 )}
                 {syncState.added.length > 0 &&
                   syncState.removed.length > 0 &&
-                  ", "}
+                  " and remove "}
                 {syncState.removed.length > 0 && (
                   <span>
-                    {syncState.removed.length} removed (restart to uninstall)
+                    {syncState.removed.length} package
+                    {syncState.removed.length > 1 ? "s" : ""}
                   </span>
                 )}
               </span>
@@ -126,13 +128,13 @@ export function DependencyHeader({
               type="button"
               onClick={onSyncNow}
               disabled={loading}
-              data-testid="deps-sync-button"
+              data-testid="deps-restart-button"
               className="flex items-center gap-1 rounded bg-amber-600 px-2 py-0.5 text-white text-xs font-medium hover:bg-amber-700 transition-colors disabled:opacity-50"
             >
               <RefreshCw
                 className={`h-3 w-3 ${loading ? "animate-spin" : ""}`}
               />
-              Sync Now
+              Restart
             </button>
           </div>
         )}

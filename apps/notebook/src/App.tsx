@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IsolationTest } from "@/components/isolated";
 import { MediaProvider } from "@/components/outputs/media-provider";
 import {
@@ -25,7 +25,7 @@ import { TrustDialog } from "./components/TrustDialog";
 import { useCondaDependencies } from "./hooks/useCondaDependencies";
 import { useDaemonKernel } from "./hooks/useDaemonKernel";
 import { useDenoDependencies } from "./hooks/useDenoDependencies";
-import { useDependencies } from "./hooks/useDependencies";
+import { type EnvSyncState, useDependencies } from "./hooks/useDependencies";
 import { useEnvProgress } from "./hooks/useEnvProgress";
 import { useDaemonInfo, useGitInfo } from "./hooks/useGitInfo";
 import { useNotebook } from "./hooks/useNotebook";
@@ -239,6 +239,7 @@ function AppContent() {
     kernelStatus,
     kernelInfo,
     queueState,
+    envSyncState,
     launchKernel,
     executeCell,
     clearOutputs,
@@ -322,6 +323,30 @@ function AppContent() {
   // Environment preparation progress
   const envProgress = useEnvProgress();
 
+  // Derive sync state from daemon's envSyncState for inline environments
+  // This overrides the disabled syncState from useDependencies/useCondaDependencies
+  const uvDerivedSyncState: EnvSyncState | null = useMemo(() => {
+    // Only show for uv:inline environments
+    if (envSource !== "uv:inline" || !envSyncState) return null;
+    if (envSyncState.inSync) return { status: "synced" };
+    return {
+      status: "dirty",
+      added: envSyncState.diff?.added ?? [],
+      removed: envSyncState.diff?.removed ?? [],
+    };
+  }, [envSource, envSyncState]);
+
+  const condaDerivedSyncState: EnvSyncState | null = useMemo(() => {
+    // Only show for conda:inline environments
+    if (envSource !== "conda:inline" || !envSyncState) return null;
+    if (envSyncState.inSync) return { status: "synced" };
+    return {
+      status: "dirty",
+      added: envSyncState.diff?.added ?? [],
+      removed: envSyncState.diff?.removed ?? [],
+    };
+  }, [envSource, envSyncState]);
+
   // Check trust and start kernel if trusted, otherwise show dialog.
   // Returns true if kernel was started, false if trust dialog opened or error.
   const tryStartKernel = useCallback(async (): Promise<boolean> => {
@@ -344,6 +369,26 @@ function AppContent() {
     setTrustDialogOpen(true);
     return false;
   }, [checkTrust, launchKernel]);
+
+  // Handler to restart kernel with updated deps
+  // Checks trust before shutdown to avoid losing kernel if user declines
+  const handleSyncDeps = useCallback(async (): Promise<boolean> => {
+    // Check trust first - don't shut down if we can't restart
+    const info = await checkTrust();
+    if (!info) return false;
+
+    if (info.status === "trusted" || info.status === "no_dependencies") {
+      // Safe to restart - deps are trusted
+      await shutdownKernel();
+      return tryStartKernel();
+    }
+
+    // Untrusted - show dialog, don't shut down until user approves
+    // The dialog will handle restart if user approves
+    pendingKernelStartRef.current = true;
+    setTrustDialogOpen(true);
+    return false;
+  }, [checkTrust, shutdownKernel, tryStartKernel]);
 
   // Restart and run all cells
   const restartAndRunAll = useCallback(async () => {
@@ -859,14 +904,14 @@ function AppContent() {
           python={condaDependencies?.python ?? null}
           loading={condaDepsLoading}
           syncing={condaSyncing}
-          syncState={condaSyncState}
+          syncState={condaDerivedSyncState ?? condaSyncState}
           syncedWhileRunning={condaSyncedWhileRunning}
           needsKernelRestart={condaNeedsKernelRestart}
           onAdd={addCondaDependency}
           onRemove={removeCondaDependency}
           onSetChannels={setCondaChannels}
           onSetPython={setCondaPython}
-          onSyncNow={syncCondaNow}
+          onSyncNow={condaDerivedSyncState ? handleSyncDeps : syncCondaNow}
           envProgress={envProgress.envType === "conda" ? envProgress : null}
           onResetProgress={envProgress.reset}
           environmentYmlInfo={environmentYmlInfo}
@@ -885,8 +930,8 @@ function AppContent() {
           needsKernelRestart={needsKernelRestart}
           onAdd={addDependency}
           onRemove={removeDependency}
-          syncState={syncState}
-          onSyncNow={syncNow}
+          syncState={uvDerivedSyncState ?? syncState}
+          onSyncNow={uvDerivedSyncState ? handleSyncDeps : syncNow}
           pyprojectInfo={pyprojectInfo}
           pyprojectDeps={pyprojectDeps}
           onImportFromPyproject={importFromPyproject}
