@@ -47,9 +47,9 @@ Settings are persisted to a JSON file shared across all notebook windows. Both t
 
 | Platform | Path |
 |----------|------|
-| macOS | `~/Library/Application Support/runt-notebook/settings.json` |
-| Linux | `~/.config/runt-notebook/settings.json` |
-| Windows | `C:\Users\<User>\AppData\Roaming\runt-notebook\settings.json` |
+| macOS | `~/Library/Application Support/nteract/settings.json` |
+| Linux | `~/.config/nteract/settings.json` |
+| Windows | `C:\Users\<User>\AppData\Roaming\nteract\settings.json` |
 
 The file is created automatically when you first change a setting. You can also edit it by hand — changes are detected and applied automatically when the daemon is running.
 

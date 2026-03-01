@@ -258,9 +258,9 @@ runt daemon uninstall
 
 macOS:
 ```bash
-launchctl bootout gui/$(id -u)/io.runtimed
-launchctl list | grep io.runtimed
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.runtimed.plist
+launchctl bootout gui/$(id -u)/io.nteract.runtimed
+launchctl list | grep io.nteract.runtimed
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.nteract.runtimed.plist
 ```
 
 Linux:
@@ -274,7 +274,7 @@ systemctl --user start runtimed.service
 | File | Path |
 |------|------|
 | Installed binary | `~/Library/Application Support/runt/bin/runtimed` |
-| Service config | `~/Library/LaunchAgents/io.runtimed.plist` |
+| Service config | `~/Library/LaunchAgents/io.nteract.runtimed.plist` |
 | Socket | `~/Library/Caches/runt/runtimed.sock` |
 | Daemon info | `~/Library/Caches/runt/daemon.json` |
 | Logs | `~/Library/Caches/runt/runtimed.log` |

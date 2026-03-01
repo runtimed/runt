@@ -117,13 +117,13 @@ Length-prefixed binary framing over a single Unix socket (Unix) or named pipe (W
 
 ### Settings.json file watcher
 
-The daemon watches `~/.config/runt-notebook/settings.json` for external edits. Changes are debounced (500ms), applied to the Automerge settings doc, persisted as Automerge binary (not back to JSON, to avoid formatting churn), and broadcast to all connected sync clients.
+The daemon watches `~/.config/nteract/settings.json` for external edits. Changes are debounced (500ms), applied to the Automerge settings doc, persisted as Automerge binary (not back to JSON, to avoid formatting churn), and broadcast to all connected sync clients.
 
 ### Service management
 
 | Platform | Mechanism |
 |----------|-----------|
-| macOS | launchd user agent (`~/Library/LaunchAgents/io.runtimed.plist`) |
+| macOS | launchd user agent (`~/Library/LaunchAgents/io.nteract.runtimed.plist`) |
 | Linux | systemd user service (`~/.config/systemd/user/runtimed.service`) |
 | Windows | VBS script in Startup folder |
 
@@ -175,7 +175,7 @@ ROOT/
     default_packages: ["scipy"]
 ```
 
-The daemon holds the canonical document, persisted to `~/.cache/runt/settings.automerge` with a JSON mirror at `~/.config/runt-notebook/settings.json`. Backward-compatible migration from flat keys (`default_uv_packages: "numpy, pandas"`) to nested structures.
+The daemon holds the canonical document, persisted to `~/.cache/runt/settings.automerge` with a JSON mirror at `~/.config/nteract/settings.json`. Backward-compatible migration from flat keys (`default_uv_packages: "numpy, pandas"`) to nested structures.
 
 **Wire protocol**: Length-prefixed binary frames (4-byte BE length + Automerge sync message). Bidirectional, long-lived connections. Broadcast channel notifies all peers when any peer changes a setting.
 

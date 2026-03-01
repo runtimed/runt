@@ -72,7 +72,7 @@ See the `contributing/` directory for detailed guides:
 
 ## Runtime Daemon (`runtimed`)
 
-The notebook app connects to a background daemon (`runtimed`) that manages prewarmed environments, settings sync, and notebook document sync. The daemon runs as a system service (`io.runtimed` on macOS).
+The notebook app connects to a background daemon (`runtimed`) that manages prewarmed environments, settings sync, and notebook document sync. The daemon runs as a system service (`io.nteract.runtimed` on macOS).
 
 **Important:** The daemon is a separate process from the notebook app. When you change code in `crates/runtimed/`, the running daemon still uses the old binary until you reinstall it. This is a common source of "it works in tests but not in the app" confusion.
 

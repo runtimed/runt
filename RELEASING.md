@@ -1,17 +1,40 @@
 # Releasing
 
-## Runt CLI & Sidecar
+## Release Streams
 
-`sidecar` and `runt-cli` are **not published to crates.io** (`publish = false`). Sidecar embeds UI assets from `packages/sidecar-ui/dist` via `rust-embed`, which requires files outside the crate directory — incompatible with `cargo publish`.
+| Stream | Tag | Trigger | Destination |
+|--------|-----|---------|-------------|
+| **Weekly preview** | `v{version}-preview.{sha}` | Cron (Monday 9am UTC) or manual | GitHub Releases (prerelease) |
+| **Stable desktop** | `v{semver}` | Manual `workflow_dispatch` | GitHub Releases |
+| **Python package** | `python-v{semver}` | Manual tag push | PyPI + GitHub Releases |
 
-These are distributed as:
+## Desktop App (nteract)
 
-- **Prebuilt binaries** via GitHub Releases (automated weekly preview releases)
-- **Python package** (`runtimed`) on PyPI, which bundles the `runt` binary
+The desktop app, `runt` CLI, `runtimed` daemon, and `sidecar` are all built and released together via `weekly-preview.yml`.
+
+Preview releases happen automatically every Monday. To cut a stable release, use the workflow dispatch with the stable flag.
+
+### Artifacts
+
+| Platform | File |
+|----------|------|
+| macOS ARM64 (Apple Silicon) | `nteract-darwin-arm64.dmg` |
+| macOS x64 (Intel) | `nteract-darwin-x64.dmg` |
+| Windows x64 | `nteract-windows-x64.exe` |
+| Linux x64 | `nteract-linux-x64.AppImage` |
+| CLI (macOS ARM64) | `runt-darwin-arm64` |
+| CLI (macOS x64) | `runt-darwin-x64` |
+| CLI (Linux x64) | `runt-linux-x64` |
+
+macOS builds are signed and notarized. Windows builds are not code signed.
+
+### Crate publishing
+
+`runt-cli` and `sidecar` are **not published to crates.io** (`publish = false`). Sidecar embeds UI assets from `apps/sidecar/dist/` via `rust-embed`, which requires files outside the crate directory.
 
 ## Python Package (runtimed)
 
-The Python package bundles the `runt` binary and is released separately.
+The `runtimed` Python package provides bindings for the daemon and is released separately.
 
 ### 1. Bump the version
 
@@ -29,8 +52,8 @@ git push origin python-v<version>
 ```
 
 The `python-package.yml` workflow triggers on `python-v*` tags and will:
-- Build wheels for macOS (arm64 + x64) and Linux (x64)
-- Publish to PyPI via trusted publishing
+- Build wheels for macOS (arm64 + x64)
+- Publish to PyPI via trusted publishing (OIDC)
 - Create a GitHub release with wheels and `runt` binaries
 
 ## Development
@@ -39,16 +62,34 @@ The `python-package.yml` workflow triggers on `python-v*` tags and will:
 
 ```bash
 pnpm install
-pnpm --dir packages/sidecar-ui build
-cargo build --release
+cargo xtask build
 ```
 
-### Testing with local runtimed library changes
+### Testing with local library changes
 
-To test against unpublished library changes, add to the root `Cargo.toml`:
+To test against unpublished runtimelib/jupyter-protocol changes, add to the root `Cargo.toml`:
 
 ```toml
 [patch.crates-io]
 runtimelib = { path = "../runtimed/crates/runtimelib" }
 jupyter-protocol = { path = "../runtimed/crates/jupyter-protocol" }
+```
+
+## Migration from runt-notebook
+
+If you have an older install from before the nteract rebrand:
+
+```bash
+# 1. Stop old daemon
+launchctl bootout gui/$(id -u)/io.runtimed  # macOS
+systemctl --user stop runtimed.service        # Linux
+
+# 2. Remove old service config
+rm ~/Library/LaunchAgents/io.runtimed.plist   # macOS
+
+# 3. Remove old settings (optional — recreated with defaults)
+rm -rf ~/Library/Application\ Support/runt-notebook  # macOS
+rm -rf ~/.config/runt-notebook                        # Linux
+
+# 4. Install nteract — registers the new daemon automatically
 ```
