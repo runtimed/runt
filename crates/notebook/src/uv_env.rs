@@ -169,23 +169,6 @@ pub async fn sync_dependencies(env: &UvEnvironment, deps: &[String]) -> Result<(
     kernel_env::uv::sync_dependencies(env, deps).await
 }
 
-/// No-op cleanup (cached environments are kept for reuse).
-pub async fn cleanup_environment(env: &UvEnvironment) -> Result<()> {
-    kernel_env::uv::cleanup_environment(env).await
-}
-
-/// Force remove a cached environment.
-#[allow(dead_code)]
-pub async fn remove_environment(env: &UvEnvironment) -> Result<()> {
-    kernel_env::uv::remove_environment(env).await
-}
-
-/// Clear all cached environments.
-#[allow(dead_code)]
-pub async fn clear_cache() -> Result<()> {
-    kernel_env::uv::clear_cache().await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

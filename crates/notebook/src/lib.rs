@@ -1,7 +1,6 @@
 pub mod cli_install;
 pub mod conda_env;
 pub mod deno_env;
-pub mod env_pool;
 pub mod environment_yml;
 pub mod format;
 pub mod menu;
@@ -68,10 +67,6 @@ impl WindowNotebookRegistry {
             .ok_or_else(|| format!("No notebook context for window '{label}'"))
     }
 }
-
-/// Newtype wrapper for auto-launch-in-progress flag (distinguishes from other AtomicBool states).
-#[allow(dead_code)]
-struct AutoLaunchInProgress(Arc<AtomicBool>);
 
 /// Newtype wrapper for reconnect-in-progress flag (distinguishes from other AtomicBool states).
 struct ReconnectInProgress(Arc<AtomicBool>);
@@ -688,42 +683,6 @@ async fn get_git_info() -> Option<GitInfo> {
     #[cfg(not(debug_assertions))]
     {
         None
-    }
-}
-
-/// Get the current status of the prewarming UV environment pool.
-/// Returns None in release builds.
-#[tauri::command]
-async fn get_prewarm_status(
-    pool: tauri::State<'_, env_pool::SharedEnvPool>,
-) -> Result<Option<env_pool::PoolStatus>, String> {
-    #[cfg(debug_assertions)]
-    {
-        let p = pool.lock().await;
-        Ok(Some(p.status()))
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = pool; // Silence unused warning
-        Ok(None)
-    }
-}
-
-/// Get the current status of the prewarming conda environment pool.
-/// Returns None in release builds.
-#[tauri::command]
-async fn get_conda_pool_status(
-    pool: tauri::State<'_, env_pool::SharedCondaEnvPool>,
-) -> Result<Option<env_pool::CondaPoolStatus>, String> {
-    #[cfg(debug_assertions)]
-    {
-        let p = pool.lock().await;
-        Ok(Some(p.status()))
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = pool; // Silence unused warning
-        Ok(None)
     }
 }
 
@@ -3133,34 +3092,13 @@ pub fn run(
         .insert("main", main_context.clone())
         .map_err(anyhow::Error::msg)?;
 
-    // Create the prewarming environment pools (UV and Conda)
-    let env_pool: env_pool::SharedEnvPool = Arc::new(tokio::sync::Mutex::new(
-        env_pool::EnvPool::new(env_pool::PoolConfig::default()),
-    ));
-    let conda_env_pool: env_pool::SharedCondaEnvPool = Arc::new(tokio::sync::Mutex::new(
-        env_pool::CondaEnvPool::new(env_pool::PoolConfig::default()),
-    ));
-
-    // Track auto-launch state for frontend to query
-    let auto_launch_in_progress = AutoLaunchInProgress(Arc::new(AtomicBool::new(false)));
-
     // Guard against concurrent reconnect attempts
     let reconnect_in_progress = ReconnectInProgress(Arc::new(AtomicBool::new(false)));
-
-    // Recovery completion flags - set when prewarming loops finish recovery
-    let uv_recovery_complete = Arc::new(AtomicBool::new(false));
-    let conda_recovery_complete = Arc::new(AtomicBool::new(false));
 
     // Daemon sync completion flag - set when notebook sync initialization completes
     // Used to coordinate auto-launch decision with daemon connection status
     let daemon_sync_complete = Arc::new(AtomicBool::new(false));
     let daemon_sync_success = Arc::new(AtomicBool::new(false));
-
-    // Clone for setup closure
-    let pool_for_prewarm = env_pool.clone();
-    let conda_pool_for_prewarm = conda_env_pool.clone();
-    let uv_recovery_for_prewarm = uv_recovery_complete.clone();
-    let conda_recovery_for_prewarm = conda_recovery_complete.clone();
 
     // Clone for notebook sync initialization
     let registry_for_sync = window_registry.clone();
@@ -3174,9 +3112,6 @@ pub fn run(
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(window_registry.clone())
-        .manage(env_pool)
-        .manage(conda_env_pool)
-        .manage(auto_launch_in_progress)
         .manage(reconnect_in_progress)
         .invoke_handler(tauri::generate_handler![
             // Notebook file operations
@@ -3259,8 +3194,6 @@ pub fn run(
             set_synced_setting,
             // Debug info
             get_git_info,
-            get_prewarm_status,
-            get_conda_pool_status,
             get_daemon_info,
             get_blob_port,
         ])
@@ -3376,17 +3309,6 @@ pub fn run(
                 }
                 // Signal that daemon sync attempt is complete (success or failure)
                 daemon_sync_complete_for_init.store(true, Ordering::SeqCst);
-            });
-
-            // Spawn the UV environment prewarming loop
-            let app_for_prewarm = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                env_pool::run_prewarming_loop(pool_for_prewarm, app_for_prewarm, uv_recovery_for_prewarm).await;
-            });
-
-            // Spawn the conda environment prewarming loop
-            tauri::async_runtime::spawn(async move {
-                env_pool::run_conda_prewarming_loop(conda_pool_for_prewarm, conda_recovery_for_prewarm).await;
             });
 
             // Wait for daemon sync to complete before considering startup done
