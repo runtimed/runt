@@ -1,16 +1,16 @@
-# Runt
+# nteract
 
-A fast, modern toolkit for Jupyter notebooks. Native desktop app with instant startup, real-time collaboration, and intelligent environment management.
+A fast, modern toolkit for Jupyter notebooks. Native desktop app with instant startup, realtime sync across windows and agents, and intelligent environment management.
 
 Built on [runtimelib](https://crates.io/crates/runtimelib) and [jupyter-protocol](https://crates.io/crates/jupyter-protocol).
 
 ## Install
 
-```bash
-curl https://i.safia.sh/runtimed/runt | sh
-```
+Download the latest release from [GitHub Releases](https://github.com/nteract/desktop/releases).
 
-Or via pip:
+The desktop app bundles everything — `runt` CLI, `runtimed` daemon, and `sidecar`.
+
+The Python bindings are available on PyPI:
 
 ```bash
 pip install runtimed
@@ -18,45 +18,44 @@ pip install runtimed
 
 ## What's in here
 
-|  App  | Description |
+| Component | Description |
 |-----------|-------------|
+| `nteract` | Desktop notebook editor (Tauri + React) |
+| `runtimed` | Background daemon — environment pools, notebook sync, kernel execution |
 | `runt` | CLI for managing kernels, notebooks, and the daemon |
-| `runtimed` | Background daemon managing environment pools, notebook sync, and kernel execution |
-| `notebook` | Desktop notebook editor (Tauri + React) |
-| `sidecar` | Desktop viewer for Jupyter kernel outputs |
-| `runtimed` (PyPI) | Python package bundling the `runt` binary |
+| `sidecar` | Viewer for Jupyter kernel outputs |
+| `runtimed` (PyPI) | Python bindings for the daemon |
 
 ## Usage
 
 ```bash
-# List all kernels (connection-file and daemon-managed)
-runt ps
-
-# Launch notebook editor
-runt notebook [path/to/notebook.ipynb]
+# Open a notebook
+runt notebook path/to/notebook.ipynb
 
 # Interactive console
 runt console
 
 # Daemon management
-runt daemon status     # Check daemon and pool status
-runt daemon start      # Start the daemon service
-runt daemon stop       # Stop the daemon service
-runt daemon logs -f    # Tail daemon logs
+runt daemon status
+runt daemon logs -f
+```
 
-# List open notebooks with kernel info
-runt notebooks
+List open notebooks with kernel and environment info:
 
-# Jupyter kernel utilities
-runt jupyter start python3    # Start a connection-file kernel
-runt jupyter stop --all       # Stop all connection-file kernels
-runt jupyter sidecar <file>   # Launch sidecar output viewer
+```
+$ runt notebooks
+╭──────────────────────────────────────┬────────┬──────────────┬────────┬───────╮
+│ NOTEBOOK                             │ KERNEL │ ENV          │ STATUS │ PEERS │
+├──────────────────────────────────────┼────────┼──────────────┼────────┼───────┤
+│ ~/notebooks/blobstore.ipynb          │ python │ uv:inline    │ idle   │ 1     │
+│ d4c441d3-d862-4ab0-afe6-ff9145cc2f3d │ python │ uv:prewarmed │ idle   │ 1     │
+╰──────────────────────────────────────┴────────┴──────────────┴────────┴───────╯
 ```
 
 ## Project structure
 
 ```
-runt/
+nteract/desktop
 ├── src/                    # Shared UI code (React components, hooks, utilities)
 │   ├── components/
 │   │   ├── ui/            # shadcn primitives (button, dialog, etc.)
@@ -97,12 +96,8 @@ sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev
 ### Quick start
 
 ```bash
-# Install dependencies
 pnpm install
-
-# Build everything
-pnpm build
-cargo build --release
+cargo xtask build
 ```
 
 ### Development workflows
@@ -118,30 +113,6 @@ cargo build --release
 | Release .app | `cargo xtask build-app` | Testing app bundle locally |
 | Release DMG | `cargo xtask build-dmg` | Distribution (usually CI) |
 
-**Hot reload** connects to Vite dev server (port 5174) for instant UI updates.
-
-**Multi-window testing**: Use `cargo xtask vite` + `cargo xtask dev --attach` to keep Vite running when closing/reopening Tauri windows.
-
-**Daemon iteration**: Use `cargo xtask build` once, then `cargo xtask build --rust-only` for fast rebuilds when only changing Rust code.
-
-### Sidecar UI development
-
-```bash
-pnpm --dir apps/sidecar dev
-```
-
-Both apps share components from `src/`. Changes there are reflected in both.
-
-### Adding shadcn components
-
-Run from the repo root:
-
-```bash
-npx shadcn@latest add <component>
-```
-
-Components are added to `src/components/ui/`.
-
 ### Build order
 
 The UI must be built before Rust because:
@@ -151,28 +122,19 @@ The UI must be built before Rust because:
 ### Common commands
 
 ```bash
-# Build all UIs
-pnpm build
-
-# Build specific app
-pnpm --dir apps/notebook build
-pnpm --dir apps/sidecar build
-
-# Run tests
-cargo test
-
-# Lint
-cargo clippy --all-targets -- -D warnings
-
-# Format
-cargo fmt
+pnpm build                          # Build all UIs
+cargo test                          # Run Rust tests
+pnpm test:run                       # Run JS tests
+cargo fmt                           # Format Rust
+npx @biomejs/biome check --fix apps/notebook/src/ e2e/  # Format JS
+cargo clippy --all-targets -- -D warnings               # Lint Rust
 ```
 
 ## Library crates
 
-The underlying Rust libraries live in [runtimed/runtimed](https://github.com/runtimed/runtimed) and are published to crates.io:
+The underlying Rust libraries are published to crates.io:
 
-- [`jupyter-protocol`](https://crates.io/crates/jupyter-protocol) — Core Jupyter messaging
+- [`jupyter-protocol`](https://crates.io/crates/jupyter-protocol) — Jupyter messaging protocol
 - [`runtimelib`](https://crates.io/crates/runtimelib) — Jupyter kernel interactions over ZeroMQ
 - [`nbformat`](https://crates.io/crates/nbformat) — Notebook parsing
 
