@@ -2719,6 +2719,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "kernel-env"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs 5.0.1",
+ "hex",
+ "kernel-launch",
+ "log",
+ "rattler",
+ "rattler_cache",
+ "rattler_conda_types",
+ "rattler_repodata_gateway",
+ "rattler_solve",
+ "rattler_virtual_packages",
+ "reqwest 0.12.28",
+ "reqwest-middleware",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "kernel-launch"
 version = "0.1.0"
 dependencies = [
@@ -3266,6 +3291,7 @@ dependencies = [
  "hex",
  "hmac",
  "jupyter-protocol",
+ "kernel-env",
  "kernel-launch",
  "log",
  "nbformat",
@@ -5240,6 +5266,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jupyter-protocol",
+ "kernel-env",
  "kernel-launch",
  "libc",
  "log",

@@ -859,6 +859,8 @@ async fn save_notebook(
 
 /// Save notebook to a specific path (Save As).
 /// Formats all code cells before saving.
+// TODO(automerge-metadata): Same as save_notebook — delegate disk write to the
+// daemon via Automerge sync once the daemon owns persistence.
 #[tauri::command]
 async fn save_notebook_as(
     path: String,

@@ -387,6 +387,16 @@ pub enum NotebookBroadcast {
         /// All active comm snapshots
         comms: Vec<CommSnapshot>,
     },
+
+    /// Environment progress update during kernel launch.
+    ///
+    /// Carries rich progress phases (repodata, solve, download, link)
+    /// from `kernel_env` so the frontend can display detailed status.
+    EnvProgress {
+        env_type: String,
+        #[serde(flatten)]
+        phase: kernel_env::EnvProgressPhase,
+    },
 }
 
 // =============================================================================

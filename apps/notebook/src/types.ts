@@ -95,6 +95,8 @@ export type EnvProgressPhase =
       current_package: string;
     }
   | { phase: "install_complete"; elapsed_ms: number }
+  | { phase: "creating_venv" }
+  | { phase: "installing_packages"; packages: string[] }
   | { phase: "ready"; env_path: string; python_path: string }
   | { phase: "error"; message: string };
 
@@ -192,7 +194,11 @@ export type DaemonBroadcast =
   | {
       event: "comm_sync";
       comms: CommSnapshot[]; // All active comms for widget reconstruction
-    };
+    }
+  | ({
+      event: "env_progress";
+      env_type: "conda" | "uv";
+    } & EnvProgressPhase);
 
 /** Response types from daemon notebook requests */
 export type DaemonNotebookResponse =
