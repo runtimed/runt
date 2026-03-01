@@ -1036,5 +1036,339 @@ class TestProjectFileDetection:
             os.unlink(notebook_path)
 
 
+# ============================================================================
+# AsyncSession tests
+# ============================================================================
+
+
+@pytest.fixture
+async def async_session(daemon_process, monkeypatch):
+    """Create a fresh AsyncSession for each test."""
+    socket_path, _ = daemon_process
+
+    # Set socket path env var so AsyncSession.connect() uses the right daemon
+    if socket_path is not None:
+        monkeypatch.setenv("RUNTIMED_SOCKET_PATH", str(socket_path))
+
+    # Create session with unique notebook ID
+    notebook_id = f"async-test-{uuid.uuid4()}"
+    sess = runtimed.AsyncSession(notebook_id=notebook_id)
+
+    await sess.connect()
+    yield sess
+
+    # Cleanup: shutdown kernel if running
+    try:
+        if await sess.kernel_started():
+            await sess.shutdown_kernel()
+    except Exception:
+        pass
+
+
+@pytest.fixture
+async def two_async_sessions(daemon_process, monkeypatch):
+    """Create two async sessions connected to the same notebook."""
+    socket_path, _ = daemon_process
+
+    if socket_path is not None:
+        monkeypatch.setenv("RUNTIMED_SOCKET_PATH", str(socket_path))
+
+    notebook_id = f"async-test-{uuid.uuid4()}"
+
+    session1 = runtimed.AsyncSession(notebook_id=notebook_id)
+    await session1.connect()
+
+    session2 = runtimed.AsyncSession(notebook_id=notebook_id)
+    await session2.connect()
+
+    yield session1, session2
+
+    # Cleanup
+    for sess in [session1, session2]:
+        try:
+            if await sess.kernel_started():
+                await sess.shutdown_kernel()
+        except Exception:
+            pass
+
+
+class TestAsyncBasicConnectivity:
+    """Test basic daemon connectivity with AsyncSession."""
+
+    @pytest.mark.asyncio
+    async def test_async_session_connect(self, async_session):
+        """AsyncSession can connect to daemon."""
+        assert await async_session.is_connected()
+
+    @pytest.mark.asyncio
+    async def test_async_session_repr(self, async_session):
+        """AsyncSession has useful repr."""
+        r = repr(async_session)
+        assert "AsyncSession" in r
+        assert async_session.notebook_id in r
+
+
+class TestAsyncDocumentFirstExecution:
+    """Test document-first execution pattern with AsyncSession."""
+
+    @pytest.mark.asyncio
+    async def test_async_create_cell(self, async_session):
+        """Can create a cell in the document."""
+        cell_id = await async_session.create_cell("x = 1")
+
+        assert cell_id.startswith("cell-")
+
+        # Verify cell exists in document
+        cell = await async_session.get_cell(cell_id)
+        assert cell.id == cell_id
+        assert cell.source == "x = 1"
+        assert cell.cell_type == "code"
+
+    @pytest.mark.asyncio
+    async def test_async_update_cell_source(self, async_session):
+        """Can update cell source in document."""
+        cell_id = await async_session.create_cell("original")
+        await async_session.set_source(cell_id, "updated")
+
+        cell = await async_session.get_cell(cell_id)
+        assert cell.source == "updated"
+
+    @pytest.mark.asyncio
+    async def test_async_get_cells(self, async_session):
+        """Can list all cells in document."""
+        cell_ids = [
+            await async_session.create_cell("a = 1"),
+            await async_session.create_cell("b = 2"),
+            await async_session.create_cell("c = 3"),
+        ]
+
+        cells = await async_session.get_cells()
+        assert len(cells) >= 3
+
+        found_ids = {c.id for c in cells}
+        for cid in cell_ids:
+            assert cid in found_ids
+
+    @pytest.mark.asyncio
+    async def test_async_delete_cell(self, async_session):
+        """Can delete a cell from document."""
+        cell_id = await async_session.create_cell("to_delete")
+        await async_session.delete_cell(cell_id)
+
+        with pytest.raises(runtimed.RuntimedError, match="not found"):
+            await async_session.get_cell(cell_id)
+
+    @pytest.mark.asyncio
+    async def test_async_execute_cell_reads_from_document(self, async_session):
+        """execute_cell reads source from the synced document."""
+        await async_session.start_kernel()
+
+        cell_id = await async_session.create_cell("result = 2 + 2; print(result)")
+        result = await async_session.execute_cell(cell_id)
+
+        assert result.success
+        assert "4" in result.stdout
+        assert result.cell_id == cell_id
+        assert result.execution_count is not None
+
+    @pytest.mark.asyncio
+    async def test_async_run_convenience_method(self, async_session):
+        """run() is a shortcut for create_cell + execute_cell."""
+        await async_session.start_kernel()
+
+        result = await async_session.run("print('hello from async run')")
+
+        assert result.success
+        assert "hello from async run" in result.stdout
+
+    @pytest.mark.asyncio
+    async def test_async_execution_error_captured(self, async_session):
+        """Execution errors are captured in result."""
+        await async_session.start_kernel()
+
+        result = await async_session.run("raise ValueError('async test error')")
+
+        assert not result.success
+        assert result.error is not None
+        assert "ValueError" in result.error.ename
+
+    @pytest.mark.asyncio
+    async def test_async_multiple_executions(self, async_session):
+        """Can execute multiple cells sequentially."""
+        await async_session.start_kernel()
+
+        r1 = await async_session.run("x = 10")
+        assert r1.success
+
+        r2 = await async_session.run("y = x * 2")
+        assert r2.success
+
+        r3 = await async_session.run("print(f'y = {y}')")
+        assert r3.success
+        assert "y = 20" in r3.stdout
+
+
+class TestAsyncMultiClientSync:
+    """Test multi-client scenarios with AsyncSession."""
+
+    @pytest.mark.asyncio
+    async def test_async_two_sessions_same_notebook(self, two_async_sessions):
+        """Two async sessions can connect to the same notebook."""
+        s1, s2 = two_async_sessions
+
+        assert await s1.is_connected()
+        assert await s2.is_connected()
+        assert s1.notebook_id == s2.notebook_id
+
+    @pytest.mark.asyncio
+    async def test_async_cell_created_by_one_visible_to_other(self, two_async_sessions):
+        """Cell created by session 1 is visible to session 2."""
+        import asyncio
+
+        s1, s2 = two_async_sessions
+
+        cell_id = await s1.create_cell("async_shared_var = 42")
+        await asyncio.sleep(0.5)
+
+        cells = await s2.get_cells()
+        found = [c for c in cells if c.id == cell_id]
+        assert len(found) == 1
+        assert found[0].source == "async_shared_var = 42"
+
+    @pytest.mark.asyncio
+    async def test_async_shared_kernel_execution(self, two_async_sessions):
+        """Both sessions share the same kernel and execution state."""
+        import asyncio
+
+        s1, s2 = two_async_sessions
+
+        await s1.start_kernel()
+        await s2.start_kernel()  # No-op in daemon
+        await asyncio.sleep(0.5)
+
+        r1 = await s1.run("async_shared = 'from async s1'")
+        assert r1.success
+
+        r2 = await s2.run("print(async_shared)")
+        assert r2.success
+        assert "from async s1" in r2.stdout
+
+
+class TestAsyncKernelLifecycle:
+    """Test kernel lifecycle management with AsyncSession."""
+
+    @pytest.mark.asyncio
+    async def test_async_start_kernel(self, async_session):
+        """Can start a kernel."""
+        assert not await async_session.kernel_started()
+
+        await async_session.start_kernel()
+
+        assert await async_session.kernel_started()
+        assert await async_session.env_source() is not None
+
+    @pytest.mark.asyncio
+    async def test_async_kernel_interrupt(self, async_session):
+        """Can interrupt a running kernel."""
+        await async_session.start_kernel()
+        await async_session.interrupt()  # Should not raise
+
+    @pytest.mark.asyncio
+    async def test_async_shutdown_kernel(self, async_session):
+        """Can shutdown the kernel."""
+        await async_session.start_kernel()
+        assert await async_session.kernel_started()
+
+        await async_session.shutdown_kernel()
+        assert not await async_session.kernel_started()
+
+
+class TestAsyncOutputTypes:
+    """Test different output types from execution with AsyncSession."""
+
+    @pytest.mark.asyncio
+    async def test_async_stdout_output(self, async_session):
+        """Captures stdout output."""
+        await async_session.start_kernel()
+
+        result = await async_session.run("print('async hello stdout')")
+
+        assert result.success
+        assert result.stdout == "async hello stdout\n"
+
+    @pytest.mark.asyncio
+    async def test_async_stderr_output(self, async_session):
+        """Captures stderr output."""
+        await async_session.start_kernel()
+
+        result = await async_session.run("import sys; sys.stderr.write('async hello stderr\\n')")
+
+        assert result.success
+        assert "async hello stderr" in result.stderr
+
+    @pytest.mark.asyncio
+    async def test_async_return_value(self, async_session):
+        """Captures expression return value."""
+        await async_session.start_kernel()
+
+        result = await async_session.run("2 + 2")
+
+        assert result.success
+        display = result.display_data
+        assert len(display) > 0
+
+
+class TestAsyncErrorHandling:
+    """Test error handling scenarios with AsyncSession."""
+
+    @pytest.mark.asyncio
+    async def test_async_get_nonexistent_cell(self, async_session):
+        """Getting nonexistent cell raises error."""
+        with pytest.raises(runtimed.RuntimedError, match="not found"):
+            await async_session.get_cell("cell-does-not-exist")
+
+    @pytest.mark.asyncio
+    async def test_async_syntax_error(self, async_session):
+        """Syntax errors are captured."""
+        await async_session.start_kernel()
+
+        result = await async_session.run("def broken(")
+
+        assert not result.success
+        assert result.error is not None
+        assert "SyntaxError" in result.error.ename
+
+
+class TestAsyncContextManager:
+    """Test async context manager functionality."""
+
+    @pytest.mark.asyncio
+    async def test_async_context_manager(self, daemon_process, monkeypatch):
+        """AsyncSession works as async context manager."""
+        socket_path, _ = daemon_process
+
+        if socket_path is not None:
+            monkeypatch.setenv("RUNTIMED_SOCKET_PATH", str(socket_path))
+
+        notebook_id = f"async-ctx-test-{uuid.uuid4()}"
+
+        async with runtimed.AsyncSession(notebook_id=notebook_id) as session:
+            await session.connect()
+            await session.start_kernel()
+
+            result = await session.run("print('context manager works')")
+            assert result.success
+            assert "context manager works" in result.stdout
+
+        # After exit, kernel should be shut down
+        # Verify by checking the room no longer has an active kernel
+        client = runtimed.DaemonClient()
+        rooms = client.list_rooms()
+        room = next((r for r in rooms if r["notebook_id"] == notebook_id), None)
+        # Room may be gone entirely or kernel should not be running
+        if room is not None:
+            assert not room.get("kernel_running", False), "Kernel should be shut down after context exit"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

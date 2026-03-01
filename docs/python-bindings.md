@@ -15,6 +15,8 @@ uv run maturin develop
 
 ## Quick Start
 
+### Synchronous API
+
 ```python
 import runtimed
 
@@ -23,6 +25,21 @@ with runtimed.Session() as session:
     session.start_kernel()
     result = session.run("print('hello')")
     print(result.stdout)  # "hello\n"
+```
+
+### Async API
+
+```python
+import asyncio
+import runtimed
+
+async def main():
+    async with runtimed.AsyncSession() as session:
+        await session.start_kernel()
+        result = await session.run("print('hello async')")
+        print(result.stdout)  # "hello async\n"
+
+asyncio.run(main())
 ```
 
 ## Session API
@@ -109,6 +126,106 @@ with runtimed.Session() as session:
 | `is_connected` | `bool` | Whether connected to daemon |
 | `kernel_started` | `bool` | Whether kernel is running |
 | `env_source` | `str \| None` | Environment source (e.g., "uv:prewarmed") |
+
+## AsyncSession API
+
+The `AsyncSession` class provides the same functionality as `Session` but with an async API for use in async Python code.
+
+### Quick Start
+
+```python
+import asyncio
+import runtimed
+
+async def main():
+    async with runtimed.AsyncSession() as session:
+        await session.start_kernel()
+        result = await session.run("print('hello async')")
+        print(result.stdout)  # "hello async\n"
+
+asyncio.run(main())
+```
+
+### Creating an AsyncSession
+
+```python
+# Auto-generated notebook ID
+session = runtimed.AsyncSession()
+
+# Explicit notebook ID (allows sharing between sessions)
+session = runtimed.AsyncSession(notebook_id="my-notebook")
+```
+
+### Kernel Lifecycle
+
+```python
+await session.connect()              # Connect to daemon
+await session.start_kernel()         # Launch Python kernel
+await session.start_kernel(kernel_type="deno")  # Launch Deno kernel
+await session.interrupt()            # Interrupt running execution
+await session.shutdown_kernel()      # Stop the kernel
+```
+
+### Code Execution
+
+```python
+# Simple execution
+result = await session.run("x = 42")
+result = await session.run("print(x)")
+
+# Check results
+print(result.success)         # True if no error
+print(result.stdout)          # Captured stdout
+print(result.stderr)          # Captured stderr
+```
+
+### Document-First Execution
+
+```python
+# Create a cell in the automerge document
+cell_id = await session.create_cell("x = 10")
+
+# Update cell source
+await session.set_source(cell_id, "x = 20")
+
+# Execute by cell ID (daemon reads source from document)
+result = await session.execute_cell(cell_id)
+
+# Read cell state
+cell = await session.get_cell(cell_id)
+print(cell.source)  # "x = 20"
+
+# List all cells
+cells = await session.get_cells()
+
+# Delete a cell
+await session.delete_cell(cell_id)
+```
+
+### Async Context Manager
+
+AsyncSession works as an async context manager for automatic cleanup:
+
+```python
+async with runtimed.AsyncSession() as session:
+    await session.start_kernel()
+    result = await session.run("1 + 1")
+# Kernel automatically shut down on exit
+```
+
+### Async Properties
+
+Note that property accessors are async methods in AsyncSession:
+
+```python
+# These are coroutines, not properties
+connected = await session.is_connected()     # bool
+kernel_running = await session.kernel_started()  # bool
+env = await session.env_source()             # str | None
+
+# Only notebook_id is a sync property
+notebook_id = session.notebook_id  # str
+```
 
 ## DaemonClient API
 

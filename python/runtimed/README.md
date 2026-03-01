@@ -10,6 +10,8 @@ pip install runtimed
 
 ## Quick Start
 
+### Synchronous API
+
 ```python
 import runtimed
 
@@ -19,9 +21,25 @@ with runtimed.Session() as session:
     print(result.stdout)  # "hello\n"
 ```
 
+### Async API
+
+```python
+import asyncio
+import runtimed
+
+async def main():
+    async with runtimed.AsyncSession() as session:
+        await session.start_kernel()
+        result = await session.run("print('hello async')")
+        print(result.stdout)
+
+asyncio.run(main())
+```
+
 ## Features
 
 - **Code execution** via daemon-managed kernels
+- **Sync and async APIs** for flexibility
 - **Document-first model** with automerge sync
 - **Multi-client support** for shared notebooks
 - **Rich output capture** (stdout, stderr, display_data, errors)
@@ -43,6 +61,16 @@ result = session.execute_cell(cell_id)
 print(result.success)
 print(result.stdout)
 print(result.error)
+```
+
+## AsyncSession API
+
+```python
+async with runtimed.AsyncSession(notebook_id="my-notebook") as session:
+    await session.start_kernel()
+    result = await session.run("x = 42")
+    cell_id = await session.create_cell("print(x)")
+    result = await session.execute_cell(cell_id)
 ```
 
 ## DaemonClient API
