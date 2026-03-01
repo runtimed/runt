@@ -408,10 +408,9 @@ function AppContent() {
 
   const handleExecuteCell = useCallback(
     async (cellId: string) => {
-      // Resolve source up front before awaiting sync operations.
+      // Resolve cell up front before awaiting sync operations.
       const cell = cells.find((c) => c.id === cellId);
       if (!cell || cell.cell_type !== "code") return;
-      const source = cell.source;
 
       // Clear outputs immediately so user sees feedback
       clearCellOutputs(cellId);
