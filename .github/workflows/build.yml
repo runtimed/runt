@@ -30,7 +30,7 @@ jobs:
         with:
           filters: |
             source:
-              - ".github/workflows/build.yml"
+              - ".github/workflows/**"
               - "apps/**"
               - "bin/**"
               - "crates/**"
@@ -78,6 +78,11 @@ jobs:
 
       - name: Check Biome (format + lint + imports)
         run: npx @biomejs/biome check apps/notebook/src/ e2e/
+
+      - name: Lint GitHub Actions workflows
+        uses: raven-actions/actionlint@v2
+        with:
+          shellcheck: false
 
   build-linux:
     name: Linux
