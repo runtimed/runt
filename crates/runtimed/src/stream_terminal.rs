@@ -16,12 +16,7 @@ use alacritty_terminal::term::Config;
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor, Rgb};
 use alacritty_terminal::Term;
 
-/// Default terminal width in columns.
-const DEFAULT_COLUMNS: usize = 128;
-
-/// Default terminal height in lines.
-/// We use a small height since we don't need scrollback for notebook outputs.
-const DEFAULT_LINES: usize = 100;
+use crate::terminal_size::{TERMINAL_COLUMNS, TERMINAL_LINES};
 
 /// Maximum scrollback history.
 /// Keep minimal since notebook outputs don't need scrollback.
@@ -117,7 +112,7 @@ impl StreamTerminals {
                 scrolling_history: SCROLLBACK_HISTORY,
                 ..Config::default()
             };
-            let dimensions = TermDimensions::new(DEFAULT_COLUMNS, DEFAULT_LINES);
+            let dimensions = TermDimensions::new(TERMINAL_COLUMNS, TERMINAL_LINES);
             Term::new(config, &dimensions, VoidListener)
         });
 
