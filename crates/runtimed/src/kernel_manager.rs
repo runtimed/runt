@@ -32,6 +32,7 @@ use crate::notebook_sync_server::persist_notebook_bytes;
 use crate::output_store::{self, DEFAULT_INLINE_THRESHOLD};
 use crate::protocol::{CompletionItem, HistoryEntry, NotebookBroadcast};
 use crate::stream_terminal::{StreamOutputState, StreamTerminals};
+use crate::terminal_size::{TERMINAL_COLUMNS_STR, TERMINAL_LINES_STR};
 use crate::PooledEnv;
 
 // ── Launched Environment Config ─────────────────────────────────────────────
@@ -642,6 +643,10 @@ impl RoomKernel {
             }
         };
         cmd.current_dir(&cwd);
+
+        // Set terminal size for consistent output formatting
+        cmd.env("COLUMNS", TERMINAL_COLUMNS_STR);
+        cmd.env("LINES", TERMINAL_LINES_STR);
 
         #[cfg(unix)]
         cmd.process_group(0);

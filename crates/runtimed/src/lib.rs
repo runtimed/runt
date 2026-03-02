@@ -35,6 +35,7 @@ pub mod singleton;
 pub mod stream_terminal;
 pub mod sync_client;
 pub mod sync_server;
+pub mod terminal_size;
 
 // ============================================================================
 // Development Mode and Worktree Isolation
