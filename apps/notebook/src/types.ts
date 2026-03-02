@@ -232,4 +232,11 @@ export type DaemonNotebookResponse =
   | { result: "queue_state"; executing?: string; queued: string[] }
   | { result: "all_cells_queued"; count: number }
   | { result: "ok" }
-  | { result: "error"; error: string };
+  | { result: "error"; error: string }
+  | { result: "sync_environment_started"; packages: string[] }
+  | { result: "sync_environment_complete"; synced_packages: string[] }
+  | {
+      result: "sync_environment_failed";
+      error: string;
+      needs_restart: boolean;
+    };

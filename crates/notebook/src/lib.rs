@@ -1479,6 +1479,25 @@ async fn shutdown_kernel_via_daemon(
         .map_err(|e| format!("daemon request failed: {}", e))
 }
 
+/// Sync environment via the daemon - hot-install new packages without restart.
+/// Only supported for UV inline deps.
+#[tauri::command]
+async fn sync_environment_via_daemon(
+    window: tauri::Window,
+    registry: tauri::State<'_, WindowNotebookRegistry>,
+) -> Result<NotebookResponse, String> {
+    info!("[daemon-kernel] sync_environment_via_daemon");
+
+    let notebook_sync = notebook_sync_for_window(&window, registry.inner())?;
+    let guard = notebook_sync.lock().await;
+    let handle = guard.as_ref().ok_or("Not connected to daemon")?;
+
+    handle
+        .send_request(NotebookRequest::SyncEnvironment {})
+        .await
+        .map_err(|e| format!("daemon request failed: {}", e))
+}
+
 /// Get kernel info from the daemon.
 #[tauri::command]
 async fn get_daemon_kernel_info(
@@ -3264,6 +3283,7 @@ pub fn run(
             clear_outputs_via_daemon,
             interrupt_via_daemon,
             shutdown_kernel_via_daemon,
+            sync_environment_via_daemon,
             get_daemon_kernel_info,
             is_daemon_connected,
             get_daemon_queue_state,
