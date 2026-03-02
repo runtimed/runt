@@ -2674,11 +2674,7 @@ async fn set_deno_permissions(
         let mut deno_deps =
             deno_env::extract_deno_metadata(&s.notebook.metadata).unwrap_or_default();
         deno_deps.permissions = permissions;
-        let deno_value = serde_json::to_value(&deno_deps).map_err(|e| e.to_string())?;
-        s.notebook
-            .metadata
-            .additional
-            .insert("deno".to_string(), deno_value);
+        deno_env::set_deno_metadata(&mut s.notebook.metadata, &deno_deps);
         s.dirty = true;
     }
     push_metadata_to_sync(&state, &notebook_sync).await;
@@ -2711,11 +2707,7 @@ async fn set_deno_flexible_npm_imports(
         let mut deno_deps =
             deno_env::extract_deno_metadata(&s.notebook.metadata).unwrap_or_default();
         deno_deps.flexible_npm_imports = enabled;
-        let deno_value = serde_json::to_value(&deno_deps).map_err(|e| e.to_string())?;
-        s.notebook
-            .metadata
-            .additional
-            .insert("deno".to_string(), deno_value);
+        deno_env::set_deno_metadata(&mut s.notebook.metadata, &deno_deps);
         s.dirty = true;
     }
     push_metadata_to_sync(&state, &notebook_sync).await;

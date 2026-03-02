@@ -227,12 +227,45 @@ pub fn create_deno_config_info(config: &DenoConfig, notebook_path: &Path) -> Den
     }
 }
 
-/// Extract Deno configuration from notebook metadata
+/// Extract Deno configuration from notebook metadata.
+///
+/// Checks `metadata.runt.deno` first (canonical location), then falls back to
+/// legacy `metadata.deno` for backwards compatibility.
 pub fn extract_deno_metadata(metadata: &nbformat::v4::Metadata) -> Option<DenoDependencies> {
+    // Canonical location: metadata.runt.deno
+    if let Some(runt) = metadata.additional.get("runt") {
+        if let Some(deno) = runt.get("deno") {
+            if let Ok(deps) = serde_json::from_value::<DenoDependencies>(deno.clone()) {
+                return Some(deps);
+            }
+        }
+    }
+
+    // Legacy fallback: metadata.deno
     metadata
         .additional
         .get("deno")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
+}
+
+/// Set Deno configuration in notebook metadata under `metadata.runt.deno`.
+///
+/// This is the canonical location for deno metadata, matching the pattern used
+/// by UV (`runt.uv`) and Conda (`runt.conda`).
+pub fn set_deno_metadata(metadata: &mut nbformat::v4::Metadata, deps: &DenoDependencies) {
+    let deno_value = match serde_json::to_value(deps) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    let runt = metadata
+        .additional
+        .entry("runt".to_string())
+        .or_insert_with(|| serde_json::json!({"schema_version": "1"}));
+
+    if let Some(runt_obj) = runt.as_object_mut() {
+        runt_obj.insert("deno".to_string(), deno_value);
+    }
 }
 
 /// Strip JSONC comments from content (single-line // and multi-line /* */)

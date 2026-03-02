@@ -903,9 +903,13 @@ def _python_kernelspec_metadata(*, with_uv_deps=None, with_conda_deps=None,
     return snapshot
 
 
-def _deno_kernelspec_metadata():
-    """Build a NotebookMetadataSnapshot JSON dict with a Deno kernelspec."""
-    return {
+def _deno_kernelspec_metadata(*, flexible_npm_imports=None):
+    """Build a NotebookMetadataSnapshot JSON dict with a Deno kernelspec.
+
+    Args:
+        flexible_npm_imports: If set, include deno.flexible_npm_imports in runt metadata.
+    """
+    snapshot = {
         "kernelspec": {
             "name": "deno",
             "display_name": "Deno",
@@ -914,6 +918,9 @@ def _deno_kernelspec_metadata():
         "language_info": {"name": "typescript"},
         "runt": {"schema_version": "1"},
     }
+    if flexible_npm_imports is not None:
+        snapshot["runt"]["deno"] = {"flexible_npm_imports": flexible_npm_imports}
+    return snapshot
 
 
 class TestKernelLaunchMetadata:
@@ -1134,6 +1141,53 @@ class TestDenoKernel:
         assert parsed["kernelspec"]["name"] == "deno"
         assert parsed["kernelspec"]["language"] == "typescript"
         assert parsed["language_info"]["name"] == "typescript"
+
+    def test_deno_flexible_npm_imports_syncs_between_peers(self, two_sessions):
+        """flexible_npm_imports setting syncs between peers.
+
+        When one session updates the deno.flexible_npm_imports setting,
+        the other session should see the change after sync propagates.
+        """
+        import json
+
+        s1, s2 = two_sessions
+
+        # Session 1 sets initial metadata with flexible_npm_imports=True
+        snapshot = _deno_kernelspec_metadata(flexible_npm_imports=True)
+        s1.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+        time.sleep(0.5)
+
+        # Session 2 should see it
+        raw = s2.get_metadata(NOTEBOOK_METADATA_KEY)
+        assert raw is not None
+        parsed = json.loads(raw)
+        assert parsed["runt"]["deno"]["flexible_npm_imports"] is True
+
+        # Session 2 changes it to False
+        snapshot2 = _deno_kernelspec_metadata(flexible_npm_imports=False)
+        s2.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot2))
+        time.sleep(0.5)
+
+        # Session 1 should see the change
+        raw1 = s1.get_metadata(NOTEBOOK_METADATA_KEY)
+        assert raw1 is not None
+        parsed1 = json.loads(raw1)
+        assert parsed1["runt"]["deno"]["flexible_npm_imports"] is False
+
+    def test_deno_flexible_npm_imports_round_trip(self, session):
+        """flexible_npm_imports is preserved through metadata round-trip."""
+        import json
+
+        # Set to False (non-default)
+        snapshot = _deno_kernelspec_metadata(flexible_npm_imports=False)
+        session.set_metadata(NOTEBOOK_METADATA_KEY, json.dumps(snapshot))
+        time.sleep(0.3)
+
+        raw = session.get_metadata(NOTEBOOK_METADATA_KEY)
+        assert raw is not None
+        parsed = json.loads(raw)
+        assert "deno" in parsed["runt"]
+        assert parsed["runt"]["deno"]["flexible_npm_imports"] is False
 
 
 # ============================================================================
