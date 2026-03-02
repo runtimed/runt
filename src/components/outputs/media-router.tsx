@@ -344,6 +344,19 @@ export function MediaRouter({
       return <AnsiOutput className={className}>{String(content)}</AnsiOutput>;
     }
 
+    // Widget view JSON - when rendered in-DOM without a widget renderer,
+    // show a helpful message instead of raw JSON. This typically happens
+    // when a widget is displayed inside an Output widget.
+    if (mimeType === "application/vnd.jupyter.widget-view+json") {
+      return (
+        <div className="py-2 px-3 text-sm text-muted-foreground bg-muted/50 rounded border border-border">
+          <span className="font-medium">Nested widget</span>
+          <span className="mx-1">·</span>
+          <span>Widgets inside Output widgets are not yet supported</span>
+        </div>
+      );
+    }
+
     // Unknown +json types without custom renderer - show as JSON
     if (mimeType.includes("+json")) {
       return (
