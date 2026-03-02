@@ -2,7 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - cursor/windows-runner-sku-performance-0634
   pull_request:
     branches: [main]
 
@@ -177,6 +179,12 @@ jobs:
             setup: echo "No extra deps needed on macOS"
           - name: Windows
             runner: windows-latest
+            setup: echo "No extra deps needed on Windows"
+          - name: Windows (8 cores)
+            runner: windows-latest-8-cores
+            setup: echo "No extra deps needed on Windows"
+          - name: Windows (16 cores)
+            runner: windows-latest-16-cores
             setup: echo "No extra deps needed on Windows"
     steps:
       - name: Skip non-source changes
