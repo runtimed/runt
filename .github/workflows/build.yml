@@ -84,13 +84,63 @@ jobs:
         with:
           shellcheck: false
 
-  build-linux:
-    name: Linux
+  build-ui:
+    name: Build shared UI artifacts
     needs: [changes]
     if: needs.changes.outputs.source_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Set pnpm store directory
+        run: pnpm config set store-dir ~/.pnpm-store
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Install JS dependencies
+        run: pnpm install
+
+      - name: Build UIs
+        run: |
+          pnpm --dir apps/sidecar build
+          pnpm --dir apps/notebook build
+
+      - name: Upload UI build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-build-dist
+          path: |
+            apps/notebook/dist/
+            apps/sidecar/dist/
+          retention-days: 1
+
+  build-linux:
+    name: Linux
+    needs: [changes, build-ui]
+    if: needs.changes.outputs.source_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download UI build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-build-dist
+          path: apps
 
       - name: Install system dependencies
         run: |
@@ -132,20 +182,6 @@ jobs:
       - name: Run JS tests
         run: pnpm test:run
 
-      - name: Build UIs
-        run: |
-          pnpm --dir apps/sidecar build
-          pnpm --dir apps/notebook build
-
-      - name: Upload UI build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ui-build-dist
-          path: |
-            apps/notebook/dist/
-            apps/sidecar/dist/
-          retention-days: 1
-
       - name: Build external binaries
         shell: bash
         run: |
@@ -171,18 +207,12 @@ jobs:
 
   build:
     name: ${{ matrix.platform.name }}
-    needs: [changes, build-linux]
-    if: ${{ always() && (needs.changes.outputs.source_changed != 'true' || needs.build-linux.result == 'success') }}
+    needs: [changes, build-ui]
+    if: ${{ always() && (needs.changes.outputs.source_changed != 'true' || needs.build-ui.result == 'success') }}
     runs-on: ${{ needs.changes.outputs.source_changed == 'true' && matrix.platform.runner || 'ubuntu-latest' }}
     strategy:
       matrix:
-        platform:
-          - name: macOS
-            runner: macos-latest
-            setup: echo "No extra deps needed on macOS"
-          - name: Windows
-            runner: windows-latest
-            setup: echo "No extra deps needed on Windows"
+        platform: ${{ fromJSON(github.event_name == 'pull_request' && '[{"name":"macOS","runner":"macos-latest","setup":"echo No extra deps needed on macOS"}]' || '[{"name":"macOS","runner":"macos-latest","setup":"echo No extra deps needed on macOS"},{"name":"Windows","runner":"windows-latest","setup":"echo No extra deps needed on Windows"}]') }}
     steps:
       - name: Skip non-source changes
         if: needs.changes.outputs.source_changed != 'true'
