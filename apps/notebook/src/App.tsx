@@ -359,6 +359,18 @@ function AppContent() {
     };
   }, [envSource, envSyncState]);
 
+  // Derive sync state for Deno kernels
+  const denoDerivedSyncState: {
+    status: "synced" | "dirty";
+  } | null = useMemo(() => {
+    // Only show for Deno kernels (env_source is "deno")
+    if (envSource !== "deno" || !envSyncState) return null;
+    // Check if deno config has drifted
+    if (envSyncState.inSync) return { status: "synced" };
+    if (envSyncState.diff?.denoChanged) return { status: "dirty" };
+    return null;
+  }, [envSource, envSyncState]);
+
   // Check trust and start kernel if trusted, otherwise show dialog.
   // Returns true if kernel was started, false if trust dialog opened or error.
   const tryStartKernel = useCallback(async (): Promise<boolean> => {
@@ -941,6 +953,9 @@ function AppContent() {
           denoConfigInfo={denoConfigInfo}
           flexibleNpmImports={flexibleNpmImports}
           onSetFlexibleNpmImports={setFlexibleNpmImports}
+          syncState={denoDerivedSyncState}
+          syncing={kernelStatus === "starting"}
+          onSyncNow={handleSyncDeps}
         />
       )}
       {dependencyHeaderOpen && runtime === "python" && envType === "conda" && (

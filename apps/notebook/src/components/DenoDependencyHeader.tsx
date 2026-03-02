@@ -1,4 +1,4 @@
-import { ExternalLink, FileText, Info, Package } from "lucide-react";
+import { ExternalLink, FileText, Info, Package, RefreshCw } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import type { DenoConfigInfo } from "../hooks/useDenoDependencies";
@@ -8,6 +8,10 @@ interface DenoDependencyHeaderProps {
   denoConfigInfo: DenoConfigInfo | null;
   flexibleNpmImports: boolean;
   onSetFlexibleNpmImports: (enabled: boolean) => void;
+  // Sync state props - shows banner when config drifts from running kernel
+  syncState?: { status: "synced" | "dirty" } | null;
+  syncing?: boolean;
+  onSyncNow?: () => Promise<boolean>;
 }
 
 export function DenoDependencyHeader({
@@ -15,6 +19,9 @@ export function DenoDependencyHeader({
   denoConfigInfo,
   flexibleNpmImports,
   onSetFlexibleNpmImports,
+  syncState,
+  syncing,
+  onSyncNow,
 }: DenoDependencyHeaderProps) {
   return (
     <div className="border-b bg-emerald-50/30 dark:bg-emerald-950/10">
@@ -26,6 +33,27 @@ export function DenoDependencyHeader({
           </span>
           <span className="text-xs text-muted-foreground">Dependencies</span>
         </div>
+
+        {/* Config drift notice - kernel restart needed */}
+        {syncState?.status === "dirty" && onSyncNow && (
+          <div className="mb-3 flex items-center justify-between rounded bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+            <div className="flex items-center gap-2">
+              <Info className="h-3.5 w-3.5 shrink-0" />
+              <span>Configuration changed — restart kernel to apply</span>
+            </div>
+            <button
+              type="button"
+              onClick={onSyncNow}
+              disabled={syncing}
+              className="flex items-center gap-1 rounded bg-amber-600 px-2 py-0.5 text-white text-xs font-medium hover:bg-amber-700 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`}
+              />
+              Restart
+            </button>
+          </div>
+        )}
 
         {/* Deno availability notice */}
         {denoAvailable === false && (
