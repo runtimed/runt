@@ -162,6 +162,43 @@ jobs:
             cargo install tauri-cli --locked
           }
 
+      - name: Import Apple signing certificate
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "::error::Missing APPLE_CERTIFICATE secret for macOS signing"
+            exit 1
+          fi
+
+          if [ -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]; then
+            echo "::error::Missing APPLE_CERTIFICATE_PASSWORD secret for macOS signing"
+            exit 1
+          fi
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          rm "$RUNNER_TEMP/certificate.p12"
+
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
       - name: Bake PR + commit into version
         id: version
         uses: actions/github-script@v7
@@ -227,10 +264,19 @@ jobs:
           Copy-Item target/release/runtimed.exe "crates/notebook/binaries/runtimed-$target.exe"
           Copy-Item target/release/runt.exe "crates/notebook/binaries/runt-$target.exe"
 
-      - name: Build notebook app bundle (macOS .app)
+      - name: Build notebook app bundle (macOS signed/notarized)
         if: runner.os == 'macOS'
-        working-directory: crates/notebook
-        run: cargo tauri build --ci --bundles app --config '{"build":{"beforeBuildCommand":""}}'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          projectPath: crates/notebook
+          args: --bundles app,dmg --config '{"build":{"beforeBuildCommand":""}}'
+          includeUpdaterJson: false
 
       - name: Build notebook app bundle (Linux AppImage)
         if: runner.os == 'Linux'
@@ -242,6 +288,41 @@ jobs:
         working-directory: crates/notebook
         run: cargo tauri build --ci --bundles nsis --config '{"build":{"beforeBuildCommand":""}}'
 
+      - name: Verify macOS bundle signature and Gatekeeper assessment
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          APP_BUNDLES=(target/release/bundle/macos/*.app)
+          DMG_BINARIES=(target/release/bundle/dmg/*.dmg)
+          shopt -u nullglob
+
+          if [ ${#APP_BUNDLES[@]} -eq 0 ]; then
+            echo "::error::No macOS app bundle (.app) found in target/release/bundle/macos"
+            exit 1
+          fi
+
+          if [ ${#DMG_BINARIES[@]} -eq 0 ]; then
+            echo "::error::No macOS installer (.dmg) found in target/release/bundle/dmg"
+            exit 1
+          fi
+
+          APP_PATH="${APP_BUNDLES[0]}"
+          DMG_PATH="${DMG_BINARIES[0]}"
+
+          echo "Inspecting code signature details: $APP_PATH"
+          codesign -dv --verbose=4 "$APP_PATH"
+
+          echo "Verifying signature integrity: $APP_PATH"
+          codesign --verify --deep --strict --verbose=4 "$APP_PATH"
+
+          echo "Gatekeeper assessment (app): $APP_PATH"
+          spctl --assess --type execute -vv "$APP_PATH"
+
+          echo "Gatekeeper assessment (dmg): $DMG_PATH"
+          spctl --assess --type open -vv "$DMG_PATH"
+
       - name: Collect artifact payload (macOS)
         if: runner.os == 'macOS'
         shell: bash
@@ -251,6 +332,9 @@ jobs:
           mkdir -p pr-binary
           shopt -s nullglob
           APP_BUNDLES=(target/release/bundle/macos/*.app)
+          DMG_BINARIES=(target/release/bundle/dmg/*.dmg)
+          TAR_GZ_BINARIES=(target/release/bundle/macos/*.tar.gz)
+          TAR_GZ_SIG_BINARIES=(target/release/bundle/macos/*.tar.gz.sig)
           shopt -u nullglob
 
           if [ ${#APP_BUNDLES[@]} -eq 0 ]; then
@@ -258,7 +342,19 @@ jobs:
             exit 1
           fi
 
-          cp -R "${APP_BUNDLES[0]}" pr-binary/
+          if [ ${#DMG_BINARIES[@]} -eq 0 ]; then
+            echo "::error::No macOS installer (.dmg) found in target/release/bundle/dmg"
+            exit 1
+          fi
+
+          cp -R "${APP_BUNDLES[0]}" pr-binary/nteract.app
+          cp "${DMG_BINARIES[0]}" pr-binary/nteract-macos.dmg
+          if [ ${#TAR_GZ_BINARIES[@]} -gt 0 ]; then
+            cp "${TAR_GZ_BINARIES[0]}" pr-binary/nteract-macos.app.tar.gz
+          fi
+          if [ ${#TAR_GZ_SIG_BINARIES[@]} -gt 0 ]; then
+            cp "${TAR_GZ_SIG_BINARIES[0]}" pr-binary/nteract-macos.app.tar.gz.sig
+          fi
 
           cat > pr-binary/build-metadata.json <<EOF
           {
@@ -266,7 +362,7 @@ jobs:
             "target_os": "${{ inputs.target_os }}",
             "commit": "${{ needs.resolve-pr.outputs.head_sha }}",
             "version": "$VERSION",
-            "bundle": "app"
+            "bundle": "app+dmg"
           }
           EOF
 
@@ -476,4 +572,12 @@ jobs:
               exit $status
             }
             echo "Posted artifact comment for PR #${PR_NUMBER} (${TARGET_OS})"
+          fi
+
+      - name: Cleanup Apple signing keychain
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [ -n "${KEYCHAIN_PATH:-}" ] && [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
           fi
