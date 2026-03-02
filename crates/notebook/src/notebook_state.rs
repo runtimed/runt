@@ -641,18 +641,44 @@ pub fn snapshot_from_nbformat(metadata: &nbformat::v4::Metadata) -> NotebookMeta
             version: li.version.clone(),
         });
 
+    // Helper to convert legacy DenoDependencies to DenoMetadata
+    let convert_legacy_deno = |dd: crate::deno_env::DenoDependencies| DenoMetadata {
+        permissions: dd.permissions,
+        import_map: dd.import_map,
+        config: dd.config,
+        // Only record if non-default (default is true)
+        flexible_npm_imports: if dd.flexible_npm_imports {
+            None
+        } else {
+            Some(false)
+        },
+    };
+
     let runt = if let Some(runt_value) = metadata.additional.get("runt") {
-        serde_json::from_value::<RuntMetadata>(runt_value.clone()).unwrap_or_else(|_| {
-            RuntMetadata {
+        let mut runt_meta = serde_json::from_value::<RuntMetadata>(runt_value.clone())
+            .unwrap_or_else(|_| RuntMetadata {
                 schema_version: "1".to_string(),
                 env_id: None,
                 uv: None,
                 conda: None,
                 deno: None,
+            });
+
+        // Also check legacy top-level "deno" key - this is where the Tauri commands write
+        // deno metadata, so we need to merge it even when runt exists
+        if runt_meta.deno.is_none() {
+            if let Some(deno_value) = metadata.additional.get("deno") {
+                if let Ok(dd) =
+                    serde_json::from_value::<crate::deno_env::DenoDependencies>(deno_value.clone())
+                {
+                    runt_meta.deno = Some(convert_legacy_deno(dd));
+                }
             }
-        })
+        }
+
+        runt_meta
     } else {
-        // Fallback: legacy top-level uv/conda keys
+        // Fallback: legacy top-level uv/conda/deno keys
         let uv = metadata
             .additional
             .get("uv")
@@ -667,17 +693,7 @@ pub fn snapshot_from_nbformat(metadata: &nbformat::v4::Metadata) -> NotebookMeta
             .and_then(|v| {
                 serde_json::from_value::<crate::deno_env::DenoDependencies>(v.clone()).ok()
             })
-            .map(|dd| DenoMetadata {
-                permissions: dd.permissions,
-                import_map: dd.import_map,
-                config: dd.config,
-                // Only record if non-default (default is true)
-                flexible_npm_imports: if dd.flexible_npm_imports {
-                    None
-                } else {
-                    Some(false)
-                },
-            });
+            .map(convert_legacy_deno);
 
         RuntMetadata {
             schema_version: "1".to_string(),
