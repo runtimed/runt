@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useCallback, useEffect, useState } from "react";
 
 export interface DenoConfigInfo {
@@ -17,6 +18,16 @@ export function useDenoDependencies() {
   const [flexibleNpmImports, setFlexibleNpmImportsState] =
     useState<boolean>(true);
 
+  // Load the flexible npm imports setting from notebook metadata
+  const loadFlexibleNpmImports = useCallback(async () => {
+    try {
+      const flexible = await invoke<boolean>("get_deno_flexible_npm_imports");
+      setFlexibleNpmImportsState(flexible);
+    } catch (e) {
+      console.error("Failed to load flexible npm imports:", e);
+    }
+  }, []);
+
   // Check Deno availability, detect config, and load settings on mount
   useEffect(() => {
     const init = async () => {
@@ -29,14 +40,24 @@ export function useDenoDependencies() {
         );
         setDenoConfigInfo(config);
 
-        const flexible = await invoke<boolean>("get_deno_flexible_npm_imports");
-        setFlexibleNpmImportsState(flexible);
+        await loadFlexibleNpmImports();
       } catch (e) {
         console.error("Failed to initialize Deno dependencies:", e);
       }
     };
     init();
-  }, []);
+  }, [loadFlexibleNpmImports]);
+
+  // Re-load when metadata is synced from another window
+  useEffect(() => {
+    const webview = getCurrentWebview();
+    const unlisten = webview.listen("notebook:metadata_updated", () => {
+      loadFlexibleNpmImports();
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [loadFlexibleNpmImports]);
 
   const setFlexibleNpmImports = useCallback(async (enabled: boolean) => {
     try {
