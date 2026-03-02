@@ -1068,6 +1068,37 @@ impl RoomKernel {
                                 }
                             }
 
+                            // Clear output - route to Output widget if capturing
+                            JupyterMessageContent::ClearOutput(clear) => {
+                                let parent_msg_id = message
+                                    .parent_header
+                                    .as_ref()
+                                    .map(|h| h.msg_id.as_str())
+                                    .unwrap_or("");
+                                if let Some(widget_comm_id) =
+                                    comm_state.get_capture_widget(parent_msg_id).await
+                                {
+                                    // Route clear_output to Output widget via comm_msg
+                                    let content = serde_json::json!({
+                                        "comm_id": widget_comm_id,
+                                        "data": {
+                                            "method": "custom",
+                                            "content": {
+                                                "method": "clear_output",
+                                                "wait": clear.wait
+                                            }
+                                        }
+                                    });
+                                    let _ = broadcast_tx.send(NotebookBroadcast::Comm {
+                                        msg_type: "comm_msg".to_string(),
+                                        content,
+                                        buffers: vec![],
+                                    });
+                                }
+                                // Note: We don't skip cell output clearing here because
+                                // clear_output for non-captured outputs should still work normally
+                            }
+
                             // Comm messages for widgets (ipywidgets protocol)
                             JupyterMessageContent::CommOpen(open) => {
                                 // Serialize the content to JSON
