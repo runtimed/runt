@@ -68,8 +68,7 @@ jobs:
         run: |
           CURRENT_VERSION=$(grep '^version' crates/runt/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
           COMMIT_SHA=${GITHUB_SHA::7}
-          BASE_VERSION="${CURRENT_VERSION%-alpha.1}"
-          VERSION="${BASE_VERSION}-preview.${COMMIT_SHA}"
+          VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
           echo "Setting version to: ${VERSION}"
           echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
 
@@ -142,8 +141,7 @@ jobs:
         run: |
           CURRENT_VERSION=$(grep '^version' crates/runt/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
           COMMIT_SHA=${GITHUB_SHA::7}
-          BASE_VERSION="${CURRENT_VERSION%-alpha.1}"
-          VERSION="${BASE_VERSION}-preview.${COMMIT_SHA}"
+          VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
           echo "Setting version to: ${VERSION}"
           echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
           sed -i '' "s/^version = .*/version = \"${VERSION}\"/" crates/runt/Cargo.toml
@@ -250,8 +248,7 @@ jobs:
         run: |
           CURRENT_VERSION=$(grep '^version' crates/runt/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
           COMMIT_SHA=${GITHUB_SHA::7}
-          BASE_VERSION="${CURRENT_VERSION%-alpha.1}"
-          VERSION="${BASE_VERSION}-preview.${COMMIT_SHA}"
+          VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
           echo "Setting version to: ${VERSION}"
           sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" crates/notebook/tauri.conf.json
 
@@ -379,8 +376,7 @@ jobs:
             $currentVersion = $matches[1]
           }
           $commitSha = "$env:GITHUB_SHA".Substring(0, 7)
-          $baseVersion = $currentVersion -replace '-alpha\.1$', ''
-          $version = "$baseVersion-preview.$commitSha"
+          $version = "$currentVersion-preview.$commitSha"
           Write-Host "Setting version to: $version"
           $tauriConf = Get-Content crates/notebook/tauri.conf.json -Raw
           $tauriConf = $tauriConf -replace '"version": "[^"]+"', "`"version`": `"$version`""
@@ -502,8 +498,7 @@ jobs:
         run: |
           CURRENT_VERSION=$(grep '^version' crates/runt/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
           COMMIT_SHA=${GITHUB_SHA::7}
-          BASE_VERSION="${CURRENT_VERSION%-alpha.1}"
-          VERSION="${BASE_VERSION}-preview.${COMMIT_SHA}"
+          VERSION="${CURRENT_VERSION}-preview.${COMMIT_SHA}"
           echo "Setting version to: ${VERSION}"
           sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" crates/notebook/tauri.conf.json
 
@@ -609,7 +604,7 @@ jobs:
           path: python/runtimed/dist
 
   prerelease:
-    name: Release
+    name: Preview Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
