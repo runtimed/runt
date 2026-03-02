@@ -1868,8 +1868,12 @@ print("warmup complete")
             }
         }
 
-        // Build install args: ipykernel + ipywidgets + default packages from settings
-        let mut install_packages = vec!["ipykernel".to_string(), "ipywidgets".to_string()];
+        // Build install args: ipykernel + ipywidgets + uv + default packages from settings
+        let mut install_packages = vec![
+            "ipykernel".to_string(),
+            "ipywidgets".to_string(),
+            "uv".to_string(), // For %uv magic in notebooks
+        ];
 
         // Read default uv packages from synced settings
         {
