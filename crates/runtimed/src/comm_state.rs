@@ -69,15 +69,22 @@ struct CommEntry {
 /// Also tracks Output widget capture contexts: when an Output widget sets
 /// its `msg_id` field, outputs with matching `parent_header.msg_id` should
 /// be routed to that widget instead of the cell outputs.
+///
+/// Supports nested Output widgets: multiple widgets can capture the same msg_id,
+/// forming a stack. The most recently activated widget receives outputs, and
+/// when it exits capture mode, the previous widget resumes capturing.
 pub struct CommState {
     /// Active comms: comm_id -> (CommSnapshot, sequence_number)
     comms: RwLock<HashMap<String, CommEntry>>,
     /// Counter for insertion order
     next_seq: AtomicU64,
-    /// Output widget capture contexts: capture_msg_id -> widget_comm_id
-    /// When an Output widget sets state.msg_id, we track it here so outputs
-    /// with matching parent_header.msg_id can be routed to the widget.
-    capture_contexts: RwLock<HashMap<String, String>>,
+    /// Output widget capture contexts: capture_msg_id -> stack of widget_comm_ids
+    /// When an Output widget sets state.msg_id, we push it onto the stack.
+    /// The top of stack (last element) receives outputs.
+    capture_contexts: RwLock<HashMap<String, Vec<String>>>,
+    /// Reverse mapping: widget_comm_id -> capture_msg_id
+    /// Used for efficient removal when a widget changes or clears its msg_id.
+    widget_captures: RwLock<HashMap<String, String>>,
 }
 
 impl CommState {
@@ -87,6 +94,7 @@ impl CommState {
             comms: RwLock::new(HashMap::new()),
             next_seq: AtomicU64::new(0),
             capture_contexts: RwLock::new(HashMap::new()),
+            widget_captures: RwLock::new(HashMap::new()),
         }
     }
 
@@ -100,15 +108,31 @@ impl CommState {
     /// When an Output widget sets `state.msg_id` to a non-empty value,
     /// it's entering capture mode. Outputs with `parent_header.msg_id`
     /// matching that value should be routed to the widget.
+    ///
+    /// Supports nested widgets: if multiple widgets capture the same msg_id,
+    /// they form a stack. The most recently activated widget receives outputs.
     async fn on_output_widget_msg_id_change(&self, comm_id: &str, new_msg_id: &str) {
         let mut contexts = self.capture_contexts.write().await;
+        let mut widget_caps = self.widget_captures.write().await;
 
-        // Remove any existing capture for this widget
-        contexts.retain(|_, v| v != comm_id);
+        // Remove any existing capture for this widget (from previous msg_id)
+        if let Some(old_msg_id) = widget_caps.remove(comm_id) {
+            if let Some(stack) = contexts.get_mut(&old_msg_id) {
+                stack.retain(|id| id != comm_id);
+                // Clean up empty stacks
+                if stack.is_empty() {
+                    contexts.remove(&old_msg_id);
+                }
+            }
+        }
 
-        // If new_msg_id is non-empty, start capturing
+        // If new_msg_id is non-empty, start capturing (push onto stack)
         if !new_msg_id.is_empty() {
-            contexts.insert(new_msg_id.to_string(), comm_id.to_string());
+            contexts
+                .entry(new_msg_id.to_string())
+                .or_default()
+                .push(comm_id.to_string());
+            widget_caps.insert(comm_id.to_string(), new_msg_id.to_string());
         }
     }
 
@@ -116,15 +140,30 @@ impl CommState {
     ///
     /// Returns Some(comm_id) if outputs with this parent_header.msg_id should
     /// be routed to an Output widget instead of cell outputs.
+    ///
+    /// For nested widgets, returns the most recently activated widget (top of stack).
     pub async fn get_capture_widget(&self, msg_id: &str) -> Option<String> {
         let contexts = self.capture_contexts.read().await;
-        contexts.get(msg_id).cloned()
+        contexts.get(msg_id).and_then(|stack| stack.last().cloned())
     }
 
     /// Clear capture context when a widget closes.
+    ///
+    /// Uses reverse mapping for efficient removal without scanning all stacks.
     async fn clear_capture_for_widget(&self, comm_id: &str) {
         let mut contexts = self.capture_contexts.write().await;
-        contexts.retain(|_, v| v != comm_id);
+        let mut widget_caps = self.widget_captures.write().await;
+
+        // Use reverse map to find which msg_id this widget was capturing
+        if let Some(msg_id) = widget_caps.remove(comm_id) {
+            if let Some(stack) = contexts.get_mut(&msg_id) {
+                stack.retain(|id| id != comm_id);
+                // Clean up empty stacks
+                if stack.is_empty() {
+                    contexts.remove(&msg_id);
+                }
+            }
+        }
     }
 
     /// Handle a `comm_open` message: create new comm entry.
@@ -236,7 +275,7 @@ impl CommState {
     /// Clear all comm state.
     ///
     /// Called when the kernel shuts down, as all widgets become invalid.
-    /// Also clears all capture contexts.
+    /// Also clears all capture contexts and reverse mappings.
     pub async fn clear(&self) {
         let mut comms = self.comms.write().await;
         comms.clear();
@@ -244,6 +283,9 @@ impl CommState {
 
         let mut contexts = self.capture_contexts.write().await;
         contexts.clear();
+
+        let mut widget_caps = self.widget_captures.write().await;
+        widget_caps.clear();
     }
 
     /// Check if there are any active comms.
@@ -523,5 +565,122 @@ mod tests {
 
         // Should NOT create a capture context
         assert!(state.get_capture_widget("exec-123").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_nested_output_widgets_capture() {
+        let state = CommState::new();
+
+        // Create two Output widgets (simulating nested `with out:` blocks)
+        state
+            .on_comm_open(
+                "outer-widget",
+                "jupyter.widget",
+                &serde_json::json!({
+                    "state": {
+                        "_model_name": "OutputModel",
+                        "msg_id": ""
+                    }
+                }),
+                vec![],
+            )
+            .await;
+
+        state
+            .on_comm_open(
+                "inner-widget",
+                "jupyter.widget",
+                &serde_json::json!({
+                    "state": {
+                        "_model_name": "OutputModel",
+                        "msg_id": ""
+                    }
+                }),
+                vec![],
+            )
+            .await;
+
+        // Outer widget starts capturing
+        state
+            .on_comm_update("outer-widget", &serde_json::json!({"msg_id": "exec-123"}))
+            .await;
+
+        assert_eq!(
+            state.get_capture_widget("exec-123").await,
+            Some("outer-widget".to_string())
+        );
+
+        // Inner widget starts capturing same msg_id (nested context)
+        state
+            .on_comm_update("inner-widget", &serde_json::json!({"msg_id": "exec-123"}))
+            .await;
+
+        // Inner widget (top of stack) should now receive outputs
+        assert_eq!(
+            state.get_capture_widget("exec-123").await,
+            Some("inner-widget".to_string())
+        );
+
+        // Inner widget exits capture mode
+        state
+            .on_comm_update("inner-widget", &serde_json::json!({"msg_id": ""}))
+            .await;
+
+        // Outer widget resumes capturing (was underneath on stack)
+        assert_eq!(
+            state.get_capture_widget("exec-123").await,
+            Some("outer-widget".to_string())
+        );
+
+        // Outer widget exits capture mode
+        state
+            .on_comm_update("outer-widget", &serde_json::json!({"msg_id": ""}))
+            .await;
+
+        // No more captures
+        assert!(state.get_capture_widget("exec-123").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_widget_switching_capture_msg_id() {
+        let state = CommState::new();
+
+        // Create an Output widget
+        state
+            .on_comm_open(
+                "output-1",
+                "jupyter.widget",
+                &serde_json::json!({
+                    "state": {
+                        "_model_name": "OutputModel",
+                        "msg_id": ""
+                    }
+                }),
+                vec![],
+            )
+            .await;
+
+        // Start capturing msg_id A
+        state
+            .on_comm_update("output-1", &serde_json::json!({"msg_id": "exec-A"}))
+            .await;
+
+        assert_eq!(
+            state.get_capture_widget("exec-A").await,
+            Some("output-1".to_string())
+        );
+
+        // Switch to capturing msg_id B (widget can only capture one at a time)
+        state
+            .on_comm_update("output-1", &serde_json::json!({"msg_id": "exec-B"}))
+            .await;
+
+        // Should no longer capture A
+        assert!(state.get_capture_widget("exec-A").await.is_none());
+        // Should now capture B
+        assert_eq!(
+            state.get_capture_widget("exec-B").await,
+            Some("output-1".to_string())
+        );
     }
 }
