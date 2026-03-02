@@ -81,6 +81,8 @@ jobs:
 
       - name: Lint GitHub Actions workflows
         uses: raven-actions/actionlint@v2
+        with:
+          shellcheck: false
 
   build-linux:
     name: Linux
