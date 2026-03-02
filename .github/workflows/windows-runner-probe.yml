@@ -1,0 +1,26 @@
+name: Windows Runner Probe
+
+on:
+  push:
+    branches:
+      - cursor/windows-runner-sku-performance-0634
+    paths:
+      - ".github/workflows/windows-runner-probe.yml"
+
+jobs:
+  probe:
+    name: Probe ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - windows-latest
+          - windows-latest-8-cores
+          - windows-latest-16-cores
+          - windows-2022-8-cores
+          - windows-2022-8core
+    steps:
+      - name: Print selected runner label
+        shell: pwsh
+        run: Write-Host "Runner label: ${{ matrix.runner }}"
