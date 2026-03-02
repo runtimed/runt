@@ -601,8 +601,7 @@ impl RoomKernel {
             loop {
                 match iopub.read().await {
                     Ok(message) => {
-                        // Log all iopub messages for debugging Output widget protocol
-                        info!(
+                        debug!(
                             "[iopub] type={} parent_msg_id={:?}",
                             message.header.msg_type,
                             message.parent_header.as_ref().map(|h| &h.msg_id)
@@ -1112,8 +1111,7 @@ impl RoomKernel {
                                 // Track comm state for multi-window sync
                                 let data = serde_json::to_value(&open.data).unwrap_or_default();
 
-                                // Log comm_open for debugging Output widget protocol
-                                info!(
+                                debug!(
                                     "[comm_open] comm_id={} target={} data={}",
                                     open.comm_id.0, open.target_name, data
                                 );
@@ -1145,8 +1143,7 @@ impl RoomKernel {
                                 // Track state updates (method="update") for multi-window sync
                                 let data = serde_json::to_value(&msg.data).unwrap_or_default();
 
-                                // Log comm_msg for debugging Output widget protocol
-                                info!("[comm_msg] comm_id={} data={}", msg.comm_id.0, data);
+                                debug!("[comm_msg] comm_id={} data={}", msg.comm_id.0, data);
                                 if data.get("method").and_then(|m| m.as_str()) == Some("update") {
                                     if let Some(state) = data.get("state") {
                                         comm_state.on_comm_update(&msg.comm_id.0, state).await;
