@@ -317,7 +317,7 @@ jobs:
 
   build-notebook-windows-x64:
     name: Build Windows x64 Notebook
-    runs-on: windows-latest
+    runs-on: windows-latest-8-cores
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -547,7 +547,7 @@ jobs:
             target: aarch64-apple-darwin
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - runner: windows-latest
+          - runner: windows-latest-8-cores
             target: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4

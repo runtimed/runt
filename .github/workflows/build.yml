@@ -2,14 +2,12 @@ name: Build
 
 on:
   push:
-    branches:
-      - main
-      - cursor/windows-runner-sku-performance-0634
+    branches: [main]
   pull_request:
     branches: [main]
 
 concurrency:
-  group: ${{ github.ref == 'refs/heads/cursor/windows-runner-sku-performance-0634' && format('{0}-{1}', github.workflow, github.sha) || format('{0}-{1}', github.workflow, github.event.pull_request.number || github.ref) }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -177,7 +175,7 @@ jobs:
           - name: macOS
             runner: macos-latest
             setup: echo "No extra deps needed on macOS"
-          - name: Windows (8 cores)
+          - name: Windows
             runner: windows-latest-8-cores
             setup: echo "No extra deps needed on Windows"
     steps:
