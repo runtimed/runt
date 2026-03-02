@@ -10,10 +10,10 @@ use uuid::Uuid;
 /// Migrate legacy metadata format to the new `runt` namespace structure.
 ///
 /// Old format:
-///   metadata.uv.dependencies, metadata.conda.dependencies
+///   metadata.uv.dependencies, metadata.conda.dependencies, metadata.deno
 ///
 /// New format:
-///   metadata.runt.uv.dependencies, metadata.runt.conda.dependencies
+///   metadata.runt.uv.dependencies, metadata.runt.conda.dependencies, metadata.runt.deno
 ///
 /// Returns `true` if any migration was performed.
 pub fn migrate_legacy_metadata(additional: &mut HashMap<String, serde_json::Value>) -> bool {
@@ -22,8 +22,9 @@ pub fn migrate_legacy_metadata(additional: &mut HashMap<String, serde_json::Valu
     // Extract legacy keys first (before borrowing runt mutably)
     let legacy_uv = additional.remove("uv");
     let legacy_conda = additional.remove("conda");
+    let legacy_deno = additional.remove("deno");
 
-    if legacy_uv.is_none() && legacy_conda.is_none() {
+    if legacy_uv.is_none() && legacy_conda.is_none() && legacy_deno.is_none() {
         return false;
     }
 
@@ -41,6 +42,9 @@ pub fn migrate_legacy_metadata(additional: &mut HashMap<String, serde_json::Valu
             }
             if let Some(conda) = legacy_conda {
                 additional.insert("conda".to_string(), conda);
+            }
+            if let Some(deno) = legacy_deno {
+                additional.insert("deno".to_string(), deno);
             }
             return false;
         }
@@ -61,6 +65,15 @@ pub fn migrate_legacy_metadata(additional: &mut HashMap<String, serde_json::Valu
             runt_obj.insert("conda".to_string(), conda);
             migrated = true;
             info!("[metadata-migration] Migrated metadata.conda -> metadata.runt.conda");
+        }
+    }
+
+    // Migrate deno if present and not already in runt
+    if let Some(deno) = legacy_deno {
+        if !runt_obj.contains_key("deno") {
+            runt_obj.insert("deno".to_string(), deno);
+            migrated = true;
+            info!("[metadata-migration] Migrated metadata.deno -> metadata.runt.deno");
         }
     }
 
