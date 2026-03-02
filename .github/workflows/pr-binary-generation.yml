@@ -317,11 +317,30 @@ jobs:
           echo "Verifying signature integrity: $APP_PATH"
           codesign --verify --deep --strict --verbose=4 "$APP_PATH"
 
+          echo "Validating notarization ticket (app): $APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+
+          echo "Validating notarization ticket (dmg): $DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+
           echo "Gatekeeper assessment (app): $APP_PATH"
           spctl --assess --type execute -vv "$APP_PATH"
 
           echo "Gatekeeper assessment (dmg): $DMG_PATH"
-          spctl --assess --type open -vv "$DMG_PATH"
+          set +e
+          DMG_SPCTL_OUTPUT="$(spctl --assess --type open -vv "$DMG_PATH" 2>&1)"
+          DMG_SPCTL_STATUS=$?
+          set -e
+
+          echo "$DMG_SPCTL_OUTPUT"
+
+          if [ $DMG_SPCTL_STATUS -ne 0 ]; then
+            if [[ "$DMG_SPCTL_OUTPUT" == *"source=Insufficient Context"* ]]; then
+              echo "::warning::DMG Gatekeeper assessment returned 'Insufficient Context' in CI; notarization was validated with stapler."
+            else
+              exit $DMG_SPCTL_STATUS
+            fi
+          fi
 
       - name: Collect artifact payload (macOS)
         if: runner.os == 'macOS'
