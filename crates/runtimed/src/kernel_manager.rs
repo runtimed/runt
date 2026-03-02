@@ -33,7 +33,7 @@ use crate::output_store::{self, DEFAULT_INLINE_THRESHOLD};
 use crate::protocol::{CompletionItem, HistoryEntry, NotebookBroadcast};
 use crate::stream_terminal::{StreamOutputState, StreamTerminals};
 use crate::terminal_size::{TERMINAL_COLUMNS_STR, TERMINAL_LINES_STR};
-use crate::PooledEnv;
+use crate::{EnvType, PooledEnv};
 
 // ── Launched Environment Config ─────────────────────────────────────────────
 
@@ -348,6 +348,15 @@ pub enum QueueCommand {
     CellError { cell_id: String },
 }
 
+/// Prepend a directory to the PATH environment variable.
+fn prepend_to_path(dir: &std::path::Path) -> String {
+    let dir_str = dir.to_string_lossy();
+    match std::env::var("PATH") {
+        Ok(existing) => format!("{}:{}", dir_str, existing),
+        Err(_) => dir_str.to_string(),
+    }
+}
+
 impl RoomKernel {
     /// Create a new room kernel with a broadcast channel for outputs.
     pub fn new(
@@ -560,6 +569,16 @@ impl RoomKernel {
                         cmd.arg(&connection_file_path);
                         cmd.stdout(Stdio::null());
                         cmd.stderr(Stdio::null());
+
+                        // Set VIRTUAL_ENV so uv knows which environment to target
+                        cmd.env("VIRTUAL_ENV", &pooled_env.venv_path);
+
+                        // Add uv to PATH for shell commands like !uv pip install
+                        let uv_path = kernel_launch::tools::get_uv_path().await?;
+                        if let Some(uv_dir) = uv_path.parent() {
+                            cmd.env("PATH", prepend_to_path(uv_dir));
+                        }
+
                         cmd
                     }
                     "uv:pyproject" => {
@@ -574,6 +593,8 @@ impl RoomKernel {
                             "run",
                             "--with",
                             "ipykernel",
+                            "--with",
+                            "uv",
                             "python",
                             "-Xfrozen_modules=off",
                             "-m",
@@ -620,6 +641,16 @@ impl RoomKernel {
                         cmd.arg(&connection_file_path);
                         cmd.stdout(Stdio::null());
                         cmd.stderr(Stdio::null());
+
+                        // Set VIRTUAL_ENV and add uv to PATH for UV prewarmed environments
+                        if pooled_env.env_type == EnvType::Uv {
+                            cmd.env("VIRTUAL_ENV", &pooled_env.venv_path);
+                            let uv_path = kernel_launch::tools::get_uv_path().await?;
+                            if let Some(uv_dir) = uv_path.parent() {
+                                cmd.env("PATH", prepend_to_path(uv_dir));
+                            }
+                        }
+
                         cmd
                     }
                 }

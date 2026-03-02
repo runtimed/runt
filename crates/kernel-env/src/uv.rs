@@ -189,6 +189,7 @@ pub async fn prepare_environment_in(
         python_path.to_string_lossy().to_string(),
         "ipykernel".to_string(),
         "ipywidgets".to_string(),
+        "uv".to_string(), // For %uv magic in notebooks
     ];
 
     for dep in &deps.dependencies {
@@ -325,7 +326,7 @@ pub async fn create_prewarmed_environment_in(
         ));
     }
 
-    // Install ipykernel, ipywidgets, and any extra packages
+    // Install ipykernel, ipywidgets, uv, and any extra packages
     let mut install_args = vec![
         "pip".to_string(),
         "install".to_string(),
@@ -333,6 +334,7 @@ pub async fn create_prewarmed_environment_in(
         python_path.to_string_lossy().to_string(),
         "ipykernel".to_string(),
         "ipywidgets".to_string(),
+        "uv".to_string(), // For %uv magic in notebooks
     ];
     if !extra_packages.is_empty() {
         info!("[prewarm] Including extra packages: {:?}", extra_packages);
