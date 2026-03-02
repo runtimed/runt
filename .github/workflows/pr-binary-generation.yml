@@ -345,8 +345,9 @@ jobs:
           retention-days: 14
 
       - name: Comment on PR with artifact link
-        uses: actions/github-script@v7
+        shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.resolve-pr.outputs.pr_number }}
           TARGET_OS: ${{ inputs.target_os }}
           COMMIT_SHORT_SHA: ${{ needs.resolve-pr.outputs.head_short_sha }}
@@ -354,86 +355,125 @@ jobs:
           ARTIFACT_NAME: ${{ needs.resolve-pr.outputs.artifact_prefix }}-${{ inputs.target_os == 'linux' && 'linux-x64' || inputs.target_os == 'macos' && 'macos' || 'windows-x64' }}
           ARTIFACT_URL: ${{ steps.upload-artifact.outputs.artifact-url }}
           ARTIFACT_ID: ${{ steps.upload-artifact.outputs.artifact-id }}
-        with:
-          script: |
-            const prNumber = Number(process.env.PR_NUMBER);
-            if (!Number.isInteger(prNumber) || prNumber <= 0) {
-              core.setFailed(`Invalid PR number: ${process.env.PR_NUMBER}`);
-              return;
-            }
+        run: |
+          set -euo pipefail
 
-            const { owner, repo } = context.repo;
-            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`;
-            const artifactUrlFromAction = (process.env.ARTIFACT_URL || "").trim();
-            const artifactId = (process.env.ARTIFACT_ID || "").trim();
-            const fallbackArtifactUrl = artifactId
-              ? `https://github.com/${owner}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}/artifacts/${artifactId}`
-              : runUrl;
-            const artifactUrl = artifactUrlFromAction || fallbackArtifactUrl;
+          if [[ ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Invalid PR number: $PR_NUMBER"
+            exit 1
+          fi
 
-            const marker = `<!-- pr-binary-artifact:${process.env.TARGET_OS} -->`;
-            const body = [
-              marker,
-              "✅ PR binary artifact is ready.",
-              "",
-              `- **OS:** \`${process.env.TARGET_OS}\``,
-              `- **Version:** \`${process.env.VERSION}\``,
-              `- **Commit:** \`${process.env.COMMIT_SHORT_SHA}\``,
-              `- **Artifact:** [${process.env.ARTIFACT_NAME}](${artifactUrl})`,
-              `- **Workflow run:** [View run](${runUrl})`,
-              "",
-              "Download requires GitHub authentication and is available for 14 days.",
-            ].join("\n");
+          REPO="$GITHUB_REPOSITORY"
+          RUN_URL="https://github.com/${REPO}/actions/runs/${GITHUB_RUN_ID}"
+          ARTIFACT_URL_FROM_ACTION="${ARTIFACT_URL:-}"
+          ARTIFACT_ID_TRIMMED="${ARTIFACT_ID:-}"
 
-            try {
-              const { data: comments } = await github.rest.issues.listComments({
-                owner,
-                repo,
-                issue_number: prNumber,
-                per_page: 100,
-              });
+          if [ -n "$ARTIFACT_URL_FROM_ACTION" ]; then
+            ARTIFACT_LINK="$ARTIFACT_URL_FROM_ACTION"
+          elif [ -n "$ARTIFACT_ID_TRIMMED" ]; then
+            ARTIFACT_LINK="https://github.com/${REPO}/actions/runs/${GITHUB_RUN_ID}/artifacts/${ARTIFACT_ID_TRIMMED}"
+          else
+            ARTIFACT_LINK="$RUN_URL"
+          fi
 
-              const existingComment = comments.find(
-                (comment) =>
-                  comment.user?.type === "Bot" && comment.body?.includes(marker),
+          MARKER="<!-- pr-binary-artifact:${TARGET_OS} -->"
+          export MARKER RUN_URL ARTIFACT_LINK
+
+          BODY="$(
+            node -e '
+              const marker = process.env.MARKER;
+              const targetOs = process.env.TARGET_OS;
+              const version = process.env.VERSION;
+              const commit = process.env.COMMIT_SHORT_SHA;
+              const artifactName = process.env.ARTIFACT_NAME;
+              const artifactLink = process.env.ARTIFACT_LINK;
+              const runUrl = process.env.RUN_URL;
+              console.log(
+                [
+                  marker,
+                  "✅ PR binary artifact is ready.",
+                  "",
+                  `- **OS:** \`${targetOs}\``,
+                  `- **Version:** \`${version}\``,
+                  `- **Commit:** \`${commit}\``,
+                  `- **Artifact:** [${artifactName}](${artifactLink})`,
+                  `- **Workflow run:** [View run](${runUrl})`,
+                  "",
+                  "Download requires GitHub authentication and is available for 14 days.",
+                ].join("\n"),
               );
+            '
+          )"
 
-              if (existingComment) {
-                await github.rest.issues.updateComment({
-                  owner,
-                  repo,
-                  comment_id: existingComment.id,
-                  body,
-                });
-                core.info(
-                  `Updated existing artifact comment for PR #${prNumber} (${process.env.TARGET_OS})`,
-                );
-              } else {
-                await github.rest.issues.createComment({
-                  owner,
-                  repo,
-                  issue_number: prNumber,
-                  body,
-                });
-                core.info(
-                  `Posted artifact comment for PR #${prNumber} (${process.env.TARGET_OS})`,
-                );
+          gh_api_with_permission_fallback() {
+            local output
+            local status
+
+            set +e
+            output="$(gh api "$@" 2>&1)"
+            status=$?
+            set -e
+
+            if [ $status -ne 0 ]; then
+              if [[ "$output" == *"Resource not accessible by integration"* ]]; then
+                echo "::warning::Skipping PR artifact comment for PR #${PR_NUMBER} because token lacks issue comment permissions." >&2
+                echo "Artifact URL: $ARTIFACT_LINK" >&2
+                echo "Workflow run URL: $RUN_URL" >&2
+                return 100
+              fi
+
+              echo "$output" >&2
+              return $status
+            fi
+
+            printf '%s' "$output"
+          }
+
+          COMMENTS_JSON="$(gh_api_with_permission_fallback "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100")" || {
+            status=$?
+            if [ $status -eq 100 ]; then
+              exit 0
+            fi
+            exit $status
+          }
+
+          EXISTING_COMMENT_ID="$(
+            printf '%s' "$COMMENTS_JSON" | node -e '
+              const fs = require("node:fs");
+              const marker = process.env.MARKER;
+              const comments = JSON.parse(fs.readFileSync(0, "utf8"));
+              const existing = comments.find(
+                (comment) =>
+                  comment.user?.type === "Bot" && (comment.body || "").includes(marker),
+              );
+              if (existing) {
+                process.stdout.write(String(existing.id));
               }
-            } catch (error) {
-              const status = error?.status;
-              const message = String(error?.message || "");
+            '
+          )"
 
-              if (
-                status === 403 &&
-                /resource not accessible by integration/i.test(message)
-              ) {
-                core.warning(
-                  `Skipping PR artifact comment for PR #${prNumber} because token lacks issue comment permissions.`,
-                );
-                core.info(`Artifact URL: ${artifactUrl}`);
-                core.info(`Workflow run URL: ${runUrl}`);
-                return;
-              }
-
-              throw error;
+          if [ -n "$EXISTING_COMMENT_ID" ]; then
+            gh_api_with_permission_fallback \
+              -X PATCH \
+              "repos/${REPO}/issues/comments/${EXISTING_COMMENT_ID}" \
+              -f body="$BODY" >/dev/null || {
+              status=$?
+              if [ $status -eq 100 ]; then
+                exit 0
+              fi
+              exit $status
             }
+            echo "Updated existing artifact comment for PR #${PR_NUMBER} (${TARGET_OS})"
+          else
+            gh_api_with_permission_fallback \
+              -X POST \
+              "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              -f body="$BODY" >/dev/null || {
+              status=$?
+              if [ $status -eq 100 ]; then
+                exit 0
+              fi
+              exit $status
+            }
+            echo "Posted artifact comment for PR #${PR_NUMBER} (${TARGET_OS})"
+          fi
