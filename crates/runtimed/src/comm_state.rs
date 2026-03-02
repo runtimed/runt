@@ -65,11 +65,19 @@ struct CommEntry {
 ///
 /// Comms are returned in insertion order to ensure deterministic replay,
 /// which matters for widgets that reference other widgets (e.g., layouts).
+///
+/// Also tracks Output widget capture contexts: when an Output widget sets
+/// its `msg_id` field, outputs with matching `parent_header.msg_id` should
+/// be routed to that widget instead of the cell outputs.
 pub struct CommState {
     /// Active comms: comm_id -> (CommSnapshot, sequence_number)
     comms: RwLock<HashMap<String, CommEntry>>,
     /// Counter for insertion order
     next_seq: AtomicU64,
+    /// Output widget capture contexts: capture_msg_id -> widget_comm_id
+    /// When an Output widget sets state.msg_id, we track it here so outputs
+    /// with matching parent_header.msg_id can be routed to the widget.
+    capture_contexts: RwLock<HashMap<String, String>>,
 }
 
 impl CommState {
@@ -78,7 +86,45 @@ impl CommState {
         Self {
             comms: RwLock::new(HashMap::new()),
             next_seq: AtomicU64::new(0),
+            capture_contexts: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Check if a comm entry is an Output widget by model name.
+    fn is_output_widget(entry: &CommEntry) -> bool {
+        entry.snapshot.model_name.as_deref() == Some("OutputModel")
+    }
+
+    /// Handle msg_id updates on Output widgets - manages capture context.
+    ///
+    /// When an Output widget sets `state.msg_id` to a non-empty value,
+    /// it's entering capture mode. Outputs with `parent_header.msg_id`
+    /// matching that value should be routed to the widget.
+    async fn on_output_widget_msg_id_change(&self, comm_id: &str, new_msg_id: &str) {
+        let mut contexts = self.capture_contexts.write().await;
+
+        // Remove any existing capture for this widget
+        contexts.retain(|_, v| v != comm_id);
+
+        // If new_msg_id is non-empty, start capturing
+        if !new_msg_id.is_empty() {
+            contexts.insert(new_msg_id.to_string(), comm_id.to_string());
+        }
+    }
+
+    /// Get widget comm_id if this msg_id is being captured by an Output widget.
+    ///
+    /// Returns Some(comm_id) if outputs with this parent_header.msg_id should
+    /// be routed to an Output widget instead of cell outputs.
+    pub async fn get_capture_widget(&self, msg_id: &str) -> Option<String> {
+        let contexts = self.capture_contexts.read().await;
+        contexts.get(msg_id).cloned()
+    }
+
+    /// Clear capture context when a widget closes.
+    async fn clear_capture_for_widget(&self, comm_id: &str) {
+        let mut contexts = self.capture_contexts.write().await;
+        contexts.retain(|_, v| v != comm_id);
     }
 
     /// Handle a `comm_open` message: create new comm entry.
@@ -125,9 +171,33 @@ impl CommState {
     /// Handle a `comm_msg` with `method: "update"`: merge state delta.
     ///
     /// Updates only the keys present in the delta, preserving other state.
+    /// For Output widgets, also tracks msg_id changes for capture context.
     pub async fn on_comm_update(&self, comm_id: &str, state_delta: &serde_json::Value) {
-        let mut comms = self.comms.write().await;
+        // First check if this is an Output widget with msg_id change
+        let msg_id_change = {
+            let comms = self.comms.read().await;
+            if let Some(entry) = comms.get(comm_id) {
+                if Self::is_output_widget(entry) {
+                    state_delta
+                        .get("msg_id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
 
+        // Handle capture context change if needed (before holding comms lock)
+        if let Some(new_msg_id) = msg_id_change {
+            self.on_output_widget_msg_id_change(comm_id, &new_msg_id)
+                .await;
+        }
+
+        // Now merge the state delta
+        let mut comms = self.comms.write().await;
         if let Some(entry) = comms.get_mut(comm_id) {
             // Merge delta into existing state
             if let (Some(existing), Some(delta)) = (
@@ -143,7 +213,10 @@ impl CommState {
     }
 
     /// Handle a `comm_close` message: remove comm entry.
+    ///
+    /// Also clears any capture context associated with this widget.
     pub async fn on_comm_close(&self, comm_id: &str) {
+        self.clear_capture_for_widget(comm_id).await;
         let mut comms = self.comms.write().await;
         comms.remove(comm_id);
     }
@@ -163,10 +236,14 @@ impl CommState {
     /// Clear all comm state.
     ///
     /// Called when the kernel shuts down, as all widgets become invalid.
+    /// Also clears all capture contexts.
     pub async fn clear(&self) {
         let mut comms = self.comms.write().await;
         comms.clear();
         self.next_seq.store(0, Ordering::Relaxed);
+
+        let mut contexts = self.capture_contexts.write().await;
+        contexts.clear();
     }
 
     /// Check if there are any active comms.
@@ -333,5 +410,118 @@ mod tests {
         for (i, comm) in comms.iter().enumerate() {
             assert_eq!(comm.comm_id, format!("comm-{}", i));
         }
+    }
+
+    #[tokio::test]
+    async fn test_output_widget_capture_context() {
+        let state = CommState::new();
+
+        // Create an Output widget
+        state
+            .on_comm_open(
+                "output-widget-1",
+                "jupyter.widget",
+                &serde_json::json!({
+                    "state": {
+                        "_model_name": "OutputModel",
+                        "_model_module": "@jupyter-widgets/output",
+                        "msg_id": "",
+                        "outputs": []
+                    }
+                }),
+                vec![],
+            )
+            .await;
+
+        // Initially no capture
+        assert!(state.get_capture_widget("some-msg-id").await.is_none());
+
+        // Set msg_id to start capturing
+        state
+            .on_comm_update(
+                "output-widget-1",
+                &serde_json::json!({"msg_id": "exec-123"}),
+            )
+            .await;
+
+        // Now should capture
+        assert_eq!(
+            state.get_capture_widget("exec-123").await,
+            Some("output-widget-1".to_string())
+        );
+
+        // Different msg_id should not match
+        assert!(state.get_capture_widget("exec-456").await.is_none());
+
+        // Clear msg_id to stop capturing
+        state
+            .on_comm_update("output-widget-1", &serde_json::json!({"msg_id": ""}))
+            .await;
+
+        // No longer capturing
+        assert!(state.get_capture_widget("exec-123").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_output_widget_close_clears_capture() {
+        let state = CommState::new();
+
+        // Create and activate an Output widget
+        state
+            .on_comm_open(
+                "output-widget-1",
+                "jupyter.widget",
+                &serde_json::json!({
+                    "state": {
+                        "_model_name": "OutputModel",
+                        "msg_id": ""
+                    }
+                }),
+                vec![],
+            )
+            .await;
+
+        state
+            .on_comm_update(
+                "output-widget-1",
+                &serde_json::json!({"msg_id": "exec-123"}),
+            )
+            .await;
+
+        assert!(state.get_capture_widget("exec-123").await.is_some());
+
+        // Close the widget
+        state.on_comm_close("output-widget-1").await;
+
+        // Capture should be cleared
+        assert!(state.get_capture_widget("exec-123").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_non_output_widget_msg_id_ignored() {
+        let state = CommState::new();
+
+        // Create a non-Output widget with a msg_id field
+        state
+            .on_comm_open(
+                "slider-1",
+                "jupyter.widget",
+                &serde_json::json!({
+                    "state": {
+                        "_model_name": "IntSliderModel",
+                        "msg_id": ""
+                    }
+                }),
+                vec![],
+            )
+            .await;
+
+        // Update msg_id on non-Output widget
+        state
+            .on_comm_update("slider-1", &serde_json::json!({"msg_id": "exec-123"}))
+            .await;
+
+        // Should NOT create a capture context
+        assert!(state.get_capture_widget("exec-123").await.is_none());
     }
 }

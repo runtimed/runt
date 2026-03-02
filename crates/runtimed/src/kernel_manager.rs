@@ -601,8 +601,9 @@ impl RoomKernel {
             loop {
                 match iopub.read().await {
                     Ok(message) => {
-                        debug!(
-                            "[kernel-manager] iopub: type={} parent_msg_id={:?}",
+                        // Log all iopub messages for debugging Output widget protocol
+                        info!(
+                            "[iopub] type={} parent_msg_id={:?}",
                             message.header.msg_type,
                             message.parent_header.as_ref().map(|h| &h.msg_id)
                         );
@@ -654,6 +655,45 @@ impl RoomKernel {
                             // Stream outputs use terminal emulation to handle escape sequences
                             // like carriage returns (for progress bars) properly
                             JupyterMessageContent::StreamContent(stream) => {
+                                // Check if this output should go to an Output widget
+                                let parent_msg_id = message
+                                    .parent_header
+                                    .as_ref()
+                                    .map(|h| h.msg_id.as_str())
+                                    .unwrap_or("");
+                                if let Some(widget_comm_id) =
+                                    comm_state.get_capture_widget(parent_msg_id).await
+                                {
+                                    // Route to Output widget via comm_msg with method="custom"
+                                    // The frontend comm router dispatches method="custom" messages
+                                    // to widget handlers, with nested content containing the actual payload
+                                    let stream_name = match stream.name {
+                                        jupyter_protocol::Stdio::Stdout => "stdout",
+                                        jupyter_protocol::Stdio::Stderr => "stderr",
+                                    };
+                                    let output = serde_json::json!({
+                                        "output_type": "stream",
+                                        "name": stream_name,
+                                        "text": stream.text
+                                    });
+                                    let content = serde_json::json!({
+                                        "comm_id": widget_comm_id,
+                                        "data": {
+                                            "method": "custom",
+                                            "content": {
+                                                "method": "output",
+                                                "output": output
+                                            }
+                                        }
+                                    });
+                                    let _ = broadcast_tx.send(NotebookBroadcast::Comm {
+                                        msg_type: "comm_msg".to_string(),
+                                        content,
+                                        buffers: vec![],
+                                    });
+                                    continue; // Skip normal cell output handling
+                                }
+
                                 if let Some(ref cid) = cell_id {
                                     let stream_name = match stream.name {
                                         jupyter_protocol::Stdio::Stdout => "stdout",
@@ -755,6 +795,38 @@ impl RoomKernel {
                             // DisplayData and ExecuteResult are appended normally
                             JupyterMessageContent::DisplayData(_)
                             | JupyterMessageContent::ExecuteResult(_) => {
+                                // Check if this output should go to an Output widget
+                                let parent_msg_id = message
+                                    .parent_header
+                                    .as_ref()
+                                    .map(|h| h.msg_id.as_str())
+                                    .unwrap_or("");
+                                if let Some(widget_comm_id) =
+                                    comm_state.get_capture_widget(parent_msg_id).await
+                                {
+                                    // Route to Output widget via comm_msg with method="custom"
+                                    if let Some(nbformat_value) =
+                                        message_content_to_nbformat(&message.content)
+                                    {
+                                        let content = serde_json::json!({
+                                            "comm_id": widget_comm_id,
+                                            "data": {
+                                                "method": "custom",
+                                                "content": {
+                                                    "method": "output",
+                                                    "output": nbformat_value
+                                                }
+                                            }
+                                        });
+                                        let _ = broadcast_tx.send(NotebookBroadcast::Comm {
+                                            msg_type: "comm_msg".to_string(),
+                                            content,
+                                            buffers: vec![],
+                                        });
+                                    }
+                                    continue; // Skip normal cell output handling
+                                }
+
                                 if let Some(ref cid) = cell_id {
                                     let output_type = match &message.content {
                                         JupyterMessageContent::DisplayData(_) => "display_data",
@@ -888,6 +960,38 @@ impl RoomKernel {
                             }
 
                             JupyterMessageContent::ErrorOutput(_) => {
+                                // Check if this error should go to an Output widget
+                                let parent_msg_id = message
+                                    .parent_header
+                                    .as_ref()
+                                    .map(|h| h.msg_id.as_str())
+                                    .unwrap_or("");
+                                if let Some(widget_comm_id) =
+                                    comm_state.get_capture_widget(parent_msg_id).await
+                                {
+                                    // Route error to Output widget via comm_msg with method="custom"
+                                    if let Some(nbformat_value) =
+                                        message_content_to_nbformat(&message.content)
+                                    {
+                                        let content = serde_json::json!({
+                                            "comm_id": widget_comm_id,
+                                            "data": {
+                                                "method": "custom",
+                                                "content": {
+                                                    "method": "output",
+                                                    "output": nbformat_value
+                                                }
+                                            }
+                                        });
+                                        let _ = broadcast_tx.send(NotebookBroadcast::Comm {
+                                            msg_type: "comm_msg".to_string(),
+                                            content,
+                                            buffers: vec![],
+                                        });
+                                    }
+                                    continue; // Skip normal cell output handling
+                                }
+
                                 if let Some(ref cid) = cell_id {
                                     // Clear stream terminal state - errors break the stream chain
                                     {
@@ -966,11 +1070,6 @@ impl RoomKernel {
 
                             // Comm messages for widgets (ipywidgets protocol)
                             JupyterMessageContent::CommOpen(open) => {
-                                debug!(
-                                    "[kernel-manager] Broadcasting comm_open: comm_id={}",
-                                    open.comm_id.0
-                                );
-
                                 // Serialize the content to JSON
                                 let content =
                                     serde_json::to_value(&message.content).unwrap_or_default();
@@ -981,6 +1080,12 @@ impl RoomKernel {
 
                                 // Track comm state for multi-window sync
                                 let data = serde_json::to_value(&open.data).unwrap_or_default();
+
+                                // Log comm_open for debugging Output widget protocol
+                                info!(
+                                    "[comm_open] comm_id={} target={} data={}",
+                                    open.comm_id.0, open.target_name, data
+                                );
                                 comm_state
                                     .on_comm_open(
                                         &open.comm_id.0,
@@ -998,11 +1103,6 @@ impl RoomKernel {
                             }
 
                             JupyterMessageContent::CommMsg(msg) => {
-                                debug!(
-                                    "[kernel-manager] Broadcasting comm_msg: comm_id={}",
-                                    msg.comm_id.0
-                                );
-
                                 // Serialize the content to JSON
                                 let content =
                                     serde_json::to_value(&message.content).unwrap_or_default();
@@ -1013,6 +1113,9 @@ impl RoomKernel {
 
                                 // Track state updates (method="update") for multi-window sync
                                 let data = serde_json::to_value(&msg.data).unwrap_or_default();
+
+                                // Log comm_msg for debugging Output widget protocol
+                                info!("[comm_msg] comm_id={} data={}", msg.comm_id.0, data);
                                 if data.get("method").and_then(|m| m.as_str()) == Some("update") {
                                     if let Some(state) = data.get("state") {
                                         comm_state.on_comm_update(&msg.comm_id.0, state).await;
