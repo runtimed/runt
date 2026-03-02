@@ -81,7 +81,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev \
+            libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
       - name: Install rust
         uses: dsherret/rust-toolchain-file@v1
@@ -207,12 +208,10 @@ jobs:
           cargo build --release -p runtimed -p runt-cli
           TARGET=$(rustc --print host-tuple)
 
-          mkdir -p crates/notebook/binaries target/release/binaries
+          mkdir -p crates/notebook/binaries
 
           cp target/release/runtimed "crates/notebook/binaries/runtimed-$TARGET"
           cp target/release/runt "crates/notebook/binaries/runt-$TARGET"
-          cp target/release/runtimed "target/release/binaries/runtimed-$TARGET"
-          cp target/release/runt "target/release/binaries/runt-$TARGET"
 
       - name: Build external binaries (Windows)
         if: runner.os == 'Windows'
@@ -222,34 +221,85 @@ jobs:
           $target = (rustc --print host-tuple).Trim()
 
           New-Item -ItemType Directory -Force crates/notebook/binaries | Out-Null
-          New-Item -ItemType Directory -Force target/release/binaries | Out-Null
 
           Copy-Item target/release/runtimed.exe "crates/notebook/binaries/runtimed-$target.exe"
           Copy-Item target/release/runt.exe "crates/notebook/binaries/runt-$target.exe"
-          Copy-Item target/release/runtimed.exe "target/release/binaries/runtimed-$target.exe"
-          Copy-Item target/release/runt.exe "target/release/binaries/runt-$target.exe"
 
-      - name: Build notebook app (no bundle)
+      - name: Build notebook app bundle (macOS .app)
+        if: runner.os == 'macOS'
         working-directory: crates/notebook
-        run: cargo tauri build --ci --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
+        run: cargo tauri build --ci --bundles app --config '{"build":{"beforeBuildCommand":""}}'
 
-      - name: Collect artifact payload (Unix)
-        if: runner.os != 'Windows'
+      - name: Build notebook app bundle (Linux AppImage)
+        if: runner.os == 'Linux'
+        working-directory: crates/notebook
+        run: cargo tauri build --ci --bundles appimage --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Build notebook app bundle (Windows NSIS .exe)
+        if: runner.os == 'Windows'
+        working-directory: crates/notebook
+        run: cargo tauri build --ci --bundles nsis --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Collect artifact payload (macOS)
+        if: runner.os == 'macOS'
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p pr-binary
-          cp target/release/notebook pr-binary/notebook
-          chmod +x pr-binary/notebook
-          cp -R target/release/binaries pr-binary/binaries
+          shopt -s nullglob
+          APP_BUNDLES=(target/release/bundle/macos/*.app)
+          shopt -u nullglob
+
+          if [ ${#APP_BUNDLES[@]} -eq 0 ]; then
+            echo "::error::No macOS app bundle (.app) found in target/release/bundle/macos"
+            exit 1
+          fi
+
+          cp -R "${APP_BUNDLES[0]}" pr-binary/
 
           cat > pr-binary/build-metadata.json <<EOF
           {
             "pr_number": "${{ needs.resolve-pr.outputs.pr_number }}",
             "target_os": "${{ inputs.target_os }}",
             "commit": "${{ needs.resolve-pr.outputs.head_sha }}",
-            "version": "$VERSION"
+            "version": "$VERSION",
+            "bundle": "app"
+          }
+          EOF
+
+      - name: Collect artifact payload (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p pr-binary
+          shopt -s nullglob
+          APPIMAGE_BINARIES=(target/release/bundle/appimage/*.AppImage)
+          shopt -u nullglob
+
+          if [ ${#APPIMAGE_BINARIES[@]} -eq 0 ]; then
+            echo "::error::No Linux AppImage found in target/release/bundle/appimage"
+            exit 1
+          fi
+
+          APPIMAGE_PATH="${APPIMAGE_BINARIES[0]}"
+          cp "$APPIMAGE_PATH" pr-binary/notebook-linux-x64.AppImage
+          chmod +x pr-binary/notebook-linux-x64.AppImage
+
+          APPIMAGE_SIG_PATH="${APPIMAGE_PATH}.sig"
+          if [ -f "$APPIMAGE_SIG_PATH" ]; then
+            cp "$APPIMAGE_SIG_PATH" pr-binary/notebook-linux-x64.AppImage.sig
+          fi
+
+          cat > pr-binary/build-metadata.json <<EOF
+          {
+            "pr_number": "${{ needs.resolve-pr.outputs.pr_number }}",
+            "target_os": "${{ inputs.target_os }}",
+            "commit": "${{ needs.resolve-pr.outputs.head_sha }}",
+            "version": "$VERSION",
+            "bundle": "appimage"
           }
           EOF
 
@@ -260,14 +310,26 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           New-Item -ItemType Directory -Force pr-binary | Out-Null
-          Copy-Item target/release/notebook.exe pr-binary/notebook.exe
-          Copy-Item target/release/binaries pr-binary/binaries -Recurse
+          $nsisBinaries = Get-ChildItem -Path target/release/bundle/nsis -Filter *.exe -File
+          if ($nsisBinaries.Count -eq 0) {
+            Write-Error "No Windows NSIS installer (.exe) found in target/release/bundle/nsis"
+            exit 1
+          }
+
+          $nsisPath = $nsisBinaries[0].FullName
+          Copy-Item $nsisPath pr-binary/notebook-windows-x64.exe
+
+          $nsisSigPath = "$nsisPath.sig"
+          if (Test-Path $nsisSigPath) {
+            Copy-Item $nsisSigPath pr-binary/notebook-windows-x64.exe.sig
+          }
 
           $metadata = @{
             pr_number = "${{ needs.resolve-pr.outputs.pr_number }}"
             target_os = "${{ inputs.target_os }}"
             commit = "${{ needs.resolve-pr.outputs.head_sha }}"
             version = "$env:VERSION"
+            bundle = "nsis"
           } | ConvertTo-Json
 
           Set-Content -Path pr-binary/build-metadata.json -Value $metadata
