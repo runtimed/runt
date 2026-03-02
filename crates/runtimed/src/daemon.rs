@@ -377,6 +377,15 @@ impl Daemon {
         }))
     }
 
+    /// Trigger a graceful shutdown of the daemon.
+    ///
+    /// Sets the shutdown flag and notifies all waiting tasks.
+    /// Used by both signal handlers and the RPC shutdown command.
+    pub async fn trigger_shutdown(&self) {
+        *self.shutdown.lock().await = true;
+        self.shutdown_notify.notify_waiters();
+    }
+
     /// Run the daemon server.
     pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
         // Platform-specific setup
@@ -1126,8 +1135,7 @@ impl Daemon {
             Request::Ping => Response::Pong,
 
             Request::Shutdown => {
-                *self.shutdown.lock().await = true;
-                self.shutdown_notify.notify_one();
+                self.trigger_shutdown().await;
                 Response::ShuttingDown
             }
 

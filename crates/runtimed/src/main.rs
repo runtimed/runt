@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use log::info;
+use log::{error, info};
 use runtimed::client::PoolClient;
 use runtimed::daemon::{Daemon, DaemonConfig};
 use runtimed::service::ServiceManager;
@@ -93,6 +93,32 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Install panic hook to ensure panics are logged to the daemon log file.
+    // This runs before logging is initialized, so we write directly to the file.
+    std::panic::set_hook(Box::new(|panic_info| {
+        use std::io::Write;
+
+        let log_path = runtimed::default_log_path();
+        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+        let msg = format!("{} [PANIC] runtimed: {}", timestamp, panic_info);
+
+        // Write to stderr (visible in terminal)
+        eprintln!("{}", msg);
+
+        // Also append to log file so it's captured for debugging.
+        // Create the directory first in case this is first run.
+        if let Some(parent) = log_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            let _ = writeln!(file, "{}", msg);
+        }
+    }));
+
     let cli = Cli::parse();
 
     // Set dev mode environment variable if flag is used
@@ -244,6 +270,10 @@ async fn run_daemon(
     let daemon = match Daemon::new(config) {
         Ok(d) => d,
         Err(e) => {
+            error!(
+                "Daemon already running: pid={}, endpoint={}",
+                e.info.pid, e.info.endpoint
+            );
             eprintln!("Error: {}", e);
             eprintln!(
                 "Running daemon: pid={}, endpoint={}",
@@ -252,6 +282,29 @@ async fn run_daemon(
             std::process::exit(1);
         }
     };
+
+    // Set up signal handlers for graceful shutdown with logging
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let shutdown_daemon = daemon.clone();
+
+        tokio::spawn(async move {
+            let mut sigterm = signal(SignalKind::terminate()).expect("failed to register SIGTERM");
+            let mut sigint = signal(SignalKind::interrupt()).expect("failed to register SIGINT");
+
+            tokio::select! {
+                _ = sigterm.recv() => {
+                    info!("[runtimed] Received SIGTERM");
+                }
+                _ = sigint.recv() => {
+                    info!("[runtimed] Received SIGINT");
+                }
+            }
+            shutdown_daemon.trigger_shutdown().await;
+        });
+    }
+
     daemon.run().await
 }
 
