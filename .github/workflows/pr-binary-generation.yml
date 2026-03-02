@@ -321,36 +321,55 @@ jobs:
               "Download requires GitHub authentication and is available for 14 days.",
             ].join("\n");
 
-            const { data: comments } = await github.rest.issues.listComments({
-              owner,
-              repo,
-              issue_number: prNumber,
-              per_page: 100,
-            });
-
-            const existingComment = comments.find(
-              (comment) =>
-                comment.user?.type === "Bot" && comment.body?.includes(marker),
-            );
-
-            if (existingComment) {
-              await github.rest.issues.updateComment({
-                owner,
-                repo,
-                comment_id: existingComment.id,
-                body,
-              });
-              core.info(
-                `Updated existing artifact comment for PR #${prNumber} (${process.env.TARGET_OS})`,
-              );
-            } else {
-              await github.rest.issues.createComment({
+            try {
+              const { data: comments } = await github.rest.issues.listComments({
                 owner,
                 repo,
                 issue_number: prNumber,
-                body,
+                per_page: 100,
               });
-              core.info(
-                `Posted artifact comment for PR #${prNumber} (${process.env.TARGET_OS})`,
+
+              const existingComment = comments.find(
+                (comment) =>
+                  comment.user?.type === "Bot" && comment.body?.includes(marker),
               );
+
+              if (existingComment) {
+                await github.rest.issues.updateComment({
+                  owner,
+                  repo,
+                  comment_id: existingComment.id,
+                  body,
+                });
+                core.info(
+                  `Updated existing artifact comment for PR #${prNumber} (${process.env.TARGET_OS})`,
+                );
+              } else {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: prNumber,
+                  body,
+                });
+                core.info(
+                  `Posted artifact comment for PR #${prNumber} (${process.env.TARGET_OS})`,
+                );
+              }
+            } catch (error) {
+              const status = error?.status;
+              const message = String(error?.message || "");
+
+              if (
+                status === 403 &&
+                /resource not accessible by integration/i.test(message)
+              ) {
+                core.warning(
+                  `Skipping PR artifact comment for PR #${prNumber} because token lacks issue comment permissions.`,
+                );
+                core.info(`Artifact URL: ${artifactUrl}`);
+                core.info(`Workflow run URL: ${runUrl}`);
+                return;
+              }
+
+              throw error;
             }
