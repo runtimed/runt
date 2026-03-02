@@ -59,6 +59,15 @@ pub struct LaunchedEnvConfig {
     /// Path to the venv used by the kernel (for hot-sync into running env)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub venv_path: Option<PathBuf>,
+
+    /// Path to python executable (for hot-sync, avoids hardcoding bin/python vs Scripts/python.exe)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub python_path: Option<PathBuf>,
+
+    /// Unique identifier for this kernel launch session.
+    /// Used to detect if kernel was swapped during async operations (e.g., hot-sync).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_id: Option<String>,
 }
 
 /// Deno configuration captured at kernel launch time.

@@ -159,6 +159,7 @@ fn build_launched_config(
     inline_deps: Option<&[String]>,
     metadata_snapshot: Option<&NotebookMetadataSnapshot>,
     venv_path: Option<PathBuf>,
+    python_path: Option<PathBuf>,
 ) -> LaunchedEnvConfig {
     let mut config = LaunchedEnvConfig::default();
 
@@ -166,10 +167,12 @@ fn build_launched_config(
         "uv:inline" => {
             config.uv_deps = inline_deps.map(|d| d.to_vec());
             config.venv_path = venv_path;
+            config.python_path = python_path;
         }
         "conda:inline" => {
             config.conda_deps = inline_deps.map(|d| d.to_vec());
             config.venv_path = venv_path;
+            config.python_path = python_path;
             if let Some(snapshot) = metadata_snapshot {
                 config.conda_channels = Some(get_inline_conda_channels(snapshot));
             }
@@ -190,6 +193,9 @@ fn build_launched_config(
             }
         }
     }
+
+    // Generate unique launch ID for this kernel session (for race detection during hot-sync)
+    config.launch_id = Some(uuid::Uuid::new_v4().to_string());
 
     config
 }
@@ -1356,12 +1362,14 @@ async fn auto_launch_kernel(
 
     // Build LaunchedEnvConfig to track what config the kernel was launched with
     let venv_path = pooled_env.as_ref().map(|e| e.venv_path.clone());
+    let python_path = pooled_env.as_ref().map(|e| e.python_path.clone());
     let launched_config = build_launched_config(
         kernel_type,
         &env_source,
         inline_deps.as_deref(),
         metadata_snapshot.as_ref(),
         venv_path,
+        python_path,
     );
 
     match kernel
@@ -1678,12 +1686,14 @@ async fn handle_notebook_request(
 
             // Build LaunchedEnvConfig to track what config the kernel was launched with
             let venv_path = pooled_env.as_ref().map(|e| e.venv_path.clone());
+            let python_path = pooled_env.as_ref().map(|e| e.python_path.clone());
             let launched_config = build_launched_config(
                 &resolved_kernel_type,
                 &resolved_env_source,
                 inline_deps.as_deref(),
                 metadata_snapshot.as_ref(),
                 venv_path,
+                python_path,
             );
 
             match kernel
@@ -2019,8 +2029,8 @@ async fn handle_notebook_request(
 async fn handle_sync_environment(room: &NotebookRoom) -> NotebookResponse {
     use crate::inline_env::UvEnvironment;
 
-    // Get kernel info and venv_path while holding lock, then release
-    let (launched, venv_path) = {
+    // Get kernel info, venv_path, python_path, and launch_id while holding lock, then release
+    let (launched, venv_path, python_path, launch_id) = {
         let kernel_guard = room.kernel.lock().await;
 
         // Check if kernel is running
@@ -2054,7 +2064,20 @@ async fn handle_sync_environment(room: &NotebookRoom) -> NotebookResponse {
             }
         };
 
-        (launched, venv_path)
+        let python_path = match &launched.python_path {
+            Some(path) => path.clone(),
+            None => {
+                return NotebookResponse::SyncEnvironmentFailed {
+                    error: "No python path stored - restart required".to_string(),
+                    needs_restart: true,
+                };
+            }
+        };
+
+        // Capture launch_id to detect if kernel is swapped during async install
+        let launch_id = launched.launch_id.clone();
+
+        (launched, venv_path, python_path, launch_id)
     };
 
     // Get current metadata from the document
@@ -2117,10 +2140,9 @@ async fn handle_sync_environment(room: &NotebookRoom) -> NotebookResponse {
                 });
 
             // Build UvEnvironment and call sync_dependencies
-            let python_path = venv_path.join("bin").join("python");
             let env = UvEnvironment {
                 venv_path: venv_path.clone(),
-                python_path,
+                python_path: python_path.clone(),
             };
 
             info!(
@@ -2136,10 +2158,19 @@ async fn handle_sync_environment(room: &NotebookRoom) -> NotebookResponse {
                         packages_to_install
                     );
 
+                    // Verify kernel wasn't swapped during async install (race protection)
                     // Update the kernel's launched config so future sync checks are accurate
                     let mut kernel_guard = room.kernel.lock().await;
                     if let Some(ref mut kernel) = *kernel_guard {
-                        if let Some(ref current_uv) = current_metadata.runt.uv {
+                        // Check launch_id still matches - if kernel was restarted, skip update
+                        let current_launch_id = kernel.launched_config().launch_id.clone();
+                        if current_launch_id != launch_id {
+                            warn!(
+                                "[notebook-sync] Kernel was swapped during hot-sync, skipping update"
+                            );
+                            // Still report success - packages were installed to the old env
+                            // User will see sync banner again for the new kernel
+                        } else if let Some(ref current_uv) = current_metadata.runt.uv {
                             kernel.update_launched_uv_deps(current_uv.dependencies.clone());
                         }
                     }

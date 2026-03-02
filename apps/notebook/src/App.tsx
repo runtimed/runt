@@ -326,9 +326,15 @@ function AppContent() {
 
   // Derive sync state from daemon's envSyncState for inline environments
   // This overrides the disabled syncState from useDependencies/useCondaDependencies
+  // Also shows for prewarmed kernels when user adds inline deps (prewarmed→inline drift)
   const uvDerivedSyncState: EnvSyncState | null = useMemo(() => {
-    // Only show for uv:inline environments
-    if (envSource !== "uv:inline" || !envSyncState) return null;
+    // Show for uv:inline or uv:prewarmed (when user adds deps to prewarmed kernel)
+    const isUvEnv =
+      envSource === "uv:inline" || envSource === "uv:prewarmed" || !envSource;
+    if (!isUvEnv || !envSyncState) return null;
+    // Only show dirty state for prewarmed if there's actually a diff with UV deps
+    if (envSource === "uv:prewarmed" && !envSyncState.diff?.added?.length)
+      return null;
     if (envSyncState.inSync) return { status: "synced" };
     return {
       status: "dirty",
@@ -338,8 +344,13 @@ function AppContent() {
   }, [envSource, envSyncState]);
 
   const condaDerivedSyncState: EnvSyncState | null = useMemo(() => {
-    // Only show for conda:inline environments
-    if (envSource !== "conda:inline" || !envSyncState) return null;
+    // Show for conda:inline or conda:prewarmed (when user adds deps to prewarmed kernel)
+    const isCondaEnv =
+      envSource === "conda:inline" || envSource === "conda:prewarmed";
+    if (!isCondaEnv || !envSyncState) return null;
+    // Only show dirty state for prewarmed if there's actually a diff with conda deps
+    if (envSource === "conda:prewarmed" && !envSyncState.diff?.added?.length)
+      return null;
     if (envSyncState.inSync) return { status: "synced" };
     return {
       status: "dirty",
@@ -372,15 +383,27 @@ function AppContent() {
   }, [checkTrust, launchKernel]);
 
   // Handler to sync deps - tries hot-sync for UV additions, falls back to restart
-  // Checks trust before shutdown to avoid losing kernel if user declines
+  // Always checks trust before any operation that installs packages
   const handleSyncDeps = useCallback(async (): Promise<boolean> => {
+    // Check trust first - required before any package installation (hot-sync or restart)
+    const info = await checkTrust();
+    if (!info) return false;
+
+    if (info.status !== "trusted" && info.status !== "no_dependencies") {
+      // Untrusted - show dialog, let user approve before any installation
+      pendingKernelStartRef.current = true;
+      setTrustDialogOpen(true);
+      return false;
+    }
+
+    // Trusted - proceed with sync/restart
     // For UV inline deps with only additions, try hot-sync first
     const isUvInline = envSource === "uv:inline";
     const hasOnlyAdditions =
       envSyncState?.diff?.added?.length && !envSyncState?.diff?.removed?.length;
 
     if (isUvInline && hasOnlyAdditions) {
-      console.log("[App] Trying hot-sync for UV additions");
+      console.log("[App] Trying hot-sync for UV additions (trusted)");
       const response = await syncEnvironment();
 
       if (response.result === "sync_environment_complete") {
@@ -401,21 +424,9 @@ function AppContent() {
       console.log("[App] Hot-sync requires restart, falling back");
     }
 
-    // Check trust first - don't shut down if we can't restart
-    const info = await checkTrust();
-    if (!info) return false;
-
-    if (info.status === "trusted" || info.status === "no_dependencies") {
-      // Safe to restart - deps are trusted
-      await shutdownKernel();
-      return tryStartKernel();
-    }
-
-    // Untrusted - show dialog, don't shut down until user approves
-    // The dialog will handle restart if user approves
-    pendingKernelStartRef.current = true;
-    setTrustDialogOpen(true);
-    return false;
+    // Restart flow - deps are already trusted from check above
+    await shutdownKernel();
+    return tryStartKernel();
   }, [
     envSource,
     envSyncState,
