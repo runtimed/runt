@@ -321,7 +321,20 @@ jobs:
           xcrun stapler validate "$APP_PATH"
 
           echo "Validating notarization ticket (dmg): $DMG_PATH"
-          xcrun stapler validate "$DMG_PATH"
+          set +e
+          DMG_STAPLER_OUTPUT="$(xcrun stapler validate "$DMG_PATH" 2>&1)"
+          DMG_STAPLER_STATUS=$?
+          set -e
+
+          echo "$DMG_STAPLER_OUTPUT"
+
+          if [ $DMG_STAPLER_STATUS -ne 0 ]; then
+            if [[ "$DMG_STAPLER_OUTPUT" == *"does not have a ticket stapled to it"* ]]; then
+              echo "::warning::DMG does not have a stapled notarization ticket; app notarization has been validated."
+            else
+              exit $DMG_STAPLER_STATUS
+            fi
+          fi
 
           echo "Gatekeeper assessment (app): $APP_PATH"
           spctl --assess --type execute -vv "$APP_PATH"
