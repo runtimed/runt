@@ -4,7 +4,7 @@
 
 | Stream | Tag | Trigger | Destination |
 |--------|-----|---------|-------------|
-| **Weekly preview** | `v{version}-preview.{sha}` | Cron (Monday 9am UTC) or manual | GitHub Releases (prerelease) |
+| **Weekly preview** | `v{version}-preview.{sha}` | Cron (Monday 9am UTC) or manual | GitHub Releases |
 | **Stable desktop** | `v{semver}` | Manual `workflow_dispatch` | GitHub Releases |
 | **Python package** | `python-v{semver}` | Manual tag push | PyPI + GitHub Releases |
 
